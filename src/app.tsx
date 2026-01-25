@@ -16,11 +16,7 @@ const BLINK_INTERVAL = 500; // ms
 const CLEANUP_INTERVAL = 5000; // ms
 const PANE_CHECK_INTERVAL = 2000; // ms - check tmux panes for prompt
 
-interface AppProps {
-  demoDb?: string;
-}
-
-export function App({ demoDb }: AppProps) {
+export function App() {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -28,9 +24,6 @@ export function App({ demoDb }: AppProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showBlink, setShowBlink] = useState(true);
   const [inTmux] = useState(() => isInTmux());
-
-  // Use demo database if provided, otherwise use default
-  const dbPath = demoDb || DATABASE_PATH;
 
   // Get terminal dimensions
   const terminalHeight = stdout?.rows || 24;
@@ -40,12 +33,12 @@ export function App({ demoDb }: AppProps) {
   const loadSessions = useCallback(() => {
     let db: Database.Database | null = null;
     try {
-      db = new Database(dbPath);
+      db = new Database(DATABASE_PATH);
       const loadedSessions = getAllSessions(db);
       setSessions(loadedSessions);
 
-      // Also load tmux sessions (skip in demo mode)
-      const loadedTmuxSessions = demoDb ? [] : getAllTmuxSessions();
+      // Also load tmux sessions
+      const loadedTmuxSessions = getAllTmuxSessions();
       setTmuxSessions(loadedTmuxSessions);
 
       // Adjust selected index if out of bounds
@@ -58,7 +51,7 @@ export function App({ demoDb }: AppProps) {
     } finally {
       db?.close();
     }
-  }, [selectedIndex, dbPath, demoDb]);
+  }, [selectedIndex]);
 
   // Poll for session updates
   useEffect(() => {
@@ -75,14 +68,12 @@ export function App({ demoDb }: AppProps) {
     return () => clearInterval(interval);
   }, []);
 
-  // Cleanup stale sessions periodically (skip in demo mode)
+  // Cleanup stale sessions periodically
   useEffect(() => {
-    if (demoDb) return;
-
     const cleanup = () => {
       let db: Database.Database | null = null;
       try {
-        db = new Database(dbPath);
+        db = new Database(DATABASE_PATH);
         initializeSchema(db);
         cleanupStaleSessions(db);
       } catch {
@@ -95,16 +86,16 @@ export function App({ demoDb }: AppProps) {
     cleanup(); // Run on startup
     const interval = setInterval(cleanup, CLEANUP_INTERVAL);
     return () => clearInterval(interval);
-  }, [dbPath, demoDb]);
+  }, []);
 
-  // Check tmux panes to sync state with what's actually shown (skip in demo mode)
+  // Check tmux panes to sync state with what's actually shown
   useEffect(() => {
-    if (!inTmux || demoDb) return;
+    if (!inTmux) return;
 
     const checkPanes = () => {
       let db: Database.Database | null = null;
       try {
-        db = new Database(dbPath);
+        db = new Database(DATABASE_PATH);
         initializeSchema(db);
 
         // Get ALL sessions with tmux targets to check their actual state
@@ -147,7 +138,7 @@ export function App({ demoDb }: AppProps) {
 
     const interval = setInterval(checkPanes, PANE_CHECK_INTERVAL);
     return () => clearInterval(interval);
-  }, [inTmux, dbPath, demoDb]);
+  }, [inTmux]);
 
   // Get total item count for navigation
   const totalCount = getTotalItemCount(sessions, tmuxSessions);
