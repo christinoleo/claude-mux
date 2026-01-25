@@ -93,10 +93,11 @@ function ClaudeEntry({
   // Fixed widths for prefix and suffix columns
   const prefixWidth = 4; // selector + bullet + space
   const typeWidth = 8;
-  const stateWidth = 22;
+  const totalWidth = width || 100;
+  const stateWidth = totalWidth <= 70 ? 10 : 22;
 
   // Calculate flex column widths from remaining space
-  const remainingWidth = (width || 100) - prefixWidth - typeWidth - stateWidth;
+  const remainingWidth = totalWidth - prefixWidth - typeWidth - stateWidth;
   const targetWidth = Math.floor(remainingWidth * 0.3);
   const pathWidth = remainingWidth - targetWidth;
 
@@ -145,10 +146,11 @@ function TmuxEntry({
   // Fixed widths for prefix and suffix columns
   const prefixWidth = 4; // selector + bullet + space
   const typeWidth = 8;
-  const stateWidth = 22;
+  const totalWidth = width || 100;
+  const stateWidth = totalWidth <= 70 ? 10 : 22;
 
   // Calculate flex column widths from remaining space
-  const remainingWidth = (width || 100) - prefixWidth - typeWidth - stateWidth;
+  const remainingWidth = totalWidth - prefixWidth - typeWidth - stateWidth;
   const targetWidth = Math.floor(remainingWidth * 0.3);
   const pathWidth = remainingWidth - targetWidth;
 
