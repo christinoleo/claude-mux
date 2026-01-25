@@ -110,6 +110,8 @@ export function App() {
           if (!content) continue;
 
           const isWorking = content.includes("Esc to interrupt") || content.includes("esc to interrupt");
+          const isWaiting = content.includes("Esc to cancel") || content.includes("esc to cancel");
+          const isActive = isWorking || isWaiting;
 
           if (isWorking && session.state !== "busy") {
             // Pane shows working but state is not busy - set to busy
@@ -119,11 +121,11 @@ export function App() {
               WHERE id = ?
             `);
             stmt.run(Date.now(), session.id);
-          } else if (!isWorking && session.state === "busy") {
-            // Pane shows idle but state is busy - set to idle
+          } else if (!isActive && session.state !== "idle") {
+            // Pane shows idle (no Esc prompt) but state is not idle - set to idle
             const stmt = db.prepare(`
               UPDATE sessions
-              SET state = 'idle', current_action = NULL, last_update = ?
+              SET state = 'idle', current_action = NULL, prompt_text = NULL, last_update = ?
               WHERE id = ?
             `);
             stmt.run(Date.now(), session.id);
