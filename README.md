@@ -24,7 +24,7 @@ A terminal UI dashboard for monitoring multiple Claude Code sessions running in 
 ### From npm (recommended)
 
 ```bash
-npm install -g claude-watch
+npm install -g @ringzero/claude-watch
 ```
 
 ### From source
@@ -234,7 +234,7 @@ claude-watch/
 ### From npm
 
 ```bash
-npm update -g claude-watch
+npm update -g @ringzero/claude-watch
 claude-watch --setup  # Reinstall hooks with updated paths
 ```
 
@@ -262,7 +262,7 @@ To fully remove:
 
 ```bash
 # Uninstall the package
-npm uninstall -g claude-watch
+npm uninstall -g @ringzero/claude-watch
 
 # Remove data directory (optional)
 rm -rf ~/.claude-watch
