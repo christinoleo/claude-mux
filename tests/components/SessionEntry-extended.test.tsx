@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { render } from "ink-testing-library";
 import { SessionEntry } from "../../src/components/SessionEntry.js";
 import type { Session } from "../../src/db/sessions.js";
@@ -72,6 +72,7 @@ describe("SessionEntry extended", () => {
     it("should handle unknown state gracefully", () => {
       const session: Session = {
         ...baseSession,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         state: "unknown" as any,
         current_action: null,
       };

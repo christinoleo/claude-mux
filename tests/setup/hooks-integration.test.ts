@@ -126,7 +126,7 @@ describe("setup/hooks integration", () => {
     });
 
     it("should remove claude-watch hooks", async () => {
-      const { installHooks, saveClaudeSettings, uninstallHooks, loadClaudeSettings } = await import(
+      const { installHooks, saveClaudeSettings } = await import(
         "../../src/setup/hooks.js"
       );
 
