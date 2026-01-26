@@ -2,7 +2,7 @@ import { homedir } from "os";
 import { join } from "path";
 
 export const CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
-export const DATABASE_PATH = join(CLAUDE_WATCH_DIR, "state.db");
+export const SESSIONS_DIR = join(CLAUDE_WATCH_DIR, "sessions");
 export const CONFIG_PATH = join(CLAUDE_WATCH_DIR, "config.json");
 
 export const CLAUDE_DIR = join(homedir(), ".claude");

@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { Session, SessionState } from "../db/sessions.js";
+import type { Session, SessionState } from "../db/index.js";
 import type { TmuxSession } from "../tmux/detect.js";
 
 // Unified display item - either a Claude session or a plain tmux session

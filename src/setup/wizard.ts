@@ -1,7 +1,6 @@
 import { createInterface } from "readline";
 import { mkdirSync, existsSync } from "fs";
-import { CLAUDE_WATCH_DIR } from "../utils/paths.js";
-import { getDatabase, closeDatabase } from "../db/index.js";
+import { CLAUDE_WATCH_DIR, SESSIONS_DIR } from "../utils/paths.js";
 import { installHooks, saveClaudeSettings, uninstallHooks } from "./hooks.js";
 
 async function prompt(question: string): Promise<string> {
@@ -26,28 +25,23 @@ async function confirm(question: string): Promise<boolean> {
 export async function runSetup(): Promise<void> {
   console.log("\n claude-watch Setup\n");
 
-  // Step 1: Create data directory
-  console.log("Step 1: Creating data directory...");
+  // Step 1: Create data directories
+  console.log("Step 1: Creating data directories...");
   if (!existsSync(CLAUDE_WATCH_DIR)) {
     mkdirSync(CLAUDE_WATCH_DIR, { recursive: true });
     console.log(`  Created ${CLAUDE_WATCH_DIR}`);
   } else {
     console.log(`  ${CLAUDE_WATCH_DIR} already exists`);
   }
-
-  // Step 2: Initialize database
-  console.log("\nStep 2: Initializing database...");
-  try {
-    getDatabase();
-    console.log("  Database initialized successfully");
-    closeDatabase();
-  } catch (error) {
-    console.error("  Failed to initialize database:", error);
-    process.exit(1);
+  if (!existsSync(SESSIONS_DIR)) {
+    mkdirSync(SESSIONS_DIR, { recursive: true });
+    console.log(`  Created ${SESSIONS_DIR}`);
+  } else {
+    console.log(`  ${SESSIONS_DIR} already exists`);
   }
 
-  // Step 3: Configure Claude hooks
-  console.log("\nStep 3: Configuring Claude Code hooks...");
+  // Step 2: Configure Claude hooks
+  console.log("\nStep 2: Configuring Claude Code hooks...");
   const { diff, newSettings } = installHooks();
   console.log("");
   console.log(diff);

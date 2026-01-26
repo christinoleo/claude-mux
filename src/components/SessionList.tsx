@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { Session } from "../db/sessions.js";
+import type { Session } from "../db/index.js";
 import type { TmuxSession } from "../tmux/detect.js";
 import { SessionEntry, type DisplayItem } from "./SessionEntry.js";
 

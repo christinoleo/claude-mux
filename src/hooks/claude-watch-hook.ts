@@ -4,7 +4,7 @@
  * Claude Watch Hook Script
  *
  * This script is called by Claude Code hooks to update the session state
- * in the claude-watch database.
+ * using JSON files (one per session).
  *
  * Usage: node claude-watch-hook.js <event>
  * Events: session-start, stop, permission-request, notification-idle,
@@ -14,37 +14,42 @@
  */
 
 import { execSync } from "child_process";
-import Database from "better-sqlite3";
-import { existsSync, mkdirSync, appendFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  appendFileSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  unlinkSync,
+} from "fs";
 import { join } from "path";
 import { homedir } from "os";
 
 // Paths
 const CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
-const DATABASE_PATH = join(CLAUDE_WATCH_DIR, "state.db");
+const SESSIONS_DIR = join(CLAUDE_WATCH_DIR, "sessions");
 const DEBUG_LOG_PATH = join(CLAUDE_WATCH_DIR, "debug.log");
+
+// Schema version
+const SCHEMA_VERSION = 1;
 
 function debugLog(message: string): void {
   const timestamp = new Date().toISOString();
   appendFileSync(DEBUG_LOG_PATH, `${timestamp} ${message}\n`);
 }
 
-// Schema
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    pid INTEGER NOT NULL,
-    cwd TEXT NOT NULL,
-    tmux_target TEXT,
-    state TEXT NOT NULL DEFAULT 'busy',
-    current_action TEXT,
-    prompt_text TEXT,
-    last_update INTEGER NOT NULL,
-    metadata TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_state ON sessions(state);
-CREATE INDEX IF NOT EXISTS idx_sessions_last_update ON sessions(last_update);
-`;
+interface Session {
+  v: number;
+  id: string;
+  pid: number;
+  cwd: string;
+  tmux_target: string | null;
+  state: string;
+  current_action: string | null;
+  prompt_text: string | null;
+  last_update: number;
+}
 
 interface HookInput {
   session_id: string;
@@ -57,15 +62,43 @@ interface HookInput {
   };
 }
 
-function getDatabase(): Database.Database {
-  if (!existsSync(CLAUDE_WATCH_DIR)) {
-    mkdirSync(CLAUDE_WATCH_DIR, { recursive: true });
+function ensureSessionsDir(): void {
+  if (!existsSync(SESSIONS_DIR)) {
+    mkdirSync(SESSIONS_DIR, { recursive: true });
   }
+}
 
-  const db = new Database(DATABASE_PATH);
-  db.pragma("journal_mode = WAL");
-  db.exec(SCHEMA_SQL);
-  return db;
+function getSessionPath(id: string): string {
+  return join(SESSIONS_DIR, `${id}.json`);
+}
+
+function readSession(id: string): Session | null {
+  const path = getSessionPath(id);
+  try {
+    if (!existsSync(path)) return null;
+    return JSON.parse(readFileSync(path, "utf-8")) as Session;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(session: Session): void {
+  ensureSessionsDir();
+  const path = getSessionPath(session.id);
+  const tmpPath = path + ".tmp";
+  writeFileSync(tmpPath, JSON.stringify(session, null, 2));
+  renameSync(tmpPath, path);
+}
+
+function deleteSessionFile(id: string): void {
+  const path = getSessionPath(id);
+  try {
+    if (existsSync(path)) {
+      unlinkSync(path);
+    }
+  } catch {
+    // Ignore
+  }
 }
 
 function getTmuxTarget(): string | null {
@@ -85,19 +118,13 @@ function getTmuxTarget(): string | null {
 }
 
 function getClaudePid(): number {
-  // Walk up the process tree to find the Claude Code process
-  // The hook is run by: Claude -> shell -> node (this script)
-  // We need to find the Claude process (node running @anthropic-ai/claude-code)
-
   try {
     let pid = process.ppid;
     debugLog(`getClaudePid: starting from ppid=${pid}`);
 
-    // Walk up to 10 levels to find Claude
     for (let i = 0; i < 10; i++) {
       if (pid <= 1) break;
 
-      // Get process info using ps
       const psOutput = execSync(`ps -p ${pid} -o ppid=,comm=,args=`, {
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
@@ -105,18 +132,14 @@ function getClaudePid(): number {
 
       debugLog(`getClaudePid: level ${i}, pid=${pid}, ps output: ${psOutput}`);
 
-      // Check if this is the Claude process
-      // Match "claude" but NOT "claude-watch" (our hook)
       const isClaudeCode =
-        psOutput.includes("claude") &&
-        !psOutput.includes("claude-watch");
+        psOutput.includes("claude") && !psOutput.includes("claude-watch");
 
       if (isClaudeCode) {
         debugLog(`getClaudePid: found Claude at pid=${pid}`);
         return pid;
       }
 
-      // Get parent PID and continue up the tree
       const ppid = parseInt(psOutput.split(/\s+/)[0], 10);
       if (isNaN(ppid) || ppid <= 1) break;
 
@@ -130,8 +153,11 @@ function getClaudePid(): number {
   return 0;
 }
 
-function formatToolAction(toolName: string, toolInput?: HookInput["tool_input"]): string {
-  const name = toolName.replace(/^mcp__[^_]+__/, ""); // Strip MCP prefix
+function formatToolAction(
+  toolName: string,
+  toolInput?: HookInput["tool_input"]
+): string {
+  const name = toolName.replace(/^mcp__[^_]+__/, "");
 
   switch (toolName) {
     case "Bash":
@@ -166,181 +192,138 @@ async function readStdin(): Promise<HookInput> {
   return new Promise((resolve, reject) => {
     let data = "";
 
+    const timeout = setTimeout(() => {
+      reject(new Error("Timeout reading stdin"));
+    }, 5000);
+
     process.stdin.setEncoding("utf-8");
     process.stdin.on("data", (chunk) => {
       data += chunk;
     });
     process.stdin.on("end", () => {
+      clearTimeout(timeout);
       try {
         resolve(JSON.parse(data));
       } catch {
         reject(new Error("Failed to parse hook input"));
       }
     });
-    process.stdin.on("error", reject);
-
-    // Timeout after 5 seconds
-    setTimeout(() => {
-      reject(new Error("Timeout reading stdin"));
-    }, 5000);
+    process.stdin.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
 }
 
-async function handleSessionStart(input: HookInput): Promise<void> {
-  const db = getDatabase();
-
-  // Start as 'idle' - Claude shows prompt immediately, user needs to give input
-  // State changes to 'busy' when PreToolUse fires
-  const stmt = db.prepare(`
-    INSERT INTO sessions (id, pid, cwd, tmux_target, state, last_update)
-    VALUES (?, ?, ?, ?, 'idle', ?)
-    ON CONFLICT(id) DO UPDATE SET
-      pid = excluded.pid,
-      cwd = excluded.cwd,
-      tmux_target = excluded.tmux_target,
-      state = 'idle',
-      current_action = NULL,
-      last_update = excluded.last_update
-  `);
-
-  stmt.run(input.session_id, getClaudePid(), input.cwd, getTmuxTarget(), Date.now());
-  db.close();
+function handleSessionStart(input: HookInput): void {
+  const session: Session = {
+    v: SCHEMA_VERSION,
+    id: input.session_id,
+    pid: getClaudePid(),
+    cwd: input.cwd,
+    tmux_target: getTmuxTarget(),
+    state: "idle",
+    current_action: null,
+    prompt_text: null,
+    last_update: Date.now(),
+  };
+  writeSession(session);
 }
 
-async function handleUserPromptSubmit(input: HookInput): Promise<void> {
-  const db = getDatabase();
+function handleUserPromptSubmit(input: HookInput): void {
+  const session = readSession(input.session_id);
+  if (!session) return;
 
-  // User submitted a prompt, Claude is now working
-  const stmt = db.prepare(`
-    UPDATE sessions
-    SET state = 'busy', current_action = 'Thinking...', last_update = ?
-    WHERE id = ?
-  `);
-
-  stmt.run(Date.now(), input.session_id);
-  db.close();
+  session.state = "busy";
+  session.current_action = "Thinking...";
+  session.last_update = Date.now();
+  writeSession(session);
 }
 
-async function handleStop(input: HookInput): Promise<void> {
-  const db = getDatabase();
+function handleStop(input: HookInput): void {
+  const session = readSession(input.session_id);
+  if (!session) return;
 
-  const stmt = db.prepare(`
-    UPDATE sessions
-    SET state = 'idle', current_action = NULL, last_update = ?
-    WHERE id = ?
-  `);
-
-  stmt.run(Date.now(), input.session_id);
-  db.close();
+  session.state = "idle";
+  session.current_action = null;
+  session.last_update = Date.now();
+  writeSession(session);
 }
 
-async function handlePermissionRequest(input: HookInput): Promise<void> {
-  const db = getDatabase();
+function handlePermissionRequest(input: HookInput): void {
+  const session = readSession(input.session_id);
+  if (!session) return;
 
-  // PermissionRequest fires for both permission dialogs and elicitations
-  // Set a generic waiting state - Notification hooks will update with specifics
-  const stmt = db.prepare(`
-    UPDATE sessions
-    SET state = 'waiting', current_action = 'Waiting...', last_update = ?
-    WHERE id = ?
-  `);
-
-  stmt.run(Date.now(), input.session_id);
-  db.close();
+  session.state = "waiting";
+  session.current_action = "Waiting...";
+  session.last_update = Date.now();
+  writeSession(session);
 }
 
-async function handleNotificationIdle(input: HookInput): Promise<void> {
-  const db = getDatabase();
+function handleNotificationIdle(input: HookInput): void {
+  const session = readSession(input.session_id);
+  if (!session) return;
 
-  // idle_prompt means Claude is at the prompt waiting for user input
-  // This is 'idle' state (not 'waiting' which is for questions/elicitations)
-  const stmt = db.prepare(`
-    UPDATE sessions
-    SET state = 'idle', current_action = NULL, last_update = ?
-    WHERE id = ?
-  `);
-
-  stmt.run(Date.now(), input.session_id);
-  db.close();
+  session.state = "idle";
+  session.current_action = null;
+  session.last_update = Date.now();
+  writeSession(session);
 }
 
-async function handleNotificationPermission(input: HookInput): Promise<void> {
-  const db = getDatabase();
+function handleNotificationPermission(input: HookInput): void {
+  const session = readSession(input.session_id);
+  if (!session) return;
 
-  const stmt = db.prepare(`
-    UPDATE sessions
-    SET state = 'permission', current_action = 'Waiting for permission', last_update = ?
-    WHERE id = ?
-  `);
-
-  stmt.run(Date.now(), input.session_id);
-  db.close();
+  session.state = "permission";
+  session.current_action = "Waiting for permission";
+  session.last_update = Date.now();
+  writeSession(session);
 }
 
-async function handleNotificationElicitation(input: HookInput): Promise<void> {
-  const db = getDatabase();
+function handleNotificationElicitation(input: HookInput): void {
+  const session = readSession(input.session_id);
+  if (!session) return;
 
-  const stmt = db.prepare(`
-    UPDATE sessions
-    SET state = 'waiting', current_action = 'Waiting for input', last_update = ?
-    WHERE id = ?
-  `);
-
-  stmt.run(Date.now(), input.session_id);
-  db.close();
+  session.state = "waiting";
+  session.current_action = "Waiting for input";
+  session.last_update = Date.now();
+  writeSession(session);
 }
 
-async function handlePreToolUse(input: HookInput): Promise<void> {
-  const db = getDatabase();
+function handlePreToolUse(input: HookInput): void {
+  const session = readSession(input.session_id);
+  if (!session) return;
 
-  const action = input.tool_name
+  session.state = "busy";
+  session.current_action = input.tool_name
     ? formatToolAction(input.tool_name, input.tool_input)
     : "Working...";
-
-  const stmt = db.prepare(`
-    UPDATE sessions
-    SET state = 'busy', current_action = ?, last_update = ?
-    WHERE id = ?
-  `);
-
-  stmt.run(action, Date.now(), input.session_id);
-  db.close();
+  session.last_update = Date.now();
+  writeSession(session);
 }
 
-async function handlePostToolUse(input: HookInput): Promise<void> {
-  const db = getDatabase();
+function handlePostToolUse(input: HookInput): void {
+  const session = readSession(input.session_id);
+  if (!session) return;
 
-  // Tool completed, update timestamp, keep state as busy (more tools may follow)
-  const stmt = db.prepare(`
-    UPDATE sessions
-    SET state = 'busy', current_action = NULL, last_update = ?
-    WHERE id = ?
-  `);
-
-  stmt.run(Date.now(), input.session_id);
-  db.close();
+  session.state = "busy";
+  session.current_action = null;
+  session.last_update = Date.now();
+  writeSession(session);
 }
 
-async function handlePostToolUseFailure(input: HookInput): Promise<void> {
-  const db = getDatabase();
+function handlePostToolUseFailure(input: HookInput): void {
+  const session = readSession(input.session_id);
+  if (!session) return;
 
-  // Tool failed/cancelled, go back to busy (Claude will continue or stop)
-  const stmt = db.prepare(`
-    UPDATE sessions
-    SET state = 'busy', current_action = NULL, last_update = ?
-    WHERE id = ?
-  `);
-
-  stmt.run(Date.now(), input.session_id);
-  db.close();
+  session.state = "busy";
+  session.current_action = null;
+  session.last_update = Date.now();
+  writeSession(session);
 }
 
-async function handleSessionEnd(input: HookInput): Promise<void> {
-  const db = getDatabase();
-
-  const stmt = db.prepare("DELETE FROM sessions WHERE id = ?");
-  stmt.run(input.session_id);
-  db.close();
+function handleSessionEnd(input: HookInput): void {
+  deleteSessionFile(input.session_id);
 }
 
 async function main(): Promise<void> {
@@ -359,47 +342,47 @@ async function main(): Promise<void> {
 
     switch (event) {
       case "session-start":
-        await handleSessionStart(input);
+        handleSessionStart(input);
         debugLog(`main: session-start completed`);
         break;
       case "user-prompt-submit":
-        await handleUserPromptSubmit(input);
+        handleUserPromptSubmit(input);
         debugLog(`main: user-prompt-submit completed`);
         break;
       case "stop":
-        await handleStop(input);
+        handleStop(input);
         debugLog(`main: stop completed`);
         break;
       case "permission-request":
-        await handlePermissionRequest(input);
+        handlePermissionRequest(input);
         debugLog(`main: permission-request completed`);
         break;
       case "notification-idle":
-        await handleNotificationIdle(input);
+        handleNotificationIdle(input);
         debugLog(`main: notification-idle completed`);
         break;
       case "notification-permission":
-        await handleNotificationPermission(input);
+        handleNotificationPermission(input);
         debugLog(`main: notification-permission completed`);
         break;
       case "notification-elicitation":
-        await handleNotificationElicitation(input);
+        handleNotificationElicitation(input);
         debugLog(`main: notification-elicitation completed`);
         break;
       case "pre-tool-use":
-        await handlePreToolUse(input);
+        handlePreToolUse(input);
         debugLog(`main: pre-tool-use completed`);
         break;
       case "post-tool-use":
-        await handlePostToolUse(input);
+        handlePostToolUse(input);
         debugLog(`main: post-tool-use completed`);
         break;
       case "post-tool-use-failure":
-        await handlePostToolUseFailure(input);
+        handlePostToolUseFailure(input);
         debugLog(`main: post-tool-use-failure completed`);
         break;
       case "session-end":
-        await handleSessionEnd(input);
+        handleSessionEnd(input);
         debugLog(`main: session-end completed`);
         break;
       default:

@@ -8,9 +8,8 @@ import { existsSync } from "fs";
 import { createInterface } from "readline";
 import { App } from "./app.js";
 import { runSetup, runCleanup } from "./setup/index.js";
-import { closeDatabase } from "./db/index.js";
 import { isInTmux, getTmuxSessionName } from "./tmux/detect.js";
-import { DATABASE_PATH } from "./utils/paths.js";
+import { CLAUDE_WATCH_DIR } from "./utils/paths.js";
 import { VERSION } from "./utils/version.js";
 import {
   checkHooksStatus,
@@ -126,7 +125,7 @@ program
     // We're in the watch session, run the TUI
 
     // Check if setup has been run
-    if (!existsSync(DATABASE_PATH)) {
+    if (!existsSync(CLAUDE_WATCH_DIR)) {
       console.error("claude-watch has not been set up yet.");
       console.error("");
       console.error("Run the setup wizard first:");
@@ -188,7 +187,6 @@ program
     } finally {
       // Exit alternate screen buffer, restore previous content
       process.stdout.write("\x1b[?1049l");
-      closeDatabase();
     }
   });
 

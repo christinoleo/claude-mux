@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Box, useApp, useInput, useStdout } from "ink";
 import { Header, SessionList, StatusBar } from "./components/index.js";
 import { getTotalItemCount, getItemAtIndex } from "./components/SessionList.js";
-import { getAllSessions, cleanupStaleSessions } from "./db/index.js";
-import Database from "better-sqlite3";
-import { DATABASE_PATH } from "./utils/paths.js";
-import { initializeSchema } from "./db/schema.js";
+import {
+  getAllSessions,
+  cleanupStaleSessions,
+  updateSession,
+  type Session,
+} from "./db/index.js";
 import { isInTmux, getAllTmuxSessions, type TmuxSession } from "./tmux/detect.js";
 import { switchToTarget } from "./tmux/navigate.js";
 import { capturePaneContent, detectRecentInterruption } from "./tmux/pane.js";
-import type { Session } from "./db/sessions.js";
 
 const POLL_INTERVAL = 500; // ms
 const BLINK_INTERVAL = 500; // ms
@@ -29,12 +30,10 @@ export function App() {
   const terminalHeight = stdout?.rows || 24;
   const terminalWidth = stdout?.columns || 80;
 
-  // Load sessions from database and tmux
+  // Load sessions from JSON files and tmux
   const loadSessions = useCallback(() => {
-    let db: Database.Database | null = null;
     try {
-      db = new Database(DATABASE_PATH);
-      const loadedSessions = getAllSessions(db);
+      const loadedSessions = getAllSessions();
       setSessions(loadedSessions);
 
       // Also load tmux sessions
@@ -47,9 +46,7 @@ export function App() {
         setSelectedIndex(Math.max(0, totalCount - 1));
       }
     } catch {
-      // Database might be locked, try again next poll
-    } finally {
-      db?.close();
+      // Ignore errors, try again next poll
     }
   }, [selectedIndex]);
 
@@ -71,15 +68,10 @@ export function App() {
   // Cleanup stale sessions periodically
   useEffect(() => {
     const cleanup = () => {
-      let db: Database.Database | null = null;
       try {
-        db = new Database(DATABASE_PATH);
-        initializeSchema(db);
-        cleanupStaleSessions(db);
+        cleanupStaleSessions();
       } catch {
         // Ignore errors during cleanup
-      } finally {
-        db?.close();
       }
     };
 
@@ -93,40 +85,28 @@ export function App() {
     if (!inTmux) return;
 
     const checkPanes = () => {
-      let db: Database.Database | null = null;
       try {
-        db = new Database(DATABASE_PATH);
-        initializeSchema(db);
-
-        // Get ALL sessions with tmux targets to check their actual state
-        const allSessions = db
-          .prepare(
-            "SELECT id, tmux_target, state FROM sessions WHERE tmux_target IS NOT NULL"
-          )
-          .all() as { id: string; tmux_target: string; state: string }[];
+        const allSessions = getAllSessions().filter((s) => s.tmux_target);
 
         for (const session of allSessions) {
+          if (!session.tmux_target) continue;
+
           const content = capturePaneContent(session.tmux_target);
           if (!content) continue;
 
           // Only detect explicit interruption/decline signals
-          // All other state transitions are handled by hooks
           const interruption = detectRecentInterruption(content);
 
           if (interruption && session.state !== "idle") {
-            // User interrupted or declined - explicit signal to go idle
-            const stmt = db.prepare(`
-              UPDATE sessions
-              SET state = 'idle', current_action = NULL, prompt_text = NULL, last_update = ?
-              WHERE id = ?
-            `);
-            stmt.run(Date.now(), session.id);
+            updateSession(session.id, {
+              state: "idle",
+              current_action: null,
+              prompt_text: null,
+            });
           }
         }
       } catch {
         // Ignore errors during pane check
-      } finally {
-        db?.close();
       }
     };
 
