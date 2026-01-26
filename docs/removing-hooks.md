@@ -1,18 +1,18 @@
 # Removing claude-watch Hooks
 
-## Using the Uninstall Command (Recommended)
+## Using the Cleanup Command (Recommended)
 
-The easiest way to remove claude-watch hooks is to use the built-in uninstall command:
+The easiest way to remove claude-watch hooks is to use the built-in cleanup command:
 
 ```bash
-claude-watch --uninstall
+claude-watch --cleanup
 ```
 
 This will automatically remove all claude-watch hooks from your Claude Code settings.
 
 ## Manual Removal
 
-If you need to remove the hooks manually (e.g., if claude-watch is no longer installed or the uninstall command isn't working), follow these steps:
+If you need to remove the hooks manually (e.g., if claude-watch is no longer installed or the cleanup command isn't working), follow these steps:
 
 ### 1. Locate the Settings File
 

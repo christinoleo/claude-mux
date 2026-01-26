@@ -221,13 +221,13 @@ The setup preserves existing hooks by:
 4. Showing a clear diff of changes
 5. Only writing after user confirmation
 
-### Uninstall
+### Cleanup
 
 ```bash
-claude-watch --uninstall
+claude-watch --cleanup
 ```
 
-Removes hooks and optionally cleans up data directory.
+Removes hooks from Claude Code settings. Optionally clean up data directory manually.
 
 ## Session Lifecycle
 
@@ -311,8 +311,8 @@ claude-watch
 # Run setup wizard
 claude-watch --setup
 
-# Remove hooks and clean up
-claude-watch --uninstall
+# Remove hooks from Claude Code settings
+claude-watch --cleanup
 
 # Show version
 claude-watch --version

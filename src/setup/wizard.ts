@@ -71,8 +71,8 @@ export async function runSetup(): Promise<void> {
   console.log("");
 }
 
-export async function runUninstall(): Promise<void> {
-  console.log("\n claude-watch Uninstall\n");
+export async function runCleanup(): Promise<void> {
+  console.log("\n claude-watch Cleanup\n");
 
   // Remove hooks
   console.log("Removing Claude Code hooks...");
@@ -88,7 +88,7 @@ export async function runUninstall(): Promise<void> {
   console.log("\nData directory: " + CLAUDE_WATCH_DIR);
   console.log("  (Manual removal: rm -rf ~/.claude-watch)");
 
-  console.log("\n Uninstall complete!\n");
+  console.log("\n Cleanup complete!\n");
 }
 
 export { installHooks, uninstallHooks } from "./hooks.js";

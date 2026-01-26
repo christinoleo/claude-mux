@@ -7,7 +7,7 @@ import { execSync } from "child_process";
 import { existsSync } from "fs";
 import { createInterface } from "readline";
 import { App } from "./app.js";
-import { runSetup, runUninstall } from "./setup/index.js";
+import { runSetup, runCleanup } from "./setup/index.js";
 import { closeDatabase } from "./db/index.js";
 import { isInTmux, getTmuxSessionName } from "./tmux/detect.js";
 import { DATABASE_PATH } from "./utils/paths.js";
@@ -45,15 +45,15 @@ const WATCH_SESSION = "watch";
 
 program
   .option("--setup", "Run interactive setup wizard")
-  .option("--uninstall", "Remove claude-watch hooks and configuration")
+  .option("--cleanup", "Remove claude-watch hooks from Claude Code settings")
   .action(async (options) => {
     if (options.setup) {
       await runSetup();
       process.exit(0);
     }
 
-    if (options.uninstall) {
-      await runUninstall();
+    if (options.cleanup) {
+      await runCleanup();
       process.exit(0);
     }
 

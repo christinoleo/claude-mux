@@ -1,2 +1,2 @@
-export { runSetup, runUninstall } from "./wizard.js";
+export { runSetup, runCleanup } from "./wizard.js";
 export { installHooks, uninstallHooks } from "./hooks.js";

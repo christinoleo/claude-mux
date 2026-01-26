@@ -251,18 +251,21 @@ claude-watch --setup  # Reinstall hooks with updated paths
 
 ## Uninstall
 
-Remove hooks:
+Remove hooks from Claude Code settings:
 
 ```bash
-claude-watch --uninstall
+claude-watch --cleanup
 ```
 
 This will remove claude-watch hooks from `~/.claude/settings.json`.
 
-To fully remove:
+To fully uninstall the package:
 
 ```bash
-# Uninstall the package
+# Remove hooks first
+claude-watch --cleanup
+
+# Uninstall the npm package
 npm uninstall -g @johnrobinsn/claude-watch
 
 # Remove data directory (optional)
