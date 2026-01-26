@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { CLAUDE_SETTINGS_PATH, CLAUDE_DIR } from "../utils/paths.js";
+import { VERSION } from "../utils/version.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -20,8 +21,14 @@ interface HooksConfig {
   [eventName: string]: HookMatcher[];
 }
 
+interface ClaudeWatchMetadata {
+  version: string;
+  installedAt: string;
+}
+
 interface ClaudeSettings {
   hooks?: HooksConfig;
+  "claude-watch"?: ClaudeWatchMetadata;
   [key: string]: unknown;
 }
 
@@ -161,6 +168,45 @@ export function loadClaudeSettings(): ClaudeSettings {
   }
 }
 
+/**
+ * Get the version of installed claude-watch hooks.
+ * Returns null if hooks are not installed or version is not tracked.
+ */
+export function getInstalledHooksVersion(): string | null {
+  const settings = loadClaudeSettings();
+  return settings["claude-watch"]?.version ?? null;
+}
+
+/**
+ * Check if hooks need to be installed or updated.
+ * Returns: 'install' | 'update' | 'current'
+ */
+export function checkHooksStatus(): "install" | "update" | "current" {
+  const settings = loadClaudeSettings();
+
+  // Check if hooks are installed at all
+  if (!settings.hooks) {
+    return "install";
+  }
+
+  // Check if any claude-watch hooks exist
+  const hasClaudeWatchHooks = Object.values(settings.hooks).some((matchers) =>
+    matchers.some((m) => m.hooks.some((h) => h.command.includes("claude-watch-hook")))
+  );
+
+  if (!hasClaudeWatchHooks) {
+    return "install";
+  }
+
+  // Check version
+  const installedVersion = settings["claude-watch"]?.version;
+  if (!installedVersion || installedVersion !== VERSION) {
+    return "update";
+  }
+
+  return "current";
+}
+
 export function mergeHooks(existing: HooksConfig | undefined, newHooks: HooksConfig): HooksConfig {
   const merged: HooksConfig = { ...existing };
 
@@ -250,6 +296,10 @@ export function installHooks(): { diff: string; newSettings: ClaudeSettings } {
   const newSettings: ClaudeSettings = {
     ...currentSettings,
     hooks: mergedHooks,
+    "claude-watch": {
+      version: VERSION,
+      installedAt: new Date().toISOString(),
+    },
   };
 
   const diff = generateDiff(currentSettings, newSettings);
@@ -275,6 +325,9 @@ export function uninstallHooks(): void {
   } else {
     newSettings.hooks = cleanedHooks;
   }
+
+  // Remove claude-watch metadata
+  delete newSettings["claude-watch"];
 
   saveClaudeSettings(newSettings);
 }

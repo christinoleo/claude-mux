@@ -5,18 +5,41 @@ import { render } from "ink";
 import React from "react";
 import { execSync } from "child_process";
 import { existsSync } from "fs";
+import { createInterface } from "readline";
 import { App } from "./app.js";
 import { runSetup, runUninstall } from "./setup/index.js";
 import { closeDatabase } from "./db/index.js";
 import { isInTmux, getTmuxSessionName } from "./tmux/detect.js";
 import { DATABASE_PATH } from "./utils/paths.js";
+import { VERSION } from "./utils/version.js";
+import {
+  checkHooksStatus,
+  getInstalledHooksVersion,
+  installHooks,
+  saveClaudeSettings,
+} from "./setup/hooks.js";
 
-const version = "0.1.0";
+/**
+ * Prompt user for input and return their response.
+ */
+function promptUser(question: string): Promise<string> {
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
 
 program
   .name("claude-watch")
   .description("TUI dashboard for monitoring Claude Code sessions")
-  .version(version);
+  .version(VERSION);
 
 const WATCH_SESSION = "watch";
 
@@ -109,6 +132,35 @@ program
       console.error("Run the setup wizard first:");
       console.error("  claude-watch --setup");
       process.exit(1);
+    }
+
+    // Check hooks version and prompt if needed
+    const hooksStatus = checkHooksStatus();
+    if (hooksStatus !== "current") {
+      const installedVersion = getInstalledHooksVersion();
+      const action = hooksStatus === "install" ? "installed" : "updated";
+      const currentInfo = installedVersion ? `installed: ${installedVersion}` : "not installed";
+
+      console.log(`claude-watch hooks need to be ${action} (${currentInfo}, required: ${VERSION})`);
+      console.log("");
+
+      const answer = await promptUser(`${hooksStatus === "install" ? "Install" : "Update"} hooks now? [Y/n/q]: `);
+      const normalized = answer.toLowerCase().trim();
+
+      if (normalized === "q") {
+        console.log("Exiting.");
+        process.exit(0);
+      } else if (normalized === "n") {
+        console.log("Skipping hook installation. Some features may not work correctly.");
+        console.log("");
+      } else {
+        // Default to Yes
+        console.log("Installing hooks...");
+        const { newSettings } = installHooks();
+        saveClaudeSettings(newSettings);
+        console.log("Hooks installed successfully.");
+        console.log("");
+      }
     }
 
     // Rename current window to "watch"
