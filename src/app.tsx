@@ -8,7 +8,7 @@ import {
   updateSession,
   type Session,
 } from "./db/index.js";
-import { isInTmux, getAllTmuxSessions, type TmuxSession } from "./tmux/detect.js";
+import { isInTmux, getAllTmuxSessions, getTmuxSessionName, type TmuxSession } from "./tmux/detect.js";
 import { switchToTarget } from "./tmux/navigate.js";
 import { capturePaneContent, detectRecentInterruption } from "./tmux/pane.js";
 
@@ -25,6 +25,7 @@ export function App() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showBlink, setShowBlink] = useState(true);
   const [inTmux] = useState(() => isInTmux());
+  const [currentTmuxSession] = useState(() => getTmuxSessionName());
 
   // Get terminal dimensions
   const terminalHeight = stdout?.rows || 24;
@@ -36,8 +37,10 @@ export function App() {
       const loadedSessions = getAllSessions();
       setSessions(loadedSessions);
 
-      // Also load tmux sessions
-      const loadedTmuxSessions = getAllTmuxSessions();
+      // Also load tmux sessions (excluding the current session where claude-watch runs)
+      const loadedTmuxSessions = getAllTmuxSessions().filter(
+        (ts) => ts.name !== currentTmuxSession
+      );
       setTmuxSessions(loadedTmuxSessions);
 
       // Adjust selected index if out of bounds
@@ -48,7 +51,7 @@ export function App() {
     } catch {
       // Ignore errors, try again next poll
     }
-  }, [selectedIndex]);
+  }, [selectedIndex, currentTmuxSession]);
 
   // Poll for session updates
   useEffect(() => {
