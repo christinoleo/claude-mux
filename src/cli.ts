@@ -110,9 +110,21 @@ program
           // Switch to the session
           execSync(`tmux switch-client -t ${WATCH_SESSION}`, { stdio: "inherit" });
         } else {
-          // Session doesn't exist, create it then send the command
-          execSync(`tmux new-session -d -s ${WATCH_SESSION}`, { stdio: "ignore" });
-          execSync(`tmux send-keys -t ${WATCH_SESSION} ${escapeArg(fullCmd)} Enter`, { stdio: "ignore" });
+          // Session doesn't exist, create it with claude-watch running.
+          //
+          // NOTE: We pass the command directly to new-session rather than
+          // creating an empty session and using send-keys. The send-keys
+          // approach caused a race condition on macOS where zsh's compinit
+          // prompt would intercept keystrokes before the shell was ready,
+          // mangling the command (e.g. "cd" becoming "d"). Passing the
+          // command to new-session avoids the interactive shell init entirely.
+          //
+          // If this causes issues on other platforms (e.g. WSL/Ubuntu where
+          // send-keys was previously used), the alternative is:
+          //   execSync(`tmux new-session -d -s ${WATCH_SESSION}`, { stdio: "ignore" });
+          //   execSync(`tmux send-keys -t ${WATCH_SESSION} ${escapeArg(fullCmd)} Enter`, { stdio: "ignore" });
+          // but that requires a delay or readiness check to avoid the macOS race.
+          execSync(`tmux new-session -d -s ${WATCH_SESSION} ${escapeArg(fullCmd)}`, { stdio: "ignore" });
           execSync(`tmux switch-client -t ${WATCH_SESSION}`, { stdio: "inherit" });
         }
       } catch (error) {
