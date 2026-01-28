@@ -1,6 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, type ViteDevServer } from 'vite';
-import { WebSocketServer, type WebSocket } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import { execSync } from 'child_process';
 
 // Dev WebSocket plugin - based on @ubermanu/sveltekit-websocket pattern
@@ -73,7 +73,7 @@ function devWebSocket() {
 				});
 
 				for (const ws of sessionsClients) {
-					if (ws.readyState === 1) ws.send(msg);
+					if (ws.readyState === WebSocket.OPEN) ws.send(msg);
 				}
 			}
 
@@ -102,7 +102,7 @@ function devWebSocket() {
 					const clients = terminalClients.get(target);
 					if (clients) {
 						for (const ws of clients) {
-							if (ws.readyState === 1) ws.send(msg);
+							if (ws.readyState === WebSocket.OPEN) ws.send(msg);
 						}
 					}
 				}, 200);

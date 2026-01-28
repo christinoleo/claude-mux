@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { sessionStore, stateColor, getProjectColor, type Session } from '$lib/stores/sessions.svelte';
 
 	let showFolderBrowser = $state(false);
@@ -100,11 +100,7 @@
 
 	onMount(() => {
 		sessionStore.loadSavedProjects();
-		sessionStore.connect();
-	});
-
-	onDestroy(() => {
-		sessionStore.disconnect();
+		// sessionStore.connect() is handled by the layout
 	});
 
 	async function sendKeys(target: string, keys: string) {
@@ -228,9 +224,7 @@
 								<span class="state" style="background: {stateColor(session.state)}"></span>
 								<div class="session-info">
 									<div class="target">{session.pane_title || session.tmux_target}</div>
-									{#if session.current_action}
-										<div class="action">{session.current_action}</div>
-									{/if}
+									<div class="action">{session.current_action || session.state}</div>
 								</div>
 								<div class="actions">
 									<button
@@ -253,9 +247,7 @@
 								<span class="state" style="background: {stateColor(session.state)}"></span>
 								<div class="session-info">
 									<div class="target">{session.id}</div>
-									{#if session.current_action}
-										<div class="action">{session.current_action}</div>
-									{/if}
+									<div class="action">{session.current_action || session.state}</div>
 									<div class="no-tmux-label">No tmux pane</div>
 								</div>
 								<div class="actions">

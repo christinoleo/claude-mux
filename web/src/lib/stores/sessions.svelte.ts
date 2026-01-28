@@ -59,11 +59,25 @@ class SessionStore {
 	}
 
 	disconnect(): void {
-		this.ws?.close();
-		this.ws = null;
+		// Cancel reconnect timer first
 		if (this.reconnectTimer) {
 			clearTimeout(this.reconnectTimer);
 			this.reconnectTimer = null;
+		}
+
+		this.connected = false;
+
+		if (this.ws) {
+			// Remove handlers to prevent any callbacks
+			this.ws.onopen = null;
+			this.ws.onclose = null;
+			this.ws.onerror = null;
+			this.ws.onmessage = null;
+			// Close if not already closed
+			if (this.ws.readyState !== WebSocket.CLOSED) {
+				this.ws.close();
+			}
+			this.ws = null;
 		}
 	}
 

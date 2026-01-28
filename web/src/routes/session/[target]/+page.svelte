@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import { terminalStore } from '$lib/stores/terminal.svelte';
 	import { sessionStore, stateColor } from '$lib/stores/sessions.svelte';
 
-	const target = $derived(decodeURIComponent($page.params.target));
+	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
 
 	// Find session state from session store
 	const currentSession = $derived(
@@ -18,8 +18,8 @@
 	let userScrolledUp = $state(false);
 	let showCopied = $state(false);
 
-	onMount(() => {
-		// sessionStore is connected by the layout
+	// Connect to terminal when target changes (including initial mount)
+	$effect(() => {
 		terminalStore.connect(target);
 	});
 
@@ -95,6 +95,7 @@
 	}
 
 	function copyTmuxCmd() {
+		if (!target) return;
 		const cmd = `tmux attach -t "${target.split(':')[0]}"`;
 		if (navigator.clipboard?.writeText) {
 			navigator.clipboard.writeText(cmd);
@@ -115,7 +116,7 @@
 </script>
 
 <svelte:head>
-	<title>{target}</title>
+	<title>{currentSession?.pane_title || target || 'Session'}</title>
 	<link rel="preconnect" href="https://fonts.googleapis.com" />
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
 	<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -128,7 +129,10 @@
 		</a>
 		<div class="title-row">
 			<span class="state" style="background: {stateColor(currentSession?.state || 'idle')}"></span>
-			<span class="target">{currentSession?.pane_title || target}</span>
+			<div class="title-info">
+				<span class="target">{currentSession?.pane_title || target}</span>
+				<span class="status">{currentSession?.current_action || currentSession?.state || 'idle'}</span>
+			</div>
 		</div>
 		<div class="header-actions">
 			<button onclick={copyTmuxCmd} title="Copy tmux attach command" class:copied={showCopied}>
@@ -258,9 +262,23 @@
 		flex-shrink: 0;
 	}
 
+	.title-info {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
 	.target {
 		font-weight: 600;
 		font-size: 16px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.status {
+		font-size: 13px;
+		color: #888;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
