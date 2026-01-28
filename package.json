@@ -22,7 +22,7 @@
     "build:cli": "tsc -p tsconfig.cli.json",
     "build:web": "cd web && bun run build",
     "dev": "tsc -p tsconfig.cli.json --watch",
-    "dev:serve": "cd web && bun run dev",
+    "dev:serve": "cd web && bun run dev --host 0.0.0.0 --port 3456",
     "start": "bun dist/cli.js",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import '../app.css';
 	import { page } from '$app/stores';
 	import { onMount, onDestroy } from 'svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
@@ -53,14 +54,7 @@
 {/if}
 
 <style>
-	:global(*) {
-		box-sizing: border-box;
-	}
-
 	:global(body) {
-		font-family: -apple-system, system-ui, sans-serif;
-		background: #0a0a0a;
-		color: #eee;
 		margin: 0;
 		min-height: 100vh;
 	}
@@ -92,7 +86,7 @@
 	.sidebar {
 		width: 250px;
 		flex-shrink: 0;
-		border-right: 1px solid #222;
+		border-right: 1px solid hsl(var(--border));
 		overflow: hidden;
 	}
 
@@ -136,16 +130,16 @@
 			z-index: 50;
 			width: 44px;
 			height: 44px;
-			background: #222;
+			background: hsl(var(--secondary));
 			border: none;
 			border-radius: 8px;
-			color: #fff;
+			color: hsl(var(--foreground));
 			cursor: pointer;
 			font-size: 22px;
 		}
 
 		.hamburger:hover {
-			background: #333;
+			background: hsl(var(--accent));
 		}
 
 		.backdrop {

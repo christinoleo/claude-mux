@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
 	import { terminalStore } from '$lib/stores/terminal.svelte';
 	import { sessionStore, stateColor } from '$lib/stores/sessions.svelte';
+	import { Button } from '$lib/components/ui/button';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 
 	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
 
@@ -135,7 +138,7 @@
 			body: JSON.stringify({ pid: currentSession.pid, tmux_target: currentSession.tmux_target })
 		});
 		showConfirmKill = false;
-		window.location.href = '/';
+		goto('/');
 	}
 
 	function copyTmuxCmd() {
@@ -166,11 +169,8 @@
 	<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </svelte:head>
 
-<div class="container">
+<div class="session-container">
 	<header class="header">
-		<a href="/" class="back">
-			<iconify-icon icon="mdi:arrow-left"></iconify-icon>
-		</a>
 		<div class="title-row">
 			<span class="state" style="background: {stateColor(currentSession?.state || 'idle')}"></span>
 			<div class="title-info">
@@ -179,53 +179,53 @@
 			</div>
 		</div>
 		<div class="header-actions">
-			<button onclick={copyTmuxCmd} title="Copy tmux attach command" class:copied={showCopied}>
+			<Button variant="secondary" size="toolbar" onclick={copyTmuxCmd} title="Copy tmux attach command" class={showCopied ? 'bg-green-800 text-green-300' : ''}>
 				<iconify-icon icon={showCopied ? "mdi:check" : "mdi:content-copy"}></iconify-icon>
 				<span>{showCopied ? 'Copied!' : 'Tmux'}</span>
-			</button>
-			<button onclick={handleResize} title="Resize tmux pane to fit viewport">
+			</Button>
+			<Button variant="secondary" size="toolbar" onclick={handleResize} title="Resize tmux pane to fit viewport">
 				<iconify-icon icon="mdi:fit-to-screen"></iconify-icon>
 				<span>Fit</span>
-			</button>
-			<button onclick={() => sendKeys('Escape')} title="Send Escape key">
+			</Button>
+			<Button variant="secondary" size="toolbar" onclick={() => sendKeys('Escape')} title="Send Escape key">
 				<iconify-icon icon="mdi:stop"></iconify-icon>
 				<span>Esc</span>
-			</button>
-			<button class="danger" onclick={() => (showConfirmKill = true)} title="Kill Session">
+			</Button>
+			<Button variant="ghost-destructive" size="toolbar" onclick={() => (showConfirmKill = true)} title="Kill Session">
 				<iconify-icon icon="mdi:power"></iconify-icon>
 				<span>Kill</span>
-			</button>
+			</Button>
 		</div>
 	</header>
 
 	<pre class="output" bind:this={outputElement} onscroll={handleScroll}>{terminalStore.output}</pre>
 
 	<div class="toolbar">
-		<button onclick={() => sendKeys('Up')}>
+		<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('Up')}>
 			<iconify-icon icon="mdi:arrow-up"></iconify-icon>
 			<span>Up</span>
-		</button>
-		<button onclick={() => sendKeys('Down')}>
+		</Button>
+		<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('Down')}>
 			<iconify-icon icon="mdi:arrow-down"></iconify-icon>
 			<span>Down</span>
-		</button>
-		<button onclick={() => sendKeys('Space')}>
+		</Button>
+		<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('Space')}>
 			<iconify-icon icon="mdi:keyboard-space"></iconify-icon>
 			<span>Space</span>
-		</button>
-		<button onclick={() => sendKeys('Tab')}>
+		</Button>
+		<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('Tab')}>
 			<iconify-icon icon="mdi:keyboard-tab"></iconify-icon>
 			<span>Tab</span>
-		</button>
-		<button onclick={() => sendKeys('Enter')}>
+		</Button>
+		<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('Enter')}>
 			<iconify-icon icon="mdi:keyboard-return"></iconify-icon>
 			<span>Enter</span>
-		</button>
-		<button onclick={() => sendKeys('C-l')}>
-			<iconify-icon icon="mdi:refresh"></iconify-icon>
-			<span>Redraw</span>
-		</button>
-		<button onclick={async () => {
+		</Button>
+		<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('C-l')}>
+			<iconify-icon icon="mdi:eraser"></iconify-icon>
+			<span>Ctrl-L</span>
+		</Button>
+		<Button variant="secondary" size="toolbar" class="flex-1" onclick={async () => {
 			await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -234,11 +234,11 @@
 		}}>
 			<iconify-icon icon="mdi:broom"></iconify-icon>
 			<span>/clear</span>
-		</button>
-		<button class="danger" onclick={() => sendKeys('C-c')}>
+		</Button>
+		<Button variant="ghost-destructive" size="toolbar" class="flex-1" onclick={() => sendKeys('C-c')}>
 			<iconify-icon icon="mdi:cancel"></iconify-icon>
 			<span>Ctrl-C</span>
-		</button>
+		</Button>
 	</div>
 
 	<form class="input-row" onsubmit={(e) => { e.preventDefault(); sendText(); }}>
@@ -246,35 +246,37 @@
 			bind:this={textareaElement}
 			bind:value={textInput}
 			placeholder="Type a message..."
-			rows="1"
+			rows={1}
 			onkeydown={handleKeydown}
 			oninput={autoResize}
 		></textarea>
-		<button type="submit">
+		<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg">
 			<iconify-icon icon="mdi:send"></iconify-icon>
-		</button>
+		</Button>
 	</form>
 </div>
 
-{#if showConfirmKill}
-	<div class="modal" onclick={() => (showConfirmKill = false)}>
-		<div class="modal-content" onclick={(e) => e.stopPropagation()}>
-			<h3>Kill this session?</h3>
-			<p>This will terminate the Claude process.</p>
-			<div class="modal-actions">
-				<button onclick={() => (showConfirmKill = false)}>Cancel</button>
-				<button class="danger" onclick={killSession}>Kill</button>
-			</div>
-		</div>
-	</div>
-{/if}
+<AlertDialog.Root bind:open={showConfirmKill}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>Kill this session?</AlertDialog.Title>
+			<AlertDialog.Description>This will terminate the Claude process.</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={killSession} class="bg-destructive text-destructive-foreground hover:bg-destructive/90">Kill</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
 
 <style>
-	.container {
+	.session-container {
 		height: 100%;
 		display: flex;
 		flex-direction: column;
 		background: #000;
+		overflow: hidden;
+		overscroll-behavior: none;
 	}
 
 	.header {
@@ -291,18 +293,6 @@
 		.header {
 			padding-left: 64px;
 		}
-	}
-
-	.back {
-		color: #888;
-		text-decoration: none;
-		display: flex;
-		align-items: center;
-		padding: 8px;
-	}
-
-	.back:hover {
-		color: #fff;
 	}
 
 	.title-row {
@@ -347,58 +337,10 @@
 		gap: 6px;
 	}
 
-	.header-actions button {
-		background: #333;
-		color: #fff;
-		border: none;
-		padding: 6px 8px;
-		border-radius: 6px;
-		cursor: pointer;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 2px;
-		min-width: 44px;
-	}
-
-	.header-actions button iconify-icon {
-		font-size: 18px;
-	}
-
-	.header-actions button span {
-		font-size: 9px;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
-		opacity: 0.8;
-	}
-
-	.header-actions button:hover {
-		background: #444;
-	}
-
-	.header-actions button:active {
-		background: #555;
-	}
-
-	.header-actions button.danger {
-		background: #7f1d1d;
-		color: #fca5a5;
-	}
-
-	.header-actions button.danger:hover {
-		background: #991b1b;
-		color: #fff;
-	}
-
-	.header-actions button.copied {
-		background: #166534;
-		color: #4ade80;
-	}
-
 	.output {
 		flex: 1;
 		overflow-y: auto;
+		overscroll-behavior: none;
 		padding: 16px;
 		margin: 0;
 		font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
@@ -407,7 +349,7 @@
 		white-space: pre-wrap;
 		word-break: break-word;
 		background: #000;
-		color: #ddd;
+		color: #fff;
 	}
 
 	.toolbar {
@@ -416,51 +358,6 @@
 		padding: 8px 12px;
 		background: #111;
 		border-top: 1px solid #222;
-	}
-
-	.toolbar button {
-		flex: 1;
-		background: #333;
-		color: #fff;
-		border: none;
-		padding: 6px 4px;
-		border-radius: 6px;
-		cursor: pointer;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 2px;
-		min-width: 0;
-	}
-
-	.toolbar button iconify-icon {
-		font-size: 18px;
-	}
-
-	.toolbar button span {
-		font-size: 9px;
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
-		opacity: 0.8;
-	}
-
-	.toolbar button:hover {
-		background: #444;
-	}
-
-	.toolbar button:active {
-		background: #555;
-	}
-
-	.toolbar button.danger {
-		background: #7f1d1d;
-		color: #fca5a5;
-	}
-
-	.toolbar button.danger:hover {
-		background: #991b1b;
-		color: #fff;
 	}
 
 	.input-row {
@@ -490,11 +387,11 @@
 		max-height: 150px;
 		word-wrap: break-word;
 		box-sizing: border-box;
-		scrollbar-width: none; /* Firefox */
+		scrollbar-width: none;
 	}
 
 	.input-row textarea::-webkit-scrollbar {
-		display: none; /* Chrome, Safari */
+		display: none;
 	}
 
 	.input-row textarea:focus {
@@ -504,88 +401,5 @@
 
 	.input-row textarea::placeholder {
 		color: #666;
-	}
-
-	.input-row button {
-		background: #27ae60;
-		color: #fff;
-		border: none;
-		padding: 14px 18px;
-		border-radius: 8px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 18px;
-		min-width: 52px;
-		min-height: 48px;
-	}
-
-	.input-row button:hover {
-		background: #2ecc71;
-	}
-
-	.input-row button:active {
-		background: #229954;
-	}
-
-	/* Modal */
-	.modal {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.85);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 100;
-	}
-
-	.modal-content {
-		background: #1a1a1a;
-		border-radius: 12px;
-		padding: 24px;
-		width: 90%;
-		max-width: 400px;
-	}
-
-	.modal-content h3 {
-		margin: 0 0 12px 0;
-		font-size: 18px;
-	}
-
-	.modal-content p {
-		color: #888;
-		margin: 0 0 20px 0;
-	}
-
-	.modal-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 12px;
-	}
-
-	.modal-actions button {
-		background: #333;
-		color: #fff;
-		border: none;
-		padding: 10px 20px;
-		border-radius: 8px;
-		cursor: pointer;
-		font-size: 16px;
-	}
-
-	.modal-actions button:hover {
-		background: #444;
-	}
-
-	.modal-actions button.danger {
-		background: #c0392b;
-	}
-
-	.modal-actions button.danger:hover {
-		background: #e74c3c;
 	}
 </style>

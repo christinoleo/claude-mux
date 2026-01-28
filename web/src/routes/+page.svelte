@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { sessionStore, stateColor, getProjectColor, type Session } from '$lib/stores/sessions.svelte';
+	import { Button } from '$lib/components/ui/button';
+	import { Badge } from '$lib/components/ui/badge';
+	import { Checkbox } from '$lib/components/ui/checkbox';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import { ScrollArea } from '$lib/components/ui/scroll-area';
 
 	let showFolderBrowser = $state(false);
 	let browserPath = $state('');
@@ -8,6 +14,19 @@
 	let browserShowHidden = $state(false);
 	let browserIsRoot = $state(false);
 	let browserParent = $state<string | null>(null);
+
+	// AlertDialog state
+	let alertOpen = $state(false);
+	let alertTitle = $state('');
+	let alertMessage = $state('');
+	let alertOnConfirm = $state<() => void>(() => {});
+
+	function showConfirm(title: string, message: string, onConfirm: () => void) {
+		alertTitle = title;
+		alertMessage = message;
+		alertOnConfirm = onConfirm;
+		alertOpen = true;
+	}
 
 	// Project tree node type
 	interface ProjectNode {
@@ -18,7 +37,7 @@
 	}
 
 	// Group sessions by project (cwd)
-	const sessionsByProject = $derived(() => {
+	const sessionsByProject = $derived.by(() => {
 		const groups = new Map<string, Session[]>();
 		for (const session of sessionStore.sessions) {
 			const key = session.cwd || 'unknown';
@@ -29,7 +48,7 @@
 	});
 
 	// Get all projects (from sessions + saved)
-	const allProjects = $derived(() => {
+	const allProjects = $derived.by(() => {
 		const projects = new Set<string>();
 		for (const session of sessionStore.sessions) {
 			if (session.cwd) projects.add(session.cwd);
@@ -40,10 +59,22 @@
 		return [...projects].sort();
 	});
 
+	// Flatten tree for rendering with depth info
+	function flattenTree(nodes: ProjectNode[]): ProjectNode[] {
+		const result: ProjectNode[] = [];
+		for (const node of nodes) {
+			result.push(node);
+			if (node.children.length > 0) {
+				result.push(...flattenTree(node.children));
+			}
+		}
+		return result;
+	}
+
 	// Build project tree with parent/child relationships
-	const projectTree = $derived(() => {
-		const projects = allProjects();
-		const sessionsMap = sessionsByProject();
+	const projectTree = $derived.by(() => {
+		const projects = allProjects;
+		const sessionsMap = sessionsByProject;
 
 		// Sort by path length (shorter = potential parents)
 		const sorted = [...projects].sort((a, b) => a.length - b.length);
@@ -84,19 +115,7 @@
 		return roots;
 	});
 
-	// Flatten tree for rendering with depth info
-	function flattenTree(nodes: ProjectNode[]): ProjectNode[] {
-		const result: ProjectNode[] = [];
-		for (const node of nodes) {
-			result.push(node);
-			if (node.children.length > 0) {
-				result.push(...flattenTree(node.children));
-			}
-		}
-		return result;
-	}
-
-	const flatProjects = $derived(() => flattenTree(projectTree()));
+	const flatProjects = $derived.by(() => flattenTree(projectTree));
 
 	onMount(() => {
 		sessionStore.loadSavedProjects();
@@ -111,27 +130,29 @@
 		});
 	}
 
-	async function killSession(id: string, pid: number, tmux_target: string | null) {
-		if (!confirm('Kill this session?')) return;
-		await fetch(`/api/sessions/${encodeURIComponent(id)}/kill`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ pid, tmux_target })
+	function killSession(id: string, pid: number, tmux_target: string | null) {
+		showConfirm('Kill Session', 'Are you sure you want to kill this session?', async () => {
+			await fetch(`/api/sessions/${encodeURIComponent(id)}/kill`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ pid, tmux_target })
+			});
 		});
 	}
 
-	async function deleteProject(cwd: string) {
-		if (!confirm(`Delete project "${cwd}" and all its sessions?`)) return;
-		// Kill all sessions in this project
-		const sessions = sessionsByProject().get(cwd) || [];
-		for (const s of sessions) {
-			await fetch(`/api/sessions/${encodeURIComponent(s.id)}/kill`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ pid: s.pid, tmux_target: s.tmux_target })
-			});
-		}
-		sessionStore.removeProject(cwd);
+	function deleteProject(cwd: string) {
+		showConfirm('Delete Project', `Delete project "${cwd}" and all its sessions?`, async () => {
+			// Kill all sessions in this project
+			const sessions = sessionsByProject.get(cwd) || [];
+			for (const s of sessions) {
+				await fetch(`/api/sessions/${encodeURIComponent(s.id)}/kill`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ pid: s.pid, tmux_target: s.tmux_target })
+				});
+			}
+			sessionStore.removeProject(cwd);
+		});
 	}
 
 	async function newSessionInProject(cwd: string) {
@@ -148,11 +169,14 @@
 		await browseTo('~');
 	}
 
+	let browserError = $state('');
+
 	async function browseTo(path: string) {
+		browserError = '';
 		const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}&showHidden=${browserShowHidden}`);
 		const data = await res.json();
 		if (data.error) {
-			alert(data.error);
+			browserError = data.error;
 			return;
 		}
 		browserPath = data.current;
@@ -179,26 +203,26 @@
 	<header class="header">
 		<h1>claude-watch</h1>
 		<div class="header-actions">
-			<button
-				class="btn"
-				class:paused={sessionStore.paused}
+			<Button
+				variant={sessionStore.paused ? 'destructive' : 'secondary'}
+				size="icon"
 				onclick={() => sessionStore.togglePause()}
 				title={sessionStore.paused ? 'Resume' : 'Pause'}
 			>
 				<iconify-icon icon={sessionStore.paused ? 'mdi:play' : 'mdi:pause'}></iconify-icon>
-			</button>
-			<button class="btn" onclick={openFolderBrowser} title="New Project">
+			</Button>
+			<Button variant="secondary" size="icon" onclick={openFolderBrowser} title="New Project">
 				<iconify-icon icon="mdi:plus"></iconify-icon>
-			</button>
+			</Button>
 		</div>
 	</header>
 
 	<p class="count">{sessionStore.sessions.length} session{sessionStore.sessions.length !== 1 ? 's' : ''}</p>
 
-	{#if flatProjects().length === 0}
+	{#if flatProjects.length === 0}
 		<div class="empty">No sessions yet. Click + to add a project.</div>
 	{:else}
-		{#each flatProjects() as project}
+		{#each flatProjects as project}
 			{@const color = getProjectColor(project.cwd)}
 			{@const isNested = project.depth > 0}
 			{@const firstSession = project.sessions[0]}
@@ -210,18 +234,18 @@
 						{/if}
 						<span class="name">{getProjectName(project.cwd)}</span>
 						<div class="meta">
-							<span class="count-badge">{project.sessions.length}</span>
-							{#if firstSession?.git_root}<span class="badge git">git</span>{/if}
-							{#if firstSession?.beads_enabled}<span class="badge beads">beads</span>{/if}
+							<Badge variant="secondary" class="text-xs">{project.sessions.length}</Badge>
+							{#if firstSession?.git_root}<Badge variant="outline" class="border-orange-700 text-orange-400">git</Badge>{/if}
+							{#if firstSession?.beads_enabled}<Badge variant="outline" class="border-purple-700 text-purple-400">beads</Badge>{/if}
 						</div>
 					</div>
 					<div class="project-actions">
-						<button onclick={() => newSessionInProject(project.cwd)} title="New Session">
+						<Button variant="ghost" size="icon-sm" onclick={() => newSessionInProject(project.cwd)} title="New Session">
 							<iconify-icon icon="mdi:plus"></iconify-icon>
-						</button>
-						<button class="delete" onclick={() => deleteProject(project.cwd)} title="Delete Project">
+						</Button>
+						<Button variant="ghost" size="icon-sm" class="hover:bg-red-900/50 hover:text-red-300" onclick={() => deleteProject(project.cwd)} title="Delete Project">
 							<iconify-icon icon="mdi:delete"></iconify-icon>
-						</button>
+						</Button>
 					</div>
 				</div>
 				<div class="project-sessions">
@@ -234,19 +258,22 @@
 									<div class="action">{session.current_action || session.state}</div>
 								</div>
 								<div class="actions">
-									<button
-										onclick={(e) => { e.preventDefault(); sendKeys(session.tmux_target!, 'Escape'); }}
+									<Button
+										variant="secondary"
+										size="icon-sm"
+										onclick={(e: MouseEvent) => { e.preventDefault(); sendKeys(session.tmux_target!, 'Escape'); }}
 										title="Stop (Esc)"
 									>
 										<iconify-icon icon="mdi:stop"></iconify-icon>
-									</button>
-									<button
-										class="danger"
-										onclick={(e) => { e.preventDefault(); killSession(session.id, session.pid, session.tmux_target); }}
+									</Button>
+									<Button
+										variant="ghost-destructive"
+										size="icon-sm"
+										onclick={(e: MouseEvent) => { e.preventDefault(); killSession(session.id, session.pid, session.tmux_target); }}
 										title="Kill"
 									>
 										<iconify-icon icon="mdi:power"></iconify-icon>
-									</button>
+									</Button>
 								</div>
 							</a>
 						{:else}
@@ -258,13 +285,14 @@
 									<div class="no-tmux-label">No tmux pane</div>
 								</div>
 								<div class="actions">
-									<button
-										class="danger"
+									<Button
+										variant="ghost-destructive"
+										size="icon-sm"
 										onclick={() => killSession(session.id, session.pid, session.tmux_target)}
 										title="Kill"
 									>
 										<iconify-icon icon="mdi:power"></iconify-icon>
-									</button>
+									</Button>
 								</div>
 							</div>
 						{/if}
@@ -277,25 +305,23 @@
 	{/if}
 </div>
 
-{#if showFolderBrowser}
-	<div class="folder-modal" onclick={() => showFolderBrowser = false}>
-		<div class="folder-browser" onclick={(e) => e.stopPropagation()}>
-			<div class="fb-header">
-				<h3>Select Folder</h3>
-				<button onclick={() => showFolderBrowser = false}>
-					<iconify-icon icon="mdi:close"></iconify-icon>
-				</button>
-			</div>
-			<div class="fb-path">
-				{browserPath}
-			</div>
-			<div class="fb-options">
-				<label>
-					<input type="checkbox" bind:checked={browserShowHidden} onchange={() => browseTo(browserPath)} />
-					Show hidden
-				</label>
-			</div>
-			<div class="fb-list">
+<Dialog.Root bind:open={showFolderBrowser}>
+	<Dialog.Content class="max-w-md">
+		<Dialog.Header>
+			<Dialog.Title>Select Folder</Dialog.Title>
+		</Dialog.Header>
+		<div class="fb-path">
+			{browserPath}
+		</div>
+		{#if browserError}
+			<p class="text-sm text-destructive">{browserError}</p>
+		{/if}
+		<div class="flex items-center gap-2 py-2">
+			<Checkbox id="show-hidden" checked={browserShowHidden} onCheckedChange={(v) => { browserShowHidden = !!v; browseTo(browserPath); }} />
+			<label for="show-hidden" class="text-sm text-muted-foreground cursor-pointer">Show hidden</label>
+		</div>
+		<ScrollArea class="h-64 rounded-md border">
+			<div class="p-2">
 				{#if !browserIsRoot && browserParent}
 					<button class="fb-item" onclick={() => browseTo(browserParent!)}>
 						<iconify-icon icon="mdi:folder-arrow-up"></iconify-icon>
@@ -309,13 +335,26 @@
 					</button>
 				{/each}
 			</div>
-			<div class="fb-footer">
-				<button class="btn" onclick={() => showFolderBrowser = false}>Cancel</button>
-				<button class="btn primary" onclick={selectFolder}>Select</button>
-			</div>
-		</div>
-	</div>
-{/if}
+		</ScrollArea>
+		<Dialog.Footer>
+			<Button variant="outline" onclick={() => showFolderBrowser = false}>Cancel</Button>
+			<Button onclick={selectFolder}>Select</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
+
+<AlertDialog.Root bind:open={alertOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>{alertTitle}</AlertDialog.Title>
+			<AlertDialog.Description>{alertMessage}</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={() => { alertOnConfirm(); alertOpen = false; }} class="bg-destructive text-destructive-foreground hover:bg-destructive/90">Confirm</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
 
 <style>
 	.container {
@@ -330,11 +369,10 @@
 		align-items: center;
 		margin-bottom: 20px;
 		padding-bottom: 16px;
-		border-bottom: 1px solid #222;
+		border-bottom: 1px solid #44403c;
 	}
 
 	.header h1 {
-		color: #fff;
 		font-size: 24px;
 		margin: 0;
 	}
@@ -344,40 +382,14 @@
 		gap: 8px;
 	}
 
-	.btn {
-		background: #333;
-		color: #fff;
-		border: none;
-		padding: 12px 16px;
-		font-size: 16px;
-		cursor: pointer;
-		border-radius: 8px;
-		touch-action: manipulation;
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
-	.btn:active {
-		background: #444;
-	}
-
-	.btn.paused {
-		background: #c0392b;
-	}
-
-	.btn.primary {
-		background: #27ae60;
-	}
-
 	.count {
-		color: #666;
+		color: hsl(var(--muted-foreground));
 		font-size: 14px;
 		margin: 0 0 16px 0;
 	}
 
 	.empty {
-		color: #555;
+		color: hsl(var(--muted-foreground));
 		text-align: center;
 		padding: 40px;
 		font-size: 16px;
@@ -385,7 +397,7 @@
 
 	.project-group {
 		margin-bottom: 20px;
-		border-left: 4px solid #666;
+		border-left: 4px solid;
 		border-radius: 8px;
 		overflow: hidden;
 	}
@@ -400,7 +412,7 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 12px 14px;
-		background: #252525;
+		background: #292524;
 	}
 
 	.project-info {
@@ -412,14 +424,13 @@
 
 	.nest-indicator {
 		font-family: monospace;
-		color: #555;
+		color: hsl(var(--muted-foreground));
 		margin-right: -4px;
 	}
 
 	.project-header .name {
 		font-weight: 600;
 		font-size: 15px;
-		color: #eee;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -430,15 +441,6 @@
 		align-items: center;
 		gap: 6px;
 		flex-shrink: 0;
-	}
-
-	.project-header .count-badge {
-		background: #333;
-		color: #999;
-		padding: 2px 7px;
-		border-radius: 10px;
-		font-size: 11px;
-		font-weight: 500;
 	}
 
 	.project-actions {
@@ -452,54 +454,21 @@
 		opacity: 1;
 	}
 
-	.project-actions button {
-		background: transparent;
-		border: none;
-		font-size: 16px;
-		cursor: pointer;
-		color: #888;
-		padding: 6px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 4px;
-		transition: background 0.15s, color 0.15s;
-	}
-
-	.project-actions button:hover {
-		background: #333;
-		color: #fff;
-	}
-
-	.project-actions button.delete:hover {
-		background: #7f1d1d;
-		color: #fca5a5;
-	}
-
 	.project-sessions .session {
 		display: flex;
 		align-items: center;
 		gap: 12px;
 		padding: 16px;
 		padding-left: 12px;
-		background: #1a1a1a;
-		border-top: 1px solid #333;
+		background: #111;
+		border-top: 1px solid #222;
 		text-decoration: none;
 		color: inherit;
-		border-left: 4px solid #444;
+		transition: background 0.15s;
 	}
 
-	.session.permission,
-	.session.waiting {
-		border-left-color: #e74c3c;
-	}
-
-	.session.idle {
-		border-left-color: #f39c12;
-	}
-
-	.session.busy {
-		border-left-color: #27ae60;
+	.project-sessions .session:hover {
+		background: #1a1a1a;
 	}
 
 	.session .state {
@@ -523,7 +492,7 @@
 	}
 
 	.session .action {
-		color: #aaa;
+		color: hsl(var(--muted-foreground));
 		font-size: 14px;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -536,32 +505,15 @@
 	}
 
 	.no-tmux-label {
-		color: #666;
+		color: hsl(var(--muted-foreground));
 		font-size: 12px;
 		font-style: italic;
 	}
 
-	.badge {
-		font-size: 10px;
-		padding: 2px 6px;
-		border-radius: 4px;
-		font-weight: 500;
-	}
-
-	.badge.git {
-		background: #3a2a2a;
-		color: #f07050;
-	}
-
-	.badge.beads {
-		background: #2a2a3a;
-		color: #a78bfa;
-	}
-
 	.empty-project {
 		padding: 16px;
-		background: #1a1a1a;
-		color: #666;
+		background: #111;
+		color: hsl(var(--muted-foreground));
 		text-align: center;
 		border-radius: 0 0 8px 8px;
 	}
@@ -572,108 +524,16 @@
 		flex-shrink: 0;
 	}
 
-	.actions button {
-		background: #222;
-		color: #aaa;
-		border: none;
-		padding: 8px 10px;
-		font-size: 16px;
-		border-radius: 8px;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		touch-action: manipulation;
-	}
-
-	.actions button:hover {
-		color: #fff;
-		background: #333;
-	}
-
-	.actions button.danger {
-		background: #7f1d1d;
-		color: #fca5a5;
-	}
-
-	.actions button.danger:hover {
-		background: #991b1b;
-		color: #fff;
-	}
-
-	/* Folder Browser Modal */
-	.folder-modal {
-		position: fixed;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(0, 0, 0, 0.85);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		z-index: 100;
-	}
-
-	.folder-browser {
-		background: #1a1a1a;
-		border-radius: 12px;
-		width: 94%;
-		max-width: 500px;
-		max-height: 80vh;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.fb-header {
-		padding: 16px;
-		border-bottom: 1px solid #333;
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	.fb-header h3 {
-		margin: 0;
-		font-size: 18px;
-	}
-
-	.fb-header button {
-		background: transparent;
-		border: none;
-		color: #888;
-		cursor: pointer;
-		padding: 4px;
-	}
-
+	/* Folder browser items */
 	.fb-path {
-		padding: 12px 16px;
-		background: #111;
+		padding: 12px;
+		background: hsl(var(--muted));
 		font-family: monospace;
 		font-size: 14px;
-		color: #888;
+		color: hsl(var(--muted-foreground));
 		word-break: break-all;
-	}
-
-	.fb-options {
-		padding: 8px 16px;
-		border-bottom: 1px solid #333;
-	}
-
-	.fb-options label {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 14px;
-		color: #888;
-		cursor: pointer;
-	}
-
-	.fb-list {
-		flex: 1;
-		overflow-y: auto;
-		padding: 8px;
+		border-radius: 6px;
+		margin-bottom: 8px;
 	}
 
 	.fb-item {
@@ -681,25 +541,17 @@
 		align-items: center;
 		gap: 12px;
 		width: 100%;
-		padding: 12px;
+		padding: 10px 12px;
 		background: transparent;
 		border: none;
-		color: #eee;
-		font-size: 16px;
+		color: hsl(var(--foreground));
+		font-size: 14px;
 		text-align: left;
 		cursor: pointer;
-		border-radius: 8px;
+		border-radius: 6px;
 	}
 
 	.fb-item:hover {
-		background: #333;
-	}
-
-	.fb-footer {
-		padding: 16px;
-		border-top: 1px solid #333;
-		display: flex;
-		justify-content: flex-end;
-		gap: 12px;
+		background: hsl(var(--accent));
 	}
 </style>

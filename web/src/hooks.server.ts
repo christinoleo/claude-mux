@@ -291,11 +291,19 @@ export const websocket = {
 	},
 
 	message(ws: WebSocket, message: string | Buffer) {
+		const msgStr = message.toString();
+
+		// Handle ping/pong for keep-alive (works for all WebSocket types)
+		if (msgStr === 'ping') {
+			ws.send('pong');
+			return;
+		}
+
 		const data = wsDataMap.get(ws);
 		if (!data || data.type !== 'terminal' || !data.target) return;
 
 		try {
-			const msg = JSON.parse(message.toString()) as ResizeMessage;
+			const msg = JSON.parse(msgStr) as ResizeMessage;
 			if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
 				terminalWsManager.resizePane(data.target, msg.cols, msg.rows);
 			}

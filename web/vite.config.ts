@@ -1,4 +1,5 @@
 import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type ViteDevServer } from 'vite';
 import { WebSocketServer, WebSocket } from 'ws';
 import { execFileSync } from 'child_process';
@@ -222,7 +223,7 @@ function devWebSocket() {
 }
 
 export default defineConfig({
-	plugins: [sveltekit(), devWebSocket()],
+	plugins: [tailwindcss(), sveltekit(), devWebSocket()],
 	server: {
 		host: '0.0.0.0'
 	},

@@ -9,20 +9,21 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const { pid, tmux_target } = body;
 
 	try {
-		if (tmux_target && typeof tmux_target === 'string') {
-			// Kill tmux session
-			const session = tmux_target.split(':')[0];
-			try {
-				execFileSync('tmux', ['kill-session', '-t', session], { stdio: 'ignore' });
-			} catch {
-				// Session may not exist - ignore
-			}
-		} else if (typeof pid === 'number' && pid > 0 && Number.isInteger(pid)) {
-			// Kill process directly for non-tmux sessions
+		// Kill the Claude process first
+		if (typeof pid === 'number' && pid > 0 && Number.isInteger(pid)) {
 			try {
 				execFileSync('kill', [String(pid)], { stdio: 'ignore' });
 			} catch {
 				// Process may not exist - ignore
+			}
+		}
+
+		// Kill only the specific tmux pane (not the entire session)
+		if (tmux_target && typeof tmux_target === 'string') {
+			try {
+				execFileSync('tmux', ['kill-pane', '-t', tmux_target], { stdio: 'ignore' });
+			} catch {
+				// Pane may not exist - ignore
 			}
 		}
 

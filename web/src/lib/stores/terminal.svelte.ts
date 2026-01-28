@@ -1,14 +1,33 @@
 import { browser } from '$app/environment';
+import { ReliableWebSocket } from './websocket-base.svelte';
 
-class TerminalStore {
+class TerminalStore extends ReliableWebSocket {
 	output = $state('');
-	connected = $state(false);
 
-	private ws: WebSocket | null = null;
-	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private target: string | null = null;
 	private resizeTimer: ReturnType<typeof setTimeout> | null = null;
 	private lastSentSize: { cols: number; rows: number } | null = null;
+
+	protected getWsUrl(): string {
+		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const encodedTarget = encodeURIComponent(this.target!);
+		return `${protocol}//${window.location.host}/api/sessions/${encodedTarget}/stream`;
+	}
+
+	protected getLogPrefix(): string {
+		return '[terminal]';
+	}
+
+	protected shouldReconnect(): boolean {
+		return this.target !== null;
+	}
+
+	protected handleMessage(event: MessageEvent): void {
+		const data = JSON.parse(event.data);
+		if (data.output !== undefined) {
+			this.output = data.output;
+		}
+	}
 
 	connect(target: string | null | undefined): void {
 		if (!browser || !target) return;
@@ -16,24 +35,13 @@ class TerminalStore {
 		// If already connected to the same target, do nothing
 		if (this.ws && this.target === target) return;
 
-		// Cancel any pending reconnect timer
-		if (this.reconnectTimer) {
-			clearTimeout(this.reconnectTimer);
-			this.reconnectTimer = null;
-		}
-
 		// If connected to a different target, close old connection first
 		if (this.ws) {
-			// Remove handlers to prevent reconnect attempts
-			this.ws.onopen = null;
-			this.ws.onclose = null;
-			this.ws.onerror = null;
-			this.ws.onmessage = null;
-			// Close if not already closed
-			if (this.ws.readyState !== WebSocket.CLOSED) {
-				this.ws.close();
-			}
-			this.ws = null;
+			// Disconnect without allowing reconnect (target will be null temporarily)
+			const oldTarget = this.target;
+			this.target = null; // Prevent reconnect in doDisconnect
+			this.doDisconnect();
+			this.target = oldTarget;
 		}
 
 		// Clear output when switching to a different target
@@ -42,44 +50,10 @@ class TerminalStore {
 		}
 
 		this.target = target;
-		this.connected = false;
-
-		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-		const encodedTarget = encodeURIComponent(target);
-		this.ws = new WebSocket(`${protocol}//${window.location.host}/api/sessions/${encodedTarget}/stream`);
-
-		this.ws.onopen = () => {
-			this.connected = true;
-		};
-
-		this.ws.onmessage = (event) => {
-			const data = JSON.parse(event.data);
-			if (data.output !== undefined) {
-				this.output = data.output;
-			}
-		};
-
-		this.ws.onclose = () => {
-			this.connected = false;
-			this.ws = null;
-			// Reconnect after 2 seconds if we still have a target
-			if (this.target) {
-				this.reconnectTimer = setTimeout(() => this.connect(this.target!), 2000);
-			}
-		};
-
-		this.ws.onerror = () => {
-			// onclose will be called after this
-		};
+		this.doConnect();
 	}
 
 	disconnect(): void {
-		// Cancel reconnect timer first
-		if (this.reconnectTimer) {
-			clearTimeout(this.reconnectTimer);
-			this.reconnectTimer = null;
-		}
-
 		// Cancel resize timer
 		if (this.resizeTimer) {
 			clearTimeout(this.resizeTimer);
@@ -87,22 +61,9 @@ class TerminalStore {
 		}
 		this.lastSentSize = null;
 
-		// Clear target before closing to prevent reconnect in onclose
+		// Clear target before disconnecting to prevent reconnect
 		this.target = null;
-		this.connected = false;
-
-		if (this.ws) {
-			// Remove handlers to prevent any callbacks
-			this.ws.onopen = null;
-			this.ws.onclose = null;
-			this.ws.onerror = null;
-			this.ws.onmessage = null;
-			// Close if not already closed
-			if (this.ws.readyState !== WebSocket.CLOSED) {
-				this.ws.close();
-			}
-			this.ws = null;
-		}
+		this.doDisconnect();
 	}
 
 	sendResize(cols: number, rows: number): void {

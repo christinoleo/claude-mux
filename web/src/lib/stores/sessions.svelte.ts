@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { ReliableWebSocket } from './websocket-base.svelte';
 
 export interface Session {
 	v: number;
@@ -15,72 +16,36 @@ export interface Session {
 	pane_title?: string | null;
 }
 
-class SessionStore {
+class SessionStore extends ReliableWebSocket {
 	sessions = $state<Session[]>([]);
 	paused = $state(false);
-	connected = $state(false);
-
-	private ws: WebSocket | null = null;
-	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// Saved projects from localStorage
 	savedProjects = $state<string[]>([]);
 
-	connect(): void {
-		if (!browser || this.ws) return;
-
+	protected getWsUrl(): string {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-		this.ws = new WebSocket(`${protocol}//${window.location.host}/api/sessions/stream`);
+		return `${protocol}//${window.location.host}/api/sessions/stream`;
+	}
 
-		this.ws.onopen = () => {
-			this.connected = true;
-			if (this.reconnectTimer) {
-				clearTimeout(this.reconnectTimer);
-				this.reconnectTimer = null;
-			}
-		};
+	protected getLogPrefix(): string {
+		return '[sessions]';
+	}
 
-		this.ws.onmessage = (event) => {
-			if (this.paused) return;
-			const data = JSON.parse(event.data);
-			if (data.sessions) {
-				this.sessions = data.sessions;
-			}
-		};
+	protected handleMessage(event: MessageEvent): void {
+		if (this.paused) return;
+		const data = JSON.parse(event.data);
+		if (data.sessions) {
+			this.sessions = data.sessions;
+		}
+	}
 
-		this.ws.onclose = () => {
-			this.connected = false;
-			this.ws = null;
-			// Reconnect after 2 seconds
-			this.reconnectTimer = setTimeout(() => this.connect(), 2000);
-		};
-
-		this.ws.onerror = () => {
-			this.ws?.close();
-		};
+	connect(): void {
+		this.doConnect();
 	}
 
 	disconnect(): void {
-		// Cancel reconnect timer first
-		if (this.reconnectTimer) {
-			clearTimeout(this.reconnectTimer);
-			this.reconnectTimer = null;
-		}
-
-		this.connected = false;
-
-		if (this.ws) {
-			// Remove handlers to prevent any callbacks
-			this.ws.onopen = null;
-			this.ws.onclose = null;
-			this.ws.onerror = null;
-			this.ws.onmessage = null;
-			// Close if not already closed
-			if (this.ws.readyState !== WebSocket.CLOSED) {
-				this.ws.close();
-			}
-			this.ws = null;
-		}
+		this.doDisconnect();
 	}
 
 	togglePause(): void {
