@@ -277,6 +277,7 @@
 		background: #000;
 		overflow: hidden;
 		overscroll-behavior: none;
+		touch-action: pan-y;
 	}
 
 	.header {
@@ -341,6 +342,7 @@
 		flex: 1;
 		overflow-y: auto;
 		overscroll-behavior: none;
+		touch-action: pan-y;
 		padding: 16px;
 		margin: 0;
 		font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
