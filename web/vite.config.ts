@@ -27,6 +27,7 @@ function devWebSocket() {
 			const { sessionWatcher } = await import('../src/server/watcher.js');
 			const { getAllSessions, updateSession } = await import('../src/db/index.js');
 			const { checkForInterruption, getPaneTitle } = await import('../src/tmux/pane.js');
+			const { resizeTmuxWindow } = await import('../src/tmux/resize.js');
 
 			// Session helpers
 			function getEnrichedSessions() {
@@ -119,18 +120,7 @@ function devWebSocket() {
 			}
 
 			function resizePane(target: string, cols: number, rows: number) {
-				try {
-					const safeCols = Math.max(20, Math.min(500, Math.floor(cols)));
-					const safeRows = Math.max(5, Math.min(200, Math.floor(rows)));
-					// Extract window target (session:window) from full target (session:window.pane)
-					const windowTarget = target.replace(/\.\d+$/, '');
-					execFileSync('tmux', ['resize-window', '-t', windowTarget, '-x', String(safeCols), '-y', String(safeRows)], {
-						stdio: ['pipe', 'pipe', 'pipe'],
-						timeout: 2000
-					});
-				} catch {
-					// Pane may not exist or tmux error - ignore
-				}
+				resizeTmuxWindow(target, cols, rows);
 			}
 
 			// Create WebSocket server with compression enabled
