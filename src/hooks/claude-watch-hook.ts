@@ -45,6 +45,8 @@ interface Session {
   id: string;
   pid: number;
   cwd: string;
+  git_root: string | null;
+  beads_enabled: boolean;
   tmux_target: string | null;
   state: string;
   current_action: string | null;
@@ -137,6 +139,25 @@ function getTmuxTarget(): string | null {
   } catch {
     return null;
   }
+}
+
+function getGitRoot(cwd: string): string | null {
+  try {
+    const result = execSync("git rev-parse --show-toplevel", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd,
+    });
+    return result.trim();
+  } catch {
+    return null;
+  }
+}
+
+function isBeadsEnabled(gitRoot: string | null): boolean {
+  if (!gitRoot) return false;
+  const beadsDir = join(gitRoot, ".beads");
+  return existsSync(beadsDir);
 }
 
 function getClaudePid(): number {
@@ -245,11 +266,16 @@ function handleSessionStart(input: HookInput): void {
     deleteSessionsByTmuxTarget(tmuxTarget, input.session_id);
   }
 
+  const gitRoot = getGitRoot(input.cwd);
+  const beadsEnabled = isBeadsEnabled(gitRoot);
+
   const session: Session = {
     v: SCHEMA_VERSION,
     id: input.session_id,
     pid: getClaudePid(),
     cwd: input.cwd,
+    git_root: gitRoot,
+    beads_enabled: beadsEnabled,
     tmux_target: tmuxTarget,
     state: "idle",
     current_action: null,

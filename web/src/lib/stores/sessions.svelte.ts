@@ -5,6 +5,8 @@ export interface Session {
 	id: string;
 	pid: number;
 	cwd: string;
+	git_root: string | null;
+	beads_enabled: boolean;
 	tmux_target: string | null;
 	state: 'busy' | 'idle' | 'waiting' | 'permission';
 	current_action: string | null;

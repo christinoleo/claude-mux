@@ -35,6 +35,8 @@ export interface Session {
   id: string;
   pid: number;
   cwd: string;
+  git_root: string | null;
+  beads_enabled: boolean;
   tmux_target: string | null;
   state: SessionState;
   current_action: string | null;
@@ -46,6 +48,8 @@ export interface SessionInput {
   id: string;
   pid: number;
   cwd: string;
+  git_root?: string | null;
+  beads_enabled?: boolean;
   tmux_target?: string | null;
   state?: SessionState;
   current_action?: string | null;
@@ -110,6 +114,8 @@ export function upsertSession(input: SessionInput): void {
     id: input.id,
     pid: input.pid,
     cwd: input.cwd,
+    git_root: input.git_root ?? existing?.git_root ?? null,
+    beads_enabled: input.beads_enabled ?? existing?.beads_enabled ?? false,
     tmux_target: input.tmux_target ?? existing?.tmux_target ?? null,
     state: input.state ?? existing?.state ?? "busy",
     current_action: input.current_action ?? existing?.current_action ?? null,

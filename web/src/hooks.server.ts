@@ -25,6 +25,12 @@ interface TerminalMessage {
 	timestamp: number;
 }
 
+interface ResizeMessage {
+	type: 'resize';
+	cols: number;
+	rows: number;
+}
+
 // Sync session state by detecting interruptions
 function syncSessionStates(): void {
 	const sessions = getAllSessions().filter((s) => s.tmux_target);
@@ -210,6 +216,22 @@ class TerminalWebSocketManager {
 			this.removeClient(client);
 		}
 	}
+
+	resizePane(target: string, cols: number, rows: number): void {
+		try {
+			const safeCols = Math.max(20, Math.min(500, Math.floor(cols)));
+			const safeRows = Math.max(5, Math.min(200, Math.floor(rows)));
+			// Extract window target (session:window) from full target (session:window.pane)
+			const windowTarget = target.replace(/\.\d+$/, '');
+			// Use resize-window instead of resize-pane for detached sessions
+			execSync(`tmux resize-window -t "${windowTarget}" -x ${safeCols} -y ${safeRows}`, {
+				stdio: ['pipe', 'pipe', 'pipe'],
+				timeout: 2000
+			});
+		} catch {
+			// Pane may not exist or tmux error - ignore
+		}
+	}
 }
 
 // Global manager instances
@@ -275,8 +297,18 @@ export const websocket = {
 		}
 	},
 
-	message(_ws: WebSocket, _message: string | Buffer) {
-		// No client-to-server messages expected yet
+	message(ws: WebSocket, message: string | Buffer) {
+		const data = wsDataMap.get(ws);
+		if (!data || data.type !== 'terminal' || !data.target) return;
+
+		try {
+			const msg = JSON.parse(message.toString()) as ResizeMessage;
+			if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
+				terminalWsManager.resizePane(data.target, msg.cols, msg.rows);
+			}
+		} catch {
+			// Ignore malformed messages
+		}
 	},
 
 	close(ws: WebSocket) {

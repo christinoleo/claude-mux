@@ -118,8 +118,23 @@ function devWebSocket() {
 				}
 			}
 
-			// Create WebSocket server
-			wss = new WebSocketServer({ noServer: true });
+			function resizePane(target: string, cols: number, rows: number) {
+				try {
+					const safeCols = Math.max(20, Math.min(500, Math.floor(cols)));
+					const safeRows = Math.max(5, Math.min(200, Math.floor(rows)));
+					// Extract window target (session:window) from full target (session:window.pane)
+					const windowTarget = target.replace(/\.\d+$/, '');
+					execSync(`tmux resize-window -t "${windowTarget}" -x ${safeCols} -y ${safeRows}`, {
+						stdio: ['pipe', 'pipe', 'pipe'],
+						timeout: 2000
+					});
+				} catch {
+					// Pane may not exist or tmux error - ignore
+				}
+			}
+
+			// Create WebSocket server with compression enabled
+			wss = new WebSocketServer({ noServer: true, perMessageDeflate: true });
 
 			wss.on('connection', (ws, req) => {
 				const url = new URL(req.url || '', 'http://localhost');
@@ -173,6 +188,18 @@ function devWebSocket() {
 					// Send initial output
 					const output = capturePaneOutput(target) ?? '';
 					ws.send(JSON.stringify({ type: 'output', output, timestamp: Date.now() }));
+
+					// Handle resize messages
+					ws.on('message', (data) => {
+						try {
+							const msg = JSON.parse(data.toString());
+							if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
+								resizePane(target, msg.cols, msg.rows);
+							}
+						} catch {
+							// Ignore malformed messages
+						}
+					});
 
 					ws.on('close', () => {
 						const clients = terminalClients.get(target);

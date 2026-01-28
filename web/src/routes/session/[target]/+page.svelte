@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { browser } from '$app/environment';
 	import { onDestroy } from 'svelte';
 	import { terminalStore } from '$lib/stores/terminal.svelte';
 	import { sessionStore, stateColor } from '$lib/stores/sessions.svelte';
@@ -17,6 +18,48 @@
 	let textareaElement: HTMLTextAreaElement | null = $state(null);
 	let userScrolledUp = $state(false);
 	let showCopied = $state(false);
+	let measureCanvas: HTMLCanvasElement | null = null;
+
+	// Measure monospace character dimensions using canvas
+	function measureFont(): { width: number; height: number } {
+		if (!browser) return { width: 7.8, height: 18.2 };
+
+		if (!measureCanvas) measureCanvas = document.createElement('canvas');
+		const ctx = measureCanvas.getContext('2d');
+		if (!ctx) return { width: 7.8, height: 18.2 };
+
+		// Match CSS: font-family from .output, font-size: 13px, line-height: 1.4
+		ctx.font = "13px 'SF Mono', Monaco, 'Cascadia Code', monospace";
+		const width = ctx.measureText('M').width;
+		const height = 13 * 1.4; // 18.2px
+
+		return { width, height };
+	}
+
+	// Calculate terminal dimensions from output element
+	function calculateTerminalSize(): { cols: number; rows: number } | null {
+		if (!outputElement) return null;
+
+		// Padding is 16px on each side (from CSS .output)
+		const padding = 32;
+		const innerWidth = outputElement.clientWidth - padding;
+		const innerHeight = outputElement.clientHeight - padding;
+
+		if (innerWidth <= 0 || innerHeight <= 0) return null;
+
+		const { width: charW, height: charH } = measureFont();
+		const cols = Math.floor(innerWidth / charW);
+		const rows = Math.floor(innerHeight / charH);
+
+		if (cols < 10 || rows < 3) return null;
+		return { cols, rows };
+	}
+
+	// Send resize to server
+	function handleResize() {
+		const size = calculateTerminalSize();
+		if (size) terminalStore.sendResize(size.cols, size.rows);
+	}
 
 	// Connect to terminal when target changes (including initial mount)
 	$effect(() => {
@@ -138,6 +181,10 @@
 			<button onclick={copyTmuxCmd} title="Copy tmux attach command" class:copied={showCopied}>
 				<iconify-icon icon={showCopied ? "mdi:check" : "mdi:content-copy"}></iconify-icon>
 				<span>{showCopied ? 'Copied!' : 'Tmux'}</span>
+			</button>
+			<button onclick={handleResize} title="Resize tmux pane to fit viewport">
+				<iconify-icon icon="mdi:fit-to-screen"></iconify-icon>
+				<span>Fit</span>
 			</button>
 			<button onclick={() => sendKeys('Escape')} title="Send Escape key">
 				<iconify-icon icon="mdi:stop"></iconify-icon>

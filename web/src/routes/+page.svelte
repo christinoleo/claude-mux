@@ -201,21 +201,28 @@
 		{#each flatProjects() as project}
 			{@const color = getProjectColor(project.cwd)}
 			{@const isNested = project.depth > 0}
-			<div class="project-group" class:nested={isNested} style="margin-left: {project.depth * 24}px">
-				<div class="project-header" style="background: {color}20; color: {color}">
-					{#if isNested}
-						<span class="nest-indicator">└</span>
-					{/if}
-					<span class="dot" style="background: {color}"></span>
-					<span class="name">{getProjectName(project.cwd)}</span>
-					<span class="count-badge">{project.sessions.length}</span>
-					<div class="spacer"></div>
-					<button onclick={() => newSessionInProject(project.cwd)} title="New Session">
-						<iconify-icon icon="mdi:plus"></iconify-icon>
-					</button>
-					<button class="delete" onclick={() => deleteProject(project.cwd)} title="Delete Project">
-						<iconify-icon icon="mdi:delete"></iconify-icon>
-					</button>
+			{@const firstSession = project.sessions[0]}
+			<div class="project-group" class:nested={isNested} style="margin-left: {project.depth * 24}px; border-left-color: {color}">
+				<div class="project-header">
+					<div class="project-info">
+						{#if isNested}
+							<span class="nest-indicator">└</span>
+						{/if}
+						<span class="name">{getProjectName(project.cwd)}</span>
+						<div class="meta">
+							<span class="count-badge">{project.sessions.length}</span>
+							{#if firstSession?.git_root}<span class="badge git">git</span>{/if}
+							{#if firstSession?.beads_enabled}<span class="badge beads">beads</span>{/if}
+						</div>
+					</div>
+					<div class="project-actions">
+						<button onclick={() => newSessionInProject(project.cwd)} title="New Session">
+							<iconify-icon icon="mdi:plus"></iconify-icon>
+						</button>
+						<button class="delete" onclick={() => deleteProject(project.cwd)} title="Delete Project">
+							<iconify-icon icon="mdi:delete"></iconify-icon>
+						</button>
+					</div>
 				</div>
 				<div class="project-sessions">
 					{#each project.sessions as session}
@@ -378,6 +385,9 @@
 
 	.project-group {
 		margin-bottom: 20px;
+		border-left: 4px solid #666;
+		border-radius: 8px;
+		overflow: hidden;
 	}
 
 	.project-group.nested {
@@ -385,68 +395,85 @@
 		margin-top: -8px;
 	}
 
-	.nest-indicator {
-		font-family: monospace;
-		opacity: 0.5;
-		margin-right: 4px;
-	}
-
 	.project-header {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		padding: 10px 14px;
-		border-radius: 8px 8px 0 0;
-		font-weight: 700;
-		font-size: 16px;
+		justify-content: space-between;
+		padding: 12px 14px;
+		background: #252525;
 	}
 
-	.project-header .dot {
-		width: 12px;
-		height: 12px;
-		border-radius: 50%;
-		flex-shrink: 0;
+	.project-info {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+	}
+
+	.nest-indicator {
+		font-family: monospace;
+		color: #555;
+		margin-right: -4px;
 	}
 
 	.project-header .name {
-		flex: 1;
+		font-weight: 600;
+		font-size: 15px;
+		color: #eee;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.project-header .count-badge {
-		background: rgba(255, 255, 255, 0.2);
-		padding: 2px 8px;
-		border-radius: 12px;
-		font-size: 12px;
-	}
-
-	.project-header .spacer {
-		flex: 1;
-	}
-
-	.project-header button {
-		background: transparent;
-		border: none;
-		font-size: 18px;
-		cursor: pointer;
-		color: inherit;
-		opacity: 0.7;
-		padding: 4px;
+	.project-header .meta {
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		min-width: 32px;
-		min-height: 32px;
+		gap: 6px;
+		flex-shrink: 0;
 	}
 
-	.project-header button:hover {
+	.project-header .count-badge {
+		background: #333;
+		color: #999;
+		padding: 2px 7px;
+		border-radius: 10px;
+		font-size: 11px;
+		font-weight: 500;
+	}
+
+	.project-actions {
+		display: flex;
+		gap: 2px;
+		opacity: 0.5;
+		transition: opacity 0.15s;
+	}
+
+	.project-header:hover .project-actions {
 		opacity: 1;
 	}
 
-	.project-header button.delete:hover {
-		color: #e74c3c;
+	.project-actions button {
+		background: transparent;
+		border: none;
+		font-size: 16px;
+		cursor: pointer;
+		color: #888;
+		padding: 6px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+		transition: background 0.15s, color 0.15s;
+	}
+
+	.project-actions button:hover {
+		background: #333;
+		color: #fff;
+	}
+
+	.project-actions button.delete:hover {
+		background: #7f1d1d;
+		color: #fca5a5;
 	}
 
 	.project-sessions .session {
@@ -454,15 +481,12 @@
 		align-items: center;
 		gap: 12px;
 		padding: 16px;
+		padding-left: 12px;
 		background: #1a1a1a;
 		border-top: 1px solid #333;
 		text-decoration: none;
 		color: inherit;
 		border-left: 4px solid #444;
-	}
-
-	.project-sessions .session:last-child {
-		border-radius: 0 0 8px 8px;
 	}
 
 	.session.permission,
@@ -515,6 +539,23 @@
 		color: #666;
 		font-size: 12px;
 		font-style: italic;
+	}
+
+	.badge {
+		font-size: 10px;
+		padding: 2px 6px;
+		border-radius: 4px;
+		font-weight: 500;
+	}
+
+	.badge.git {
+		background: #3a2a2a;
+		color: #f07050;
+	}
+
+	.badge.beads {
+		background: #2a2a3a;
+		color: #a78bfa;
 	}
 
 	.empty-project {

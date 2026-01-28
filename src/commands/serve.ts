@@ -20,21 +20,50 @@ export async function runServe(options: ServeOptions): Promise<void> {
     mkdirSync(SESSIONS_DIR, { recursive: true });
   }
 
-  // Path to built SvelteKit server
-  const serverPath = join(__dirname, "..", "web", "index.js");
+  // Path to built SvelteKit handler
+  const handlerPath = join(__dirname, "..", "web", "handler.js");
 
-  if (!existsSync(serverPath)) {
-    console.error(`SvelteKit server not found at: ${serverPath}`);
+  if (!existsSync(handlerPath)) {
+    console.error(`SvelteKit handler not found at: ${handlerPath}`);
     console.error("Run 'bun run build' first.");
     process.exit(1);
   }
 
-  // Set environment variables for SvelteKit server
-  process.env.PORT = options.port;
-  process.env.HOST = options.host;
+  // Import the handler module
+  const { getHandler } = await import(handlerPath);
+  const { fetch: handlerFetch, websocket } = getHandler();
 
-  // Import and run the SvelteKit server (it auto-starts on import)
-  await import(serverPath);
+  // Start server with WebSocket compression enabled
+  const server = Bun.serve({
+    port: Number(options.port),
+    hostname: options.host,
+    fetch: handlerFetch,
+    // Enable perMessageDeflate for WebSocket compression (RFC 7692)
+    // This typically achieves 70-80% compression on JSON/text messages
+    ...(websocket
+      ? {
+          websocket: {
+            ...websocket,
+            perMessageDeflate: true,
+          },
+        }
+      : {}),
+  });
+
+  console.log(
+    `Listening on ${server.url}${websocket ? " with WebSocket (compression enabled)" : ""}`
+  );
+
+  // Graceful shutdown
+  const gracefulShutdown = async (signal: string): Promise<void> => {
+    console.info(`\nReceived ${signal}, stopping server...`);
+    await server.stop(true);
+    console.info("Server stopped");
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 }
 
 export function createServeCommand(): Command {

@@ -7,6 +7,8 @@ class TerminalStore {
 	private ws: WebSocket | null = null;
 	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	private target: string | null = null;
+	private resizeTimer: ReturnType<typeof setTimeout> | null = null;
+	private lastSentSize: { cols: number; rows: number } | null = null;
 
 	connect(target: string | null | undefined): void {
 		if (!browser || !target) return;
@@ -78,6 +80,13 @@ class TerminalStore {
 			this.reconnectTimer = null;
 		}
 
+		// Cancel resize timer
+		if (this.resizeTimer) {
+			clearTimeout(this.resizeTimer);
+			this.resizeTimer = null;
+		}
+		this.lastSentSize = null;
+
 		// Clear target before closing to prevent reconnect in onclose
 		this.target = null;
 		this.connected = false;
@@ -94,6 +103,24 @@ class TerminalStore {
 			}
 			this.ws = null;
 		}
+	}
+
+	sendResize(cols: number, rows: number): void {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+		// Skip if same as last sent
+		if (this.lastSentSize?.cols === cols && this.lastSentSize?.rows === rows) return;
+
+		// Debounce
+		if (this.resizeTimer) clearTimeout(this.resizeTimer);
+
+		this.resizeTimer = setTimeout(() => {
+			if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+				this.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+				this.lastSentSize = { cols, rows };
+			}
+			this.resizeTimer = null;
+		}, 150);
 	}
 }
 
