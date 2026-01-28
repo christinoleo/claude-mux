@@ -16,15 +16,15 @@
 	let outputElement: HTMLPreElement | null = $state(null);
 	let textareaElement: HTMLTextAreaElement | null = $state(null);
 	let userScrolledUp = $state(false);
+	let showCopied = $state(false);
 
 	onMount(() => {
-		sessionStore.connect();
+		// sessionStore is connected by the layout
 		terminalStore.connect(target);
 	});
 
 	onDestroy(() => {
 		terminalStore.disconnect();
-		sessionStore.disconnect();
 	});
 
 	// Track if user has scrolled up from bottom
@@ -91,7 +91,7 @@
 			body: JSON.stringify({ pid: currentSession.pid, tmux_target: currentSession.tmux_target })
 		});
 		showConfirmKill = false;
-		window.history.back();
+		window.location.href = '/';
 	}
 
 	function copyTmuxCmd() {
@@ -109,6 +109,8 @@
 			document.execCommand('copy');
 			document.body.removeChild(textarea);
 		}
+		showCopied = true;
+		setTimeout(() => { showCopied = false; }, 2000);
 	}
 </script>
 
@@ -129,14 +131,17 @@
 			<span class="target">{currentSession?.pane_title || target}</span>
 		</div>
 		<div class="header-actions">
-			<button onclick={copyTmuxCmd} title="Copy tmux attach command">
-				<iconify-icon icon="mdi:content-copy"></iconify-icon>
+			<button onclick={copyTmuxCmd} title="Copy tmux attach command" class:copied={showCopied}>
+				<iconify-icon icon={showCopied ? "mdi:check" : "mdi:content-copy"}></iconify-icon>
+				<span>{showCopied ? 'Copied!' : 'Tmux'}</span>
 			</button>
-			<button onclick={() => sendKeys('Escape')} title="Stop (Esc)">
+			<button onclick={() => sendKeys('Escape')} title="Send Escape key">
 				<iconify-icon icon="mdi:stop"></iconify-icon>
+				<span>Esc</span>
 			</button>
 			<button class="danger" onclick={() => (showConfirmKill = true)} title="Kill Session">
 				<iconify-icon icon="mdi:power"></iconify-icon>
+				<span>Kill</span>
 			</button>
 		</div>
 	</header>
@@ -204,7 +209,7 @@
 
 <style>
 	.container {
-		height: 100vh;
+		height: 100%;
 		display: flex;
 		flex-direction: column;
 		background: #000;
@@ -217,6 +222,13 @@
 		padding: 12px 16px;
 		background: #111;
 		border-bottom: 1px solid #222;
+	}
+
+	/* Make room for hamburger menu on mobile */
+	@media (max-width: 768px) {
+		.header {
+			padding-left: 64px;
+		}
 	}
 
 	.back {
@@ -256,26 +268,36 @@
 
 	.header-actions {
 		display: flex;
-		gap: 8px;
+		gap: 6px;
 	}
 
 	.header-actions button {
 		background: #333;
 		color: #fff;
 		border: none;
-		padding: 12px;
-		border-radius: 8px;
+		padding: 6px 8px;
+		border-radius: 6px;
 		cursor: pointer;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		font-size: 18px;
+		gap: 2px;
 		min-width: 44px;
-		min-height: 44px;
+	}
+
+	.header-actions button iconify-icon {
+		font-size: 18px;
+	}
+
+	.header-actions button span {
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		opacity: 0.8;
 	}
 
 	.header-actions button:hover {
-		color: #fff;
 		background: #444;
 	}
 
@@ -291,6 +313,11 @@
 	.header-actions button.danger:hover {
 		background: #991b1b;
 		color: #fff;
+	}
+
+	.header-actions button.copied {
+		background: #166534;
+		color: #4ade80;
 	}
 
 	.output {
