@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Box, useApp, useInput, useStdout } from "ink";
-import { Header, SessionList, StatusBar } from "./components/index.js";
+import { Header, HelpDialog, SessionList, StatusBar } from "./components/index.js";
 import { getTotalItemCount, getItemAtIndex } from "./components/SessionList.js";
 import {
   getAllSessions,
@@ -22,6 +22,7 @@ export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [tmuxSessions, setTmuxSessions] = useState<TmuxSession[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [showHelp, setShowHelp] = useState(false);
   const [inTmux] = useState(() => isInTmux());
   const [currentTmuxSession] = useState(() => getTmuxSessionName());
 
@@ -141,6 +142,17 @@ export function App() {
       return;
     }
 
+    if (input === "h") {
+      setShowHelp((prev) => !prev);
+      return;
+    }
+
+    // Dismiss help on any other key
+    if (showHelp) {
+      setShowHelp(false);
+      return;
+    }
+
     if (totalCount === 0) return;
 
     // Navigation
@@ -168,12 +180,16 @@ export function App() {
     <Box flexDirection="column" height={terminalHeight}>
       <Header claudeCount={sessions.length} tmuxCount={nonClaudeTmuxCount} />
       <Box borderStyle="single" borderTop={false} borderBottom={false} flexGrow={1}>
-        <SessionList
-          sessions={sessions}
-          tmuxSessions={tmuxSessions}
-          selectedIndex={selectedIndex}
-          width={terminalWidth - 2}
-        />
+        {showHelp ? (
+          <HelpDialog width={terminalWidth - 2} />
+        ) : (
+          <SessionList
+            sessions={sessions}
+            tmuxSessions={tmuxSessions}
+            selectedIndex={selectedIndex}
+            width={terminalWidth - 2}
+          />
+        )}
       </Box>
       <StatusBar inTmux={inTmux} />
     </Box>

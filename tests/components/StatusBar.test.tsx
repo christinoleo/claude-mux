@@ -8,10 +8,9 @@ describe("StatusBar", () => {
     const { lastFrame } = render(<StatusBar inTmux={true} />);
 
     const output = lastFrame();
-    expect(output).toContain("[Enter]");
-    expect(output).toContain("Go");
-    expect(output).toContain("[↑↓/jk]");
-    expect(output).toContain("Select");
+    expect(output).toContain("[h]");
+    expect(output).toContain("Help");
+    expect(output).toContain("[prefix+W]");
     expect(output).toContain("[q]");
     expect(output).toContain("Quit");
   });

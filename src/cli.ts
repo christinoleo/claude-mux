@@ -105,11 +105,14 @@ program
               // Already running, just switch to it
               needsCreate = false;
             } else {
-              // Session exists but claude-watch isn't running, kill and recreate
-              execSync(`tmux kill-session -t ${WATCH_SESSION}`, { stdio: "ignore" });
+              // Session exists but claude-watch isn't running — add a new window
+              execSync(`tmux new-window -t ${WATCH_SESSION} ${escapeArg(fullCmd)}`, { stdio: "ignore" });
+              needsCreate = false;
             }
           } catch {
-            execSync(`tmux kill-session -t ${WATCH_SESSION}`, { stdio: "ignore" });
+            // Can't list panes — add a new window in the existing session
+            execSync(`tmux new-window -t ${WATCH_SESSION} ${escapeArg(fullCmd)}`, { stdio: "ignore" });
+            needsCreate = false;
           }
         } catch {
           // Session doesn't exist
@@ -192,6 +195,26 @@ program
       } catch {
         // Stale or corrupt lock file, proceed
       }
+    }
+
+    // Move window and pane to base indices so claude-watch is always at the first position
+    try {
+      const baseIndex = execSync('tmux show-options -gv base-index', {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+      execSync(`tmux move-window -t ${baseIndex}`, { stdio: "ignore" });
+    } catch {
+      // Ignore - already at base index or move not possible
+    }
+    try {
+      const paneBaseIndex = execSync('tmux show-options -gv pane-base-index', {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+      execSync(`tmux swap-pane -t .${paneBaseIndex}`, { stdio: "ignore" });
+    } catch {
+      // Ignore - already at base pane index or swap not possible
     }
 
     // Write lock file

@@ -10,10 +10,8 @@ export function StatusBar({ inTmux }: StatusBarProps) {
   return (
     <Box borderStyle="single" borderTop={false} paddingX={1} justifyContent="space-between">
       <Text>
-        <Text color="cyan">[Enter]</Text>
-        <Text dimColor> Go </Text>
-        <Text color="cyan">[↑↓/jk]</Text>
-        <Text dimColor> Select </Text>
+        <Text color="cyan">[h]</Text>
+        <Text dimColor> Help </Text>
         <Text color="cyan">[q]</Text>
         <Text dimColor> Quit </Text>
         <Text color="cyan">[prefix+W]</Text>
