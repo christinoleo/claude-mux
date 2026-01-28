@@ -193,20 +193,27 @@
 	}
 
 	.header-actions button {
-		background: #222;
-		color: #888;
+		background: #333;
+		color: #fff;
 		border: none;
-		padding: 10px;
+		padding: 12px;
 		border-radius: 8px;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		font-size: 18px;
+		min-width: 44px;
+		min-height: 44px;
 	}
 
 	.header-actions button:hover {
 		color: #fff;
-		background: #333;
+		background: #444;
+	}
+
+	.header-actions button:active {
+		background: #555;
 	}
 
 	.header-actions button.danger {
@@ -235,40 +242,45 @@
 
 	.toolbar {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 8px;
 		padding: 12px 16px;
 		background: #111;
 		border-top: 1px solid #222;
-		overflow-x: auto;
 	}
 
 	.toolbar button {
-		background: #222;
-		color: #aaa;
+		background: #333;
+		color: #fff;
 		border: none;
-		padding: 10px 14px;
+		padding: 12px 16px;
 		border-radius: 8px;
 		cursor: pointer;
-		font-size: 14px;
+		font-size: 16px;
 		white-space: nowrap;
 		display: flex;
 		align-items: center;
+		justify-content: center;
 		gap: 4px;
+		min-height: 44px;
+		flex: 1 1 auto;
 	}
 
 	.toolbar button:hover {
-		background: #333;
-		color: #fff;
+		background: #444;
+	}
+
+	.toolbar button:active {
+		background: #555;
 	}
 
 	.toolbar button.danger {
-		background: #7f1d1d;
-		color: #fca5a5;
+		background: #991b1b;
+		color: #fff;
 	}
 
 	.toolbar button.danger:hover {
-		background: #991b1b;
-		color: #fff;
+		background: #b91c1c;
 	}
 
 	.input-row {
@@ -281,12 +293,18 @@
 
 	.input-row input {
 		flex: 1;
+		min-width: 0;
 		background: #222;
 		color: #fff;
-		border: none;
-		padding: 12px 16px;
+		border: 1px solid #333;
+		padding: 14px 16px;
 		border-radius: 8px;
 		font-size: 16px;
+	}
+
+	.input-row input:focus {
+		outline: none;
+		border-color: #27ae60;
 	}
 
 	.input-row input::placeholder {
@@ -297,15 +315,23 @@
 		background: #27ae60;
 		color: #fff;
 		border: none;
-		padding: 12px 16px;
+		padding: 14px 18px;
 		border-radius: 8px;
 		cursor: pointer;
 		display: flex;
 		align-items: center;
+		justify-content: center;
+		font-size: 18px;
+		min-width: 52px;
+		min-height: 48px;
 	}
 
 	.input-row button:hover {
 		background: #2ecc71;
+	}
+
+	.input-row button:active {
+		background: #229954;
 	}
 
 	/* Modal */
