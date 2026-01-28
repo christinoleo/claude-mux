@@ -15,3 +15,9 @@ AGENTS.md
 
 # Bun lockfile (using npm upstream)
 bun.lock
+
+# Beads runtime files
+.beads/daemon-error
+.beads/daemon.pid
+.beads/db.sqlite
+.beads/db.sqlite-*

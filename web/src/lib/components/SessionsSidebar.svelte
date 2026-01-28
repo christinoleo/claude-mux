@@ -107,6 +107,7 @@
 		text-decoration: none;
 		color: inherit;
 		margin-bottom: 4px;
+		position: relative;
 	}
 
 	.session-item:hover {
@@ -115,17 +116,26 @@
 
 	.session-item.active {
 		background: hsl(var(--accent));
-		border-left: 3px solid hsl(var(--primary));
-		padding-left: 9px;
+	}
+
+	.session-item.active::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		top: 4px;
+		bottom: 4px;
+		width: 3px;
+		background: hsl(var(--primary));
+		border-radius: 0 2px 2px 0;
 	}
 
 	.icon-slot {
 		width: 18px;
-		height: 18px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		flex-shrink: 0;
+		align-self: center;
 	}
 
 	.state-dot {
