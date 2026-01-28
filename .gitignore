@@ -10,8 +10,7 @@ private/
 # Claude Code settings
 .claude/
 
-# Beads issue tracking (local)
-.beads/
+# Legacy agents file
 AGENTS.md
 
 # Bun lockfile (using npm upstream)

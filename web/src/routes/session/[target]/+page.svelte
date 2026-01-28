@@ -14,6 +14,7 @@
 	let textInput = $state('');
 	let showConfirmKill = $state(false);
 	let outputElement: HTMLPreElement | null = $state(null);
+	let textareaElement: HTMLTextAreaElement | null = $state(null);
 	let userScrolledUp = $state(false);
 
 	onMount(() => {
@@ -61,6 +62,23 @@
 			body: JSON.stringify({ text: textInput })
 		});
 		textInput = '';
+		// Reset textarea height after sending
+		if (textareaElement) {
+			textareaElement.style.height = 'auto';
+		}
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault();
+			sendText();
+		}
+	}
+
+	function autoResize() {
+		if (!textareaElement) return;
+		textareaElement.style.height = 'auto';
+		textareaElement.style.height = Math.min(textareaElement.scrollHeight, 150) + 'px';
 	}
 
 	async function killSession() {
@@ -94,6 +112,9 @@
 
 <svelte:head>
 	<title>{target}</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+	<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </svelte:head>
 
 <div class="container">
@@ -137,7 +158,14 @@
 	</div>
 
 	<form class="input-row" onsubmit={(e) => { e.preventDefault(); sendText(); }}>
-		<input type="text" bind:value={textInput} placeholder="Type a message..." />
+		<textarea
+			bind:this={textareaElement}
+			bind:value={textInput}
+			placeholder="Type a message..."
+			rows="1"
+			onkeydown={handleKeydown}
+			oninput={autoResize}
+		></textarea>
 		<button type="submit">
 			<iconify-icon icon="mdi:send"></iconify-icon>
 		</button>
@@ -313,7 +341,7 @@
 		border-top: 1px solid #222;
 	}
 
-	.input-row input {
+	.input-row textarea {
 		flex: 1;
 		min-width: 0;
 		background: #222;
@@ -321,15 +349,23 @@
 		border: 1px solid #333;
 		padding: 14px 16px;
 		border-radius: 8px;
-		font-size: 16px;
+		font-size: 14px;
+		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, 'Cascadia Code', monospace;
+		line-height: 1.4;
+		resize: none;
+		overflow-y: auto;
+		overflow-x: hidden;
+		max-height: 150px;
+		white-space: pre-wrap;
+		word-wrap: break-word;
 	}
 
-	.input-row input:focus {
+	.input-row textarea:focus {
 		outline: none;
 		border-color: #27ae60;
 	}
 
-	.input-row input::placeholder {
+	.input-row textarea::placeholder {
 		color: #666;
 	}
 
