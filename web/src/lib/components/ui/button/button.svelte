@@ -15,6 +15,7 @@
 				secondary: "bg-[#222] text-stone-100 hover:bg-[#333] shadow-xs",
 				ghost: "text-stone-400 hover:bg-[#222] hover:text-stone-100",
 				"ghost-destructive": "bg-red-900 text-red-300 hover:bg-red-800 hover:text-white",
+				warning: "bg-amber-700 text-amber-100 hover:bg-amber-600 shadow-xs",
 				success: "bg-emerald-600 text-white hover:bg-emerald-500 active:bg-emerald-700 shadow-xs",
 				link: "text-primary underline-offset-4 hover:underline",
 			},

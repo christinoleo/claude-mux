@@ -9,6 +9,13 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 
+	interface TmuxPane {
+		target: string;
+		session: string;
+		command: string;
+	}
+
+	let tmuxPanes = $state<TmuxPane[]>([]);
 	let showFolderBrowser = $state(false);
 	let browserPath = $state('');
 	let browserFolders = $state<{ name: string; path: string }[]>([]);
@@ -118,8 +125,24 @@
 
 	const flatProjects = $derived.by(() => flattenTree(projectTree));
 
+	// Filter tmux panes to exclude Claude sessions
+	const otherTmuxPanes = $derived.by(() => {
+		const claudeTargets = new Set(sessionStore.sessions.map(s => s.tmux_target));
+		return tmuxPanes.filter(p => !claudeTargets.has(p.target));
+	});
+
+	async function fetchTmuxPanes() {
+		try {
+			const res = await fetch('/api/tmux/panes');
+			tmuxPanes = await res.json();
+		} catch {
+			tmuxPanes = [];
+		}
+	}
+
 	onMount(() => {
 		sessionStore.loadSavedProjects();
+		fetchTmuxPanes();
 		// sessionStore.connect() is handled by the layout
 	});
 
@@ -300,6 +323,28 @@
 				</div>
 			</div>
 		{/each}
+	{/if}
+
+	{#if otherTmuxPanes.length > 0}
+		<div class="other-tmux">
+			<div class="other-tmux-header">
+				<h2>Other tmux</h2>
+				<Button variant="ghost" size="icon-sm" onclick={fetchTmuxPanes} title="Refresh">
+					<iconify-icon icon="mdi:refresh"></iconify-icon>
+				</Button>
+			</div>
+			<div class="other-tmux-list">
+				{#each otherTmuxPanes as pane}
+					<a href="/session/{encodeURIComponent(pane.target)}" class="tmux-pane">
+						<iconify-icon icon="mdi:console" class="pane-icon"></iconify-icon>
+						<div class="pane-info">
+							<span class="pane-target">{pane.target}</span>
+							<span class="pane-command">{pane.command}</span>
+						</div>
+					</a>
+				{/each}
+			</div>
+		</div>
 	{/if}
 </div>
 
@@ -551,5 +596,72 @@
 
 	.fb-item:hover {
 		background: hsl(var(--accent));
+	}
+
+	/* Other tmux section */
+	.other-tmux {
+		margin-top: 32px;
+		padding-top: 24px;
+		border-top: 1px solid #333;
+	}
+
+	.other-tmux-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 12px;
+	}
+
+	.other-tmux-header h2 {
+		font-size: 16px;
+		font-weight: 600;
+		color: hsl(var(--muted-foreground));
+		margin: 0;
+	}
+
+	.other-tmux-list {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.tmux-pane {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 10px 14px;
+		background: #1a1a1a;
+		border-radius: 6px;
+		text-decoration: none;
+		color: inherit;
+		transition: background 0.15s;
+	}
+
+	.tmux-pane:hover {
+		background: #252525;
+	}
+
+	.pane-icon {
+		color: hsl(var(--muted-foreground));
+		font-size: 18px;
+		flex-shrink: 0;
+	}
+
+	.pane-info {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		min-width: 0;
+	}
+
+	.pane-target {
+		font-family: monospace;
+		font-size: 13px;
+		color: hsl(var(--foreground));
+	}
+
+	.pane-command {
+		font-size: 13px;
+		color: hsl(var(--muted-foreground));
 	}
 </style>
