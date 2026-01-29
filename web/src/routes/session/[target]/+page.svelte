@@ -158,19 +158,6 @@
 		goto('/');
 	}
 
-	async function restartSession() {
-		if (!currentSession) return;
-		await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/restart`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				pid: currentSession.pid,
-				tmux_target: currentSession.tmux_target,
-				cwd: currentSession.cwd
-			})
-		});
-	}
-
 	function copyTmuxCmd() {
 		if (!target) return;
 		const cmd = `tmux attach -t "${target.split(':')[0]}"`;
@@ -261,10 +248,6 @@
 		}}>
 			<iconify-icon icon="mdi:broom"></iconify-icon>
 			<span>/clear</span>
-		</Button>
-		<Button variant="warning" size="toolbar" class="flex-1" onclick={restartSession} title="Kill and restart Claude (fresh RAM)">
-			<iconify-icon icon="mdi:restart"></iconify-icon>
-			<span>Restart</span>
 		</Button>
 		<Button variant="ghost-destructive" size="toolbar" class="flex-1" onclick={() => sendKeys('C-c')}>
 			<iconify-icon icon="mdi:cancel"></iconify-icon>
