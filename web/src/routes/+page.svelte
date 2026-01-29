@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { sessionStore, stateColor, getProjectColor, type Session } from '$lib/stores/sessions.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
@@ -156,12 +157,17 @@
 	}
 
 	async function newSessionInProject(cwd: string) {
-		await fetch('/api/projects/new-session', {
+		const res = await fetch('/api/projects/new-session', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ cwd })
 		});
+		const data = await res.json();
 		sessionStore.saveProject(cwd);
+		if (data.ok && data.session) {
+			const tmuxTarget = data.session + ':1.1';
+			goto(`/session/${encodeURIComponent(tmuxTarget)}`);
+		}
 	}
 
 	async function openFolderBrowser() {

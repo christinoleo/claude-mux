@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { sessionStore, stateColor } from '$lib/stores/sessions.svelte';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Button } from '$lib/components/ui/button';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 
 	interface Props {
@@ -25,6 +27,23 @@
 		const parts = cwd.split('/').filter(Boolean);
 		return parts[parts.length - 1] || null;
 	});
+
+	async function newSession() {
+		const cwd = currentSession?.cwd || currentSession?.git_root;
+		if (!cwd) return;
+
+		const res = await fetch('/api/projects/new-session', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ cwd })
+		});
+		const data = await res.json();
+		if (data.ok && data.session) {
+			const tmuxTarget = data.session + ':1.1';
+			onSelect?.();
+			goto(`/session/${encodeURIComponent(tmuxTarget)}`);
+		}
+	}
 </script>
 
 <nav class="sidebar-sessions">
@@ -34,6 +53,11 @@
 			<span>{projectName() || 'Sessions'}</span>
 			<Badge variant="secondary" class="ml-auto">{sessionStore.sessions.length}</Badge>
 		</a>
+		{#if currentSession?.cwd}
+			<Button variant="ghost" size="icon-sm" onclick={newSession} title="New session in this project" class="new-session-btn">
+				<iconify-icon icon="mdi:plus"></iconify-icon>
+			</Button>
+		{/if}
 	</div>
 
 	<ScrollArea class="flex-1">
@@ -92,6 +116,11 @@
 
 	.home-link:hover {
 		background: hsl(var(--accent));
+	}
+
+	.new-session-btn {
+		margin-top: 8px;
+		width: 100%;
 	}
 
 	.sessions-list {
