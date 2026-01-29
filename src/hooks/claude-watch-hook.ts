@@ -285,9 +285,34 @@ function handleSessionStart(input: HookInput): void {
   writeSession(session);
 }
 
+function getOrCreateSession(input: HookInput): Session {
+  const existing = readSession(input.session_id);
+  if (existing) return existing;
+
+  // Session doesn't exist (e.g., resumed session) - create it
+  const tmuxTarget = getTmuxTarget();
+  if (tmuxTarget) {
+    deleteSessionsByTmuxTarget(tmuxTarget, input.session_id);
+  }
+
+  const gitRoot = getGitRoot(input.cwd);
+  return {
+    v: SCHEMA_VERSION,
+    id: input.session_id,
+    pid: getClaudePid(),
+    cwd: input.cwd,
+    git_root: gitRoot,
+    beads_enabled: isBeadsEnabled(gitRoot),
+    tmux_target: tmuxTarget,
+    state: "idle",
+    current_action: null,
+    prompt_text: null,
+    last_update: Date.now(),
+  };
+}
+
 function handleUserPromptSubmit(input: HookInput): void {
-  const session = readSession(input.session_id);
-  if (!session) return;
+  const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
@@ -297,8 +322,7 @@ function handleUserPromptSubmit(input: HookInput): void {
 }
 
 function handleStop(input: HookInput): void {
-  const session = readSession(input.session_id);
-  if (!session) return;
+  const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "idle";
@@ -308,8 +332,7 @@ function handleStop(input: HookInput): void {
 }
 
 function handlePermissionRequest(input: HookInput): void {
-  const session = readSession(input.session_id);
-  if (!session) return;
+  const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "waiting";
@@ -319,8 +342,7 @@ function handlePermissionRequest(input: HookInput): void {
 }
 
 function handleNotificationIdle(input: HookInput): void {
-  const session = readSession(input.session_id);
-  if (!session) return;
+  const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "idle";
@@ -330,8 +352,7 @@ function handleNotificationIdle(input: HookInput): void {
 }
 
 function handleNotificationPermission(input: HookInput): void {
-  const session = readSession(input.session_id);
-  if (!session) return;
+  const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "permission";
@@ -341,8 +362,7 @@ function handleNotificationPermission(input: HookInput): void {
 }
 
 function handleNotificationElicitation(input: HookInput): void {
-  const session = readSession(input.session_id);
-  if (!session) return;
+  const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "waiting";
@@ -352,8 +372,7 @@ function handleNotificationElicitation(input: HookInput): void {
 }
 
 function handlePreToolUse(input: HookInput): void {
-  const session = readSession(input.session_id);
-  if (!session) return;
+  const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
@@ -365,8 +384,7 @@ function handlePreToolUse(input: HookInput): void {
 }
 
 function handlePostToolUse(input: HookInput): void {
-  const session = readSession(input.session_id);
-  if (!session) return;
+  const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
@@ -376,8 +394,7 @@ function handlePostToolUse(input: HookInput): void {
 }
 
 function handlePostToolUseFailure(input: HookInput): void {
-  const session = readSession(input.session_id);
-  if (!session) return;
+  const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
