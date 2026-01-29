@@ -39,6 +39,15 @@
 		return parts[parts.length - 1] || null;
 	});
 
+	// Filter sessions to only show those from the same project
+	const projectSessions = $derived.by(() => {
+		const projectRoot = currentSession?.git_root || currentSession?.cwd;
+		if (!projectRoot) return sessionStore.sessions;
+		return sessionStore.sessions.filter(
+			(s) => s.git_root === projectRoot || s.cwd === projectRoot
+		);
+	});
+
 	async function newSession() {
 		const cwd = currentSession?.cwd || currentSession?.git_root;
 		if (!cwd) return;
@@ -84,7 +93,7 @@
 			<button class="panel-header" onclick={toggleSessionsExpanded} type="button">
 				<iconify-icon icon="mdi:console"></iconify-icon>
 				<span>Sessions</span>
-				<Badge variant="outline" class="ml-auto session-count">{sessionStore.sessions.length}</Badge>
+				<Badge variant="outline" class="ml-auto session-count">{projectSessions.length}</Badge>
 				<iconify-icon
 					icon={sessionsExpanded ? 'mdi:chevron-down' : 'mdi:chevron-right'}
 					class="chevron"
@@ -93,7 +102,7 @@
 
 			{#if sessionsExpanded}
 				<div class="sessions-list">
-					{#each sessionStore.sessions as session (session.id)}
+					{#each projectSessions as session (session.id)}
 						{#if session.tmux_target}
 							<a
 								href="/session/{encodeURIComponent(session.tmux_target)}"

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { page } from '$app/stores';
+	import { browser } from '$app/environment';
 	import { onMount, onDestroy } from 'svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
 	import SessionsSidebar from '$lib/components/SessionsSidebar.svelte';
@@ -13,17 +14,60 @@
 	let touchCurrentX = 0;
 	let isDragging = false;
 
+	// Resizable sidebar state
+	const SIDEBAR_WIDTH_KEY = 'claude-watch-sidebar-width';
+	const MIN_WIDTH = 200;
+	const MAX_WIDTH = 500;
+	const DEFAULT_WIDTH = 250;
+
+	let sidebarWidth = $state(DEFAULT_WIDTH);
+	let isResizing = $state(false);
+
 	// Show sidebar only on session detail pages (not on main page)
 	const showSidebar = $derived($page.url.pathname.startsWith('/session/'));
 
 	// Connect session store at layout level so sidebar always has data
 	onMount(() => {
 		sessionStore.connect();
+		// Load saved sidebar width
+		if (browser) {
+			const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+			if (saved) {
+				const width = parseInt(saved, 10);
+				if (width >= MIN_WIDTH && width <= MAX_WIDTH) {
+					sidebarWidth = width;
+				}
+			}
+		}
 	});
 
 	onDestroy(() => {
 		sessionStore.disconnect();
 	});
+
+	// Resize handlers
+	function handleResizeStart(e: MouseEvent) {
+		e.preventDefault();
+		isResizing = true;
+		document.addEventListener('mousemove', handleResizeMove);
+		document.addEventListener('mouseup', handleResizeEnd);
+	}
+
+	function handleResizeMove(e: MouseEvent) {
+		if (!isResizing) return;
+		const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX));
+		sidebarWidth = newWidth;
+	}
+
+	function handleResizeEnd() {
+		isResizing = false;
+		document.removeEventListener('mousemove', handleResizeMove);
+		document.removeEventListener('mouseup', handleResizeEnd);
+		// Save to localStorage
+		if (browser) {
+			localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
+		}
+	}
 
 	function closeDrawer() {
 		drawerOpen = false;
@@ -69,12 +113,20 @@
 		<aside
 			class="sidebar"
 			class:open={drawerOpen}
+			class:resizing={isResizing}
+			style="--sidebar-width: {sidebarWidth}px"
 			bind:this={sidebarElement}
 			ontouchstart={handleTouchStart}
 			ontouchmove={handleTouchMove}
 			ontouchend={handleTouchEnd}
 		>
 			<SessionsSidebar onSelect={closeDrawer} />
+			<div
+				class="resize-handle"
+				onmousedown={handleResizeStart}
+				role="separator"
+				aria-orientation="vertical"
+			></div>
 		</aside>
 
 		{#if drawerOpen}
@@ -122,12 +174,38 @@
 		overflow: hidden;
 	}
 
+	.app-shell:has(.sidebar.resizing) {
+		cursor: col-resize;
+		user-select: none;
+	}
+
 	.sidebar {
-		width: 250px;
+		width: var(--sidebar-width, 250px);
 		flex-shrink: 0;
 		background: hsl(var(--background));
 		border-right: 1px solid hsl(var(--border));
 		overflow: hidden;
+		position: relative;
+	}
+
+	.sidebar.resizing {
+		user-select: none;
+	}
+
+	.resize-handle {
+		position: absolute;
+		top: 0;
+		right: 0;
+		width: 4px;
+		height: 100%;
+		cursor: col-resize;
+		background: transparent;
+		transition: background 0.15s;
+	}
+
+	.resize-handle:hover,
+	.sidebar.resizing .resize-handle {
+		background: hsl(var(--primary) / 0.5);
 	}
 
 	.content {
@@ -151,6 +229,7 @@
 			left: 0;
 			top: 0;
 			bottom: 0;
+			width: 100% !important;
 			z-index: 60;
 			transform: translateX(-100%);
 			transition: transform 0.2s ease;
@@ -161,6 +240,10 @@
 
 		.sidebar.open {
 			transform: translateX(0);
+		}
+
+		.resize-handle {
+			display: none;
 		}
 
 		.hamburger {
