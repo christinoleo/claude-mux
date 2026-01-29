@@ -265,14 +265,6 @@
 								</div>
 								<div class="actions">
 									<Button
-										variant="secondary"
-										size="icon-sm"
-										onclick={(e: MouseEvent) => { e.preventDefault(); sendKeys(session.tmux_target!, 'Escape'); }}
-										title="Stop (Esc)"
-									>
-										<iconify-icon icon="mdi:stop"></iconify-icon>
-									</Button>
-									<Button
 										variant="ghost-destructive"
 										size="icon-sm"
 										onclick={(e: MouseEvent) => { e.preventDefault(); killSession(session.id, session.pid, session.tmux_target); }}
