@@ -60,8 +60,6 @@ export interface SessionUpdate {
   state?: SessionState;
   current_action?: string | null;
   prompt_text?: string | null;
-  cwd?: string;
-  git_root?: string | null;
 }
 
 /**
@@ -143,12 +141,6 @@ export function updateSession(id: string, update: SessionUpdate): void {
   }
   if (update.prompt_text !== undefined) {
     session.prompt_text = update.prompt_text;
-  }
-  if (update.cwd !== undefined) {
-    session.cwd = update.cwd;
-  }
-  if (update.git_root !== undefined) {
-    session.git_root = update.git_root;
   }
   session.last_update = Date.now();
 

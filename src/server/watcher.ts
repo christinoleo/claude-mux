@@ -1,4 +1,4 @@
-import { watch, type FSWatcher } from "chokidar";
+import { readdirSync, statSync } from "fs";
 import { SESSIONS_DIR } from "../utils/paths.js";
 import { join } from "path";
 
@@ -6,72 +6,93 @@ export interface WatcherCallback {
   (): void;
 }
 
+/**
+ * Simple polling-based file watcher for session JSON files.
+ * More reliable than inotify for long-running processes.
+ */
 class SessionWatcher {
-  private watcher: FSWatcher | null = null;
   private subscribers = new Set<WatcherCallback>();
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private usePolling = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private lastState = new Map<string, number>(); // filename -> mtime
+  private readonly pollInterval = 500;
 
-  start(): void {
-    if (this.watcher) return;
+  private start(): void {
+    if (this.pollTimer) return;
 
+    console.log("[watcher] Started polling", SESSIONS_DIR, `(${this.pollInterval}ms)`);
+
+    // Initialize state
+    this.updateState();
+
+    this.pollTimer = setInterval(() => {
+      if (this.checkForChanges()) {
+        this.notifySubscribers();
+      }
+    }, this.pollInterval);
+  }
+
+  private updateState(): void {
+    this.lastState.clear();
     try {
-      this.watcher = watch(join(SESSIONS_DIR, "*.json"), {
-        persistent: true,
-        ignoreInitial: true,
-        usePolling: this.usePolling,
-        interval: this.usePolling ? 500 : undefined,
-        awaitWriteFinish: {
-          stabilityThreshold: 100,
-          pollInterval: 50,
-        },
-      });
-
-      this.watcher
-        .on("add", () => this.notifyChange())
-        .on("change", () => this.notifyChange())
-        .on("unlink", () => this.notifyChange())
-        .on("error", (error) => {
-          console.error("[watcher] Error:", error);
-          // Fallback to polling on error
-          if (!this.usePolling) {
-            this.usePolling = true;
-            this.restart();
-          }
-        });
-
-      console.log("[watcher] Started watching", SESSIONS_DIR);
-    } catch (error) {
-      console.error("[watcher] Failed to start, falling back to polling:", error);
-      this.startPollingFallback();
+      const files = readdirSync(SESSIONS_DIR);
+      for (const file of files) {
+        if (!file.endsWith(".json")) continue;
+        try {
+          const stat = statSync(join(SESSIONS_DIR, file));
+          this.lastState.set(file, stat.mtimeMs);
+        } catch {
+          // File may have been deleted
+        }
+      }
+    } catch {
+      // Directory may not exist yet
     }
   }
 
-  private startPollingFallback(): void {
-    if (this.pollTimer) return;
+  private checkForChanges(): boolean {
+    const newState = new Map<string, number>();
+    let changed = false;
 
-    console.log("[watcher] Using polling fallback (500ms)");
-    let lastCheck = Date.now();
+    try {
+      const files = readdirSync(SESSIONS_DIR);
+      for (const file of files) {
+        if (!file.endsWith(".json")) continue;
+        try {
+          const stat = statSync(join(SESSIONS_DIR, file));
+          newState.set(file, stat.mtimeMs);
 
-    this.pollTimer = setInterval(() => {
-      const now = Date.now();
-      if (now - lastCheck >= 500) {
-        lastCheck = now;
-        this.notifySubscribers();
+          const oldMtime = this.lastState.get(file);
+          if (oldMtime === undefined) {
+            // New file
+            console.log("[watcher] File added:", file);
+            changed = true;
+          } else if (oldMtime !== stat.mtimeMs) {
+            // Modified file
+            console.log("[watcher] File changed:", file);
+            changed = true;
+          }
+        } catch {
+          // File may have been deleted during iteration
+        }
       }
-    }, 500);
-  }
 
-  private notifyChange(): void {
-    // Debounce rapid changes
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
-      this.notifySubscribers();
-    }, 50);
+      // Check for deleted files
+      for (const file of this.lastState.keys()) {
+        if (!newState.has(file)) {
+          console.log("[watcher] File removed:", file);
+          changed = true;
+        }
+      }
+    } catch {
+      // Directory may not exist
+    }
+
+    this.lastState = newState;
+    return changed;
   }
 
   private notifySubscribers(): void {
+    console.log("[watcher] Notifying", this.subscribers.size, "subscribers");
     for (const callback of this.subscribers) {
       try {
         callback();
@@ -95,24 +116,12 @@ class SessionWatcher {
   }
 
   private stop(): void {
-    if (this.watcher) {
-      this.watcher.close();
-      this.watcher = null;
-    }
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-    if (this.debounceTimer) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
+    this.lastState.clear();
     console.log("[watcher] Stopped");
-  }
-
-  private restart(): void {
-    this.stop();
-    this.start();
   }
 }
 

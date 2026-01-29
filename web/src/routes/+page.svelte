@@ -15,16 +15,6 @@
 	let browserIsRoot = $state(false);
 	let browserParent = $state<string | null>(null);
 
-	// Relocate dialog state
-	let showRelocateDialog = $state(false);
-	let relocateSessionId = $state<string | null>(null);
-	let relocatePath = $state('');
-	let relocateFolders = $state<{ name: string; path: string }[]>([]);
-	let relocateShowHidden = $state(false);
-	let relocateIsRoot = $state(false);
-	let relocateParent = $state<string | null>(null);
-	let relocateError = $state('');
-
 	// AlertDialog state
 	let alertOpen = $state(false);
 	let alertTitle = $state('');
@@ -203,42 +193,6 @@
 	function getProjectName(cwd: string): string {
 		return cwd.split('/').pop() || cwd;
 	}
-
-	async function openRelocateDialog(sessionId: string, currentCwd: string) {
-		relocateSessionId = sessionId;
-		showRelocateDialog = true;
-		await relocateBrowseTo(currentCwd);
-	}
-
-	async function relocateBrowseTo(path: string) {
-		relocateError = '';
-		const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}&showHidden=${relocateShowHidden}`);
-		const data = await res.json();
-		if (data.error) {
-			relocateError = data.error;
-			return;
-		}
-		relocatePath = data.current;
-		relocateFolders = data.folders;
-		relocateIsRoot = data.isRoot;
-		relocateParent = data.parent;
-	}
-
-	async function confirmRelocate() {
-		if (!relocateSessionId) return;
-		const res = await fetch(`/api/sessions/${encodeURIComponent(relocateSessionId)}`, {
-			method: 'PATCH',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ cwd: relocatePath })
-		});
-		const data = await res.json();
-		if (data.error) {
-			relocateError = data.error;
-			return;
-		}
-		showRelocateDialog = false;
-		relocateSessionId = null;
-	}
 </script>
 
 <svelte:head>
@@ -304,14 +258,6 @@
 									<div class="action">{session.current_action || session.state}</div>
 								</div>
 								<div class="actions">
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										onclick={(e: MouseEvent) => { e.preventDefault(); openRelocateDialog(session.id, session.cwd); }}
-										title="Move to different project"
-									>
-										<iconify-icon icon="mdi:folder-move"></iconify-icon>
-									</Button>
 									<Button
 										variant="secondary"
 										size="icon-sm"
@@ -409,44 +355,6 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
-
-<Dialog.Root bind:open={showRelocateDialog}>
-	<Dialog.Content class="max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>Move Session to Project</Dialog.Title>
-		</Dialog.Header>
-		<div class="fb-path">
-			{relocatePath}
-		</div>
-		{#if relocateError}
-			<p class="text-sm text-destructive">{relocateError}</p>
-		{/if}
-		<div class="flex items-center gap-2 py-2">
-			<Checkbox id="relocate-show-hidden" checked={relocateShowHidden} onCheckedChange={(v) => { relocateShowHidden = !!v; relocateBrowseTo(relocatePath); }} />
-			<label for="relocate-show-hidden" class="text-sm text-muted-foreground cursor-pointer">Show hidden</label>
-		</div>
-		<ScrollArea class="h-64 rounded-md border">
-			<div class="p-2">
-				{#if !relocateIsRoot && relocateParent}
-					<button class="fb-item" onclick={() => relocateBrowseTo(relocateParent!)}>
-						<iconify-icon icon="mdi:folder-arrow-up"></iconify-icon>
-						..
-					</button>
-				{/if}
-				{#each relocateFolders as folder}
-					<button class="fb-item" onclick={() => relocateBrowseTo(folder.path)}>
-						<iconify-icon icon="mdi:folder"></iconify-icon>
-						{folder.name}
-					</button>
-				{/each}
-			</div>
-		</ScrollArea>
-		<Dialog.Footer>
-			<Button variant="outline" onclick={() => showRelocateDialog = false}>Cancel</Button>
-			<Button onclick={confirmRelocate}>Move Here</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
 
 <style>
 	.container {

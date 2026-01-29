@@ -20,24 +20,6 @@ export function getPaneTitle(target: string): string | null {
 }
 
 /**
- * Get the current working directory of a tmux pane.
- * @param target - The tmux target in format "session:window.pane"
- * @returns The pane's current path, or null if failed
- */
-export function getPanePath(target: string): string | null {
-  try {
-    const result = execFileSync("tmux", ["display-message", "-p", "-t", target, "#{pane_current_path}"], {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 1000,
-    });
-    return result.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Capture the contents of a tmux pane.
  * @param target - The tmux target in format "session:window.pane"
  * @returns The pane contents as a string, or null if capture failed

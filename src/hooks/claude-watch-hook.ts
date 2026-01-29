@@ -24,7 +24,7 @@ import {
   unlinkSync,
   readdirSync,
 } from "fs";
-import { dirname, isAbsolute, join } from "path";
+import { join } from "path";
 import { homedir } from "os";
 
 // Paths
@@ -360,18 +360,6 @@ function handlePreToolUse(input: HookInput): void {
   session.current_action = input.tool_name
     ? formatToolAction(input.tool_name, input.tool_input)
     : "Working...";
-
-  // Update cwd/git_root based on file operations
-  const filePath = input.tool_input?.file_path;
-  if (filePath && isAbsolute(filePath)) {
-    const fileGitRoot = getGitRoot(dirname(filePath));
-    if (fileGitRoot && fileGitRoot !== session.git_root) {
-      session.cwd = fileGitRoot;
-      session.git_root = fileGitRoot;
-      session.beads_enabled = isBeadsEnabled(fileGitRoot);
-    }
-  }
-
   session.last_update = Date.now();
   writeSession(session);
 }

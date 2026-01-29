@@ -43,6 +43,11 @@ function devWebSocket() {
 			// Create WebSocket server with compression enabled
 			wss = new WebSocketServer({ noServer: true, perMessageDeflate: true });
 
+			// Handle WebSocketServer-level errors
+			wss.on('error', (error) => {
+				console.error('[wss] WebSocketServer error:', error.message);
+			});
+
 			wss.on('connection', (ws, req) => {
 				const url = new URL(req.url || '', 'http://localhost');
 				const parsed = parseWsPath(url.pathname);
@@ -53,6 +58,12 @@ function devWebSocket() {
 				}
 
 				const client = createClient(ws);
+
+				// Handle WebSocket errors to prevent server crashes
+				ws.on('error', (error) => {
+					console.error('[ws] WebSocket error:', error.message);
+					// Don't rethrow - just clean up
+				});
 
 				if (parsed.type === 'sessions') {
 					const accepted = sessionsWsManager.addClient(client);

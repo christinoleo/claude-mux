@@ -47,7 +47,7 @@ The hook script (`src/hooks/claude-watch-hook.ts`) runs inside Claude Code's pro
 
 ### 2. SvelteKit Web Server + WebSocket
 The web server (`web/`) is built with SvelteKit and svelte-adapter-bun:
-- **File watcher** (`src/server/watcher.ts`): Uses chokidar to watch JSON files with polling fallback
+- **File watcher** (`src/server/watcher.ts`): Polls JSON files for changes (500ms interval)
 - **WebSocket channels**: Real-time updates for sessions list and terminal output
 - **API routes**: REST endpoints for session management, tmux control, folder browsing
 - **Hooks** (`web/src/hooks.server.ts`): WebSocket upgrade handling, session managers
@@ -60,7 +60,7 @@ The web server (`web/`) is built with SvelteKit and svelte-adapter-bun:
 ```
 Claude Code events → stdin → hook script → JSON files (~/.claude-watch/sessions/)
                                                 ↓
-                                    chokidar file watcher (or polling fallback)
+                                    file watcher (500ms polling)
                                                 ↓
                                     WebSocket broadcast to clients
                                                 ↓

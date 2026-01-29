@@ -226,7 +226,10 @@ export class SessionsWsManager {
 		);
 
 		if (this.clients.size === 1 && !this.unsubscribe) {
+			console.log('[ws:sessions] First client, subscribing to watcher');
 			this.unsubscribe = sessionWatcher.subscribe(() => this.broadcastIfChanged());
+		} else {
+			console.log('[ws:sessions] addClient: clients=', this.clients.size, 'hasUnsubscribe=', !!this.unsubscribe);
 		}
 		this.sendToClient(client, this.createMessage('connected'));
 		return true;
@@ -259,9 +262,14 @@ export class SessionsWsManager {
 	}
 
 	private broadcastIfChanged(): void {
+		console.log('[ws:sessions] broadcastIfChanged called, clients:', this.clients.size);
 		const message = this.createMessage('sessions');
 		const hash = JSON.stringify(message.sessions);
-		if (hash === this.lastHash) return;
+		if (hash === this.lastHash) {
+			console.log('[ws:sessions] Hash unchanged, skipping broadcast');
+			return;
+		}
+		console.log('[ws:sessions] Broadcasting to', this.clients.size, 'clients');
 		this.lastHash = hash;
 		const data = JSON.stringify(message);
 
