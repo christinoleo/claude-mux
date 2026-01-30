@@ -58,6 +58,7 @@ interface Session {
   prompt_text: string | null;
   last_update: number;
   screenshots?: Screenshot[];
+  chrome_active?: boolean;
 }
 
 interface HookInput {
@@ -388,7 +389,7 @@ function handlePreToolUse(input: HookInput): void {
     : "Working...";
   session.last_update = Date.now();
 
-  // Capture screenshots from Chrome MCP tool
+  // Capture screenshots from Chrome MCP
   if (input.tool_name?.includes("take_screenshot") && input.tool_input?.filePath) {
     session.screenshots = session.screenshots || [];
     session.screenshots.push({

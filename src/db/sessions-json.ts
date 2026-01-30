@@ -48,6 +48,7 @@ export interface Session {
   prompt_text: string | null;
   last_update: number;
   screenshots?: Screenshot[];
+  chrome_active?: boolean;
 }
 
 export interface SessionInput {
@@ -165,6 +166,19 @@ export function deleteSession(id: string): void {
   } catch {
     // Ignore errors (file may already be deleted)
   }
+}
+
+/**
+ * Clear chrome_active flag for a session.
+ */
+export function clearChromeActive(id: string): boolean {
+  const session = getSession(id);
+  if (!session) return false;
+
+  session.chrome_active = false;
+  session.last_update = Date.now();
+  writeSessionFile(session);
+  return true;
 }
 
 /**

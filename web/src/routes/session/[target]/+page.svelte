@@ -177,7 +177,8 @@
 		showCopied = true;
 		setTimeout(() => { showCopied = false; }, 2000);
 	}
-</script>
+
+	</script>
 
 <svelte:head>
 	<title>{currentSession?.pane_title || target || 'Session'}</title>

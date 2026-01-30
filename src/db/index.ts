@@ -4,6 +4,7 @@ export {
   upsertSession,
   updateSession,
   deleteSession,
+  clearChromeActive,
   removeScreenshot,
   getAllSessions,
   getSessionPids,

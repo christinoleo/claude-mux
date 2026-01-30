@@ -222,6 +222,10 @@
 	function getProjectName(cwd: string): string {
 		return cwd.split('/').pop() || cwd;
 	}
+
+	async function closeChrome() {
+		await fetch('/api/chrome', { method: 'DELETE' });
+	}
 </script>
 
 <svelte:head>
@@ -232,6 +236,14 @@
 	<header class="header">
 		<h1>claude-watch</h1>
 		<div class="header-actions">
+			<Button
+				variant="secondary"
+				size="icon"
+				onclick={closeChrome}
+				title="Close Chrome/Brave debugging instances"
+			>
+				<iconify-icon icon="mdi:google-chrome"></iconify-icon>
+			</Button>
 			<Button
 				variant={sessionStore.paused ? 'destructive' : 'secondary'}
 				size="icon"

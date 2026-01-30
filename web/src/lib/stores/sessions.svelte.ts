@@ -20,6 +20,7 @@ export interface Session {
 	last_update: number;
 	pane_title?: string | null;
 	screenshots?: Screenshot[];
+	chrome_active?: boolean;
 }
 
 class SessionStore extends ReliableWebSocket {
