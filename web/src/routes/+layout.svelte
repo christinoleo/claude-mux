@@ -303,7 +303,7 @@
 
 	.split-panel .resize-handle:hover,
 	.split-panel.resizing .resize-handle {
-		background: hsl(var(--primary) / 0.5);
+		background: color-mix(in oklch, var(--primary), transparent 50%);
 	}
 
 	.sidebar {
@@ -363,7 +363,7 @@
 
 	.resize-handle:hover,
 	.sidebar.resizing .resize-handle {
-		background: hsl(var(--primary) / 0.5);
+		background: color-mix(in oklch, var(--primary), transparent 50%);
 	}
 
 	.content {

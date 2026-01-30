@@ -580,14 +580,14 @@
 	}
 
 	.project-sessions .session.active {
-		background: hsl(var(--primary) / 0.25);
-		border-left: 4px solid hsl(var(--primary));
+		background: color-mix(in oklch, var(--primary), transparent 75%);
+		border-left: 4px solid var(--primary);
 		padding-left: 6px;
-		box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.3);
+		box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary), transparent 70%);
 	}
 
 	.project-sessions .session.active .target {
-		color: hsl(var(--primary));
+		color: var(--primary);
 	}
 
 	.session .state {
