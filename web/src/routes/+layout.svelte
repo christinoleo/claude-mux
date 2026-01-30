@@ -5,6 +5,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
 	import SessionsSidebar from '$lib/components/SessionsSidebar.svelte';
+	import AllSessionsPanel from '$lib/components/AllSessionsPanel.svelte';
 
 	let { children } = $props();
 
@@ -14,14 +15,23 @@
 	let touchCurrentX = 0;
 	let isDragging = false;
 
+	// Desktop split-view detection
+	const SPLIT_VIEW_BREAKPOINT = 1200;
+	let isDesktop = $state(false);
+
 	// Resizable sidebar state
 	const SIDEBAR_WIDTH_KEY = 'claude-watch-sidebar-width';
+	const SPLIT_PANEL_WIDTH_KEY = 'claude-watch-split-panel-width';
 	const MIN_WIDTH = 200;
 	const MAX_WIDTH = 500;
 	const DEFAULT_WIDTH = 250;
+	const DEFAULT_SPLIT_WIDTH = 350;
 
 	let sidebarWidth = $state(DEFAULT_WIDTH);
+	let splitPanelWidth = $state(DEFAULT_SPLIT_WIDTH);
 	let isResizing = $state(false);
+	let isResizingSplit = $state(false);
+	let sidebarRightEdge = 0; // Track sidebar's right edge for resize calculation (when on right side)
 
 	// Show sidebar only on session detail pages (not on main page)
 	const showSidebar = $derived($page.url.pathname.startsWith('/session/'));
@@ -29,8 +39,17 @@
 	// Connect session store at layout level so sidebar always has data
 	onMount(() => {
 		sessionStore.connect();
-		// Load saved sidebar width
+
+		// Desktop detection
 		if (browser) {
+			isDesktop = window.innerWidth >= SPLIT_VIEW_BREAKPOINT;
+
+			const handleResize = () => {
+				isDesktop = window.innerWidth >= SPLIT_VIEW_BREAKPOINT;
+			};
+			window.addEventListener('resize', handleResize);
+
+			// Load saved sidebar width
 			const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
 			if (saved) {
 				const width = parseInt(saved, 10);
@@ -38,6 +57,17 @@
 					sidebarWidth = width;
 				}
 			}
+
+			// Load saved split panel width
+			const savedSplit = localStorage.getItem(SPLIT_PANEL_WIDTH_KEY);
+			if (savedSplit) {
+				const width = parseInt(savedSplit, 10);
+				if (width >= MIN_WIDTH && width <= MAX_WIDTH) {
+					splitPanelWidth = width;
+				}
+			}
+
+			return () => window.removeEventListener('resize', handleResize);
 		}
 	});
 
@@ -49,14 +79,30 @@
 	function handleResizeStart(e: MouseEvent) {
 		e.preventDefault();
 		isResizing = true;
+		// Store the sidebar's right edge for resize calculation (sidebar is on right side on desktop)
+		if (sidebarElement) {
+			sidebarRightEdge = sidebarElement.getBoundingClientRect().right;
+		}
 		document.addEventListener('mousemove', handleResizeMove);
 		document.addEventListener('mouseup', handleResizeEnd);
 	}
 
 	function handleResizeMove(e: MouseEvent) {
 		if (!isResizing) return;
-		const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX));
-		sidebarWidth = newWidth;
+		// On desktop (sidebar on right): width = rightEdge - mouseX
+		// On tablet (sidebar on left): width = mouseX - leftEdge (but we use rightEdge - (rightEdge - width) pattern)
+		if (isDesktop) {
+			// Sidebar is on the right, resize handle on left edge
+			// Dragging left = increase width, dragging right = decrease width
+			const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, sidebarRightEdge - e.clientX));
+			sidebarWidth = newWidth;
+		} else {
+			// Sidebar is on the left, resize handle on right edge
+			// Use left edge calculation: leftEdge = rightEdge - currentWidth
+			const sidebarLeftEdge = sidebarRightEdge - sidebarWidth;
+			const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX - sidebarLeftEdge));
+			sidebarWidth = newWidth;
+		}
 	}
 
 	function handleResizeEnd() {
@@ -66,6 +112,30 @@
 		// Save to localStorage
 		if (browser) {
 			localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
+		}
+	}
+
+	// Split panel resize handlers
+	function handleSplitResizeStart(e: MouseEvent) {
+		e.preventDefault();
+		isResizingSplit = true;
+		document.addEventListener('mousemove', handleSplitResizeMove);
+		document.addEventListener('mouseup', handleSplitResizeEnd);
+	}
+
+	function handleSplitResizeMove(e: MouseEvent) {
+		if (!isResizingSplit) return;
+		const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, e.clientX));
+		splitPanelWidth = newWidth;
+	}
+
+	function handleSplitResizeEnd() {
+		isResizingSplit = false;
+		document.removeEventListener('mousemove', handleSplitResizeMove);
+		document.removeEventListener('mouseup', handleSplitResizeEnd);
+		// Save to localStorage
+		if (browser) {
+			localStorage.setItem(SPLIT_PANEL_WIDTH_KEY, splitPanelWidth.toString());
 		}
 	}
 
@@ -109,7 +179,33 @@
 </svelte:head>
 
 {#if showSidebar}
-	<div class="app-shell">
+	<div class="app-shell" class:split-view={isDesktop} class:resizing-any={isResizing || isResizingSplit}>
+		<!-- Split panel (all sessions): only on desktop, LEFT side -->
+		{#if isDesktop}
+			<aside
+				class="split-panel"
+				class:resizing={isResizingSplit}
+				style="--split-panel-width: {splitPanelWidth}px"
+			>
+				<AllSessionsPanel compact />
+				<div
+					class="resize-handle"
+					onmousedown={handleSplitResizeStart}
+					role="separator"
+					aria-orientation="vertical"
+				></div>
+			</aside>
+		{/if}
+
+		<!-- Main content: CENTER -->
+		<main class="content">
+			<button class="hamburger" onclick={() => (drawerOpen = !drawerOpen)} aria-label="Toggle menu">
+				<iconify-icon icon="mdi:menu"></iconify-icon>
+			</button>
+			{@render children()}
+		</main>
+
+		<!-- Project sidebar: RIGHT on desktop, LEFT on tablet, drawer on mobile -->
 		<aside
 			class="sidebar"
 			class:open={drawerOpen}
@@ -120,9 +216,17 @@
 			ontouchmove={handleTouchMove}
 			ontouchend={handleTouchEnd}
 		>
-			<SessionsSidebar onSelect={closeDrawer} />
+			<!-- Left resize handle (desktop: sidebar on right) -->
 			<div
-				class="resize-handle"
+				class="resize-handle resize-handle-left"
+				onmousedown={handleResizeStart}
+				role="separator"
+				aria-orientation="vertical"
+			></div>
+			<SessionsSidebar onSelect={closeDrawer} hideSessionsList={isDesktop} />
+			<!-- Right resize handle (tablet: sidebar on left) -->
+			<div
+				class="resize-handle resize-handle-right"
 				onmousedown={handleResizeStart}
 				role="separator"
 				aria-orientation="vertical"
@@ -132,13 +236,6 @@
 		{#if drawerOpen}
 			<button class="backdrop" onclick={closeDrawer} aria-label="Close menu"></button>
 		{/if}
-
-		<main class="content">
-			<button class="hamburger" onclick={() => (drawerOpen = !drawerOpen)} aria-label="Toggle menu">
-				<iconify-icon icon="mdi:menu"></iconify-icon>
-			</button>
-			{@render children()}
-		</main>
 	</div>
 {:else}
 	{@render children()}
@@ -174,9 +271,39 @@
 		overflow: hidden;
 	}
 
-	.app-shell:has(.sidebar.resizing) {
+	.app-shell.resizing-any {
 		cursor: col-resize;
 		user-select: none;
+	}
+
+	/* Split panel for desktop */
+	.split-panel {
+		width: var(--split-panel-width, 350px);
+		flex-shrink: 0;
+		background: hsl(var(--background));
+		border-right: 1px solid hsl(var(--border));
+		overflow: hidden;
+		position: relative;
+	}
+
+	.split-panel.resizing {
+		user-select: none;
+	}
+
+	.split-panel .resize-handle {
+		position: absolute;
+		top: 0;
+		right: 0;
+		width: 4px;
+		height: 100%;
+		cursor: col-resize;
+		background: transparent;
+		transition: background 0.15s;
+	}
+
+	.split-panel .resize-handle:hover,
+	.split-panel.resizing .resize-handle {
+		background: hsl(var(--primary) / 0.5);
 	}
 
 	.sidebar {
@@ -186,6 +313,14 @@
 		border-right: 1px solid hsl(var(--border));
 		overflow: hidden;
 		position: relative;
+		order: 1; /* Default: left side (tablet) */
+	}
+
+	/* Desktop: sidebar moves to right */
+	.split-view .sidebar {
+		order: 3;
+		border-right: none;
+		border-left: 1px solid hsl(var(--border));
 	}
 
 	.sidebar.resizing {
@@ -203,6 +338,29 @@
 		transition: background 0.15s;
 	}
 
+	/* Left-side resize handle (for right sidebar on desktop) */
+	.resize-handle-left {
+		right: auto;
+		left: 0;
+		display: none; /* Hidden by default (tablet/mobile) */
+	}
+
+	/* Right-side resize handle (for left sidebar on tablet) */
+	.resize-handle-right {
+		right: 0;
+		left: auto;
+		display: block; /* Shown by default (tablet) */
+	}
+
+	/* Desktop: show left handle, hide right handle on sidebar */
+	.split-view .sidebar .resize-handle-left {
+		display: block;
+	}
+
+	.split-view .sidebar .resize-handle-right {
+		display: none;
+	}
+
 	.resize-handle:hover,
 	.sidebar.resizing .resize-handle {
 		background: hsl(var(--primary) / 0.5);
@@ -212,6 +370,7 @@
 		flex: 1;
 		overflow: hidden;
 		position: relative;
+		order: 2; /* Always in center */
 	}
 
 	.hamburger {
@@ -220,6 +379,13 @@
 
 	.backdrop {
 		display: none;
+	}
+
+	/* Hide split panel below desktop breakpoint (CSS fallback) */
+	@media (max-width: 1199px) {
+		.split-panel {
+			display: none;
+		}
 	}
 
 	/* Mobile responsive */

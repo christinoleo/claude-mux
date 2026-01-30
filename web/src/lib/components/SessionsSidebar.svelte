@@ -11,9 +11,10 @@
 
 	interface Props {
 		onSelect?: () => void;
+		hideSessionsList?: boolean;
 	}
 
-	let { onSelect }: Props = $props();
+	let { onSelect, hideSessionsList = false }: Props = $props();
 
 	let sessionsExpanded = $state(true);
 
@@ -90,44 +91,46 @@
 	</div>
 
 	<div class="scroll-content">
-		<div class="sessions-panel">
-			<button class="panel-header" onclick={toggleSessionsExpanded} type="button">
-				<iconify-icon icon="mdi:console"></iconify-icon>
-				<span>Sessions</span>
-				<Badge variant="outline" class="ml-auto session-count">{projectSessions.length}</Badge>
-				<iconify-icon
-					icon={sessionsExpanded ? 'mdi:chevron-down' : 'mdi:chevron-right'}
-					class="chevron"
-				></iconify-icon>
-			</button>
+		{#if !hideSessionsList}
+			<div class="sessions-panel">
+				<button class="panel-header" onclick={toggleSessionsExpanded} type="button">
+					<iconify-icon icon="mdi:console"></iconify-icon>
+					<span>Sessions</span>
+					<Badge variant="outline" class="ml-auto session-count">{projectSessions.length}</Badge>
+					<iconify-icon
+						icon={sessionsExpanded ? 'mdi:chevron-down' : 'mdi:chevron-right'}
+						class="chevron"
+					></iconify-icon>
+				</button>
 
-			{#if sessionsExpanded}
-				<div class="sessions-list">
-					{#each projectSessions as session (session.id)}
-						{#if session.tmux_target}
-							<a
-								href="/session/{encodeURIComponent(session.tmux_target)}"
-								class="session-item"
-								class:active={session.tmux_target === currentTarget || session.id === currentTarget}
-								onclick={onSelect}
-							>
-								<span class="icon-slot">
-									<span class="state-dot" style="background: {stateColor(session.state)}"></span>
-								</span>
-								<div class="session-info">
-									<div class="session-name">{session.pane_title || session.tmux_target}</div>
-									{#if session.current_action}
-										<div class="session-action">{session.current_action}</div>
-									{/if}
-								</div>
-							</a>
-						{/if}
-					{:else}
-						<div class="empty">No active sessions</div>
-					{/each}
-				</div>
-			{/if}
-		</div>
+				{#if sessionsExpanded}
+					<div class="sessions-list">
+						{#each projectSessions as session (session.id)}
+							{#if session.tmux_target}
+								<a
+									href="/session/{encodeURIComponent(session.tmux_target)}"
+									class="session-item"
+									class:active={session.tmux_target === currentTarget || session.id === currentTarget}
+									onclick={onSelect}
+								>
+									<span class="icon-slot">
+										<span class="state-dot" style="background: {stateColor(session.state)}"></span>
+									</span>
+									<div class="session-info">
+										<div class="session-name">{session.pane_title || session.tmux_target}</div>
+										{#if session.current_action}
+											<div class="session-action">{session.current_action}</div>
+										{/if}
+									</div>
+								</a>
+							{/if}
+						{:else}
+							<div class="empty">No active sessions</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Beads Issues Panel -->
 		{#if currentSession?.beads_enabled}
