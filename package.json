@@ -1,7 +1,7 @@
 {
   "name": "@aknakos/claude-watch",
   "version": "0.6.0",
-  "description": "TUI dashboard for monitoring Claude Code sessions with tmux integration",
+  "description": "Real-time web dashboard for monitoring and controlling multiple Claude Code sessions",
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
@@ -36,12 +36,16 @@
   "keywords": [
     "claude",
     "claude-code",
-    "tui",
-    "tmux",
+    "anthropic",
+    "web",
+    "dashboard",
     "monitoring",
-    "dashboard"
+    "websocket",
+    "sveltekit",
+    "tmux",
+    "real-time"
   ],
-  "author": "",
+  "author": "Leonardo Christino",
   "license": "MIT",
   "engines": {
     "node": ">=18"
