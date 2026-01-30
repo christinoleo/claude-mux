@@ -8,6 +8,6 @@ export async function runUninstallCommand(): Promise<void> {
 
 export function createUninstallCommand(): Command {
   return new Command("uninstall")
-    .description("Remove claude-watch hooks and configuration")
+    .description("Remove claude-mux hooks and configuration")
     .action(runUninstallCommand);
 }

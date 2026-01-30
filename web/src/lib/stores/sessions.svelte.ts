@@ -62,7 +62,7 @@ class SessionStore extends ReliableWebSocket {
 	loadSavedProjects(): void {
 		if (!browser) return;
 		try {
-			this.savedProjects = JSON.parse(localStorage.getItem('claude-watch-projects') || '[]');
+			this.savedProjects = JSON.parse(localStorage.getItem('claude-mux-projects') || '[]');
 		} catch {
 			this.savedProjects = [];
 		}
@@ -71,12 +71,12 @@ class SessionStore extends ReliableWebSocket {
 	saveProject(cwd: string): void {
 		if (!browser || this.savedProjects.includes(cwd)) return;
 		this.savedProjects = [...this.savedProjects, cwd];
-		localStorage.setItem('claude-watch-projects', JSON.stringify(this.savedProjects));
+		localStorage.setItem('claude-mux-projects', JSON.stringify(this.savedProjects));
 	}
 
 	removeProject(cwd: string): void {
 		this.savedProjects = this.savedProjects.filter((p) => p !== cwd);
-		localStorage.setItem('claude-watch-projects', JSON.stringify(this.savedProjects));
+		localStorage.setItem('claude-mux-projects', JSON.stringify(this.savedProjects));
 	}
 }
 

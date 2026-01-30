@@ -40,7 +40,7 @@ function getHookScriptPath(scriptName: string): string {
 }
 
 export function getClaudeWatchHooks(): HooksConfig {
-  const hookScript = getHookScriptPath("claude-watch-hook.js");
+  const hookScript = getHookScriptPath("claude-mux-hook.js");
 
   return {
     SessionStart: [
@@ -191,7 +191,7 @@ export function checkHooksStatus(): "install" | "update" | "current" {
 
   // Check if any claude-watch hooks exist
   const hasClaudeWatchHooks = Object.values(settings.hooks).some((matchers) =>
-    matchers.some((m) => m.hooks.some((h) => h.command.includes("claude-watch-hook")))
+    matchers.some((m) => m.hooks.some((h) => h.command.includes("claude-mux-hook")))
   );
 
   if (!hasClaudeWatchHooks) {
@@ -216,7 +216,7 @@ export function mergeHooks(existing: HooksConfig | undefined, newHooks: HooksCon
     } else {
       // Remove any existing claude-watch hooks for this event (so we can replace them)
       merged[eventName] = merged[eventName].filter((existingMatcher) => {
-        return !existingMatcher.hooks.some((h) => h.command.includes("claude-watch-hook"));
+        return !existingMatcher.hooks.some((h) => h.command.includes("claude-mux-hook"));
       });
     }
 
@@ -234,8 +234,8 @@ export function removeClaudeWatchHooks(hooks: HooksConfig): HooksConfig {
 
   for (const [eventName, matchers] of Object.entries(hooks)) {
     const filteredMatchers = matchers.filter((matcher) => {
-      // Remove matchers that have claude-watch-hook commands
-      return !matcher.hooks.some((h) => h.command.includes("claude-watch-hook"));
+      // Remove matchers that have claude-mux-hook commands
+      return !matcher.hooks.some((h) => h.command.includes("claude-mux-hook"));
     });
 
     if (filteredMatchers.length > 0) {
@@ -272,7 +272,7 @@ export function generateDiff(
   lines.push("New hooks to be added:");
   const hookEvents = Object.keys(getClaudeWatchHooks());
   for (const event of hookEvents) {
-    lines.push(`  + ${event}: claude-watch-hook`);
+    lines.push(`  + ${event}: claude-mux-hook`);
   }
 
   return lines.join("\n");

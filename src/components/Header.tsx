@@ -24,7 +24,7 @@ export function Header({ claudeCount, tmuxCount }: HeaderProps) {
       justifyContent="space-between"
     >
       <Text bold color="cyan">
-        claude-watch
+        claude-mux
       </Text>
       <Text dimColor>{countText}</Text>
     </Box>

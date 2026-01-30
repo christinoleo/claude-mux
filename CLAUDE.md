@@ -40,10 +40,10 @@ bun vitest run tests/db/sessions.test.ts
 
 ## Architecture
 
-claude-watch has three main components:
+claude-mux has three main components:
 
 ### 1. Claude Code Hooks → JSON Files
-The hook script (`src/hooks/claude-watch-hook.ts`) runs inside Claude Code's process. It receives events via stdin (SessionStart, UserPromptSubmit, PreToolUse, Stop, etc.) and writes state to per-session JSON files in `~/.claude-watch/sessions/`.
+The hook script (`src/hooks/claude-mux-hook.ts`) runs inside Claude Code's process. It receives events via stdin (SessionStart, UserPromptSubmit, PreToolUse, Stop, etc.) and writes state to per-session JSON files in `~/.claude-mux/sessions/`.
 
 ### 2. SvelteKit Web Server + WebSocket
 The web server (`web/`) is built with SvelteKit and svelte-adapter-bun:
@@ -58,7 +58,7 @@ The web server (`web/`) is built with SvelteKit and svelte-adapter-bun:
 ## Key Data Flow
 
 ```
-Claude Code events → stdin → hook script → JSON files (~/.claude-watch/sessions/)
+Claude Code events → stdin → hook script → JSON files (~/.claude-mux/sessions/)
                                                 ↓
                                     file watcher (500ms polling)
                                                 ↓
@@ -79,7 +79,7 @@ Claude Code events → stdin → hook script → JSON files (~/.claude-watch/ses
 ## Project Structure
 
 ```
-claude-watch/
+claude-mux/
 ├── src/                    # CLI/TUI/Hooks
 │   ├── cli.ts              # Entry point
 │   ├── app.tsx             # React Ink TUI
@@ -105,7 +105,7 @@ claude-watch/
 ## Important Files
 
 - `src/cli.ts` - Entry point, routes to subcommands
-- `src/hooks/claude-watch-hook.ts` - Runs in Claude's process, writes JSON
+- `src/hooks/claude-mux-hook.ts` - Runs in Claude's process, writes JSON
 - `src/db/sessions-json.ts` - Session CRUD operations on JSON files
 - `src/tmux/pane.ts` - `checkForInterruption()` detects Escape interruptions
 - `src/server/watcher.ts` - File watcher for session changes

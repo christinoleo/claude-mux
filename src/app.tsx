@@ -42,7 +42,7 @@ export function App() {
         return prevJson === newJson ? prev : loadedSessions;
       });
 
-      // Also load tmux sessions (excluding the current session where claude-watch runs)
+      // Also load tmux sessions (excluding the current session where claude-mux runs)
       const loadedTmuxSessions = getAllTmuxSessions().filter(
         (ts) => ts.name !== currentTmuxSession
       );

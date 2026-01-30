@@ -45,9 +45,9 @@ export interface TuiOptions {
 export async function runTui(options: TuiOptions): Promise<void> {
   // Check if running in tmux
   if (!isInTmux()) {
-    console.error("claude-watch requires tmux to run.");
+    console.error("claude-mux requires tmux to run.");
     console.error("");
-    console.error("Start tmux first, then run claude-watch from inside tmux.");
+    console.error("Start tmux first, then run claude-mux from inside tmux.");
     process.exit(1);
   }
 
@@ -56,7 +56,7 @@ export async function runTui(options: TuiOptions): Promise<void> {
   if (currentSession !== WATCH_SESSION) {
     console.log(`Switching to '${WATCH_SESSION}' session...`);
 
-    // Build command to re-invoke claude-watch the same way it was originally called
+    // Build command to re-invoke claude-mux the same way it was originally called
     const cwd = process.cwd();
     // Escape single quotes in args for shell safety
     const escapeArg = (arg: string) => `'${arg.replace(/'/g, "'\\''")}'`;
@@ -64,7 +64,7 @@ export async function runTui(options: TuiOptions): Promise<void> {
     const fullCmd = `cd ${escapeArg(cwd)} && ${originalCmd}`;
 
     try {
-      // Kill any existing watch session that isn't running claude-watch,
+      // Kill any existing watch session that isn't running claude-mux,
       // then (re)create it with the command passed directly to new-session.
       //
       // We avoid tmux send-keys entirely because it races with shell init
@@ -75,17 +75,17 @@ export async function runTui(options: TuiOptions): Promise<void> {
       let needsCreate = true;
       try {
         execSync(`tmux has-session -t ${WATCH_SESSION} 2>/dev/null`, { stdio: "ignore" });
-        // Session exists - check if claude-watch is already running
+        // Session exists - check if claude-mux is already running
         try {
           const paneCmd = execSync(
             `tmux list-panes -t ${WATCH_SESSION} -F "#{pane_current_command}"`,
             { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
           ).trim();
-          if (paneCmd.includes("node") || paneCmd.includes("claude-watch")) {
+          if (paneCmd.includes("node") || paneCmd.includes("claude-mux")) {
             // Already running, just switch to it
             needsCreate = false;
           } else {
-            // Session exists but claude-watch isn't running — add a new window
+            // Session exists but claude-mux isn't running — add a new window
             execSync(`tmux new-window -t ${WATCH_SESSION} ${escapeArg(fullCmd)}`, { stdio: "ignore" });
             needsCreate = false;
           }
@@ -127,7 +127,7 @@ export async function runTui(options: TuiOptions): Promise<void> {
     const action = hooksStatus === "install" ? "installed" : "updated";
     const currentInfo = installedVersion ? `installed: ${installedVersion}` : "not installed";
 
-    console.log(`claude-watch hooks need to be ${action} (${currentInfo}, required: ${VERSION})`);
+    console.log(`claude-mux hooks need to be ${action} (${currentInfo}, required: ${VERSION})`);
     console.log("");
 
     const answer = await promptUser(`${hooksStatus === "install" ? "Install" : "Update"} hooks now? [Y/n/q]: `);
@@ -150,13 +150,13 @@ export async function runTui(options: TuiOptions): Promise<void> {
   }
 
   // Check if another instance is already running
-  const lockFile = join(CLAUDE_WATCH_DIR, "claude-watch.lock");
+  const lockFile = join(CLAUDE_WATCH_DIR, "claude-mux.lock");
   if (existsSync(lockFile)) {
     try {
       const lock = JSON.parse(readFileSync(lockFile, "utf-8"));
       if (lock.pid && isPidAlive(lock.pid)) {
         if (lock.version === VERSION) {
-          console.log("claude-watch is already running.");
+          console.log("claude-mux is already running.");
           if (lock.tmux_target) {
             try {
               execSync(`tmux switch-client -t "${lock.tmux_target}"`, { stdio: "inherit" });
@@ -167,7 +167,7 @@ export async function runTui(options: TuiOptions): Promise<void> {
           process.exit(0);
         } else {
           // Different version — kill old instance and restart
-          console.log(`Restarting claude-watch (${lock.version || "unknown"} → ${VERSION})...`);
+          console.log(`Restarting claude-mux (${lock.version || "unknown"} → ${VERSION})...`);
           process.kill(lock.pid, "SIGTERM");
           execSync("sleep 0.5", { stdio: "ignore" });
         }
@@ -177,7 +177,7 @@ export async function runTui(options: TuiOptions): Promise<void> {
     }
   }
 
-  // Move window and pane to base indices so claude-watch is always at the first position
+  // Move window and pane to base indices so claude-mux is always at the first position
   try {
     const baseIndex = execSync('tmux show-options -gv base-index', {
       encoding: "utf-8",

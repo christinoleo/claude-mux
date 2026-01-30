@@ -1,18 +1,18 @@
 {
-  "name": "@aknakos/claude-watch",
+  "name": "claude-mux",
   "version": "0.6.0",
   "description": "Real-time web dashboard for monitoring and controlling multiple Claude Code sessions",
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
-    "claude-watch": "dist/cli.js"
+    "claude-mux": "dist/cli.js"
   },
   "workspaces": [
     "web"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/aknakos/claude-watch.git"
+    "url": "https://github.com/christinoleo/claude-mux.git"
   },
   "publishConfig": {
     "access": "public"
@@ -30,7 +30,7 @@
     "lint": "eslint src tests --ext .ts,.tsx",
     "format": "prettier --write 'src/**/*.{ts,tsx}' 'tests/**/*.{ts,tsx}'",
     "prepublishOnly": "bun run build",
-    "preuninstall": "claude-watch --cleanup || true",
+    "preuninstall": "claude-mux --cleanup || true",
     "version": "bun -e \"const v=require('./package.json').version; require('fs').writeFileSync('src/utils/version.ts', '/**\\n * Central version constant for claude-watch.\\n * Keep in sync with package.json version.\\n */\\nexport const VERSION = \\\"'+v+'\\\";\\n')\" && git add src/utils/version.ts"
   },
   "keywords": [

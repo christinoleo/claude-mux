@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * Claude Watch Hook Script
+ * Claude Mux Hook Script
  *
  * This script is called by Claude Code hooks to update the session state
  * using JSON files (one per session).
  *
- * Usage: node claude-watch-hook.js <event>
+ * Usage: node claude-mux-hook.js <event>
  * Events: session-start, stop, permission-request, notification-idle,
  *         notification-permission, pre-tool-use, post-tool-use, session-end
  *
@@ -184,7 +184,7 @@ function getClaudePid(): number {
       debugLog(`getClaudePid: level ${i}, pid=${pid}, ps output: ${psOutput}`);
 
       const isClaudeCode =
-        psOutput.includes("claude") && !psOutput.includes("claude-watch");
+        psOutput.includes("claude") && !psOutput.includes("claude-mux");
 
       if (isClaudeCode) {
         debugLog(`getClaudePid: found Claude at pid=${pid}`);
@@ -431,7 +431,7 @@ async function main(): Promise<void> {
   debugLog(`main: event=${event}`);
 
   if (!event) {
-    console.error("Usage: claude-watch-hook <event>");
+    console.error("Usage: claude-mux-hook <event>");
     process.exit(1);
   }
 

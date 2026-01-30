@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 
-const STORAGE_KEY = 'claude-watch-preferences';
+const STORAGE_KEY = 'claude-mux-preferences';
 
 interface Preferences {
 	terminalTheming: boolean;

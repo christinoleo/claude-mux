@@ -1,6 +1,6 @@
 import { createHmac } from 'crypto';
 
-const COOKIE_NAME = 'claude-watch-session';
+const COOKIE_NAME = 'claude-mux-session';
 const MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
 
 /**

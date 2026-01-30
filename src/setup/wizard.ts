@@ -23,7 +23,7 @@ async function confirm(question: string): Promise<boolean> {
 }
 
 export async function runSetup(): Promise<void> {
-  console.log("\n claude-watch Setup\n");
+  console.log("\n claude-mux Setup\n");
 
   // Step 1: Create data directories
   console.log("Step 1: Creating data directories...");
@@ -57,8 +57,8 @@ export async function runSetup(): Promise<void> {
 
   // Done
   console.log("\n Setup complete!\n");
-  console.log("To start claude-watch, run from any tmux session:");
-  console.log("  claude-watch");
+  console.log("To start claude-mux, run from any tmux session:");
+  console.log("  claude-mux");
   console.log("");
   console.log("This will automatically create a 'watch' session and add");
   console.log("a keybinding (prefix + W) to quickly return to the dashboard.");
@@ -66,14 +66,14 @@ export async function runSetup(): Promise<void> {
 }
 
 export async function runCleanup(): Promise<void> {
-  console.log("\n claude-watch Cleanup\n");
+  console.log("\n claude-mux Cleanup\n");
 
   console.log("Removing Claude Code hooks...");
   uninstallHooks();
   console.log("  Hooks removed successfully");
 
   console.log("\nData directory: " + CLAUDE_WATCH_DIR);
-  console.log("  (Manual removal: rm -rf ~/.claude-watch)");
+  console.log("  (Manual removal: rm -rf ~/.claude-mux)");
 
   console.log("\n Cleanup complete!\n");
 }

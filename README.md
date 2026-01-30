@@ -1,14 +1,14 @@
 <p align="center">
-  <h1 align="center">claude-watch</h1>
+  <h1 align="center">claude-mux</h1>
   <p align="center">
     <strong>A real-time web dashboard for monitoring and controlling multiple Claude Code sessions</strong>
   </p>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@aknakos/claude-watch"><img src="https://img.shields.io/npm/v/@aknakos/claude-watch?style=flat-square&color=blue" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/@aknakos/claude-watch"><img src="https://img.shields.io/npm/dm/@aknakos/claude-watch?style=flat-square&color=green" alt="npm downloads"></a>
-  <a href="https://github.com/aknakos/claude-watch/blob/main/LICENSE"><img src="https://img.shields.io/github/license/aknakos/claude-watch?style=flat-square" alt="license"></a>
+  <a href="https://www.npmjs.com/package/claude-mux"><img src="https://img.shields.io/npm/v/claude-mux?style=flat-square&color=blue" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/claude-mux"><img src="https://img.shields.io/npm/dm/claude-mux?style=flat-square&color=green" alt="npm downloads"></a>
+  <a href="https://github.com/christinoleo/claude-mux/blob/main/LICENSE"><img src="https://img.shields.io/github/license/christinoleo/claude-mux?style=flat-square" alt="license"></a>
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen?style=flat-square" alt="node version">
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey?style=flat-square" alt="platform">
 </p>
@@ -38,7 +38,7 @@
 </p>
 
 <details>
-<summary><strong>📱 Mobile Screenshots</strong></summary>
+<summary><strong>Mobile Screenshots</strong></summary>
 <br>
 <p align="center">
   <img src="docs/images/mobile-dashboard.png" alt="Mobile Dashboard" width="300">
@@ -52,30 +52,30 @@
 
 ## Features
 
-### 🌐 Web Dashboard
+### Web Dashboard
 - **Real-time monitoring** of all Claude Code sessions via WebSocket
 - **Project-based organization** — Sessions grouped by working directory
 - **Live status indicators** — See which sessions are busy, idle, or waiting for input
 - **One-click navigation** — Jump to any session instantly
 
-### 🎨 Syntax Highlighting
+### Syntax Highlighting
 - **Color-coded terminal output** — User prompts, Claude responses, tool calls, and results
 - **Tool-specific colors** — Different colors for Read, Write, Edit, Bash, Task, and more
 - **Diff highlighting** — Green for additions, red for removals in file edits
 - **Toggleable theming** — Switch between styled and raw output
 
-### 📱 Mobile-First Design
+### Mobile-First Design
 - **Fully responsive** — Works on desktop, tablet, and phone
 - **Touch-friendly controls** — Large buttons for common actions
 - **Quick action toolbar** — Send keys (Up, Down, Tab, Esc, Ctrl-C) with one tap
 
-### 🎮 Session Control
+### Session Control
 - **Send text input** — Type messages directly to Claude
 - **Keyboard shortcuts** — Send special keys and key combinations
 - **Terminal resize** — Fit tmux pane to browser viewport
 - **Kill sessions** — Terminate Claude processes when needed
 
-### 🔒 Optional Features
+### Optional Features
 - **Authentication** — Password-protect your dashboard
 - **LAN access** — Monitor sessions from any device on your network
 
@@ -86,17 +86,17 @@
 ### From npm (recommended)
 
 ```bash
-npm install -g @aknakos/claude-watch
+npm install -g claude-mux
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/aknakos/claude-watch.git
-cd claude-watch
+git clone https://github.com/christinoleo/claude-mux.git
+cd claude-mux
 bun install
 bun run build
-npm link  # Makes 'claude-watch' available globally
+npm link  # Makes 'claude-mux' available globally
 ```
 
 ---
@@ -106,7 +106,7 @@ npm link  # Makes 'claude-watch' available globally
 ### 1. Run setup
 
 ```bash
-claude-watch setup
+claude-mux setup
 ```
 
 This will:
@@ -116,7 +116,7 @@ This will:
 ### 2. Start the web server
 
 ```bash
-claude-watch serve --port 3456 --host 0.0.0.0
+claude-mux serve --port 3456 --host 0.0.0.0
 ```
 
 ### 3. Open the dashboard
@@ -138,7 +138,7 @@ The main dashboard shows all active Claude Code sessions organized by project:
 | Element | Description |
 |---------|-------------|
 | **Project cards** | Sessions grouped by working directory |
-| **Status indicators** | 🟢 Busy, 🟡 Idle, 🔴 Waiting for input |
+| **Status indicators** | Busy, Idle, Waiting for input |
 | **Current action** | Shows what Claude is currently doing |
 | **Quick actions** | New session, kill session, refresh |
 
@@ -167,15 +167,15 @@ Click any session to open the real-time terminal view:
 
 | Command | Description |
 |---------|-------------|
-| `claude-watch serve` | Start the web server |
-| `claude-watch setup` | Run interactive setup wizard |
-| `claude-watch uninstall` | Remove hooks and configuration |
-| `claude-watch` | Start TUI dashboard (legacy, requires tmux) |
+| `claude-mux serve` | Start the web server |
+| `claude-mux setup` | Run interactive setup wizard |
+| `claude-mux uninstall` | Remove hooks and configuration |
+| `claude-mux` | Start TUI dashboard (legacy, requires tmux) |
 
 ### Server Options
 
 ```bash
-claude-watch serve [options]
+claude-mux serve [options]
 
 Options:
   -p, --port <number>     Port to listen on (default: 45677)
@@ -187,13 +187,13 @@ Options:
 
 ```bash
 # Start on custom port
-claude-watch serve --port 8080
+claude-mux serve --port 8080
 
 # Allow LAN access
-claude-watch serve --host 0.0.0.0
+claude-mux serve --host 0.0.0.0
 
 # With authentication
-claude-watch serve --host 0.0.0.0 --auth mysecretpassword
+claude-mux serve --host 0.0.0.0 --auth mysecretpassword
 ```
 
 ---
@@ -221,7 +221,7 @@ claude-watch serve --host 0.0.0.0 --auth mysecretpassword
 
 ### Claude Code Hooks
 
-claude-watch uses [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) to track session state:
+claude-mux uses [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) to track session state:
 
 | Hook | Purpose |
 |------|---------|
@@ -241,10 +241,10 @@ claude-watch uses [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-
 
 ## Terminal UI (Legacy)
 
-claude-watch also includes a terminal-based dashboard for use inside tmux:
+claude-mux also includes a terminal-based dashboard for use inside tmux:
 
 ```bash
-claude-watch  # Requires tmux
+claude-mux  # Requires tmux
 ```
 
 | Key | Action |
@@ -268,8 +268,8 @@ Press `prefix + W` from any tmux session to jump to the dashboard.
 ### Setup
 
 ```bash
-git clone https://github.com/aknakos/claude-watch.git
-cd claude-watch
+git clone https://github.com/christinoleo/claude-mux.git
+cd claude-mux
 bun install
 ```
 
@@ -298,7 +298,7 @@ bun run format     # Format code
 ### Project Structure
 
 ```
-claude-watch/
+claude-mux/
 ├── src/                    # CLI and hooks
 │   ├── cli.ts              # Entry point
 │   ├── commands/           # CLI commands (serve, setup, tui)
@@ -322,9 +322,9 @@ claude-watch/
 
 ### Sessions not appearing
 
-1. Ensure you ran `claude-watch setup` to install hooks
+1. Ensure you ran `claude-mux setup` to install hooks
 2. Restart any running Claude Code sessions (hooks are loaded at startup)
-3. Check that `~/.claude/settings.json` contains claude-watch hooks
+3. Check that `~/.claude/settings.json` contains claude-mux hooks
 
 ### Cannot connect from another device
 
@@ -334,7 +334,7 @@ claude-watch/
 
 ### Status not updating
 
-1. Check hooks are installed: `grep claude-watch ~/.claude/settings.json`
+1. Check hooks are installed: `grep claude-mux ~/.claude/settings.json`
 2. Restart Claude Code sessions to pick up new hooks
 
 ---
@@ -363,4 +363,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Commit your changes
 5. Push to the branch
 6. Open a Pull Request
-

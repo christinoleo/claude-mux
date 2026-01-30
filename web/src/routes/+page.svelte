@@ -3,7 +3,7 @@
 </script>
 
 <svelte:head>
-	<title>claude-watch</title>
+	<title>claude-mux</title>
 </svelte:head>
 
 <div class="root-page">

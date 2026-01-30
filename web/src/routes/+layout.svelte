@@ -20,8 +20,8 @@
 	let isDesktop = $state(false);
 
 	// Resizable sidebar state
-	const SIDEBAR_WIDTH_KEY = 'claude-watch-sidebar-width';
-	const SPLIT_PANEL_WIDTH_KEY = 'claude-watch-split-panel-width';
+	const SIDEBAR_WIDTH_KEY = 'claude-mux-sidebar-width';
+	const SPLIT_PANEL_WIDTH_KEY = 'claude-mux-split-panel-width';
 	const MIN_WIDTH = 200;
 	const MAX_WIDTH = 500;
 	const DEFAULT_WIDTH = 250;

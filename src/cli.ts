@@ -15,13 +15,13 @@ import { VERSION } from "./utils/version.js";
 // Deprecation warning helper
 function deprecationWarning(oldFlag: string, newCommand: string): void {
   console.warn(
-    `\x1b[33m⚠ Warning: --${oldFlag} is deprecated. Use "claude-watch ${newCommand}" instead.\x1b[0m`
+    `\x1b[33m⚠ Warning: --${oldFlag} is deprecated. Use "claude-mux ${newCommand}" instead.\x1b[0m`
   );
   console.warn("");
 }
 
 program
-  .name("claude-watch")
+  .name("claude-mux")
   .description("TUI dashboard for monitoring Claude Code sessions")
   .version(VERSION);
 

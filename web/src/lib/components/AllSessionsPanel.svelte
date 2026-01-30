@@ -241,7 +241,7 @@
 <div class="all-sessions-panel" class:compact>
 	<header class="header">
 		<a href="/" class="title-link">
-			<h1>claude-watch</h1>
+			<h1>claude-mux</h1>
 		</a>
 		<div class="header-actions">
 			{#if !compact}

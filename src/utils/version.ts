@@ -1,5 +1,5 @@
 /**
- * Central version constant for claude-watch.
+ * Central version constant for claude-mux.
  * Keep in sync with package.json version.
  */
 export const VERSION = "0.6.0";

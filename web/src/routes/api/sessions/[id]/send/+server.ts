@@ -12,14 +12,14 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		if (text) {
 			// For large text, use tmux buffer to avoid command-line length limits
 			// Load text into a named buffer via stdin, then paste it
-			execSync(`tmux load-buffer -b claude-watch-input -`, {
+			execSync(`tmux load-buffer -b claude-mux-input -`, {
 				input: text,
 				stdio: ['pipe', 'ignore', 'ignore']
 			});
-			execFileSync('tmux', ['paste-buffer', '-b', 'claude-watch-input', '-t', target], {
+			execFileSync('tmux', ['paste-buffer', '-b', 'claude-mux-input', '-t', target], {
 				stdio: 'ignore'
 			});
-			execFileSync('tmux', ['delete-buffer', '-b', 'claude-watch-input'], { stdio: 'ignore' });
+			execFileSync('tmux', ['delete-buffer', '-b', 'claude-mux-input'], { stdio: 'ignore' });
 			execFileSync('tmux', ['send-keys', '-t', target, 'Enter'], { stdio: 'ignore' });
 		} else {
 			execFileSync('tmux', ['send-keys', '-t', target, keys], { stdio: 'ignore' });
