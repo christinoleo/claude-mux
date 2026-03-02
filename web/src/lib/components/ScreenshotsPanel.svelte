@@ -72,7 +72,6 @@
 	icon="mdi:image-multiple"
 	title="Screenshots"
 	count={screenshots.length}
-	defaultExpanded
 >
 	{#if screenshots.length === 0}
 		<p class="empty">No screenshots</p>

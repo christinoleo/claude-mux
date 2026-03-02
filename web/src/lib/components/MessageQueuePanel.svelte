@@ -81,7 +81,7 @@
 	}
 </script>
 
-<SidebarAccordion icon="mdi:tray-full" title="Queue" count={queueCount} defaultExpanded={true}>
+<SidebarAccordion icon="mdi:tray-full" title="Queue" count={queueCount}>
 	{#if loading && queue.length === 0}
 		<p class="empty-text">Loading...</p>
 	{:else if queue.length === 0}

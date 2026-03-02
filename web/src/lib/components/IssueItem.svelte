@@ -12,6 +12,7 @@
 	let { issue, onSelect, nested = false }: Props = $props();
 
 	let expanded = $state(false);
+	let dialogEl: HTMLDialogElement | undefined = $state();
 
 	function formatStatus(status: BeadsIssue['status']): string {
 		return status.replace('_', ' ');
@@ -89,7 +90,12 @@
 			<div class="full-title">{issue.title}</div>
 
 			{#if issue.description}
-				<div class="description">{issue.description}</div>
+				<button
+				class="description"
+				type="button"
+				onclick={(e) => { e.stopPropagation(); dialogEl?.showModal(); }}
+				title="Click to read full description"
+			>{issue.description}</button>
 			{/if}
 
 			<div class="detail-row">
@@ -154,6 +160,22 @@
 		</div>
 	{/if}
 </div>
+
+{#if issue.description}
+	<dialog
+		bind:this={dialogEl}
+		class="desc-dialog"
+		onclick={(e) => { if (e.target === e.currentTarget) dialogEl?.close(); }}
+	>
+		<div class="desc-popup-header">
+			<span class="desc-popup-title">{issue.title}</span>
+			<button class="desc-popup-close" onclick={() => dialogEl?.close()} type="button">
+				<iconify-icon icon="mdi:close"></iconify-icon>
+			</button>
+		</div>
+		<div class="desc-popup-body">{issue.description}</div>
+	</dialog>
+{/if}
 
 <style>
 	.issue-wrapper {
@@ -273,6 +295,87 @@
 		-webkit-line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
+		/* Make it a clickable button */
+		border: none;
+		background: transparent;
+		padding: 0;
+		text-align: left;
+		font-family: inherit;
+		cursor: pointer;
+		width: 100%;
+		border-radius: 3px;
+		transition: color 0.1s;
+	}
+
+	.description:hover {
+		color: hsl(var(--foreground));
+	}
+
+	/* Description dialog */
+	.desc-dialog {
+		background: hsl(var(--background));
+		color: hsl(var(--foreground));
+		border: 1px solid hsl(var(--border));
+		border-radius: 8px;
+		max-width: 500px;
+		width: calc(100% - 48px);
+		max-height: 70vh;
+		padding: 0;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+	}
+
+	.desc-dialog[open] {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.desc-dialog::backdrop {
+		background: rgba(0, 0, 0, 0.6);
+	}
+
+	.desc-popup-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 12px;
+		border-bottom: 1px solid hsl(var(--border));
+	}
+
+	.desc-popup-title {
+		flex: 1;
+		font-size: 13px;
+		font-weight: 600;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.desc-popup-close {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		border: none;
+		background: transparent;
+		color: hsl(var(--muted-foreground));
+		cursor: pointer;
+		border-radius: 4px;
+		flex-shrink: 0;
+	}
+
+	.desc-popup-close:hover {
+		background: hsl(var(--accent));
+		color: hsl(var(--foreground));
+	}
+
+	.desc-popup-body {
+		padding: 12px;
+		font-size: 13px;
+		line-height: 1.6;
+		color: hsl(var(--foreground));
+		white-space: pre-wrap;
+		overflow-y: auto;
 	}
 
 	.detail-row {
