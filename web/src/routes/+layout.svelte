@@ -152,17 +152,17 @@
 					</div>
 				{/if}
 
-				{#if currentTarget && currentSession?.queue_count}
+				{#if currentTarget}
 					<div class="sidebar-panel">
 						<MessageQueuePanel target={currentTarget} />
 					</div>
 				{/if}
 
-				{#if currentSession?.screenshots && currentSession.screenshots.length > 0}
+				{#if currentSession}
 					<div class="sidebar-panel">
 						<ScreenshotsPanel
 							sessionId={currentSession.id}
-							screenshots={currentSession.screenshots}
+							screenshots={currentSession.screenshots ?? []}
 						/>
 					</div>
 				{/if}
@@ -242,7 +242,6 @@
 	}
 
 	.sidebar-panel {
-		border-top: 1px solid #222;
 		flex-shrink: 0;
 	}
 

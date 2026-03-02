@@ -75,7 +75,7 @@
 	defaultExpanded
 >
 	{#if screenshots.length === 0}
-		<div class="empty">No screenshots</div>
+		<p class="empty">No screenshots</p>
 	{:else}
 		<div class="screenshots-grid">
 			{#each screenshots as screenshot, i (screenshot.path + ':' + i)}
@@ -164,13 +164,13 @@
 	.screenshots-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 8px;
+		gap: 4px;
 	}
 
 	.screenshot-item {
 		position: relative;
 		aspect-ratio: 16 / 10;
-		border-radius: 6px;
+		border-radius: 4px;
 		overflow: hidden;
 		background: hsl(var(--muted));
 	}
@@ -218,9 +218,8 @@
 
 	.empty {
 		color: hsl(var(--muted-foreground));
-		text-align: center;
-		padding: 20px;
-		font-size: 13px;
+		font-size: 11px;
+		margin: 0;
 	}
 
 	/* Modal styles */

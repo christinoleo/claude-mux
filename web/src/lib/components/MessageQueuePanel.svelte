@@ -101,7 +101,7 @@
 							disabled={i === 0}
 							title="Move up"
 						>
-							<iconify-icon icon="mdi:arrow-up" style="font-size: 14px;"></iconify-icon>
+							<iconify-icon icon="mdi:arrow-up" style="font-size: 12px;"></iconify-icon>
 						</button>
 						<button
 							class="queue-btn"
@@ -109,14 +109,14 @@
 							disabled={i === queue.length - 1}
 							title="Move down"
 						>
-							<iconify-icon icon="mdi:arrow-down" style="font-size: 14px;"></iconify-icon>
+							<iconify-icon icon="mdi:arrow-down" style="font-size: 12px;"></iconify-icon>
 						</button>
 						<button
 							class="queue-btn queue-btn-delete"
 							onclick={() => removeItem(i)}
 							title="Remove"
 						>
-							<iconify-icon icon="mdi:close" style="font-size: 14px;"></iconify-icon>
+							<iconify-icon icon="mdi:close" style="font-size: 12px;"></iconify-icon>
 						</button>
 					</div>
 				</div>
@@ -130,24 +130,24 @@
 
 <style>
 	.empty-text {
-		color: #666;
-		font-size: 12px;
+		color: hsl(var(--muted-foreground));
+		font-size: 11px;
 		margin: 0;
 	}
 
 	.queue-list {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 3px;
 	}
 
 	.queue-item {
 		display: flex;
 		align-items: flex-start;
-		gap: 4px;
-		padding: 6px 8px;
+		gap: 3px;
+		padding: 4px 6px;
 		background: #1a1a1a;
-		border-radius: 6px;
+		border-radius: 4px;
 		border: 1px solid #2a2a2a;
 	}
 
@@ -156,24 +156,24 @@
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
+		gap: 1px;
 	}
 
 	.queue-text {
-		font-size: 12px;
+		font-size: 11px;
 		color: #ccc;
 		word-break: break-word;
 		line-height: 1.3;
 	}
 
 	.queue-time {
-		font-size: 10px;
+		font-size: 9px;
 		color: #666;
 	}
 
 	.queue-item-actions {
 		display: flex;
-		gap: 2px;
+		gap: 1px;
 		flex-shrink: 0;
 	}
 
@@ -181,10 +181,10 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 22px;
-		height: 22px;
+		width: 18px;
+		height: 18px;
 		border: none;
-		border-radius: 4px;
+		border-radius: 3px;
 		background: transparent;
 		color: #888;
 		cursor: pointer;
@@ -209,13 +209,13 @@
 	.clear-all {
 		display: block;
 		width: 100%;
-		margin-top: 6px;
-		padding: 4px;
+		margin-top: 4px;
+		padding: 3px;
 		border: none;
-		border-radius: 4px;
+		border-radius: 3px;
 		background: transparent;
 		color: #888;
-		font-size: 11px;
+		font-size: 10px;
 		cursor: pointer;
 		text-align: center;
 	}

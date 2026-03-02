@@ -36,12 +36,12 @@
 	const shouldRender = $derived(lazy ? hasBeenExpanded : true);
 </script>
 
-<div class="accordion">
+<div class="accordion" class:expanded>
 	<button class="accordion-header" onclick={toggle} type="button">
-		<iconify-icon {icon}></iconify-icon>
+		<iconify-icon {icon} class="header-icon"></iconify-icon>
 		<span class="accordion-title">{title}</span>
 		{#if count != null}
-			<Badge variant="outline" class="ml-auto accordion-count">{count}</Badge>
+			<span class="count">{count}</span>
 		{/if}
 		<iconify-icon
 			icon={expanded ? 'mdi:chevron-down' : 'mdi:chevron-right'}
@@ -58,32 +58,48 @@
 
 <style>
 	.accordion {
-		border-top: 1px solid hsl(var(--border));
+		border-top: 1px solid hsl(var(--border) / 0.5);
 	}
 
 	.accordion-header {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 6px;
 		width: 100%;
-		padding: 12px;
+		padding: 5px 10px;
 		border: none;
-		background: transparent;
-		color: inherit;
+		background: hsl(var(--muted) / 0.3);
+		color: hsl(var(--muted-foreground));
 		font-family: inherit;
-		font-size: 14px;
-		font-weight: 600;
+		font-size: 11px;
+		font-weight: 500;
 		cursor: pointer;
 		text-align: left;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
 	}
 
 	.accordion-header:hover {
-		background: hsl(var(--accent) / 0.5);
+		background: hsl(var(--muted) / 0.6);
+		color: hsl(var(--foreground));
 	}
 
-	.accordion-header :global(.accordion-count) {
-		font-size: 11px;
-		padding: 2px 6px;
+	.accordion.expanded .accordion-header {
+		color: hsl(var(--foreground));
+	}
+
+	.header-icon {
+		font-size: 13px;
+		opacity: 0.7;
+	}
+
+	.count {
+		margin-left: auto;
+		font-size: 10px;
+		font-weight: 600;
+		color: hsl(var(--muted-foreground));
+		min-width: 14px;
+		text-align: center;
 	}
 
 	.accordion-title {
@@ -95,11 +111,11 @@
 	}
 
 	.chevron {
-		font-size: 18px;
-		color: hsl(var(--muted-foreground));
+		font-size: 14px;
+		opacity: 0.5;
 	}
 
 	.accordion-content {
-		padding: 0 12px 12px;
+		padding: 6px 10px 8px;
 	}
 </style>
