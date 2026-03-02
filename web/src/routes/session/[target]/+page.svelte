@@ -338,7 +338,10 @@
 	});
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && !e.shiftKey) {
+		if (e.key === 'Enter' && e.ctrlKey && e.shiftKey) {
+			e.preventDefault();
+			queueText();
+		} else if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			sendText();
 		}
@@ -572,6 +575,7 @@
 						<Button variant="secondary" size="toolbar" class="min-w-[140px] min-h-[40px] justify-start gap-2" onclick={queueText}>
 							<iconify-icon icon="mdi:tray-arrow-down"></iconify-icon>
 							<span>Queue for idle</span>
+							<kbd class="queue-kbd">Ctrl+Shift+↵</kbd>
 						</Button>
 					</div>
 				{/if}
@@ -814,6 +818,16 @@
 		z-index: 10;
 		box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
 		white-space: nowrap;
+	}
+
+	.queue-kbd {
+		font-size: 9px;
+		color: #888;
+		background: #2a2a2a;
+		padding: 1px 4px;
+		border-radius: 3px;
+		margin-left: 4px;
+		font-family: inherit;
 	}
 
 	.queue-badge {

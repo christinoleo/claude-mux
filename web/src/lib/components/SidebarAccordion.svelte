@@ -116,6 +116,8 @@
 	}
 
 	.accordion-content {
-		padding: 6px 10px 8px;
+		padding: 6px 10px 8px 14px;
+		border-left: 2px solid hsl(var(--border) / 0.3);
+		margin-left: 10px;
 	}
 </style>

@@ -699,14 +699,13 @@
 
 	/* Tmux pane items inside accordion */
 	.session.tmux-pane {
-		margin: 0 -12px;
+		margin: 0 -10px 0 -14px;
 	}
 
 	.empty-section {
 		color: hsl(var(--muted-foreground));
-		text-align: center;
-		padding: 12px;
-		font-size: 13px;
+		font-size: 11px;
+		margin: 0;
 	}
 
 	/* Folder browser items */
