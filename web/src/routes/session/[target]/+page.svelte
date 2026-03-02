@@ -27,6 +27,10 @@
 	let showConfirmKill = $state(false);
 	let moreOpen = $state(false);
 	let commandsOpen = $state(false);
+	let queuePopoverOpen = $state(false);
+	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+	let longPressTriggered = $state(false);
+	const queueCount = $derived(currentSession?.queue_count ?? 0);
 	const rcUrl = $derived(currentSession?.rc_url ?? null);
 	let rcEnabling = $state(false);
 	let rcTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -263,6 +267,76 @@
 		}
 	}
 
+	async function queueText() {
+		if (!textInput.trim()) return;
+		await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ text: textInput })
+		});
+		textInput = '';
+		queuePopoverOpen = false;
+		if (textareaElement) {
+			textareaElement.style.height = 'auto';
+		}
+	}
+
+	function handleSendContextMenu(e: MouseEvent) {
+		e.preventDefault();
+		if (textInput.trim()) {
+			queuePopoverOpen = true;
+		}
+	}
+
+	function handleSendTouchStart() {
+		longPressTriggered = false;
+		longPressTimer = setTimeout(() => {
+			if (textInput.trim()) {
+				longPressTriggered = true;
+				queuePopoverOpen = true;
+			}
+		}, 500);
+	}
+
+	function handleSendTouchEnd(e: TouchEvent) {
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+		}
+		if (longPressTriggered) {
+			e.preventDefault();
+			longPressTriggered = false;
+		}
+	}
+
+	function handleSendTouchMove() {
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+		}
+	}
+
+	// Close queue dropdown on click outside
+	$effect(() => {
+		if (!queuePopoverOpen || !browser) return;
+		const handler = (e: Event) => {
+			const target = e.target as HTMLElement;
+			if (!target.closest('.send-btn-wrapper')) {
+				queuePopoverOpen = false;
+			}
+		};
+		// Delay to avoid immediate close from the triggering event
+		const timeout = setTimeout(() => {
+			document.addEventListener('click', handler);
+			document.addEventListener('contextmenu', handler);
+		}, 10);
+		return () => {
+			clearTimeout(timeout);
+			document.removeEventListener('click', handler);
+			document.removeEventListener('contextmenu', handler);
+		};
+	});
+
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
@@ -481,9 +555,27 @@
 				onkeydown={handleKeydown}
 				oninput={autoResize}
 			></textarea>
-			<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg">
-				<iconify-icon icon="mdi:send"></iconify-icon>
-			</Button>
+			<div class="send-btn-wrapper"
+				oncontextmenu={handleSendContextMenu}
+				ontouchstart={handleSendTouchStart}
+				ontouchend={handleSendTouchEnd}
+				ontouchmove={handleSendTouchMove}
+			>
+				<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg">
+					<iconify-icon icon="mdi:send"></iconify-icon>
+				</Button>
+				{#if queueCount > 0}
+					<span class="queue-badge">{queueCount}</span>
+				{/if}
+				{#if queuePopoverOpen}
+					<div class="queue-dropdown">
+						<Button variant="secondary" size="toolbar" class="min-w-[140px] min-h-[40px] justify-start gap-2" onclick={queueText}>
+							<iconify-icon icon="mdi:tray-arrow-down"></iconify-icon>
+							<span>Queue for idle</span>
+						</Button>
+					</div>
+				{/if}
+			</div>
 		</form>
 	{/if}
 </div>
@@ -703,6 +795,43 @@
 		color: #555;
 		margin: 0;
 		max-width: 300px;
+	}
+
+	.send-btn-wrapper {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.queue-dropdown {
+		position: absolute;
+		bottom: 100%;
+		right: 0;
+		margin-bottom: 6px;
+		background: #1a1a1a;
+		border: 1px solid #333;
+		border-radius: 8px;
+		padding: 4px;
+		z-index: 10;
+		box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
+		white-space: nowrap;
+	}
+
+	.queue-badge {
+		position: absolute;
+		top: -4px;
+		right: -4px;
+		background: #e74c3c;
+		color: white;
+		border-radius: 50%;
+		min-width: 18px;
+		height: 18px;
+		font-size: 11px;
+		font-weight: 600;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+		z-index: 1;
 	}
 
 </style>

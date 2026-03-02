@@ -16,6 +16,7 @@ import { getAllSessions, updateSession, readLinks, cleanupStaleSessions, type Se
 import { checkForInterruption, checkForInterruptionAsync, getPaneTitle, getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { sessionWatcher } from './watcher.js';
+import { drainQueues, getQueueCounts } from './message-queue.js';
 
 // ============================================================================
 // Configuration
@@ -373,9 +374,20 @@ export class SessionsWsManager {
 		}
 	}
 
+	/** Merge queue_count into each session object */
+	private mergeQueueCounts(sessions: Session[]): void {
+		const queueCounts = getQueueCounts();
+		for (const session of sessions) {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(session as any).queue_count =
+				(session.tmux_target ? queueCounts.get(session.tmux_target) : undefined) ?? 0;
+		}
+	}
+
 	/** Sync version for initial client connect (one-time cost) */
 	private createMessageSync(type: 'sessions' | 'connected'): SessionsMessage {
 		const sessions = getEnrichedSessions();
+		this.mergeQueueCounts(sessions);
 		return { type, sessions, count: sessions.length, timestamp: Date.now() };
 	}
 
@@ -391,6 +403,12 @@ export class SessionsWsManager {
 
 		this.createMessageAsync('sessions')
 			.then((message) => {
+				// Drain queued messages for sessions that just went idle
+				drainQueues(message.sessions);
+
+				// Merge queue counts into session data for broadcast
+				this.mergeQueueCounts(message.sessions);
+
 				const hash = JSON.stringify(message.sessions);
 				if (hash === this.lastHash) {
 					return;

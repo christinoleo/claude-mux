@@ -8,6 +8,7 @@
 	import AllSessionsPanel from '$lib/components/AllSessionsPanel.svelte';
 	import BeadsPanel from '$lib/components/BeadsPanel.svelte';
 	import ScreenshotsPanel from '$lib/components/ScreenshotsPanel.svelte';
+	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
 	import type { BeadsIssue } from '$lib/stores/beads.svelte';
 
 	let { children } = $props();
@@ -148,6 +149,12 @@
 							project={currentSession.git_root}
 							onSelect={handleIssueSelect}
 						/>
+					</div>
+				{/if}
+
+				{#if currentTarget && currentSession?.queue_count}
+					<div class="sidebar-panel">
+						<MessageQueuePanel target={currentTarget} />
 					</div>
 				{/if}
 

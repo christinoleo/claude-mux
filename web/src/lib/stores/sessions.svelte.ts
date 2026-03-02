@@ -24,12 +24,13 @@ export interface Session {
 	chrome_active?: boolean;
 	linked_to?: string | null;
 	rc_url?: string | null;
+	queue_count?: number;
 }
 
 /** Fields that change frequently and should trigger a session object replacement */
 const VOLATILE_KEYS: (keyof Session)[] = [
 	'state', 'current_action', 'prompt_text', 'last_update',
-	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url'
+	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'queue_count'
 ];
 
 /** Fast shallow comparison of two sessions on volatile fields + screenshots */
