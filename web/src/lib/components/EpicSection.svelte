@@ -67,7 +67,7 @@
 
 <style>
 	.epic-section {
-		margin-bottom: 4px;
+		margin-bottom: 0;
 	}
 
 	.epic-header-row {
@@ -78,16 +78,14 @@
 	.epic-header {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		padding: 10px 12px;
-		border-radius: 8px 0 0 8px;
+		gap: 5px;
+		padding: 4px 8px;
 		border: none;
 		background: color-mix(in srgb, var(--epic-color) 8%, transparent);
 		text-align: left;
 		cursor: pointer;
 		flex: 1;
 		min-width: 0;
-		min-height: 44px;
 		color: inherit;
 		font-family: inherit;
 	}
@@ -97,11 +95,11 @@
 	}
 
 	.priority-badge {
-		font-size: 10px;
+		font-size: 9px;
 		font-weight: 700;
 		color: white;
-		padding: 2px 6px;
-		border-radius: 4px;
+		padding: 1px 4px;
+		border-radius: 3px;
 		flex-shrink: 0;
 	}
 
@@ -109,15 +107,14 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 36px;
-		min-height: 44px;
+		width: 24px;
 		border: none;
 		background: transparent;
 		color: hsl(var(--muted-foreground));
 		cursor: pointer;
-		border-radius: 0 8px 8px 0;
 		flex-shrink: 0;
-		font-size: 16px;
+		font-size: 13px;
+		padding: 4px 0;
 	}
 
 	.use-id-icon:hover {
@@ -126,12 +123,12 @@
 	}
 
 	.chevron {
-		font-size: 16px;
+		font-size: 13px;
 		flex-shrink: 0;
 	}
 
 	.epic-title {
-		font-size: 13px;
+		font-size: 12px;
 		font-weight: 600;
 		flex: 1;
 		overflow: hidden;
@@ -140,17 +137,17 @@
 	}
 
 	.progress-badge {
-		font-size: 11px;
+		font-size: 10px;
 		font-weight: 600;
 		color: hsl(var(--muted-foreground));
 		flex-shrink: 0;
 	}
 
 	.health-badge {
-		font-size: 11px;
+		font-size: 10px;
 		font-weight: 600;
-		padding: 1px 5px;
-		border-radius: 4px;
+		padding: 1px 4px;
+		border-radius: 3px;
 		flex-shrink: 0;
 	}
 
@@ -165,17 +162,17 @@
 	}
 
 	.progress-bar-track {
-		height: 3px;
+		height: 2px;
 		background: hsl(var(--accent));
-		margin: 0 12px;
-		border-radius: 2px;
+		margin: 0 8px;
+		border-radius: 1px;
 		overflow: hidden;
 	}
 
 	.progress-bar-fill {
 		height: 100%;
 		background: #27ae60;
-		border-radius: 2px;
+		border-radius: 1px;
 		transition: width 0.3s ease;
 	}
 
@@ -185,8 +182,7 @@
 
 	.no-tasks {
 		color: hsl(var(--muted-foreground));
-		font-size: 12px;
-		font-style: italic;
-		padding: 8px 16px;
+		font-size: 11px;
+		padding: 3px 8px;
 	}
 </style>

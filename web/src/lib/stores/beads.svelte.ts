@@ -161,6 +161,11 @@ class BeadsStore extends ReliableWebSocket {
 			if (data.issues) {
 				this.issues = data.issues;
 				this.error = null;
+				// Update caches
+				if (this.currentProject) {
+					this.issueCache.set(this.currentProject, data.issues);
+					this.saveToLocalStorage(this.currentProject, data.issues);
+				}
 			}
 		} catch (err) {
 			console.error('[beads] Failed to parse message:', err);
@@ -176,11 +181,45 @@ class BeadsStore extends ReliableWebSocket {
 		// Keep issues visible during reconnection
 	}
 
+	private issueCache = new Map<string, BeadsIssue[]>();
+	private readonly CACHE_KEY = 'claude-mux-beads-cache';
+
+	/** Save issues to localStorage for persistence across refreshes */
+	private saveToLocalStorage(project: string, issues: BeadsIssue[]): void {
+		if (!browser) return;
+		try {
+			const cache = this.loadAllFromLocalStorage();
+			cache[project] = issues;
+			localStorage.setItem(this.CACHE_KEY, JSON.stringify(cache));
+		} catch { /* quota exceeded or other error — ignore */ }
+	}
+
+	private loadAllFromLocalStorage(): Record<string, BeadsIssue[]> {
+		if (!browser) return {};
+		try {
+			const raw = localStorage.getItem(this.CACHE_KEY);
+			return raw ? JSON.parse(raw) : {};
+		} catch { return {}; }
+	}
+
+	private loadFromLocalStorage(project: string): BeadsIssue[] | null {
+		const cache = this.loadAllFromLocalStorage();
+		return cache[project] ?? null;
+	}
+
 	/**
-	 * Connect to a project's beads stream
+	 * Connect to a project's beads stream.
+	 * When disconnecting (project=null), issues are cached in memory and localStorage
+	 * so reopening the accordion is instant.
 	 */
 	setProject(project: string | null): void {
 		if (project === this.currentProject) return;
+
+		// Cache current issues before switching
+		if (this.currentProject && this.issues.length > 0) {
+			this.issueCache.set(this.currentProject, this.issues);
+			this.saveToLocalStorage(this.currentProject, this.issues);
+		}
 
 		// Disconnect from previous project
 		if (this.currentProject) {
@@ -188,13 +227,21 @@ class BeadsStore extends ReliableWebSocket {
 		}
 
 		this.currentProject = project;
-		this.issues = [];
 		this.error = null;
 
-		// Connect to new project if valid
 		if (project && browser) {
-			this.loading = true;
+			// Restore cached issues immediately (memory first, then localStorage)
+			const cached = this.issueCache.get(project) ?? this.loadFromLocalStorage(project);
+			if (cached && cached.length > 0) {
+				this.issues = cached;
+				this.loading = false; // Show cached data immediately
+			} else {
+				this.issues = [];
+				this.loading = true;
+			}
 			this.doConnect();
+		} else if (!project) {
+			// Keep issues in memory when collapsing — don't clear
 		}
 	}
 

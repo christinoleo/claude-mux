@@ -157,8 +157,7 @@
 
 <style>
 	.issue-wrapper {
-		border-radius: 8px;
-		margin-bottom: 4px;
+		margin-bottom: 0;
 	}
 
 	.issue-wrapper.expanded {
@@ -171,16 +170,14 @@
 
 	.issue-item {
 		display: flex;
-		align-items: flex-start;
-		gap: 8px;
-		padding: 10px 12px;
-		border-radius: 8px;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 8px;
 		border: none;
 		background: transparent;
 		text-align: left;
 		cursor: pointer;
 		width: 100%;
-		min-height: 44px;
 		color: inherit;
 		font-family: inherit;
 	}
@@ -194,18 +191,17 @@
 	}
 
 	.status-dot {
-		width: 10px;
-		height: 10px;
+		width: 7px;
+		height: 7px;
 		border-radius: 50%;
 		flex-shrink: 0;
-		margin-top: 4px;
 	}
 
 	.status-dot.dependency {
 		background: transparent;
 		border: 2px solid;
-		width: 10px;
-		height: 10px;
+		width: 7px;
+		height: 7px;
 		box-sizing: border-box;
 	}
 
@@ -217,11 +213,11 @@
 	.issue-title-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 6px;
 	}
 
 	.issue-title {
-		font-size: 13px;
+		font-size: 12px;
 		flex: 1;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -229,24 +225,24 @@
 	}
 
 	.priority-badge {
-		font-size: 10px;
+		font-size: 9px;
 		font-weight: 700;
 		color: white;
-		padding: 2px 6px;
-		border-radius: 4px;
+		padding: 1px 4px;
+		border-radius: 3px;
 		flex-shrink: 0;
 	}
 
 	.chevron {
-		font-size: 16px;
+		font-size: 13px;
 		color: hsl(var(--muted-foreground));
 		flex-shrink: 0;
 	}
 
 	.dep-summary {
-		font-size: 11px;
+		font-size: 10px;
 		color: hsl(var(--muted-foreground));
-		margin-top: 2px;
+		margin-top: 1px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -257,21 +253,21 @@
 	}
 
 	.issue-details {
-		padding: 0 12px 12px;
+		padding: 2px 8px 8px;
 	}
 
 	.full-title {
-		font-size: 14px;
+		font-size: 12px;
 		font-weight: 600;
-		margin-bottom: 8px;
-		line-height: 1.4;
+		margin-bottom: 4px;
+		line-height: 1.3;
 	}
 
 	.description {
-		font-size: 13px;
+		font-size: 11px;
 		color: hsl(var(--muted-foreground));
-		margin-bottom: 12px;
-		line-height: 1.5;
+		margin-bottom: 6px;
+		line-height: 1.4;
 		white-space: pre-wrap;
 		display: -webkit-box;
 		-webkit-line-clamp: 3;
@@ -283,8 +279,8 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 4px 0;
-		font-size: 12px;
+		padding: 2px 0;
+		font-size: 11px;
 	}
 
 	.detail-label {
@@ -306,30 +302,30 @@
 	}
 
 	.dep-section {
-		margin-top: 8px;
-		margin-bottom: 4px;
+		margin-top: 4px;
+		margin-bottom: 2px;
 	}
 
 	.dep-section-label {
-		font-size: 11px;
+		font-size: 10px;
 		font-weight: 600;
 		color: hsl(var(--muted-foreground));
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		margin-bottom: 4px;
+		margin-bottom: 2px;
 	}
 
 	.dep-item {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		padding: 3px 0;
-		font-size: 12px;
+		gap: 5px;
+		padding: 2px 0;
+		font-size: 11px;
 	}
 
 	.dep-dot {
-		width: 7px;
-		height: 7px;
+		width: 6px;
+		height: 6px;
 		border-radius: 50%;
 		flex-shrink: 0;
 	}
@@ -342,13 +338,13 @@
 	}
 
 	.dep-hint {
-		font-size: 11px;
+		font-size: 10px;
 		color: hsl(var(--muted-foreground));
 		flex-shrink: 0;
 	}
 
 	.issue-details :global(.use-id-btn) {
 		width: 100%;
-		margin-top: 8px;
+		margin-top: 4px;
 	}
 </style>

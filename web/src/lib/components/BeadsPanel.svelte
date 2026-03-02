@@ -83,32 +83,31 @@
 <style>
 	.filter-buttons {
 		display: flex;
-		gap: 4px;
-		margin-bottom: 8px;
+		gap: 3px;
+		margin-bottom: 4px;
 	}
 
 	.filter-buttons :global(.filter-btn) {
 		flex: 1;
-		height: 32px;
-		font-size: 12px;
+		height: 24px;
+		font-size: 11px;
 	}
 
 	.section-label {
-		font-size: 11px;
+		font-size: 10px;
 		font-weight: 600;
 		color: hsl(var(--muted-foreground));
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
-		padding: 12px 12px 4px;
+		padding: 6px 8px 2px;
 	}
 
 	.loading,
 	.error,
 	.empty {
 		color: hsl(var(--muted-foreground));
-		text-align: center;
-		padding: 20px;
-		font-size: 13px;
+		font-size: 11px;
+		margin: 0;
 	}
 
 	.error {
