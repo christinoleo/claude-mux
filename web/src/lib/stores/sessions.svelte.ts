@@ -1,10 +1,13 @@
 import { browser } from '$app/environment';
 import { ReliableWebSocket } from './websocket-base.svelte';
+import { SessionsWsMessageSchema, type SystemStatsMessage } from '$shared/types/ws-messages.js';
 
 export interface Screenshot {
 	path: string;
 	timestamp: number;
 }
+
+export type SystemStats = Omit<SystemStatsMessage, 'type' | 'timestamp'>;
 
 export interface Session {
 	v: number;
@@ -50,6 +53,7 @@ function sessionChanged(a: Session, b: Session): boolean {
 
 class SessionStore extends ReliableWebSocket {
 	sessions = $state<Session[]>([]);
+	systemStats = $state<SystemStats>({ cpu: 0, ram: 0, swap: 0, ramTotal: 0, swapTotal: 0 });
 	paused = $state(false);
 
 	// O(1) lookup by id and tmux_target — derived from sessions
@@ -72,9 +76,18 @@ class SessionStore extends ReliableWebSocket {
 
 	protected handleMessage(event: MessageEvent): void {
 		if (this.paused) return;
-		const data = JSON.parse(event.data);
-		if (data.sessions) {
-			this.diffAndUpdate(data.sessions);
+		const parsed = SessionsWsMessageSchema.safeParse(JSON.parse(event.data));
+		if (!parsed.success) return;
+
+		const msg = parsed.data;
+		switch (msg.type) {
+			case 'sessions':
+			case 'connected':
+				this.diffAndUpdate(msg.sessions as Session[]);
+				break;
+			case 'systemStats':
+				this.systemStats = { cpu: msg.cpu, ram: msg.ram, swap: msg.swap, ramTotal: msg.ramTotal, swapTotal: msg.swapTotal };
+				break;
 		}
 	}
 

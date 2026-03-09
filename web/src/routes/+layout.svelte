@@ -9,6 +9,7 @@
 	import BeadsPanel from '$lib/components/BeadsPanel.svelte';
 	import ScreenshotsPanel from '$lib/components/ScreenshotsPanel.svelte';
 	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
+	import SystemStatsWidget from '$lib/components/SystemStatsWidget.svelte';
 	import type { BeadsIssue } from '$lib/stores/beads.svelte';
 
 	let { children } = $props();
@@ -167,6 +168,7 @@
 					</div>
 				{/if}
 			</div>
+			<SystemStatsWidget />
 			<div
 				class="resize-handle"
 				onmousedown={handleResizeStart}
@@ -227,6 +229,8 @@
 		border-right: 1px solid hsl(var(--border));
 		overflow: hidden;
 		position: relative;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.sidebar.resizing {
@@ -236,7 +240,8 @@
 	.sidebar-content {
 		display: flex;
 		flex-direction: column;
-		height: 100%;
+		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 		overflow-x: hidden;
 	}

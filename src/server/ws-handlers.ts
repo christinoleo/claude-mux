@@ -10,13 +10,15 @@
 
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
+import { readFileSync } from 'fs';
 
 const execFileAsync = promisify(execFile);
 import { getAllSessions, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
-import { checkForInterruption, checkForInterruptionAsync, getPaneTitle, getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync } from '../tmux/pane.js';
+import { checkForInterruption, checkForInterruptionAsync, getPaneTitle, getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, capturePaneContent } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { sessionWatcher } from './watcher.js';
 import { drainQueues, getQueueCounts } from './message-queue.js';
+import type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 
 // ============================================================================
 // Configuration
@@ -93,15 +95,10 @@ export interface WsClient {
 }
 
 // ============================================================================
-// Message types
+// Message types (sessions WS uses shared schemas from types/ws-messages.ts)
 // ============================================================================
 
-export interface SessionsMessage {
-	type: 'sessions' | 'connected';
-	sessions: (Session & { pane_title: string | null; pane_alive: boolean })[];
-	count: number;
-	timestamp: number;
-}
+export type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 
 export interface TerminalMessage {
 	type: 'output';
@@ -126,6 +123,20 @@ function syncSessionStates(): void {
 		const update = checkForInterruption(session.tmux_target);
 		if (update && session.state !== 'idle') {
 			updateSession(session.id, update);
+		}
+		// If hook says idle but pane shows a spinner (e.g. compaction), override to busy
+		if (session.state === 'idle') {
+			const content = capturePaneContent(session.tmux_target);
+			if (content) {
+				const bottom = content.split('\n').slice(-6).join('\n');
+				// DEBUG: log bottom of pane when idle to discover compaction indicator
+				const fs = require('fs');
+				fs.appendFileSync('/tmp/claude-mux-debug-idle.log',
+					`[${new Date().toISOString()}] session=${session.id} bottom=\n${bottom}\n---\n`);
+				if (isPaneShowingSpinner(content)) {
+					updateSession(session.id, { state: 'busy', current_action: 'Compacting...' });
+				}
+			}
 		}
 	}
 }
@@ -185,9 +196,18 @@ async function syncSessionStatesAsync(): Promise<void> {
 	await Promise.all(
 		sessions.map(async (session) => {
 			if (!session.tmux_target) return;
-			const update = await checkForInterruptionAsync(session.tmux_target);
-			if (update && session.state !== 'idle') {
-				updateSession(session.id, update);
+			const content = await capturePaneContentAsync(session.tmux_target);
+			if (!content) return;
+			// Check for interruption (busy → idle)
+			if (session.state !== 'idle') {
+				const update = await checkForInterruptionAsync(session.tmux_target);
+				if (update) {
+					updateSession(session.id, update);
+				}
+			}
+			// If hook says idle but pane shows a spinner (e.g. compaction), override to busy
+			if (session.state === 'idle' && isPaneShowingSpinner(content)) {
+				updateSession(session.id, { state: 'busy', current_action: 'Compacting...' });
 			}
 		})
 	);
@@ -268,6 +288,74 @@ export function resizePane(target: string, cols: number, rows: number): void {
 }
 
 // ============================================================================
+// System Stats (CPU/RAM/Swap from /proc, cached every 10s)
+// ============================================================================
+
+let cachedSystemStats = { cpu: 0, ram: 0, swap: 0, ramTotal: 0, swapTotal: 0 };
+let prevCpuIdle = 0;
+let prevCpuTotal = 0;
+let systemStatsTimer: ReturnType<typeof setInterval> | null = null;
+let systemStatsRefCount = 0;
+
+function refreshSystemStats(): void {
+	try {
+		const stat = readFileSync('/proc/stat', 'utf-8');
+		const meminfo = readFileSync('/proc/meminfo', 'utf-8');
+
+		// CPU
+		const cpuLine = stat.split('\n')[0];
+		const cpuParts = cpuLine.split(/\s+/).slice(1).map(Number);
+		const idle = cpuParts[3] + (cpuParts[4] || 0);
+		const total = cpuParts.reduce((a, b) => a + b, 0);
+		const diffIdle = idle - prevCpuIdle;
+		const diffTotal = total - prevCpuTotal;
+		const cpuPercent = diffTotal > 0 ? Math.round((1 - diffIdle / diffTotal) * 100) : 0;
+		prevCpuIdle = idle;
+		prevCpuTotal = total;
+
+		// Memory
+		const mem: Record<string, number> = {};
+		for (const line of meminfo.split('\n')) {
+			const match = line.match(/^(\w+):\s+(\d+)/);
+			if (match) mem[match[1]] = parseInt(match[2], 10);
+		}
+		const memTotal = mem['MemTotal'] || 1;
+		const memAvailable = mem['MemAvailable'] || 0;
+		const swapTotal = mem['SwapTotal'] || 0;
+		const swapFree = mem['SwapFree'] || 0;
+
+		cachedSystemStats = {
+			cpu: cpuPercent,
+			ram: Math.round(((memTotal - memAvailable) / memTotal) * 100),
+			swap: swapTotal > 0 ? Math.round(((swapTotal - swapFree) / swapTotal) * 100) : 0,
+			ramTotal: Math.round(memTotal / 1024),
+			swapTotal: Math.round(swapTotal / 1024)
+		};
+	} catch {
+		// /proc not available (non-Linux), keep last values
+	}
+}
+
+function startSystemStats(): void {
+	systemStatsRefCount++;
+	if (systemStatsRefCount === 1) {
+		refreshSystemStats(); // initial read
+		systemStatsTimer = setInterval(refreshSystemStats, 10_000);
+	}
+}
+
+function stopSystemStats(): void {
+	systemStatsRefCount--;
+	if (systemStatsRefCount <= 0) {
+		systemStatsRefCount = 0;
+		if (systemStatsTimer) {
+			clearInterval(systemStatsTimer);
+			systemStatsTimer = null;
+		}
+	}
+}
+
+// ============================================================================
 // Sessions WebSocket Manager
 // ============================================================================
 
@@ -276,7 +364,9 @@ export class SessionsWsManager {
 	private unsubscribe: (() => void) | null = null;
 	private interruptCheckTimer: ReturnType<typeof setInterval> | null = null;
 	private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+	private systemStatsTimer: ReturnType<typeof setInterval> | null = null;
 	private lastHash = '';
+	private lastStatsHash = '';
 	private config: Required<WsConfig>;
 	private droppedClients = 0;
 	private refreshing = false;
@@ -335,11 +425,18 @@ export class SessionsWsManager {
 			this.cleanupTimer = setInterval(() => {
 				try { cleanupStaleSessions(); } catch {}
 			}, 10_000);
+			// Start system stats: refresh every 10s, broadcast separately
+			startSystemStats();
+			this.systemStatsTimer = setInterval(() => {
+				this.broadcastSystemStats();
+			}, 10_000);
 		} else {
 			console.log('[ws:sessions] addClient: clients=', this.clients.size, 'hasUnsubscribe=', !!this.unsubscribe);
 		}
 		// Send initial state synchronously so client gets data immediately
-		this.sendToClient(client, this.createMessageSync('connected'));
+		// Send initial sessions state + current system stats
+		this.sendToClient(client, this.createSessionsMessage('connected'));
+		this.sendToClient(client, this.createSystemStatsMessage());
 		return true;
 	}
 
@@ -371,6 +468,12 @@ export class SessionsWsManager {
 				clearInterval(this.cleanupTimer);
 				this.cleanupTimer = null;
 			}
+			// Stop system stats broadcast + polling
+			if (this.systemStatsTimer) {
+				clearInterval(this.systemStatsTimer);
+				this.systemStatsTimer = null;
+			}
+			stopSystemStats();
 		}
 	}
 
@@ -385,15 +488,19 @@ export class SessionsWsManager {
 	}
 
 	/** Sync version for initial client connect (one-time cost) */
-	private createMessageSync(type: 'sessions' | 'connected'): SessionsMessage {
+	private createSessionsMessage(type: 'sessions' | 'connected') {
 		const sessions = getEnrichedSessions();
 		this.mergeQueueCounts(sessions);
 		return { type, sessions, count: sessions.length, timestamp: Date.now() };
 	}
 
-	private async createMessageAsync(type: 'sessions' | 'connected'): Promise<SessionsMessage> {
+	private async createSessionsMessageAsync(type: 'sessions' | 'connected') {
 		const sessions = await getEnrichedSessionsAsync();
 		return { type, sessions, count: sessions.length, timestamp: Date.now() };
+	}
+
+	private createSystemStatsMessage(): SystemStatsMessage {
+		return { type: 'systemStats' as const, ...cachedSystemStats, timestamp: Date.now() };
 	}
 
 	private refreshAndBroadcast(): void {
@@ -401,7 +508,7 @@ export class SessionsWsManager {
 		if (this.refreshing) return;
 		this.refreshing = true;
 
-		this.createMessageAsync('sessions')
+		this.createSessionsMessageAsync('sessions')
 			.then((message) => {
 				// Drain queued messages for sessions that just went idle
 				drainQueues(message.sessions);
@@ -448,7 +555,22 @@ export class SessionsWsManager {
 			});
 	}
 
-	private sendToClient(client: WsClient, _message: SessionsMessage, data?: string): boolean {
+	private broadcastSystemStats(): void {
+		const message = this.createSystemStatsMessage();
+		const hash = JSON.stringify(message);
+		if (hash === this.lastStatsHash) return;
+		this.lastStatsHash = hash;
+
+		const data = JSON.stringify(message);
+		for (const client of this.clients) {
+			if (!this.sendToClient(client, message, data)) {
+				this.clients.delete(client);
+				this.droppedClients++;
+			}
+		}
+	}
+
+	private sendToClient(client: WsClient, _message: SessionsWsMessage | Record<string, unknown>, data?: string): boolean {
 		try {
 			if (!client.isOpen()) return false;
 

@@ -163,16 +163,18 @@
 </div>
 
 
-<Dialog.Root bind:open={descDialogOpen}>
-	<Dialog.Content class="max-w-lg max-h-[70vh] flex flex-col gap-0 p-0">
-		<Dialog.Header class="px-4 pt-4 pb-3 border-b border-border shrink-0">
-			<Dialog.Title class="text-sm font-semibold leading-tight">{issue.title}</Dialog.Title>
-		</Dialog.Header>
-		<div class="desc-dialog-body">
-			{issue.description}
-		</div>
-	</Dialog.Content>
-</Dialog.Root>
+{#if issue.description}
+	<Dialog.Root bind:open={descDialogOpen}>
+		<Dialog.Content class="max-w-lg max-h-[70vh] flex flex-col gap-0 p-0">
+			<Dialog.Header class="px-4 pt-4 pb-3 border-b border-border shrink-0">
+				<Dialog.Title class="text-sm font-semibold leading-tight">{issue.title}</Dialog.Title>
+			</Dialog.Header>
+			<div class="desc-dialog-body">
+				{issue.description}
+			</div>
+		</Dialog.Content>
+	</Dialog.Root>
+{/if}
 
 <style>
 	.issue-wrapper {

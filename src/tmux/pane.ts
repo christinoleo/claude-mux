@@ -129,6 +129,18 @@ export function isPaneShowingWorking(content: string): boolean {
 }
 
 /**
+ * Check if the pane shows a spinner (e.g. during compaction).
+ * Claude Code uses braille spinner characters (U+2800–U+28FF) in the status area.
+ * Checks the bottom few lines of the pane where the spinner would appear.
+ */
+export function isPaneShowingSpinner(content: string): boolean {
+  if (!content) return false;
+  const bottomLines = content.split('\n').slice(-5).join('');
+  // Braille spinner characters: ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ etc. (U+2800-U+28FF)
+  return /[\u2800-\u28FF]/.test(bottomLines);
+}
+
+/**
  * Check if the pane content shows Claude is at the prompt (idle).
  * Claude is idle if "Esc to interrupt" is NOT present.
  */
