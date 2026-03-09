@@ -95,8 +95,10 @@
 		{ label: 'End', keys: 'End', icon: 'mdi:page-last' },
 	];
 
-	const commands: { label: string; text: string; icon: string }[] = [
-		{ label: 'Ctrl-L', text: '', icon: 'mdi:eraser' },
+	const commands: { label: string; text: string; keys?: string; icon: string }[] = [
+		{ label: 'Ctrl-L', text: '', keys: 'C-l', icon: 'mdi:eraser' },
+		{ label: 'Ctrl-B×2', text: '', keys: 'C-b C-b', icon: 'mdi:arrow-down-bold-box-outline' },
+		{ label: 'Ctrl-O', text: '', keys: 'C-o', icon: 'mdi:text-box-outline' },
 		{ label: '/clear', text: '/clear', icon: 'mdi:broom' },
 		{ label: '/rc', text: '/rc', icon: 'mdi:cellphone-link' },
 		{ label: '/ak:linus', text: '/ak:linus', icon: 'mdi:code-tags-check' },
@@ -523,8 +525,8 @@
 				<Popover.Content side="top" class="w-auto p-2 bg-[#1a1a1a] border-[#333]">
 					<div class="popover-grid">
 						{#each commands as cmd}
-							{#if cmd.label === 'Ctrl-L'}
-								<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => { sendKeys('C-l'); commandsOpen = false; }}>
+							{#if cmd.keys}
+								<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => { sendKeys(cmd.keys!); commandsOpen = false; }}>
 									<iconify-icon icon={cmd.icon}></iconify-icon>
 									<span>{cmd.label}</span>
 								</Button>

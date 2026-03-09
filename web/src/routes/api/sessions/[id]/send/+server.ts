@@ -13,7 +13,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		if (text) {
 			sendTextToPane(target, text);
 		} else {
-			execFileSync('tmux', ['send-keys', '-t', target, keys], { stdio: 'ignore' });
+			execFileSync('tmux', ['send-keys', '-t', target, ...keys.split(' ')], { stdio: 'ignore' });
 		}
 		return json({ ok: true });
 	} catch {
