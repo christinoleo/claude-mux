@@ -1,8 +1,28 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { existsSync, statSync } from 'fs';
+import { existsSync, statSync, readFileSync, writeFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { upsertSession } from '$shared/db/index.js';
+import { homedir } from 'os';
+import { join } from 'path';
+
+/** Pre-trust a workspace directory in ~/.claude.json so Claude skips the trust dialog */
+function ensureWorkspaceTrusted(cwd: string) {
+	const claudeJsonPath = join(homedir(), '.claude.json');
+	try {
+		const data = existsSync(claudeJsonPath)
+			? JSON.parse(readFileSync(claudeJsonPath, 'utf-8'))
+			: {};
+		if (!data.projects) data.projects = {};
+		if (!data.projects[cwd]) data.projects[cwd] = {};
+		if (!data.projects[cwd].hasTrustDialogAccepted) {
+			data.projects[cwd].hasTrustDialogAccepted = true;
+			writeFileSync(claudeJsonPath, JSON.stringify(data, null, 2));
+		}
+	} catch (err) {
+		console.error('[new-session] Failed to pre-trust workspace:', err);
+	}
+}
 
 export const POST: RequestHandler = async ({ request }) => {
 	const { cwd } = await request.json();
@@ -20,9 +40,11 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	try {
+		// Pre-trust the workspace so Claude skips the trust dialog
+		ensureWorkspaceTrusted(cwd);
+
 		// Create new tmux window and run claude in the specified directory
 		const sessionName = 'claude-' + Date.now();
-		const tmuxTarget = sessionName + ':1.1';
 
 		// Use 'env -u CLAUDECODE' so Claude doesn't refuse to start
 		// (tmux server's global env may have CLAUDECODE=1 from a parent session)
@@ -32,6 +54,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		], {
 			stdio: 'ignore'
 		});
+
+		// Detect actual base-index from tmux config
+		const baseIndex = execFileSync('tmux', ['show-option', '-gv', 'base-index'], {
+			encoding: 'utf-8'
+		}).trim() || '0';
+		const paneBaseIndex = execFileSync('tmux', ['show-option', '-gv', 'pane-base-index'], {
+			encoding: 'utf-8'
+		}).trim() || '0';
+		const tmuxTarget = `${sessionName}:${baseIndex}.${paneBaseIndex}`;
 
 		// Add session immediately so it shows up in UI
 		try {
@@ -49,8 +80,10 @@ export const POST: RequestHandler = async ({ request }) => {
 			console.error('[new-session] Session creation failed:', err);
 		}
 
-		return json({ ok: true, session: sessionName });
-	} catch {
-		return json({ error: 'Failed to create session' }, { status: 500 });
+		return json({ ok: true, session: sessionName, tmuxTarget });
+	} catch (err) {
+		const detail = err instanceof Error ? err.message : String(err);
+		console.error('[new-session] Failed to create session:', detail);
+		return json({ error: 'Failed to create session', detail }, { status: 500 });
 	}
 };

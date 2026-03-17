@@ -174,6 +174,14 @@
 		});
 	}
 
+	async function dismissSession(id: string, pid: number, tmux_target: string | null) {
+		await fetch(`/api/sessions/${encodeURIComponent(id)}/kill`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ pid, tmux_target })
+		});
+	}
+
 	async function newSessionInProject(cwd: string) {
 		const res = await fetch('/api/projects/new-session', {
 			method: 'POST',
@@ -181,12 +189,14 @@
 			body: JSON.stringify({ cwd })
 		});
 		const data = await res.json();
-		sessionStore.saveProject(cwd);
-		if (data.ok && data.session) {
-			const tmuxTarget = data.session + ':1.1';
-			goto(`/session/${encodeURIComponent(tmuxTarget)}`);
-			onSessionSelect?.();
+		if (!data.ok) {
+			alert(`Failed to create session: ${data.detail || data.error || 'Unknown error'}`);
+			return;
 		}
+		sessionStore.saveProject(cwd);
+		const tmuxTarget = data.tmuxTarget || data.session + ':0.0';
+		goto(`/session/${encodeURIComponent(tmuxTarget)}`);
+		onSessionSelect?.();
 	}
 
 	async function openFolderBrowser() {
@@ -258,7 +268,13 @@
 					<iconify-icon icon="mdi:cellphone-link" style="color: #27ae60; font-size: 12px;" title="Remote Control active"></iconify-icon>
 				{/if}
 				{#if isDead}
-					<iconify-icon icon="mdi:close-circle" style="color: #555; font-size: 12px;"></iconify-icon>
+					<button
+						class="kill-btn dismiss-btn"
+						onclick={(e) => { e.preventDefault(); e.stopPropagation(); dismissSession(session.id, session.pid, session.tmux_target); }}
+						title="Dismiss"
+					>
+						<iconify-icon icon="mdi:close-circle" style="font-size: 13px;"></iconify-icon>
+					</button>
 				{:else if parsed?.symbol}
 					<span class="state-symbol" class:braille={parsed.isBraille} style="color: {stateColor(session.state)}">{parsed.symbol}</span>
 				{:else}
@@ -656,6 +672,13 @@
 
 	.kill-btn:hover {
 		color: #e74c3c;
+	}
+
+	.dismiss-btn {
+		opacity: 0.6;
+	}
+	.dismiss-btn:hover {
+		opacity: 1;
 	}
 
 	/* Orchestrator: dimmer */

@@ -1,8 +1,30 @@
 import { Command } from "commander";
 import { execFileSync } from "child_process";
-import { existsSync, statSync } from "fs";
+import { existsSync, statSync, readFileSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import { upsertSession, writeLink } from "../db/sessions-json.js";
 import { resolveSession } from "./resolve-session.js";
+
+/** Pre-trust a workspace directory in ~/.claude.json so Claude skips the trust dialog */
+function ensureWorkspaceTrusted(cwd: string) {
+  const claudeJsonPath = join(homedir(), ".claude.json");
+  try {
+    const data = existsSync(claudeJsonPath)
+      ? JSON.parse(readFileSync(claudeJsonPath, "utf-8"))
+      : {};
+    if (!data.projects) data.projects = {};
+    if (!data.projects[cwd]) data.projects[cwd] = {};
+    if (!data.projects[cwd].hasTrustDialogAccepted) {
+      data.projects[cwd].hasTrustDialogAccepted = true;
+      writeFileSync(claudeJsonPath, JSON.stringify(data, null, 2));
+    }
+  } catch (err) {
+    process.stderr.write(
+      JSON.stringify({ warning: "Failed to pre-trust workspace", detail: String(err) }) + "\n"
+    );
+  }
+}
 
 export function createNewSessionCommand(): Command {
   return new Command("new-session")
@@ -36,6 +58,9 @@ export function createNewSessionCommand(): Command {
       }
 
       try {
+        // Pre-trust the workspace so Claude skips the trust dialog
+        ensureWorkspaceTrusted(cwd);
+
         // Use 'env -u CLAUDECODE' so Claude doesn't refuse to start
         // (tmux server's global env may have CLAUDECODE=1 from a parent session)
         const tmuxArgs = ["new-session", "-d", "-s", sessionName, "-c", cwd, "--", "env", "-u", "CLAUDECODE", ...claudeArgs];

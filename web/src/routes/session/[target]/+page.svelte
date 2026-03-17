@@ -20,7 +20,8 @@
 		(target ? sessionStore.sessionById.get(target) : undefined)
 	);
 
-	const paneIsDead = $derived(currentSession?.pane_alive === false);
+	const sessionNotFound = $derived(target != null && !currentSession && sessionStore.sessions.length > 0);
+	const paneIsDead = $derived(currentSession?.pane_alive === false || sessionNotFound);
 	const parsedTitle = $derived(currentSession?.pane_title ? splitPaneTitle(currentSession.pane_title) : null);
 
 	let textInput = $state('');
@@ -468,10 +469,25 @@
 			<h2>Pane closed</h2>
 			<p class="dead-target">{target}</p>
 			<p class="dead-hint">The Claude process may have exited or the tmux pane was killed.</p>
-			<Button variant="secondary" onclick={() => goto('/')}>
-				<iconify-icon icon="mdi:arrow-left"></iconify-icon>
-				Back to sessions
-			</Button>
+			<div class="dead-actions">
+				<Button variant="secondary" onclick={() => goto('/')}>
+					<iconify-icon icon="mdi:arrow-left"></iconify-icon>
+					Back to sessions
+				</Button>
+				{#if currentSession}
+					<Button variant="destructive" onclick={async () => {
+						await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/kill`, {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({ pid: currentSession.pid, tmux_target: currentSession.tmux_target })
+						});
+						goto('/');
+					}}>
+						<iconify-icon icon="mdi:delete"></iconify-icon>
+						Dismiss
+					</Button>
+				{/if}
+			</div>
 		</div>
 	{:else}
 		<div class="output" bind:this={outputElement} onscroll={handleScroll}>
@@ -801,6 +817,12 @@
 		color: #555;
 		margin: 0;
 		max-width: 300px;
+	}
+
+	.dead-actions {
+		display: flex;
+		gap: 8px;
+		margin-top: 4px;
 	}
 
 	.send-btn-wrapper {
