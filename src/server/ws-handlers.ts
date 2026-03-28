@@ -14,7 +14,7 @@ import { readFileSync } from 'fs';
 
 const execFileAsync = promisify(execFile);
 import { getAllSessions, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
-import { checkForInterruption, checkForInterruptionAsync, getPaneTitle, getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, capturePaneContent } from '../tmux/pane.js';
+import { checkForInterruptionAsync, getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { sessionWatcher } from './watcher.js';
 import { drainQueues, getQueueCounts } from './message-queue.js';
@@ -116,30 +116,6 @@ export interface ResizeMessage {
 // Session Helpers
 // ============================================================================
 
-function syncSessionStates(): void {
-	const sessions = getAllSessions().filter((s) => s.tmux_target);
-	for (const session of sessions) {
-		if (!session.tmux_target) continue;
-		const update = checkForInterruption(session.tmux_target);
-		if (update && session.state !== 'idle') {
-			updateSession(session.id, update);
-		}
-		// If hook says idle but pane shows a spinner (e.g. compaction), override to busy
-		if (session.state === 'idle') {
-			const content = capturePaneContent(session.tmux_target);
-			if (content) {
-				const bottom = content.split('\n').slice(-6).join('\n');
-				// DEBUG: log bottom of pane when idle to discover compaction indicator
-				const fs = require('fs');
-				fs.appendFileSync('/tmp/claude-mux-debug-idle.log',
-					`[${new Date().toISOString()}] session=${session.id} bottom=\n${bottom}\n---\n`);
-				if (isPaneShowingSpinner(content)) {
-					updateSession(session.id, { state: 'busy', current_action: 'Compacting...' });
-				}
-			}
-		}
-	}
-}
 
 function deduplicateByTmuxTarget<T extends { tmux_target: string | null; last_update: number }>(
 	sessions: T[]
@@ -159,36 +135,8 @@ function deduplicateByTmuxTarget<T extends { tmux_target: string | null; last_up
 	return [...byTarget.values(), ...noTarget];
 }
 
-export function getEnrichedSessions(): (Session & { pane_title: string | null; pane_alive: boolean })[] {
-	syncSessionStates();
-	const sessions = getAllSessions();
-	const links = readLinks();
-
-	const enrichedSessions = sessions.map((s) => {
-		const paneTitle = s.tmux_target ? getPaneTitle(s.tmux_target) : null;
-		const enriched: Session & { pane_title: string | null; pane_alive: boolean } = {
-			...s,
-			pane_title: paneTitle,
-			pane_alive: s.tmux_target ? paneTitle !== null : true,
-		};
-
-		// Merge linked_to from links file (orchestratorTarget → mainTarget)
-		if (s.tmux_target && links[s.tmux_target]) {
-			const mainTarget = links[s.tmux_target];
-			const mainSession = sessions.find((m) => m.tmux_target === mainTarget);
-			if (mainSession) {
-				enriched.linked_to = mainSession.id;
-			}
-		}
-
-		return enriched;
-	});
-
-	return deduplicateByTmuxTarget(enrichedSessions);
-}
-
 /**
- * Async version of syncSessionStates. Does not block the event loop.
+ * Async session state sync. Does not block the event loop.
  * Runs all interruption checks concurrently.
  */
 async function syncSessionStatesAsync(): Promise<void> {
@@ -433,10 +381,13 @@ export class SessionsWsManager {
 		} else {
 			console.log('[ws:sessions] addClient: clients=', this.clients.size, 'hasUnsubscribe=', !!this.unsubscribe);
 		}
-		// Send initial state synchronously so client gets data immediately
-		// Send initial sessions state + current system stats
-		this.sendToClient(client, this.createSessionsMessage('connected'));
-		this.sendToClient(client, this.createSystemStatsMessage());
+		// Send initial state asynchronously (batched tmux call is more reliable for pane_alive)
+		this.createSessionsMessageAsync('connected').then((msg) => {
+			if (client.isOpen()) {
+				this.sendToClient(client, msg);
+				this.sendToClient(client, this.createSystemStatsMessage());
+			}
+		});
 		return true;
 	}
 
@@ -485,13 +436,6 @@ export class SessionsWsManager {
 			(session as any).queue_count =
 				(session.tmux_target ? queueCounts.get(session.tmux_target) : undefined) ?? 0;
 		}
-	}
-
-	/** Sync version for initial client connect (one-time cost) */
-	private createSessionsMessage(type: 'sessions' | 'connected') {
-		const sessions = getEnrichedSessions();
-		this.mergeQueueCounts(sessions);
-		return { type, sessions, count: sessions.length, timestamp: Date.now() };
 	}
 
 	private async createSessionsMessageAsync(type: 'sessions' | 'connected') {

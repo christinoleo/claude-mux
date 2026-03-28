@@ -21,7 +21,9 @@
 	);
 
 	const sessionNotFound = $derived(target != null && !currentSession && sessionStore.sessions.length > 0);
-	const paneIsDead = $derived(currentSession?.pane_alive === false || sessionNotFound);
+	const paneIsDead = $derived(
+		sessionNotFound || (currentSession?.tmux_target && currentSession?.pane_alive === false)
+	);
 	const parsedTitle = $derived(currentSession?.pane_title ? splitPaneTitle(currentSession.pane_title) : null);
 
 	let textInput = $state('');
@@ -431,8 +433,8 @@
 				<span class="status">{paneIsDead ? 'pane closed' : (currentSession?.current_action || currentSession?.state || 'idle')}</span>
 			</div>
 		</div>
-		{#if !paneIsDead}
-			<div class="header-actions">
+		<div class="header-actions">
+			{#if !paneIsDead}
 				<Button variant="secondary" size="toolbar" onclick={copyTmuxCmd} title="Copy tmux attach command" class={showCopied ? 'bg-green-800 text-green-300' : ''}>
 					<iconify-icon icon={showCopied ? "mdi:check" : "mdi:content-copy"}></iconify-icon>
 					<span>{showCopied ? 'Copied!' : 'Tmux'}</span>
@@ -455,42 +457,15 @@
 					{/if}
 					<span>RC</span>
 				</Button>
-				<Button variant="ghost-destructive" size="toolbar" onclick={() => (showConfirmKill = true)} title="Kill Session">
-					<iconify-icon icon="mdi:power"></iconify-icon>
-					<span>Kill</span>
-				</Button>
-			</div>
-		{/if}
+			{/if}
+			<Button variant="ghost-destructive" size="toolbar" onclick={() => (showConfirmKill = true)} title="Kill Session">
+				<iconify-icon icon="mdi:power"></iconify-icon>
+				<span>Kill</span>
+			</Button>
+		</div>
 	</header>
 
-	{#if paneIsDead}
-		<div class="dead-pane">
-			<iconify-icon icon="mdi:console" class="dead-icon"></iconify-icon>
-			<h2>Pane closed</h2>
-			<p class="dead-target">{target}</p>
-			<p class="dead-hint">The Claude process may have exited or the tmux pane was killed.</p>
-			<div class="dead-actions">
-				<Button variant="secondary" onclick={() => goto('/')}>
-					<iconify-icon icon="mdi:arrow-left"></iconify-icon>
-					Back to sessions
-				</Button>
-				{#if currentSession}
-					<Button variant="destructive" onclick={async () => {
-						await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/kill`, {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({ pid: currentSession.pid, tmux_target: currentSession.tmux_target })
-						});
-						goto('/');
-					}}>
-						<iconify-icon icon="mdi:delete"></iconify-icon>
-						Dismiss
-					</Button>
-				{/if}
-			</div>
-		</div>
-	{:else}
-		<div class="output" bind:this={outputElement} onscroll={handleScroll}>
+	<div class="output" bind:this={outputElement} onscroll={handleScroll}>
 			{#if preferences.terminalTheming}
 				<TerminalRenderer output={displayOutput} />
 			{:else}
@@ -599,7 +574,6 @@
 				{/if}
 			</div>
 		</form>
-	{/if}
 </div>
 
 <AlertDialog.Root bind:open={showConfirmKill}>
