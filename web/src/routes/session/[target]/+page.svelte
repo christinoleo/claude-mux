@@ -91,6 +91,7 @@
 		{ label: 'No/Notes', keys: 'n', icon: 'mdi:note-edit' },
 		{ label: 'Always', keys: 'a', icon: 'mdi:check-all' },
 		{ label: 'Tab', keys: 'Tab', icon: 'mdi:keyboard-tab' },
+		{ label: 'S-Tab', keys: 'BTab', icon: 'mdi:keyboard-tab-reverse' },
 		{ label: 'Enter', keys: 'Enter', icon: 'mdi:keyboard-return' },
 		{ label: 'PgUp', keys: 'PageUp', icon: 'mdi:chevron-double-up' },
 		{ label: 'PgDn', keys: 'PageDown', icon: 'mdi:chevron-double-down' },
