@@ -236,6 +236,16 @@
 	async function closeChrome() {
 		await fetch('/api/chrome', { method: 'DELETE' });
 	}
+
+	function resetLocalStorage() {
+		showConfirm('Reset Local Data', 'This will clear all saved projects, preferences, and cached data. The page will reload.', () => {
+			localStorage.removeItem('claude-mux-projects');
+			localStorage.removeItem('claude-mux-beads-cache');
+			localStorage.removeItem('claude-mux-preferences');
+			localStorage.removeItem('claude-mux-sidebar-width');
+			window.location.reload();
+		});
+	}
 </script>
 
 {#snippet sessionCard(session: Session, isOrchestrator: boolean, subfolder: string | null)}
@@ -318,6 +328,14 @@
 					title="Close Chrome/Brave debugging instances"
 				>
 					<iconify-icon icon="mdi:google-chrome"></iconify-icon>
+				</Button>
+				<Button
+					variant="secondary"
+					size="icon"
+					onclick={resetLocalStorage}
+					title="Reset local data (projects, preferences, cache)"
+				>
+					<iconify-icon icon="mdi:refresh"></iconify-icon>
 				</Button>
 			{/if}
 			<Button
