@@ -13,7 +13,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		if (text) {
 			sendTextToPane(target, text);
 		} else {
-			execFileSync('tmux', ['send-keys', '-t', target, ...keys.split(' ')], { stdio: 'ignore' });
+			// Send each key separately so repeated keys (e.g. C-b C-b) work correctly
+			for (const key of keys.split(' ')) {
+				execFileSync('tmux', ['send-keys', '-t', target, key], { stdio: 'ignore' });
+			}
 		}
 		return json({ ok: true });
 	} catch {

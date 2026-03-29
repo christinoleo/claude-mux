@@ -103,6 +103,7 @@
 		{ label: 'Ctrl-L', text: '', keys: 'C-l', icon: 'mdi:eraser' },
 		{ label: 'Ctrl-B×2', text: '', keys: 'C-b C-b', icon: 'mdi:arrow-down-bold-box-outline' },
 		{ label: 'Ctrl-O', text: '', keys: 'C-o', icon: 'mdi:text-box-outline' },
+		{ label: 'Ctrl-U', text: '', keys: 'C-u', icon: 'mdi:format-clear' },
 		{ label: '/clear', text: '/clear', icon: 'mdi:broom' },
 		{ label: '/rc', text: '/rc', icon: 'mdi:cellphone-link' },
 		{ label: '/ak:linus', text: '/ak:linus', icon: 'mdi:code-tags-check' },
