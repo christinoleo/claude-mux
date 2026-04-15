@@ -318,6 +318,7 @@ export class SessionsWsManager {
 	private config: Required<WsConfig>;
 	private droppedClients = 0;
 	private refreshing = false;
+	private refreshQueued = false;
 
 	constructor(config?: WsConfig) {
 		this.config = { ...DEFAULT_CONFIG, ...config };
@@ -448,8 +449,12 @@ export class SessionsWsManager {
 	}
 
 	private refreshAndBroadcast(): void {
-		// Guard against overlapping async refresh cycles
-		if (this.refreshing) return;
+		// If already refreshing, queue a follow-up refresh so we don't lose
+		// watcher notifications that arrive while async tmux calls are in-flight.
+		if (this.refreshing) {
+			this.refreshQueued = true;
+			return;
+		}
 		this.refreshing = true;
 
 		this.createSessionsMessageAsync('sessions')
@@ -496,6 +501,10 @@ export class SessionsWsManager {
 			})
 			.finally(() => {
 				this.refreshing = false;
+				if (this.refreshQueued) {
+					this.refreshQueued = false;
+					this.refreshAndBroadcast();
+				}
 			});
 	}
 
