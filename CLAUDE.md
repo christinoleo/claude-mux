@@ -24,6 +24,7 @@ bun run build                          # Build CLI + SvelteKit web app
 bun run build:cli                      # Build CLI only (TypeScript)
 bun run build:web                      # Build SvelteKit web app only
 bun run dev:serve                      # Vite dev server with HMR
+bun run prod:restart                   # Kill, rebuild, and relaunch prod server on :3456 (detached)
 bun test                               # Run vitest tests
 bun run lint                           # ESLint check
 bun run format                         # Prettier formatting
