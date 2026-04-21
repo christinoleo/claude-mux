@@ -471,12 +471,20 @@
 	}
 
 	async function killSession() {
-		if (!currentSession) return;
-		await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/kill`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ pid: currentSession.pid, tmux_target: currentSession.tmux_target })
-		});
+		if (currentSession) {
+			await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/kill`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ pid: currentSession.pid, tmux_target: currentSession.tmux_target })
+			});
+		} else if (target) {
+			// No session record (stale URL) — still attempt to kill the tmux pane by target
+			await fetch(`/api/sessions/${encodeURIComponent(target)}/kill`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ pid: 0, tmux_target: target })
+			});
+		}
 		showConfirmKill = false;
 		goto('/');
 	}

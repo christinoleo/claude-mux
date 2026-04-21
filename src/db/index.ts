@@ -14,6 +14,7 @@ export {
   setSessionsDir,
   type Session,
   type SessionState,
+  type SessionAgent,
   type SessionInput,
   type SessionUpdate,
   type Screenshot,

@@ -2,7 +2,8 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, statSync, readFileSync, writeFileSync } from 'fs';
 import { execFileSync } from 'child_process';
-import { upsertSession } from '$shared/db/index.js';
+import { upsertSession, type SessionAgent } from '$shared/db/index.js';
+import { AGENTS, parseAgent } from '$shared/agents.js';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -25,10 +26,11 @@ function ensureWorkspaceTrusted(cwd: string) {
 }
 
 export const POST: RequestHandler = async ({ request }) => {
-	const { cwd } = await request.json();
+	const { cwd, agent } = await request.json();
 	if (!cwd) {
 		return json({ error: 'cwd required' }, { status: 400 });
 	}
+	const selectedAgent: SessionAgent = parseAgent(agent);
 
 	// Check if the folder exists
 	if (!existsSync(cwd)) {
@@ -43,14 +45,13 @@ export const POST: RequestHandler = async ({ request }) => {
 		// Pre-trust the workspace so Claude skips the trust dialog
 		ensureWorkspaceTrusted(cwd);
 
-		// Create new tmux window and run claude in the specified directory
-		const sessionName = 'claude-' + Date.now();
+		const sessionName = `${selectedAgent}-${Date.now()}`;
 
-		// Use 'env -u CLAUDECODE' so Claude doesn't refuse to start
-		// (tmux server's global env may have CLAUDECODE=1 from a parent session)
+		// Unset CLAUDECODE so Claude (and harmlessly Gemini/Copilot) don't see the
+		// parent tmux server's CLAUDECODE=1 and refuse to start.
 		execFileSync('tmux', [
 			'new-session', '-d', '-s', sessionName, '-c', cwd,
-			'--', 'env', '-u', 'CLAUDECODE', 'claude', '--dangerously-skip-permissions'
+			'--', 'env', '-u', 'CLAUDECODE', ...AGENTS[selectedAgent].argv
 		], {
 			stdio: 'ignore'
 		});
@@ -64,23 +65,20 @@ export const POST: RequestHandler = async ({ request }) => {
 		}).trim() || '0';
 		const tmuxTarget = `${sessionName}:${baseIndex}.${paneBaseIndex}`;
 
-		// Add session immediately so it shows up in UI
 		try {
-			const id = crypto.randomUUID();
-			console.log('[new-session] Creating session:', { id, cwd, tmuxTarget });
 			upsertSession({
-				id,
+				id: crypto.randomUUID(),
 				pid: 0,
 				cwd,
 				tmux_target: tmuxTarget,
-				state: 'idle'
+				state: 'idle',
+				agent: selectedAgent
 			});
-			console.log('[new-session] Session created successfully');
 		} catch (err) {
 			console.error('[new-session] Session creation failed:', err);
 		}
 
-		return json({ ok: true, session: sessionName, tmuxTarget });
+		return json({ ok: true, session: sessionName, tmuxTarget, agent: selectedAgent });
 	} catch (err) {
 		const detail = err instanceof Error ? err.message : String(err);
 		console.error('[new-session] Failed to create session:', detail);

@@ -30,6 +30,7 @@ export function setSessionsDir(dir: string | null): void {
 }
 
 export type SessionState = "busy" | "idle" | "waiting" | "permission";
+export type SessionAgent = "claude" | "gemini" | "copilot";
 
 export interface Screenshot {
   path: string;
@@ -53,6 +54,7 @@ export interface Session {
   linked_to?: string | null;
   rc_url?: string | null;
   display_name?: string | null;
+  agent?: SessionAgent;
 }
 
 export interface SessionInput {
@@ -67,6 +69,7 @@ export interface SessionInput {
   prompt_text?: string | null;
   linked_to?: string | null;
   rc_url?: string | null;
+  agent?: SessionAgent;
 }
 
 export interface SessionUpdate {
@@ -139,6 +142,7 @@ export function upsertSession(input: SessionInput): void {
     linked_to: input.linked_to ?? existing?.linked_to ?? null,
     rc_url: input.rc_url ?? existing?.rc_url ?? null,
     display_name: existing?.display_name ?? null,
+    agent: input.agent ?? existing?.agent ?? "claude",
   };
 
   writeSessionFile(session);

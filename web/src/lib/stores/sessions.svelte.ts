@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { ReliableWebSocket } from './websocket-base.svelte';
 import { SessionsWsMessageSchema, type SystemStatsMessage } from '$shared/types/ws-messages.js';
+import type { SessionAgent } from '$shared/db/index.js';
 
 export interface Screenshot {
 	path: string;
@@ -29,6 +30,7 @@ export interface Session {
 	rc_url?: string | null;
 	queue_count?: number;
 	display_name?: string | null;
+	agent?: SessionAgent;
 }
 
 /** Fields that change frequently and should trigger a session object replacement */

@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod/v4';
+import { AGENT_IDS } from '../agents.js';
 
 // ============================================================================
 // Session data schemas
@@ -38,7 +39,8 @@ const EnrichedSessionSchema = z.object({
 	display_name: z.string().nullable().optional(),
 	pane_title: z.string().nullable(),
 	pane_alive: z.boolean(),
-	queue_count: z.number().optional()
+	queue_count: z.number().optional(),
+	agent: z.enum(AGENT_IDS).optional()
 });
 
 // ============================================================================

@@ -3,6 +3,8 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { sessionStore, stateColor, getProjectColor, groupSessions, splitPaneTitle, getSessionDisplayName, findDeepestProject, type Session } from '$lib/stores/sessions.svelte';
+	import { AGENTS, AGENT_IDS } from '$shared/agents.js';
+	import type { SessionAgent } from '$shared/db/index.js';
 	import type { TmuxPane } from '../../routes/api/tmux/panes/+server';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -40,12 +42,38 @@
 		alertOpen = true;
 	}
 
+	let agentPickerCwd = $state<string | null>(null);
+	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function pickAgent(agent: SessionAgent) {
+		const cwd = agentPickerCwd;
+		agentPickerCwd = null;
+		if (cwd) newSessionInProject(cwd, agent);
+	}
+
+	function startLongPress(cwd: string) {
+		clearLongPress();
+		longPressTimer = setTimeout(() => { agentPickerCwd = cwd; }, 500);
+	}
+
+	function clearLongPress() {
+		if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+	}
+
 	// Project tree node type
 	interface ProjectNode {
 		cwd: string;
 		sessions: Session[];
 		children: ProjectNode[];
 		depth: number;
+	}
+
+	function detectPaneAgent(command: string): SessionAgent | null {
+		const cmd = command.toLowerCase();
+		for (const id of AGENT_IDS) {
+			if (cmd.includes(id)) return id;
+		}
+		return null;
 	}
 
 	// Group sessions by project (cwd)
@@ -184,6 +212,7 @@
 		document.addEventListener('visibilitychange', onVis);
 		return () => {
 			stop();
+			clearLongPress();
 			document.removeEventListener('visibilitychange', onVis);
 		};
 	});
@@ -225,11 +254,11 @@
 		});
 	}
 
-	async function newSessionInProject(cwd: string) {
+	async function newSessionInProject(cwd: string, agent: SessionAgent = 'claude') {
 		const res = await fetch('/api/projects/new-session', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ cwd })
+			body: JSON.stringify({ cwd, agent })
 		});
 		const data = await res.json();
 		if (!data.ok) {
@@ -292,6 +321,7 @@
 </script>
 
 {#snippet sessionCard(session: Session, isOrchestrator: boolean, subfolder: string | null)}
+	{@const agentMeta = AGENTS[session.agent ?? 'claude']}
 	{#if session.tmux_target}
 		{@const isActive = session.tmux_target === currentTarget}
 		{@const isDead = session.pane_alive === false}
@@ -304,7 +334,7 @@
 			class:dead={isDead}
 			onclick={(e) => handleSessionClick(e, session.tmux_target!)}
 		>
-			<iconify-icon icon="mdi:creation" class="row-prefix claude-prefix" title="Claude session"></iconify-icon>
+			<iconify-icon icon={agentMeta.icon} class="row-prefix" style="color: {agentMeta.color};" title={agentMeta.label}></iconify-icon>
 			<div class="session-info">
 				{#if isOrchestrator}
 					<span class="session-role">orch</span>
@@ -347,7 +377,7 @@
 		</a>
 	{:else}
 		<div class="session no-tmux" class:orchestrator={isOrchestrator}>
-			<iconify-icon icon="mdi:creation" class="row-prefix claude-prefix"></iconify-icon>
+			<iconify-icon icon={agentMeta.icon} class="row-prefix" style="color: {agentMeta.color};"></iconify-icon>
 			<div class="session-info">
 				<div class="session-name">{session.id}</div>
 				<div class="session-status">{session.current_action || session.state}</div>
@@ -361,17 +391,27 @@
 
 {#snippet tmuxRow(pane: TmuxPane)}
 	{@const isActive = pane.target === currentTarget}
+	{@const detected = detectPaneAgent(pane.command || '')}
+	{@const meta = detected ? AGENTS[detected] : null}
 	<a
 		href="/session/{encodeURIComponent(pane.target)}"
-		class="session tmux-row"
+		class="session"
+		class:tmux-row={!meta}
+		class:agent-row={!!meta}
 		class:active={isActive}
 		onclick={(e) => handleSessionClick(e, pane.target)}
 	>
-		<iconify-icon icon="mdi:console-line" class="row-prefix tmux-prefix" title="tmux pane"></iconify-icon>
+		<iconify-icon
+			icon={meta?.icon ?? 'mdi:console-line'}
+			class="row-prefix"
+			class:tmux-prefix={!meta}
+			style={meta ? `color: ${meta.color};` : undefined}
+			title={meta?.label ?? 'tmux pane'}
+		></iconify-icon>
 		<div class="session-info">
 			<div class="session-name">{pane.target}</div>
 			{#if !compact}
-				<div class="session-status">{pane.command}</div>
+				<div class="session-status">{meta?.label ?? pane.command}</div>
 			{/if}
 		</div>
 	</a>
@@ -429,7 +469,16 @@
 							<span class="project-name" style="color: {color}">{getProjectName(project.cwd)}</span>
 						</div>
 						<div class="project-actions">
-							<button class="project-btn" onclick={() => newSessionInProject(project.cwd)} title="New Session">
+							<button
+								class="project-btn"
+								onclick={() => newSessionInProject(project.cwd)}
+								oncontextmenu={(e) => { e.preventDefault(); agentPickerCwd = project.cwd; }}
+								ontouchstart={() => startLongPress(project.cwd)}
+								ontouchend={clearLongPress}
+								ontouchmove={clearLongPress}
+								ontouchcancel={clearLongPress}
+								title="New Session (right-click or long-press for agent)"
+							>
 								<iconify-icon icon="mdi:plus"></iconify-icon>
 							</button>
 							<button class="project-btn project-close" onclick={() => closeProject(project.cwd, project.sessions)} title="Close Project">
@@ -521,6 +570,27 @@
 			<Button variant="outline" onclick={() => showFolderBrowser = false}>Cancel</Button>
 			<Button onclick={selectFolder}>Select</Button>
 		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root open={agentPickerCwd !== null} onOpenChange={(o) => { if (!o) agentPickerCwd = null; }}>
+	<Dialog.Content class="max-w-sm">
+		<Dialog.Header>
+			<Dialog.Title>New Session</Dialog.Title>
+			<Dialog.Description>Choose which agent to launch.</Dialog.Description>
+		</Dialog.Header>
+		<div class="agent-choices">
+			{#each AGENT_IDS as id (id)}
+				{@const meta = AGENTS[id]}
+				<button class="agent-choice" onclick={() => pickAgent(id)}>
+					<iconify-icon icon={meta.icon} style="color: {meta.color};"></iconify-icon>
+					<div class="agent-choice-text">
+						<div class="agent-choice-name">{meta.label}</div>
+						<div class="agent-choice-cmd">{meta.command}</div>
+					</div>
+				</button>
+			{/each}
+		</div>
 	</Dialog.Content>
 </Dialog.Root>
 
@@ -816,12 +886,20 @@
 		line-height: 1;
 	}
 
-	.claude-prefix {
-		color: #d97757;
-	}
-
 	.tmux-prefix {
 		color: #5a6978;
+	}
+
+	.session.agent-row .session-name {
+		font-weight: 600;
+		color: inherit;
+		font-family: inherit;
+		font-size: 13px;
+	}
+
+	.session.agent-row .session-status {
+		color: #777;
+		font-family: inherit;
 	}
 
 	.session.tmux-row .session-name {
@@ -892,6 +970,56 @@
 
 	.fb-item:hover {
 		background: hsl(var(--accent));
+	}
+
+	.agent-choices {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 4px 0;
+	}
+
+	.agent-choice {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		width: 100%;
+		padding: 10px 12px;
+		background: transparent;
+		border: 1px solid hsl(var(--border));
+		color: hsl(var(--foreground));
+		text-align: left;
+		cursor: pointer;
+		border-radius: 6px;
+		transition: background 0.1s, border-color 0.1s;
+	}
+
+	.agent-choice:hover {
+		background: hsl(var(--accent));
+		border-color: hsl(var(--primary));
+	}
+
+	.agent-choice iconify-icon {
+		font-size: 22px;
+		flex-shrink: 0;
+	}
+
+	.agent-choice-text {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	.agent-choice-name {
+		font-size: 13px;
+		font-weight: 600;
+	}
+
+	.agent-choice-cmd {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 11px;
+		color: hsl(var(--muted-foreground));
 	}
 
 	/* Compact mode adjustments */
