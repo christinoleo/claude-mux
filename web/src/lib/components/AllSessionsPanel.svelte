@@ -164,21 +164,40 @@
 		sessionStore.loadSavedProjects();
 	});
 
-	function killSession(id: string, pid: number, tmux_target: string | null) {
-		showConfirm('Kill Session', 'Are you sure you want to kill this session?', async () => {
-			await fetch(`/api/sessions/${encodeURIComponent(id)}/kill`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ pid, tmux_target })
-			});
+	// Auto-persist any project we see a session in, so the group doesn't
+	// disappear when the last pane in it is closed.
+	$effect(() => {
+		for (const session of sessionStore.sessions) {
+			if (session.cwd) sessionStore.saveProject(session.cwd);
+		}
+	});
+
+	function killSessionReq(s: { id: string; pid: number; tmux_target: string | null }) {
+		return fetch(`/api/sessions/${encodeURIComponent(s.id)}/kill`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ pid: s.pid, tmux_target: s.tmux_target })
 		});
 	}
 
-	async function dismissSession(id: string, pid: number, tmux_target: string | null) {
-		await fetch(`/api/sessions/${encodeURIComponent(id)}/kill`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ pid, tmux_target })
+	function killSession(id: string, pid: number, tmux_target: string | null) {
+		showConfirm('Kill Session', 'Are you sure you want to kill this session?', () => {
+			killSessionReq({ id, pid, tmux_target });
+		});
+	}
+
+	function dismissSession(id: string, pid: number, tmux_target: string | null) {
+		killSessionReq({ id, pid, tmux_target });
+	}
+
+	function closeProject(cwd: string, sessions: Session[]) {
+		const count = sessions.length;
+		const msg = count > 0
+			? `Kill ${count} session${count === 1 ? '' : 's'} in this project and remove the group?`
+			: 'Remove this empty project group?';
+		showConfirm('Close Project', msg, async () => {
+			await Promise.all(sessions.map(killSessionReq));
+			sessionStore.removeProject(cwd);
 		});
 	}
 
@@ -365,9 +384,14 @@
 						<div class="project-label">
 							<span class="project-name" style="color: {color}">{getProjectName(project.cwd)}</span>
 						</div>
-						<button class="project-add" onclick={() => newSessionInProject(project.cwd)} title="New Session">
-							<iconify-icon icon="mdi:plus"></iconify-icon>
-						</button>
+						<div class="project-actions">
+							<button class="project-btn" onclick={() => newSessionInProject(project.cwd)} title="New Session">
+								<iconify-icon icon="mdi:plus"></iconify-icon>
+							</button>
+							<button class="project-btn project-close" onclick={() => closeProject(project.cwd, project.sessions)} title="Close Project">
+								<iconify-icon icon="mdi:close"></iconify-icon>
+							</button>
+						</div>
 					</div>
 					{#each grouped as item (item.type === 'pair' ? item.main.id : item.session.id)}
 						{#if item.type === 'pair'}
@@ -559,7 +583,12 @@
 		white-space: nowrap;
 	}
 
-	.project-add {
+	.project-actions {
+		display: flex;
+		gap: 2px;
+	}
+
+	.project-btn {
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -575,13 +604,17 @@
 		transition: opacity 0.15s, background 0.15s, color 0.15s;
 	}
 
-	.project-header:hover .project-add {
+	.project-header:hover .project-btn {
 		opacity: 1;
 	}
 
-	.project-add:hover {
+	.project-btn:hover {
 		background: #333;
 		color: #fff;
+	}
+
+	.project-close:hover {
+		color: #e74c3c;
 	}
 
 	/* Session row: RC-style two-line layout */
