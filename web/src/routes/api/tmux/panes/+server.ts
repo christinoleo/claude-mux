@@ -6,12 +6,13 @@ export interface TmuxPane {
 	target: string;
 	session: string;
 	command: string;
+	cwd: string;
 }
 
 export const GET: RequestHandler = async () => {
 	try {
 		const output = execSync(
-			'tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index}\t#{pane_current_command}"',
+			'tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index}\t#{pane_current_command}\t#{pane_current_path}"',
 			{ encoding: 'utf-8' }
 		);
 
@@ -20,9 +21,9 @@ export const GET: RequestHandler = async () => {
 			.split('\n')
 			.filter(Boolean)
 			.map((line) => {
-				const [target, command] = line.split('\t');
+				const [target, command, cwd] = line.split('\t');
 				const session = target.split(':')[0];
-				return { target, session, command };
+				return { target, session, command, cwd: cwd || '' };
 			});
 
 		return json(panes);

@@ -275,3 +275,13 @@ export function splitPaneTitle(title: string): { symbol: string | null; isBraill
 export function getSessionDisplayName(session: Session): string {
 	return session.display_name || session.tmux_target || session.id;
 }
+
+export function findDeepestProject(path: string, projects: Iterable<string>): string | null {
+	let best: string | null = null;
+	for (const p of projects) {
+		if (path === p || path.startsWith(p + '/')) {
+			if (!best || p.length > best.length) best = p;
+		}
+	}
+	return best;
+}

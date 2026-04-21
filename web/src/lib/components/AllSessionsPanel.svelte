@@ -2,13 +2,13 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { sessionStore, stateColor, getProjectColor, groupSessions, splitPaneTitle, getSessionDisplayName, type Session } from '$lib/stores/sessions.svelte';
+	import { sessionStore, stateColor, getProjectColor, groupSessions, splitPaneTitle, getSessionDisplayName, findDeepestProject, type Session } from '$lib/stores/sessions.svelte';
+	import type { TmuxPane } from '../../routes/api/tmux/panes/+server';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
-	import SidebarAccordion from './SidebarAccordion.svelte';
 
 	interface Props {
 		onSessionSelect?: () => void;
@@ -16,12 +16,6 @@
 	}
 
 	let { onSessionSelect, compact = false }: Props = $props();
-
-	interface TmuxPane {
-		target: string;
-		session: string;
-		command: string;
-	}
 
 	let tmuxPanes = $state<TmuxPane[]>([]);
 	let tmuxPanesLoaded = $state(false);
@@ -135,10 +129,26 @@
 
 	const flatProjects = $derived.by(() => flattenTree(projectTree));
 
-	// Filter tmux panes to exclude Claude sessions
-	const otherTmuxPanes = $derived.by(() => {
+	const nonClaudeTmuxPanes = $derived.by(() => {
 		const claudeTargets = new Set(sessionStore.sessions.map(s => s.tmux_target));
 		return tmuxPanes.filter(p => !claudeTargets.has(p.target));
+	});
+
+	// Bucket each non-Claude pane under its deepest matching project cwd;
+	// panes under no known project fall into `orphans`.
+	const tmuxByProject = $derived.by(() => {
+		const byProject = new Map<string, TmuxPane[]>();
+		const orphans: TmuxPane[] = [];
+		for (const pane of nonClaudeTmuxPanes) {
+			const match = pane.cwd ? findDeepestProject(pane.cwd, allProjects) : null;
+			if (match) {
+				if (!byProject.has(match)) byProject.set(match, []);
+				byProject.get(match)!.push(pane);
+			} else {
+				orphans.push(pane);
+			}
+		}
+		return { byProject, orphans };
 	});
 
 	// Check if a session is currently active (matches current route)
@@ -156,12 +166,26 @@
 		tmuxPanesLoaded = true;
 	}
 
-	function handleOtherTmuxExpand(expanded: boolean) {
-		if (expanded) fetchTmuxPanes();
-	}
-
 	onMount(() => {
 		sessionStore.loadSavedProjects();
+		fetchTmuxPanes();
+		let interval: ReturnType<typeof setInterval> | null = null;
+		const start = () => {
+			if (interval == null) interval = setInterval(fetchTmuxPanes, 5000);
+		};
+		const stop = () => {
+			if (interval != null) { clearInterval(interval); interval = null; }
+		};
+		const onVis = () => {
+			if (document.hidden) stop();
+			else { fetchTmuxPanes(); start(); }
+		};
+		start();
+		document.addEventListener('visibilitychange', onVis);
+		return () => {
+			stop();
+			document.removeEventListener('visibilitychange', onVis);
+		};
 	});
 
 	// Auto-persist any project we see a session in, so the group doesn't
@@ -280,6 +304,7 @@
 			class:dead={isDead}
 			onclick={(e) => handleSessionClick(e, session.tmux_target!)}
 		>
+			<iconify-icon icon="mdi:creation" class="row-prefix claude-prefix" title="Claude session"></iconify-icon>
 			<div class="session-info">
 				{#if isOrchestrator}
 					<span class="session-role">orch</span>
@@ -322,6 +347,7 @@
 		</a>
 	{:else}
 		<div class="session no-tmux" class:orchestrator={isOrchestrator}>
+			<iconify-icon icon="mdi:creation" class="row-prefix claude-prefix"></iconify-icon>
 			<div class="session-info">
 				<div class="session-name">{session.id}</div>
 				<div class="session-status">{session.current_action || session.state}</div>
@@ -331,6 +357,24 @@
 			</div>
 		</div>
 	{/if}
+{/snippet}
+
+{#snippet tmuxRow(pane: TmuxPane)}
+	{@const isActive = pane.target === currentTarget}
+	<a
+		href="/session/{encodeURIComponent(pane.target)}"
+		class="session tmux-row"
+		class:active={isActive}
+		onclick={(e) => handleSessionClick(e, pane.target)}
+	>
+		<iconify-icon icon="mdi:console-line" class="row-prefix tmux-prefix" title="tmux pane"></iconify-icon>
+		<div class="session-info">
+			<div class="session-name">{pane.target}</div>
+			{#if !compact}
+				<div class="session-status">{pane.command}</div>
+			{/if}
+		</div>
+	</a>
 {/snippet}
 
 <div class="all-sessions-panel" class:compact>
@@ -416,38 +460,29 @@
 								{@render sessionCard(item.session, false, subPath)}
 							{/if}
 						{/each}
+						{#each (tmuxByProject.byProject.get(child.cwd) || []) as pane (pane.target)}
+							{@render tmuxRow(pane)}
+						{/each}
+					{/each}
+					{#each (tmuxByProject.byProject.get(project.cwd) || []) as pane (pane.target)}
+						{@render tmuxRow(pane)}
 					{/each}
 				</div>
 			{/each}
 		{/if}
 
-		<SidebarAccordion
-			icon="mdi:console"
-			title="Other tmux"
-			count={tmuxPanesLoaded ? otherTmuxPanes.length : null}
-			lazy
-			onExpandChange={handleOtherTmuxExpand}
-		>
-			{#if otherTmuxPanes.length > 0}
-				{#each otherTmuxPanes as pane (pane.target)}
-					<a
-						href="/session/{encodeURIComponent(pane.target)}"
-						class="session tmux-pane"
-						onclick={(e) => handleSessionClick(e, pane.target)}
-					>
-						<div class="session-info">
-							<div class="session-name">{pane.target}</div>
-							{#if !compact}
-								<div class="session-status">{pane.command}</div>
-							{/if}
-						</div>
-						<iconify-icon icon="mdi:console" style="color: #666; font-size: 14px;"></iconify-icon>
-					</a>
+		{#if tmuxPanesLoaded && tmuxByProject.orphans.length > 0}
+			<div class="orphan-group">
+				<div class="orphan-header">
+					<iconify-icon icon="mdi:console-line"></iconify-icon>
+					<span>other tmux</span>
+					<span class="orphan-count">{tmuxByProject.orphans.length}</span>
+				</div>
+				{#each tmuxByProject.orphans as pane (pane.target)}
+					{@render tmuxRow(pane)}
 				{/each}
-			{:else}
-				<div class="empty-section">No other tmux panes</div>
-			{/if}
-		</SidebarAccordion>
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -771,15 +806,61 @@
 		opacity: 0.5;
 	}
 
-	/* Tmux pane items inside accordion */
-	.session.tmux-pane {
-		margin: 0 -10px 0 -14px;
+	.row-prefix {
+		font-size: 12px;
+		flex-shrink: 0;
+		width: 14px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		line-height: 1;
 	}
 
-	.empty-section {
-		color: hsl(var(--muted-foreground));
-		font-size: 11px;
-		margin: 0;
+	.claude-prefix {
+		color: #d97757;
+	}
+
+	.tmux-prefix {
+		color: #5a6978;
+	}
+
+	.session.tmux-row .session-name {
+		font-weight: 500;
+		color: #bbb;
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 12px;
+	}
+
+	.session.tmux-row .session-status {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	}
+
+	.orphan-group {
+		border-left: 2px solid #2a2a2a;
+		margin: 16px 8px 12px 8px;
+	}
+
+	.orphan-header {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 8px 4px;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.8px;
+		color: #666;
+		font-weight: 600;
+	}
+
+	.orphan-header iconify-icon {
+		font-size: 12px;
+	}
+
+	.orphan-count {
+		margin-left: auto;
+		font-size: 10px;
+		color: #555;
+		letter-spacing: 0;
 	}
 
 	/* Folder browser items */
