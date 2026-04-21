@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Server
 
-Dev server runs via Vite with HMR at **http://localhost:5173** (or `--port` to change).
+Dev server runs via Vite with HMR at **http://localhost:3434** (or `--port` to change). Prod server uses :3456.
 
 ```bash
-bun run dev:serve                    # Start dev server
+bun run dev:serve                    # Start dev server on :3434
 bun run dev:serve --port 3456        # Custom port
 bun run dev:serve --host 0.0.0.0     # LAN access
 ```
