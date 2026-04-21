@@ -7,11 +7,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);
 	const body = await request.json();
 	const keys = body.keys || 'Escape';
-	const text = body.text; // For literal text input
+	const text = body.text;
+	const raw = body.raw === true;
 
 	try {
 		if (text) {
-			sendTextToPane(target, text);
+			sendTextToPane(target, text, { appendEnter: !raw });
 		} else {
 			// Send each key separately so repeated keys (e.g. C-b C-b) work correctly
 			for (const key of keys.split(' ')) {

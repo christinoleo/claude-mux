@@ -31,8 +31,13 @@
 	let moreOpen = $state(false);
 	let commandsOpen = $state(false);
 	let queuePopoverOpen = $state(false);
+	let ctrlCount = $state(0);
+	let altCount = $state(0);
+	// Tap candidate: modifier keydown with no intervening key → arm on keyup
+	let ctrlTapCandidate = false;
+	let altTapCandidate = false;
 	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-	let longPressTriggered = $state(false);
+	let longPressTriggered = false;
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
 	const rcUrl = $derived(currentSession?.rc_url ?? null);
 	let rcEnabling = $state(false);
@@ -84,12 +89,11 @@
 	}
 
 	const moreKeys: { label: string; keys: string; icon: string }[] = [
+		{ label: 'Bksp', keys: 'BSpace', icon: 'mdi:backspace' },
 		{ label: 'Left', keys: 'Left', icon: 'mdi:arrow-left' },
 		{ label: 'Right', keys: 'Right', icon: 'mdi:arrow-right' },
 		{ label: 'Space', keys: 'Space', icon: 'mdi:keyboard-space' },
 		{ label: 'Yes', keys: 'y', icon: 'mdi:check' },
-		{ label: 'No/Notes', keys: 'n', icon: 'mdi:note-edit' },
-		{ label: 'Always', keys: 'a', icon: 'mdi:check-all' },
 		{ label: 'Tab', keys: 'Tab', icon: 'mdi:keyboard-tab' },
 		{ label: 'S-Tab', keys: 'BTab', icon: 'mdi:keyboard-tab-reverse' },
 		{ label: 'Enter', keys: 'Enter', icon: 'mdi:keyboard-return' },
@@ -100,10 +104,6 @@
 	];
 
 	const commands: { label: string; text: string; keys?: string; icon: string }[] = [
-		{ label: 'Ctrl-L', text: '', keys: 'C-l', icon: 'mdi:eraser' },
-		{ label: 'Ctrl-B×2', text: '', keys: 'C-b C-b', icon: 'mdi:arrow-down-bold-box-outline' },
-		{ label: 'Ctrl-O', text: '', keys: 'C-o', icon: 'mdi:text-box-outline' },
-		{ label: 'Ctrl-U', text: '', keys: 'C-u', icon: 'mdi:format-clear' },
 		{ label: '/clear', text: '/clear', icon: 'mdi:broom' },
 		{ label: '/rc', text: '/rc', icon: 'mdi:cellphone-link' },
 		{ label: '/ak:linus', text: '/ak:linus', icon: 'mdi:code-tags-check' },
@@ -274,6 +274,17 @@
 		}
 	}
 
+	async function sendTextRaw() {
+		if (!textInput) return;
+		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ text: textInput, raw: true })
+		});
+		textInput = '';
+		if (textareaElement) textareaElement.style.height = 'auto';
+	}
+
 	async function queueText() {
 		if (!textInput.trim()) return;
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
@@ -290,38 +301,55 @@
 
 	function handleSendContextMenu(e: MouseEvent) {
 		e.preventDefault();
-		if (textInput.trim()) {
-			queuePopoverOpen = true;
-		}
+		queuePopoverOpen = true;
 	}
 
-	function handleSendTouchStart() {
+	function startLongPress() {
 		longPressTriggered = false;
+		if (longPressTimer) clearTimeout(longPressTimer);
 		longPressTimer = setTimeout(() => {
-			if (textInput.trim()) {
-				longPressTriggered = true;
-				queuePopoverOpen = true;
-			}
+			longPressTimer = null;
+			longPressTriggered = true;
+			queuePopoverOpen = true;
 		}, 500);
 	}
 
-	function handleSendTouchEnd(e: TouchEvent) {
+	function cancelLongPress() {
 		if (longPressTimer) {
 			clearTimeout(longPressTimer);
 			longPressTimer = null;
 		}
+	}
+
+	function handleSendTouchEnd(e: TouchEvent) {
+		cancelLongPress();
+		// Touch has no click event to capture; suppress here if long-press fired
 		if (longPressTriggered) {
 			e.preventDefault();
 			longPressTriggered = false;
 		}
 	}
 
-	function handleSendTouchMove() {
-		if (longPressTimer) {
-			clearTimeout(longPressTimer);
-			longPressTimer = null;
+	function handleSendMouseDown(e: MouseEvent) {
+		// Right button is handled by contextmenu; only left triggers long-press
+		if (e.button !== 0) return;
+		startLongPress();
+	}
+
+	function handleSendClickCapture(e: MouseEvent) {
+		if (longPressTriggered) {
+			e.preventDefault();
+			e.stopPropagation();
+			longPressTriggered = false;
 		}
 	}
+
+	// If the popover closes without a click on the Send wrapper (user clicked an
+	// item inside it, or outside entirely), the long-press flag would stay true
+	// and swallow the next legitimate Send click. Reset on close.
+	$effect(() => {
+		if (!queuePopoverOpen) longPressTriggered = false;
+	});
 
 	// Close queue dropdown on click outside
 	$effect(() => {
@@ -344,14 +372,94 @@
 		};
 	});
 
+	function cycleCtrl() {
+		ctrlCount = (ctrlCount + 1) % 3;
+	}
+	function cycleAlt() {
+		altCount = (altCount + 1) % 3;
+	}
+	const modArmed = $derived(ctrlCount > 0 || altCount > 0);
+
+	async function sendModSequence() {
+		const text = textInput;
+		const count = Math.max(ctrlCount, altCount);
+		const prefix = `${ctrlCount > 0 ? 'C-' : ''}${altCount > 0 ? 'M-' : ''}`;
+		ctrlCount = 0;
+		altCount = 0;
+		if (!text || !prefix) return;
+		const tokens: string[] = [];
+		for (let i = 0; i < count; i++) {
+			for (const c of text) {
+				tokens.push(c === ' ' ? `${prefix}Space` : `${prefix}${c}`);
+			}
+		}
+		textInput = '';
+		if (textareaElement) textareaElement.style.height = 'auto';
+		await sendKeys(tokens.join(' '));
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Control') {
+			if (!e.repeat) ctrlTapCandidate = true;
+			return;
+		}
+		if (e.key === 'Alt') {
+			// preventDefault suppresses browser menu-bar focus on Alt tap
+			e.preventDefault();
+			if (!e.repeat) altTapCandidate = true;
+			return;
+		}
+		ctrlTapCandidate = false;
+		altTapCandidate = false;
+
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			if (modArmed) {
+				ctrlCount = 0;
+				altCount = 0;
+			} else {
+				sendKeys('Escape');
+			}
+			return;
+		}
+		if (e.key === 'Backspace' && textInput === '' && !modArmed) {
+			e.preventDefault();
+			sendKeys('BSpace');
+			return;
+		}
+		if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && textInput === '' && !modArmed) {
+			e.preventDefault();
+			sendKeys(e.key === 'ArrowUp' ? 'Up' : 'Down');
+			return;
+		}
 		if (e.key === 'Enter' && e.ctrlKey && e.shiftKey) {
 			e.preventDefault();
 			queueText();
 		} else if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
-			sendText();
+			if (modArmed) {
+				sendModSequence();
+			} else {
+				sendText();
+			}
 		}
+	}
+
+	function handleKeyup(e: KeyboardEvent) {
+		if (e.key === 'Control' && ctrlTapCandidate) {
+			ctrlTapCandidate = false;
+			cycleCtrl();
+		}
+		if (e.key === 'Alt' && altTapCandidate) {
+			altTapCandidate = false;
+			cycleAlt();
+		}
+	}
+
+	function handleBlur() {
+		// A modifier held across focus changes would miss its keyup and misfire later
+		ctrlTapCandidate = false;
+		altTapCandidate = false;
 	}
 
 	function autoResize() {
@@ -526,6 +634,16 @@
 								<span>{item.label}</span>
 							</Button>
 						{/each}
+						<Button
+							variant={altCount > 0 ? 'success' : 'secondary'}
+							size="toolbar"
+							class="min-w-14 min-h-12"
+							onclick={() => { cycleAlt(); moreOpen = false; }}
+							title="Arm Alt — next Enter sends input as Alt-key (Meta) sequence."
+						>
+							<iconify-icon icon="mdi:apple-keyboard-option"></iconify-icon>
+							<span>Alt{altCount > 1 ? `×${altCount}` : ''}</span>
+						</Button>
 					</div>
 				</Popover.Content>
 			</Popover.Root>
@@ -555,30 +673,54 @@
 				</Popover.Content>
 			</Popover.Root>
 
+			<Button
+				variant={ctrlCount > 0 ? 'success' : 'secondary'}
+				size="toolbar"
+				class="flex-1"
+				onclick={cycleCtrl}
+				title="Arm Ctrl — next Enter sends input as Ctrl-key sequence. Tap again for ×2, again to disarm."
+			>
+				<iconify-icon icon="mdi:apple-keyboard-control"></iconify-icon>
+				<span>Ctrl{ctrlCount > 1 ? `×${ctrlCount}` : ''}</span>
+			</Button>
 			<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('Escape')}>
 				<iconify-icon icon="mdi:stop"></iconify-icon>
 				<span>Esc</span>
 			</Button>
-			<Button variant="ghost-destructive" size="toolbar" class="flex-1" onclick={() => sendKeys('C-c')}>
-				<iconify-icon icon="mdi:cancel"></iconify-icon>
-				<span>Ctrl-C</span>
-			</Button>
 		</div>
 
-		<form class="input-row" onsubmit={(e) => { e.preventDefault(); sendText(); }}>
+		<form class="input-row" onsubmit={(e) => { e.preventDefault(); if (modArmed) sendModSequence(); else sendText(); }}>
+			{#if ctrlCount > 0}
+				<button type="button" class="mod-chip" onclick={() => (ctrlCount = 0)} title="Disarm Ctrl">
+					<iconify-icon icon="mdi:apple-keyboard-control"></iconify-icon>
+					<span>Ctrl{ctrlCount > 1 ? `×${ctrlCount}` : ''}</span>
+				</button>
+			{/if}
+			{#if altCount > 0}
+				<button type="button" class="mod-chip" onclick={() => (altCount = 0)} title="Disarm Alt">
+					<iconify-icon icon="mdi:apple-keyboard-option"></iconify-icon>
+					<span>Alt{altCount > 1 ? `×${altCount}` : ''}</span>
+				</button>
+			{/if}
 			<textarea
 				bind:this={textareaElement}
 				bind:value={textInput}
-				placeholder="Type a message..."
+				placeholder={modArmed ? 'Type keys, Enter to send as mod sequence…' : 'Type a message...'}
 				rows={1}
 				onkeydown={handleKeydown}
+				onkeyup={handleKeyup}
+				onblur={handleBlur}
 				oninput={autoResize}
 			></textarea>
 			<div class="send-btn-wrapper"
 				oncontextmenu={handleSendContextMenu}
-				ontouchstart={handleSendTouchStart}
+				ontouchstart={startLongPress}
 				ontouchend={handleSendTouchEnd}
-				ontouchmove={handleSendTouchMove}
+				ontouchmove={cancelLongPress}
+				onmousedown={handleSendMouseDown}
+				onmouseup={cancelLongPress}
+				onmouseleave={cancelLongPress}
+				onclickcapture={handleSendClickCapture}
 			>
 				<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg">
 					<iconify-icon icon="mdi:send"></iconify-icon>
@@ -592,6 +734,10 @@
 							<iconify-icon icon="mdi:tray-arrow-down"></iconify-icon>
 							<span>Queue for idle</span>
 							<kbd class="queue-kbd">Ctrl+Shift+↵</kbd>
+						</Button>
+						<Button variant="secondary" size="toolbar" class="min-w-[140px] min-h-[40px] justify-start gap-2" onclick={sendTextRaw}>
+							<iconify-icon icon="mdi:send-variant-outline"></iconify-icon>
+							<span>Send without Enter</span>
 						</Button>
 					</div>
 				{/if}
@@ -752,6 +898,29 @@
 		padding: 12px 16px;
 		background: #111;
 		border-top: 1px solid #222;
+	}
+
+	.mod-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		height: 48px;
+		padding: 0 10px;
+		background: #1e5b3a;
+		color: #d7f5e4;
+		border: 1px solid #27ae60;
+		border-radius: 8px;
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.mod-chip iconify-icon {
+		font-size: 16px;
+	}
+	.mod-chip:hover {
+		background: #257048;
 	}
 
 	.input-row textarea {

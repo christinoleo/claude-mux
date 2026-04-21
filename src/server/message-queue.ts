@@ -27,7 +27,8 @@ interface SessionLike {
  * Send text to a tmux pane using load-buffer → paste-buffer → send-keys Enter.
  * Extracted from the send API route to be reused by both the API and the queue drain.
  */
-export function sendTextToPane(target: string, text: string): void {
+export function sendTextToPane(target: string, text: string, opts: { appendEnter?: boolean } = {}): void {
+	const { appendEnter = true } = opts;
 	execSync(`tmux load-buffer -b claude-mux-input -`, {
 		input: text,
 		stdio: ['pipe', 'ignore', 'ignore']
@@ -36,7 +37,9 @@ export function sendTextToPane(target: string, text: string): void {
 		stdio: 'ignore'
 	});
 	execFileSync('tmux', ['delete-buffer', '-b', 'claude-mux-input'], { stdio: 'ignore' });
-	execFileSync('tmux', ['send-keys', '-t', target, 'Enter'], { stdio: 'ignore' });
+	if (appendEnter) {
+		execFileSync('tmux', ['send-keys', '-t', target, 'Enter'], { stdio: 'ignore' });
+	}
 }
 
 // ============================================================================
