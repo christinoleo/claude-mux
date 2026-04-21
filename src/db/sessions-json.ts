@@ -52,6 +52,7 @@ export interface Session {
   chrome_active?: boolean;
   linked_to?: string | null;
   rc_url?: string | null;
+  display_name?: string | null;
 }
 
 export interface SessionInput {
@@ -73,6 +74,7 @@ export interface SessionUpdate {
   current_action?: string | null;
   prompt_text?: string | null;
   rc_url?: string | null;
+  display_name?: string | null;
 }
 
 /**
@@ -136,6 +138,7 @@ export function upsertSession(input: SessionInput): void {
     last_update: Date.now(),
     linked_to: input.linked_to ?? existing?.linked_to ?? null,
     rc_url: input.rc_url ?? existing?.rc_url ?? null,
+    display_name: existing?.display_name ?? null,
   };
 
   writeSessionFile(session);
@@ -159,6 +162,10 @@ export function updateSession(id: string, update: SessionUpdate): void {
   }
   if (update.rc_url !== undefined) {
     session.rc_url = update.rc_url;
+  }
+  if (update.display_name !== undefined) {
+    const trimmed = update.display_name?.trim();
+    session.display_name = trimmed ? trimmed.slice(0, 120) : null;
   }
   session.last_update = Date.now();
 

@@ -35,6 +35,7 @@ const EnrichedSessionSchema = z.object({
 	chrome_active: z.boolean().optional(),
 	linked_to: z.string().nullable().optional(),
 	rc_url: z.string().nullable().optional(),
+	display_name: z.string().nullable().optional(),
 	pane_title: z.string().nullable(),
 	pane_alive: z.boolean(),
 	queue_count: z.number().optional()

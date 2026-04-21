@@ -392,6 +392,24 @@
 		setTimeout(() => { showSelectionCopied = false; }, 2000);
 	}
 
+	async function renameSession() {
+		if (!currentSession) return;
+		const current = currentSession.display_name ?? '';
+		const next = window.prompt('Session name (blank to reset):', current);
+		if (next === null) return;
+		const trimmed = next.trim();
+		if (trimmed === current) return;
+		try {
+			await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/rename`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: trimmed || null })
+			});
+		} catch {
+			// watcher will reconcile
+		}
+	}
+
 	function copyTmuxCmd() {
 		if (!target) return;
 		const cmd = `tmux attach -t "${target.split(':')[0]}"`;
@@ -431,7 +449,10 @@
 				<span class="state" style="background: {paneIsDead ? '#555' : stateColor(currentSession?.state || 'idle')}"></span>
 			{/if}
 			<div class="title-info">
-				<span class="target">{currentSession ? getSessionDisplayName(currentSession) : target}</span>
+				<button type="button" class="target-btn" onclick={renameSession} title="Tap to rename">
+					{currentSession ? getSessionDisplayName(currentSession) : target}
+					<iconify-icon icon="mdi:pencil"></iconify-icon>
+				</button>
 				<span class="status">{paneIsDead ? 'pane closed' : (currentSession?.current_action || currentSession?.state || 'idle')}</span>
 			</div>
 		</div>
@@ -650,13 +671,30 @@
 		min-width: 0;
 	}
 
-	.target {
+	.target-btn {
+		background: none;
+		border: none;
+		color: inherit;
+		font: inherit;
 		font-weight: 600;
 		font-size: 16px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-variant-emoji: text;
+		padding: 4px 6px;
+		margin: -4px -6px;
+		cursor: pointer;
+		border-radius: 6px;
+		text-align: left;
+	}
+
+	.target-btn iconify-icon {
+		font-size: 14px;
+		opacity: 0.5;
+		margin-left: 6px;
+		vertical-align: middle;
+	}
+
+	.target-btn:hover,
+	.target-btn:focus-visible {
+		background: rgba(255, 255, 255, 0.06);
 	}
 
 	.status {

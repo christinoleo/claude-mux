@@ -28,12 +28,13 @@ export interface Session {
 	linked_to?: string | null;
 	rc_url?: string | null;
 	queue_count?: number;
+	display_name?: string | null;
 }
 
 /** Fields that change frequently and should trigger a session object replacement */
 const VOLATILE_KEYS: (keyof Session)[] = [
 	'state', 'current_action', 'prompt_text', 'last_update',
-	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'queue_count'
+	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'queue_count', 'display_name'
 ];
 
 /** Fast shallow comparison of two sessions on volatile fields + screenshots */
@@ -271,17 +272,6 @@ export function splitPaneTitle(title: string): { symbol: string | null; isBraill
 	return { symbol: null, isBraille: false, name: title };
 }
 
-/** Check if a pane title is just the generic "Claude Code" default */
-function isGenericTitle(name: string): boolean {
-	return name === 'Claude Code' || name === '';
-}
-
-/** Get a display name for a session, using prompt_text as fallback when pane title is generic */
 export function getSessionDisplayName(session: Session): string {
-	if (session.pane_title) {
-		const parsed = splitPaneTitle(session.pane_title);
-		if (!isGenericTitle(parsed.name)) return parsed.name;
-	}
-	if (session.prompt_text) return session.prompt_text;
-	return session.tmux_target || session.id;
+	return session.display_name || session.tmux_target || session.id;
 }
