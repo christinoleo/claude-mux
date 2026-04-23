@@ -47,21 +47,29 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const sessionName = `${selectedAgent}-${Date.now()}`;
 
+		// Strip TMUX from env so `tmux new-session` doesn't refuse with
+		// "sessions should be nested with care" when the server process
+		// inherited TMUX from a (possibly now-dead) parent tmux.
+		const { TMUX: _tmux, TMUX_PANE: _pane, ...tmuxEnv } = process.env;
+
 		// Unset CLAUDECODE so Claude (and harmlessly Gemini/Copilot) don't see the
 		// parent tmux server's CLAUDECODE=1 and refuse to start.
 		execFileSync('tmux', [
 			'new-session', '-d', '-s', sessionName, '-c', cwd,
 			'--', 'env', '-u', 'CLAUDECODE', ...AGENTS[selectedAgent].argv
 		], {
-			stdio: 'ignore'
+			stdio: 'ignore',
+			env: tmuxEnv
 		});
 
 		// Detect actual base-index from tmux config
 		const baseIndex = execFileSync('tmux', ['show-option', '-gv', 'base-index'], {
-			encoding: 'utf-8'
+			encoding: 'utf-8',
+			env: tmuxEnv
 		}).trim() || '0';
 		const paneBaseIndex = execFileSync('tmux', ['show-option', '-gv', 'pane-base-index'], {
-			encoding: 'utf-8'
+			encoding: 'utf-8',
+			env: tmuxEnv
 		}).trim() || '0';
 		const tmuxTarget = `${sessionName}:${baseIndex}.${paneBaseIndex}`;
 

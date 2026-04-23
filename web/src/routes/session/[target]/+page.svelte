@@ -566,7 +566,7 @@
 			{/if}
 			<div class="title-info">
 				<button type="button" class="target-btn" onclick={renameSession} title="Tap to rename">
-					{currentSession ? getSessionDisplayName(currentSession) : target}
+					<span class="name-text">{currentSession ? getSessionDisplayName(currentSession) : target}</span>
 					<iconify-icon icon="mdi:pencil"></iconify-icon>
 				</button>
 				<span class="status">{paneIsDead ? 'pane closed' : (currentSession?.current_action || currentSession?.state || 'idle')}</span>
@@ -823,6 +823,7 @@
 		display: flex;
 		flex-direction: column;
 		min-width: 0;
+		flex: 1;
 	}
 
 	.target-btn {
@@ -837,6 +838,18 @@
 		cursor: pointer;
 		border-radius: 6px;
 		text-align: left;
+		display: inline-flex;
+		align-items: center;
+		max-width: 100%;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	.target-btn .name-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		min-width: 0;
 	}
 
 	.target-btn iconify-icon {
@@ -844,6 +857,7 @@
 		opacity: 0.5;
 		margin-left: 6px;
 		vertical-align: middle;
+		flex-shrink: 0;
 	}
 
 	.target-btn:hover,
