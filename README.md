@@ -55,7 +55,6 @@
 - **Orchestrator pairing** &mdash; main + orchestrator sessions grouped together with role labels
 - **Remote Control** &mdash; auto-detects Claude's `/rc` and opens it in a new window
 - **Mobile-first** &mdash; touch toolbar, hamburger sidebar, swipe gestures
-- **Beads integration** &mdash; browse issues/epics from the sidebar, inject IDs into input
 - **Screenshots panel** &mdash; view and dismiss captured screenshots
 - **Dead pane detection** &mdash; visual indication when a tmux pane closes
 - **Other tmux panes** &mdash; browse and view non-Claude panes too

@@ -18,9 +18,3 @@ bun.lock
 
 # BMAD working directory
 _bmad/
-
-# Beads runtime files
-.beads/daemon-error
-.beads/daemon.pid
-.beads/db.sqlite
-.beads/db.sqlite-*
