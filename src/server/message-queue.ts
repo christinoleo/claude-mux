@@ -49,7 +49,6 @@ export function sendTextToPane(target: string, text: string, opts: { appendEnter
 
 interface QueueGlobalState {
 	queues: Map<string, QueuedMessage[]>;
-	previousStates: Map<string, string>;
 	pendingDrain: Map<string, number>;
 }
 
@@ -60,14 +59,13 @@ function getGlobalState(): QueueGlobalState {
 	if (!g[GLOBAL_KEY]) {
 		g[GLOBAL_KEY] = {
 			queues: new Map<string, QueuedMessage[]>(),
-			previousStates: new Map<string, string>(),
 			pendingDrain: new Map<string, number>()
 		};
 	}
 	return g[GLOBAL_KEY] as QueueGlobalState;
 }
 
-const { queues, previousStates, pendingDrain } = getGlobalState();
+const { queues, pendingDrain } = getGlobalState();
 
 // ============================================================================
 // Queue operations
@@ -130,14 +128,13 @@ export function getQueueCounts(): Map<string, number> {
 // ============================================================================
 
 /**
- * Check sessions for idle transitions and drain queued messages.
+ * Drain queued messages for sessions sitting idle.
  * Called every ~500ms from the sessions WS manager refresh loop.
  *
- * Logic:
- * 1. For each session, compare current state to previous state
- * 2. On transition TO idle: set a pending drain timestamp (1s delay)
- * 3. If session leaves idle before 1s: cancel pending drain
- * 4. If 1s has elapsed while still idle: dequeue and send front message
+ * Logic: while session is idle and has a queue, arm a 1s timer; if still idle
+ * when it elapses, dequeue and send the front message. Leaving idle cancels
+ * the timer. The 1s grace lets Claude settle after finishing a task and
+ * covers the case where a message is enqueued while already idle.
  */
 export function drainQueues(sessions: SessionLike[]): void {
 	const now = Date.now();
@@ -145,47 +142,35 @@ export function drainQueues(sessions: SessionLike[]): void {
 	for (const session of sessions) {
 		if (!session.tmux_target) continue;
 		const target = session.tmux_target;
-		const currentState = session.state;
-		const prevState = previousStates.get(target);
 
-		// Update previous state
-		previousStates.set(target, currentState);
-
-		// Only care about sessions with queued messages
 		const queue = queues.get(target);
 		if (!queue || queue.length === 0) {
 			pendingDrain.delete(target);
 			continue;
 		}
 
-		if (currentState === 'idle') {
-			if (prevState && prevState !== 'idle') {
-				// Just transitioned to idle — start the 1s delay
-				pendingDrain.set(target, now);
-			} else if (pendingDrain.has(target)) {
-				// Already pending — check if 1s has elapsed
-				const pendingTime = pendingDrain.get(target)!;
-				if (now - pendingTime >= 1000) {
-					pendingDrain.delete(target);
-					const message = dequeue(target);
-					if (message) {
-						try {
-							sendTextToPane(target, message.text);
-							console.log(`[queue] Auto-sent queued message to ${target}`);
-						} catch (err) {
-							console.error(`[queue] Failed to send queued message to ${target}:`, err);
-							// Re-queue at front on failure
-							if (!queues.has(target)) queues.set(target, []);
-							queues.get(target)!.unshift(message);
-						}
-					}
-				}
-			}
-			// If prevState was already idle and no pending drain, do nothing
-			// (message was already sent or there was no transition)
-		} else {
-			// Not idle — cancel any pending drain
+		if (session.state !== 'idle') {
 			pendingDrain.delete(target);
+			continue;
+		}
+
+		const pendingTime = pendingDrain.get(target);
+		if (pendingTime === undefined) {
+			pendingDrain.set(target, now);
+			continue;
+		}
+		if (now - pendingTime < 1000) continue;
+
+		pendingDrain.delete(target);
+		const message = dequeue(target);
+		if (!message) continue;
+		try {
+			sendTextToPane(target, message.text);
+			console.log(`[queue] Auto-sent queued message to ${target}`);
+		} catch (err) {
+			console.error(`[queue] Failed to send queued message to ${target}:`, err);
+			if (!queues.has(target)) queues.set(target, []);
+			queues.get(target)!.unshift(message);
 		}
 	}
 }
