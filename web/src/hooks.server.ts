@@ -53,7 +53,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		upgradeHeader?.toLowerCase() === 'websocket'
 	) {
 		const url = new URL(event.request.url);
-		const parsed = parseWsPath(url.pathname, url.searchParams);
+		const parsed = parseWsPath(url.pathname);
 
 		if (parsed) {
 			// @ts-expect-error - platform is provided by svelte-adapter-bun
@@ -100,14 +100,14 @@ export const websocket = {
 		const msgStr = message.toString();
 		const data = wsDataMap.get(ws);
 
-		// Handle ping/pong for keep-alive
+		const target = data?.type === 'terminal' ? data.target : undefined;
 		const response = handleWsMessage(
 			msgStr,
-			data?.type === 'terminal' && data.target
-				? (cols, rows) => resizePane(data.target!, cols, rows)
-				: undefined,
-			data?.type === 'terminal' && data.target
-				? (lines) => terminalWsManager.setHistoryDepth(data.target!, lines)
+			target
+				? {
+						resize: (cols, rows) => resizePane(target, cols, rows),
+						setHistory: (lines) => terminalWsManager.setHistoryDepth(target, lines)
+					}
 				: undefined
 		);
 

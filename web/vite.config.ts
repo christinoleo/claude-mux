@@ -50,7 +50,7 @@ function devWebSocket() {
 
 			wss.on('connection', (ws, req) => {
 				const url = new URL(req.url || '', 'http://localhost');
-				const parsed = parseWsPath(url.pathname, url.searchParams);
+				const parsed = parseWsPath(url.pathname);
 
 				if (!parsed) {
 					ws.close();
@@ -89,9 +89,10 @@ function devWebSocket() {
 					wsTargets.set(ws, target);
 
 					ws.on('message', (data) => {
-						const response = handleWsMessage(data.toString(), (cols, rows) =>
-							resizePane(target, cols, rows)
-						);
+						const response = handleWsMessage(data.toString(), {
+							resize: (cols, rows) => resizePane(target, cols, rows),
+							setHistory: (lines) => terminalWsManager.setHistoryDepth(target, lines)
+						});
 						if (response === 'pong') ws.send('pong');
 					});
 
