@@ -109,6 +109,9 @@ export const websocket = {
 			msgStr,
 			data?.type === 'terminal' && data.target
 				? (cols, rows) => resizePane(data.target!, cols, rows)
+				: undefined,
+			data?.type === 'terminal' && data.target
+				? (lines) => terminalWsManager.setHistoryDepth(data.target!, lines)
 				: undefined
 		);
 

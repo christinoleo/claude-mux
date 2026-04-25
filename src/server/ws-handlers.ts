@@ -112,6 +112,14 @@ export interface ResizeMessage {
 	rows: number;
 }
 
+export interface SetHistoryMessage {
+	type: 'set_history';
+	lines: number;
+}
+
+export const DEFAULT_HISTORY_DEPTH = 150;
+export const MAX_HISTORY_DEPTH = 5000;
+
 // ============================================================================
 // Session Helpers
 // ============================================================================
@@ -219,9 +227,10 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & { pane_titl
 // Terminal Helpers
 // ============================================================================
 
-export function capturePaneOutput(target: string): string | null {
+export function capturePaneOutput(target: string, depth: number = DEFAULT_HISTORY_DEPTH): string | null {
 	try {
-		return execFileSync('tmux', ['capture-pane', '-t', target, '-p', '-e', '-S', '-150'], {
+		const lines = Math.max(1, Math.min(MAX_HISTORY_DEPTH, Math.floor(depth)));
+		return execFileSync('tmux', ['capture-pane', '-t', target, '-p', '-e', '-S', `-${lines}`], {
 			encoding: 'utf-8',
 			stdio: ['pipe', 'pipe', 'pipe'],
 			timeout: 2000
@@ -571,6 +580,9 @@ export class TerminalWsManager {
 	private clients = new Map<string, Set<WsClient>>();
 	private pollTimers = new Map<string, ReturnType<typeof setInterval>>();
 	private lastOutput = new Map<string, string>();
+	// Per-target capture depth (lines). Grows when any client requests more
+	// history; resets when last client for the target disconnects.
+	private historyDepths = new Map<string, number>();
 	private config: Required<WsConfig>;
 	private totalClients = 0;
 	private droppedClients = 0;
@@ -640,9 +652,34 @@ export class TerminalWsManager {
 		if (this.clients.get(target)!.size === 1) {
 			this.startPolling(target);
 		}
-		const output = capturePaneOutput(target) ?? '';
+		const depth = this.historyDepths.get(target) ?? DEFAULT_HISTORY_DEPTH;
+		const output = capturePaneOutput(target, depth) ?? '';
 		this.sendToClient(client, { type: 'output', output, timestamp: Date.now() });
 		return true;
+	}
+
+	/**
+	 * Increase per-target capture depth and broadcast the expanded buffer
+	 * immediately so the requester doesn't wait up to one poll interval.
+	 * Depth only grows; ignores requests below current depth. Capped at
+	 * MAX_HISTORY_DEPTH.
+	 */
+	setHistoryDepth(target: string, lines: number): void {
+		if (!this.clients.has(target)) return;
+		const requested = Math.max(DEFAULT_HISTORY_DEPTH, Math.min(MAX_HISTORY_DEPTH, Math.floor(lines)));
+		const current = this.historyDepths.get(target) ?? DEFAULT_HISTORY_DEPTH;
+		if (requested <= current) return;
+		this.historyDepths.set(target, requested);
+
+		const output = capturePaneOutput(target, requested) ?? '';
+		this.lastOutput.set(target, output);
+		const message: TerminalMessage = { type: 'output', output, timestamp: Date.now() };
+		const data = JSON.stringify(message);
+		const clients = this.clients.get(target);
+		if (!clients) return;
+		for (const client of clients) {
+			this.sendToClient(client, message, data);
+		}
 	}
 
 	removeClient(client: WsClient, target?: string): void {
@@ -664,6 +701,7 @@ export class TerminalWsManager {
 					this.stopPolling(target);
 					this.clients.delete(target);
 					this.lastOutput.delete(target);
+					this.historyDepths.delete(target);
 				}
 			}
 		} else {
@@ -675,6 +713,7 @@ export class TerminalWsManager {
 						this.stopPolling(t);
 						this.clients.delete(t);
 						this.lastOutput.delete(t);
+						this.historyDepths.delete(t);
 					}
 					break;
 				}
@@ -697,7 +736,8 @@ export class TerminalWsManager {
 	}
 
 	private pollAndBroadcast(target: string): void {
-		const output = capturePaneOutput(target) ?? '';
+		const depth = this.historyDepths.get(target) ?? DEFAULT_HISTORY_DEPTH;
+		const output = capturePaneOutput(target, depth) ?? '';
 		const lastOutput = this.lastOutput.get(target) ?? '';
 		if (output === lastOutput) return;
 		this.lastOutput.set(target, output);
@@ -729,6 +769,7 @@ export class TerminalWsManager {
 				this.stopPolling(target);
 				this.clients.delete(target);
 				this.lastOutput.delete(target);
+				this.historyDepths.delete(target);
 			}
 		}
 	}
@@ -780,17 +821,29 @@ export class TerminalWsManager {
  */
 export function handleWsMessage(
 	msgStr: string,
-	onResize?: (cols: number, rows: number) => void
+	onResize?: (cols: number, rows: number) => void,
+	onSetHistory?: (lines: number) => void
 ): 'pong' | null {
 	if (msgStr === 'ping') {
 		return 'pong';
 	}
 
-	if (onResize) {
+	if (onResize || onSetHistory) {
 		try {
-			const msg = JSON.parse(msgStr) as ResizeMessage;
-			if (msg.type === 'resize' && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
-				onResize(msg.cols, msg.rows);
+			const msg = JSON.parse(msgStr) as ResizeMessage | SetHistoryMessage;
+			if (
+				onResize &&
+				msg.type === 'resize' &&
+				typeof (msg as ResizeMessage).cols === 'number' &&
+				typeof (msg as ResizeMessage).rows === 'number'
+			) {
+				onResize((msg as ResizeMessage).cols, (msg as ResizeMessage).rows);
+			} else if (
+				onSetHistory &&
+				msg.type === 'set_history' &&
+				typeof (msg as SetHistoryMessage).lines === 'number'
+			) {
+				onSetHistory((msg as SetHistoryMessage).lines);
 			}
 		} catch {
 			// Ignore malformed messages

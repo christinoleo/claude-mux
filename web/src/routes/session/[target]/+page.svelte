@@ -233,13 +233,51 @@
 		terminalStore.disconnect();
 	});
 
+	// Distance-from-bottom anchor preserved across history-expansion so the
+	// user's visible region doesn't jump when older lines prepend.
+	let pendingScrollAnchor: number | null = null;
+	let lastHistoryRequestAt = 0;
+
 	// Track if user has scrolled up from bottom
 	function handleScroll() {
 		if (!outputElement) return;
 		const { scrollTop, scrollHeight, clientHeight } = outputElement;
 		// Consider "at bottom" if within 50px of the bottom
 		userScrolledUp = scrollHeight - scrollTop - clientHeight > 50;
+
+		// Lazy-load more scrollback when user nears the top. Skip while a
+		// selection is active (output is frozen) or during cooldown so a
+		// single mobile flick doesn't spam doublings.
+		const now = Date.now();
+		if (
+			scrollTop < 200 &&
+			!hasSelection &&
+			!terminalStore.loadingMore &&
+			!terminalStore.historyAtMax &&
+			now - lastHistoryRequestAt > 400
+		) {
+			pendingScrollAnchor = scrollHeight - scrollTop;
+			lastHistoryRequestAt = now;
+			if (!terminalStore.requestMoreHistory()) {
+				pendingScrollAnchor = null;
+			}
+		}
 	}
+
+	// After expanded buffer arrives, restore scroll position so the user's
+	// viewport stays anchored to the same content (rather than jumping to
+	// the new top). rAF lets the DOM lay out the larger <pre> first.
+	$effect(() => {
+		// Track the tick so this effect re-runs on each successful expansion.
+		void terminalStore.historyTick;
+		if (pendingScrollAnchor === null || !outputElement) return;
+		const anchor = pendingScrollAnchor;
+		pendingScrollAnchor = null;
+		requestAnimationFrame(() => {
+			if (!outputElement) return;
+			outputElement.scrollTop = outputElement.scrollHeight - anchor;
+		});
+	});
 
 	// Auto-scroll to bottom only if user hasn't scrolled up and no active selection
 	$effect(() => {
