@@ -26,7 +26,6 @@ const EnrichedSessionSchema = z.object({
 	pid: z.number(),
 	cwd: z.string(),
 	git_root: z.string().nullable(),
-	beads_enabled: z.boolean(),
 	tmux_target: z.string().nullable(),
 	state: SessionStateSchema,
 	current_action: z.string().nullable(),

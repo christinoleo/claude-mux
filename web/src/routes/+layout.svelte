@@ -4,13 +4,10 @@
 	import { browser } from '$app/environment';
 	import { onMount, onDestroy } from 'svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
-	import { inputInjection } from '$lib/stores/input-injection.svelte';
 	import AllSessionsPanel from '$lib/components/AllSessionsPanel.svelte';
-	import BeadsPanel from '$lib/components/BeadsPanel.svelte';
 	import ScreenshotsPanel from '$lib/components/ScreenshotsPanel.svelte';
 	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
 	import SystemStatsWidget from '$lib/components/SystemStatsWidget.svelte';
-	import type { BeadsIssue } from '$lib/stores/beads.svelte';
 
 	let { children } = $props();
 
@@ -32,7 +29,7 @@
 	// Show sidebar only on session detail pages (not on main page)
 	const showSidebar = $derived($page.url.pathname.startsWith('/session/'));
 
-	// Current session for beads/screenshots panels
+	// Current session for screenshots panel
 	const currentTarget = $derived(
 		$page.url.pathname.startsWith('/session/')
 			? decodeURIComponent($page.url.pathname.split('/session/')[1])
@@ -42,13 +39,6 @@
 	const currentSession = $derived(
 		sessionStore.sessions.find((s) => s.tmux_target === currentTarget || s.id === currentTarget)
 	);
-
-	function handleIssueSelect(issue: BeadsIssue) {
-		if (currentTarget) {
-			inputInjection.inject(issue.id);
-			closeDrawer();
-		}
-	}
 
 	// Connect session store at layout level so sidebar always has data
 	onMount(() => {
@@ -143,15 +133,6 @@
 		>
 			<div class="sidebar-content">
 				<AllSessionsPanel compact onSessionSelect={closeDrawer} />
-
-				{#if currentSession?.beads_enabled}
-					<div class="sidebar-panel">
-						<BeadsPanel
-							project={currentSession.git_root}
-							onSelect={handleIssueSelect}
-						/>
-					</div>
-				{/if}
 
 				{#if currentTarget}
 					<div class="sidebar-panel">

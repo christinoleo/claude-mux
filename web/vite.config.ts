@@ -17,7 +17,6 @@ function devWebSocket() {
 			const {
 				SessionsWsManager,
 				TerminalWsManager,
-				BeadsWsManager,
 				handleWsMessage,
 				parseWsPath,
 				resizePane
@@ -27,7 +26,6 @@ function devWebSocket() {
 			// Create manager instances with debug enabled for dev
 			const sessionsWsManager = new SessionsWsManager({ debug: true });
 			const terminalWsManager = new TerminalWsManager({ debug: true });
-			const beadsWsManager = new BeadsWsManager({ debug: true });
 
 			// Track WebSocket -> target mapping for cleanup
 			const wsTargets = new WeakMap<WebSocket, string>();
@@ -101,22 +99,6 @@ function devWebSocket() {
 						const t = wsTargets.get(ws);
 						terminalWsManager.removeClient(client, t);
 					});
-				} else if (parsed.type === 'beads') {
-					const { project } = parsed;
-					const accepted = beadsWsManager.addClient(client, project);
-					if (!accepted) {
-						ws.close(1013, 'Max clients reached');
-						return;
-					}
-
-					ws.on('message', (data) => {
-						const response = handleWsMessage(data.toString());
-						if (response === 'pong') ws.send('pong');
-					});
-
-					ws.on('close', () => {
-						beadsWsManager.removeClient(client, project);
-					});
 				}
 			});
 
@@ -138,7 +120,7 @@ function devWebSocket() {
 
 			server.httpServer.on('close', () => wss?.close());
 
-			console.log('[dev] WebSocket ready at /api/sessions/stream, /api/sessions/[target]/stream, and /api/beads/stream');
+			console.log('[dev] WebSocket ready at /api/sessions/stream and /api/sessions/[target]/stream');
 		}
 	};
 }

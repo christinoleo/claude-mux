@@ -17,7 +17,6 @@ export function createStatusCommand(): Command {
           cwd: session.cwd,
           pid: session.pid,
           git_root: session.git_root,
-          beads_enabled: session.beads_enabled,
           last_update: session.last_update,
         }) + "\n"
       );

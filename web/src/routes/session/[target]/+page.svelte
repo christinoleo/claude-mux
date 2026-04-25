@@ -6,7 +6,6 @@
 	import { terminalStore } from '$lib/stores/terminal.svelte';
 	import { sessionStore, stateColor, splitPaneTitle, getSessionDisplayName } from '$lib/stores/sessions.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
-	import { inputInjection } from '$lib/stores/input-injection.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Popover from '$lib/components/ui/popover';
@@ -114,7 +113,6 @@
 		{ label: '/ak:bcheck', text: '/ak:bcheck', icon: 'mdi:checkbox-marked-circle-outline' },
 		{ label: '/ak:p1', text: '/ak:p1', icon: 'mdi:numeric-1-circle' },
 		{ label: '/ak:p2', text: '/ak:p2', icon: 'mdi:numeric-2-circle' },
-		{ label: '/ak:plan-to-beads', text: '/ak:plan-to-beads', icon: 'mdi:sitemap' },
 	];
 
 	function fillInput(text: string) {
@@ -210,22 +208,6 @@
 			terminalStore.connect(target);
 		} else {
 			terminalStore.disconnect();
-		}
-	});
-
-	// Watch for issue IDs to inject into input
-	$effect(() => {
-		const issueId = inputInjection.pendingIssueId;
-		if (issueId) {
-			// Append issue ID to input (with space if there's existing text)
-			textInput = textInput ? textInput + ' ' + issueId : issueId;
-			inputInjection.clear();
-			// Focus textarea and trigger resize
-			if (textareaElement) {
-				textareaElement.focus();
-				// Use timeout to ensure state is updated before resize
-				setTimeout(autoResize, 0);
-			}
 		}
 	});
 
