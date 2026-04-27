@@ -1,13 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { execSync } from 'child_process';
+import type { TmuxPane } from '$lib/types/tmux';
 
-export interface TmuxPane {
-	target: string;
-	session: string;
-	command: string;
-	cwd: string;
-}
+export type { TmuxPane };
 
 export const GET: RequestHandler = async () => {
 	try {

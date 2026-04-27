@@ -3,9 +3,10 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { sessionStore, stateColor, getProjectColor, groupSessions, splitPaneTitle, getSessionDisplayName, findDeepestProject, type Session } from '$lib/stores/sessions.svelte';
+	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { AGENTS, AGENT_IDS } from '$shared/agents.js';
 	import type { SessionAgent } from '$shared/db/index.js';
-	import type { TmuxPane } from '../../routes/api/tmux/panes/+server';
+	import type { TmuxPane } from '$lib/types/tmux';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -19,8 +20,8 @@
 
 	let { onSessionSelect, compact = false }: Props = $props();
 
-	let tmuxPanes = $state<TmuxPane[]>([]);
-	let tmuxPanesLoaded = $state(false);
+	const tmuxPanes = $derived(tmuxPanesStore.panes);
+	const tmuxPanesLoaded = $derived(tmuxPanesStore.loaded);
 	let showFolderBrowser = $state(false);
 	let browserPath = $state('');
 	let browserFolders = $state<{ name: string; path: string }[]>([]);
@@ -184,36 +185,12 @@
 		? decodeURIComponent($page.url.pathname.split('/session/')[1])
 		: null);
 
-	async function fetchTmuxPanes() {
-		try {
-			const res = await fetch('/api/tmux/panes');
-			tmuxPanes = await res.json();
-		} catch {
-			tmuxPanes = [];
-		}
-		tmuxPanesLoaded = true;
-	}
-
 	onMount(() => {
 		sessionStore.loadSavedProjects();
-		fetchTmuxPanes();
-		let interval: ReturnType<typeof setInterval> | null = null;
-		const start = () => {
-			if (interval == null) interval = setInterval(fetchTmuxPanes, 5000);
-		};
-		const stop = () => {
-			if (interval != null) { clearInterval(interval); interval = null; }
-		};
-		const onVis = () => {
-			if (document.hidden) stop();
-			else { fetchTmuxPanes(); start(); }
-		};
-		start();
-		document.addEventListener('visibilitychange', onVis);
+		const unsubscribe = tmuxPanesStore.subscribe();
 		return () => {
-			stop();
+			unsubscribe();
 			clearLongPress();
-			document.removeEventListener('visibilitychange', onVis);
 		};
 	});
 

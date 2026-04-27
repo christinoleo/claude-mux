@@ -2,9 +2,10 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { terminalStore } from '$lib/stores/terminal.svelte';
 	import { sessionStore, stateColor, splitPaneTitle, getSessionDisplayName } from '$lib/stores/sessions.svelte';
+	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -19,10 +20,25 @@
 		(target ? sessionStore.sessionById.get(target) : undefined)
 	);
 
-	const sessionNotFound = $derived(target != null && !currentSession && sessionStore.sessions.length > 0);
-	const paneIsDead = $derived(
-		sessionNotFound || (currentSession?.tmux_target && currentSession?.pane_alive === false)
+	const tmuxPane = $derived(target ? tmuxPanesStore.panes.find((p) => p.target === target) ?? null : null);
+	const isClaudeSession = $derived(currentSession != null);
+	const isPlainPane = $derived(!isClaudeSession && tmuxPane != null);
+	const claudeSessionDead = $derived(
+		isClaudeSession && !!currentSession?.tmux_target && currentSession?.pane_alive === false
 	);
+	const targetMissing = $derived(
+		tmuxPanesStore.loaded && sessionStore.sessions.length > 0 && !isClaudeSession && !isPlainPane
+	);
+	const paneIsDead = $derived(claudeSessionDead || targetMissing);
+	const isAlive = $derived(!paneIsDead && (isClaudeSession || isPlainPane));
+	const stateDotColor = $derived(
+		paneIsDead ? '#555' : isPlainPane ? '#888' : stateColor(currentSession?.state || 'idle')
+	);
+	const statusText = $derived.by(() => {
+		if (paneIsDead) return 'pane closed';
+		if (isPlainPane) return tmuxPane?.command || 'shell';
+		return currentSession?.current_action || currentSession?.state || 'idle';
+	});
 	const parsedTitle = $derived(currentSession?.pane_title ? splitPaneTitle(currentSession.pane_title) : null);
 
 	let textInput = $state('');
@@ -204,7 +220,7 @@
 
 	// Connect/disconnect terminal based on target and pane liveness
 	$effect(() => {
-		if (!paneIsDead) {
+		if (isAlive) {
 			terminalStore.connect(target);
 		} else {
 			terminalStore.disconnect();
@@ -214,6 +230,8 @@
 	onDestroy(() => {
 		terminalStore.disconnect();
 	});
+
+	onMount(() => tmuxPanesStore.subscribe());
 
 	function handleScroll() {
 		if (!outputElement) return;
@@ -555,20 +573,28 @@
 	<header class="header">
 		<div class="title-row">
 			{#if parsedTitle?.symbol}
-				<span class="state-symbol" class:braille={parsedTitle.isBraille} style="color: {paneIsDead ? '#555' : stateColor(currentSession?.state || 'idle')}">{parsedTitle.symbol}</span>
+				<span class="state-symbol" class:braille={parsedTitle.isBraille} style="color: {stateDotColor}">{parsedTitle.symbol}</span>
 			{:else}
-				<span class="state" style="background: {paneIsDead ? '#555' : stateColor(currentSession?.state || 'idle')}"></span>
+				<span class="state" style="background: {stateDotColor}"></span>
 			{/if}
 			<div class="title-info">
-				<button type="button" class="target-btn" onclick={renameSession} title="Tap to rename">
+				<button
+					type="button"
+					class="target-btn"
+					onclick={renameSession}
+					disabled={!isClaudeSession}
+					title={isClaudeSession ? 'Tap to rename' : undefined}
+				>
 					<span class="name-text">{currentSession ? getSessionDisplayName(currentSession) : target}</span>
-					<iconify-icon icon="mdi:pencil"></iconify-icon>
+					{#if isClaudeSession}
+						<iconify-icon icon="mdi:pencil"></iconify-icon>
+					{/if}
 				</button>
-				<span class="status">{paneIsDead ? 'pane closed' : (currentSession?.current_action || currentSession?.state || 'idle')}</span>
+				<span class="status">{statusText}</span>
 			</div>
 		</div>
 		<div class="header-actions">
-			{#if !paneIsDead}
+			{#if isAlive}
 				<Button variant="secondary" size="toolbar" onclick={copyTmuxCmd} title="Copy tmux attach command" class={showCopied ? 'bg-green-800 text-green-300' : ''}>
 					<iconify-icon icon={showCopied ? "mdi:check" : "mdi:content-copy"}></iconify-icon>
 					<span>{showCopied ? 'Copied!' : 'Tmux'}</span>
@@ -577,20 +603,22 @@
 					<iconify-icon icon="mdi:fit-to-screen"></iconify-icon>
 					<span>Fit</span>
 				</Button>
-				<Button
-					variant={rcUrl ? "secondary" : "ghost"}
-					size="toolbar"
-					onclick={enableAndOpenRc}
-					disabled={rcEnabling || (!rcUrl && currentSession?.state !== 'idle')}
-					title={rcUrl ? "Open Remote Control" : "Enable Remote Control"}
-				>
-					{#if rcEnabling}
-						<iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon>
-					{:else}
-						<iconify-icon icon="mdi:cellphone-link"></iconify-icon>
-					{/if}
-					<span>RC</span>
-				</Button>
+				{#if isClaudeSession}
+					<Button
+						variant={rcUrl ? "secondary" : "ghost"}
+						size="toolbar"
+						onclick={enableAndOpenRc}
+						disabled={rcEnabling || (!rcUrl && currentSession?.state !== 'idle')}
+						title={rcUrl ? "Open Remote Control" : "Enable Remote Control"}
+					>
+						{#if rcEnabling}
+							<iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon>
+						{:else}
+							<iconify-icon icon="mdi:cellphone-link"></iconify-icon>
+						{/if}
+						<span>RC</span>
+					</Button>
+				{/if}
 			{/if}
 			<Button variant="ghost-destructive" size="toolbar" onclick={() => (showConfirmKill = true)} title="Kill Session">
 				<iconify-icon icon="mdi:power"></iconify-icon>
@@ -751,8 +779,8 @@
 <AlertDialog.Root bind:open={showConfirmKill}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
-			<AlertDialog.Title>Kill this session?</AlertDialog.Title>
-			<AlertDialog.Description>This will terminate the Claude process.</AlertDialog.Description>
+			<AlertDialog.Title>Kill this {isClaudeSession ? 'session' : 'pane'}?</AlertDialog.Title>
+			<AlertDialog.Description>{isClaudeSession ? 'This will terminate the Claude process.' : 'This will close the tmux pane.'}</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
@@ -858,6 +886,15 @@
 	.target-btn:hover,
 	.target-btn:focus-visible {
 		background: rgba(255, 255, 255, 0.06);
+	}
+
+	.target-btn:disabled {
+		cursor: default;
+	}
+
+	.target-btn:disabled:hover,
+	.target-btn:disabled:focus-visible {
+		background: none;
 	}
 
 	.status {
