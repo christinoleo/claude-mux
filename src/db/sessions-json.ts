@@ -122,7 +122,7 @@ export function getSession(id: string): Session | null {
 /**
  * Create or update a session.
  */
-export function upsertSession(input: SessionInput): void {
+export function upsertSession(input: SessionInput): Session {
   const existing = getSession(input.id);
 
   const session: Session = {
@@ -143,6 +143,7 @@ export function upsertSession(input: SessionInput): void {
   };
 
   writeSessionFile(session);
+  return session;
 }
 
 /**

@@ -243,6 +243,7 @@
 			return;
 		}
 		sessionStore.saveProject(cwd);
+		if (data.record) sessionStore.optimisticAdd(data.record);
 		const tmuxTarget = data.tmuxTarget || data.session + ':0.0';
 		goto(`/session/${encodeURIComponent(tmuxTarget)}`);
 		onSessionSelect?.();

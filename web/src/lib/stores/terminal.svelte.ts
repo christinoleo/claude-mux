@@ -42,29 +42,39 @@ class TerminalStore extends ReliableWebSocket {
 		}
 	}
 
-	connect(target: string | null | undefined): void {
-		if (!browser || !target) return;
+	/**
+	 * Single entry point for terminal state. Pass a tmux target to view it,
+	 * or `null` to detach. Owns WS lifecycle, output clearing, and history
+	 * reset as one transaction so callers don't reason about connection state.
+	 */
+	setTarget(target: string | null | undefined): void {
+		if (!browser) return;
+		const next = target ?? null;
 
-		// If already connected to the same target, do nothing
-		if (this.ws && this.target === target) return;
+		// Same target: either no-op, or reattach the WS without clearing output.
+		// Preserves the buffer across transient disconnects (network blip, server reload).
+		if (this.target === next) {
+			if (next === null) return;
+			if (this.ws) return;
+			this.doConnect();
+			return;
+		}
 
-		// If connected to a different target, close old connection first
+		// Switching target (or first attach): tear down old WS and reset view state.
 		if (this.ws) {
-			// Disconnect without allowing reconnect (target will be null temporarily)
-			const oldTarget = this.target;
-			this.target = null; // Prevent reconnect in doDisconnect
+			this.target = null; // suppress reconnect in doDisconnect
 			this.doDisconnect();
-			this.target = oldTarget;
 		}
-
-		// Clear output when switching to a different target
-		if (this.target !== target) {
-			this.output = '';
-			this.resetHistoryState();
+		if (this.resizeTimer) {
+			clearTimeout(this.resizeTimer);
+			this.resizeTimer = null;
 		}
+		this.lastSentSize = null;
+		this.output = '';
+		this.resetHistoryState();
+		this.target = next;
 
-		this.target = target;
-		this.doConnect();
+		if (next) this.doConnect();
 	}
 
 	/** Resolves when the expanded buffer arrives. Returns null if no request was sent. */
@@ -83,20 +93,6 @@ class TerminalStore extends ReliableWebSocket {
 
 	get historyAtMax(): boolean {
 		return this.historyLines >= MAX_HISTORY;
-	}
-
-	disconnect(): void {
-		// Cancel resize timer
-		if (this.resizeTimer) {
-			clearTimeout(this.resizeTimer);
-			this.resizeTimer = null;
-		}
-		this.lastSentSize = null;
-
-		// Clear target before disconnecting to prevent reconnect
-		this.target = null;
-		this.resetHistoryState();
-		this.doDisconnect();
 	}
 
 	private resetHistoryState(): void {

@@ -186,6 +186,17 @@ class SessionStore extends ReliableWebSocket {
 		localStorage.setItem('claude-mux-projects', JSON.stringify(this.savedProjects));
 	}
 
+	/**
+	 * Insert a session record locally before the watcher broadcast arrives.
+	 * Lets navigation land with the session known to the store, eliminating
+	 * the brief "session unknown" window after creation. Watcher reconciles
+	 * later via diffAndUpdate — duplicates by id collapse to one.
+	 */
+	optimisticAdd(session: Session): void {
+		if (this.sessions.some((s) => s.id === session.id)) return;
+		this.sessions = [...this.sessions, session];
+	}
+
 	removeProject(cwd: string): void {
 		this.savedProjects = this.savedProjects.filter((p) => p !== cwd);
 		localStorage.setItem('claude-mux-projects', JSON.stringify(this.savedProjects));

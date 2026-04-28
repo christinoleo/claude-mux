@@ -218,17 +218,14 @@
 		if (size) terminalStore.sendResize(size.cols, size.rows);
 	}
 
-	// Connect/disconnect terminal based on target and pane liveness
+	// Drive the terminal store from view state. setTarget owns WS, output,
+	// and history reset together; only attach when target is confirmed alive.
 	$effect(() => {
-		if (isAlive) {
-			terminalStore.connect(target);
-		} else {
-			terminalStore.disconnect();
-		}
+		terminalStore.setTarget(isAlive ? target : null);
 	});
 
 	onDestroy(() => {
-		terminalStore.disconnect();
+		terminalStore.setTarget(null);
 	});
 
 	onMount(() => tmuxPanesStore.subscribe());

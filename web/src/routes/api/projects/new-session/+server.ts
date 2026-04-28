@@ -73,20 +73,16 @@ export const POST: RequestHandler = async ({ request }) => {
 		}).trim() || '0';
 		const tmuxTarget = `${sessionName}:${baseIndex}.${paneBaseIndex}`;
 
-		try {
-			upsertSession({
-				id: crypto.randomUUID(),
-				pid: 0,
-				cwd,
-				tmux_target: tmuxTarget,
-				state: 'idle',
-				agent: selectedAgent
-			});
-		} catch (err) {
-			console.error('[new-session] Session creation failed:', err);
-		}
+		const record = upsertSession({
+			id: crypto.randomUUID(),
+			pid: 0,
+			cwd,
+			tmux_target: tmuxTarget,
+			state: 'idle',
+			agent: selectedAgent
+		});
 
-		return json({ ok: true, session: sessionName, tmuxTarget, agent: selectedAgent });
+		return json({ ok: true, session: sessionName, tmuxTarget, agent: selectedAgent, record });
 	} catch (err) {
 		const detail = err instanceof Error ? err.message : String(err);
 		console.error('[new-session] Failed to create session:', detail);
