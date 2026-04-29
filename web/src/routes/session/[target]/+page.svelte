@@ -54,54 +54,6 @@
 	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 	let longPressTriggered = false;
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
-	const rcUrl = $derived(currentSession?.rc_url ?? null);
-	let rcEnabling = $state(false);
-	let rcTimeout: ReturnType<typeof setTimeout> | null = null;
-
-	// When rc_url appears after enabling, open it and clear the enabling state
-	$effect(() => {
-		if (rcEnabling && rcUrl) {
-			rcEnabling = false;
-			if (rcTimeout) { clearTimeout(rcTimeout); rcTimeout = null; }
-			window.open(rcUrl, '_blank');
-		}
-	});
-
-	// If session returns to idle without rc_url, the command failed
-	$effect(() => {
-		if (rcEnabling && !rcUrl && currentSession?.state === 'idle') {
-			// Small delay: state briefly flips to idle before going busy when processing /rc
-			const check = setTimeout(() => {
-				if (rcEnabling && !currentSession?.rc_url && currentSession?.state === 'idle') {
-					rcEnabling = false;
-					if (rcTimeout) { clearTimeout(rcTimeout); rcTimeout = null; }
-				}
-			}, 3000);
-			return () => clearTimeout(check);
-		}
-	});
-
-	async function enableAndOpenRc() {
-		if (rcUrl) {
-			window.open(rcUrl, '_blank');
-			return;
-		}
-
-		// Session must be idle to accept /rc command
-		if (currentSession?.state !== 'idle') return;
-
-		rcEnabling = true;
-		// Safety timeout: reset after 20s no matter what
-		rcTimeout = setTimeout(() => { rcEnabling = false; rcTimeout = null; }, 20_000);
-
-		// Send /rc command to enable Remote Control
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: '/rc' })
-		});
-		// $effects above handle success (rc_url appears) and failure (returns to idle without url)
-	}
 
 	const moreKeys: { label: string; keys: string; icon: string }[] = [
 		{ label: 'Bksp', keys: 'BSpace', icon: 'mdi:backspace' },
@@ -600,22 +552,10 @@
 					<iconify-icon icon="mdi:fit-to-screen"></iconify-icon>
 					<span>Fit</span>
 				</Button>
-				{#if isClaudeSession}
-					<Button
-						variant={rcUrl ? "secondary" : "ghost"}
-						size="toolbar"
-						onclick={enableAndOpenRc}
-						disabled={rcEnabling || (!rcUrl && currentSession?.state !== 'idle')}
-						title={rcUrl ? "Open Remote Control" : "Enable Remote Control"}
-					>
-						{#if rcEnabling}
-							<iconify-icon icon="mdi:loading" class="animate-spin"></iconify-icon>
-						{:else}
-							<iconify-icon icon="mdi:cellphone-link"></iconify-icon>
-						{/if}
-						<span>RC</span>
-					</Button>
-				{/if}
+				<Button variant="secondary" size="toolbar" onclick={() => location.reload()} title="Refresh page">
+					<iconify-icon icon="mdi:refresh"></iconify-icon>
+					<span>Refresh</span>
+				</Button>
 			{/if}
 			<Button variant="ghost-destructive" size="toolbar" onclick={() => (showConfirmKill = true)} title="Kill Session">
 				<iconify-icon icon="mdi:power"></iconify-icon>
@@ -809,7 +749,50 @@
 	/* Make room for hamburger menu on mobile */
 	@media (max-width: 768px) {
 		.header {
-			padding-left: 64px;
+			padding: 2px 6px 2px 40px;
+			gap: 5px;
+		}
+		.title-row {
+			gap: 4px;
+		}
+		.title-info {
+			flex-direction: row;
+			align-items: baseline;
+			gap: 5px;
+		}
+		.target-btn {
+			font-size: 12px;
+			padding: 2px 3px;
+			margin: -2px -3px;
+		}
+		.target-btn iconify-icon {
+			font-size: 11px;
+			margin-left: 4px;
+		}
+		.status {
+			font-size: 9px;
+		}
+		.state-symbol {
+			font-size: 12px;
+		}
+		.state-symbol.braille {
+			font-size: 14px;
+		}
+		.state {
+			width: 8px;
+			height: 8px;
+		}
+		.header-actions :global(button) {
+			font-size: 8px;
+			padding: 2px 4px;
+			min-width: 36px;
+			border-radius: 3px;
+		}
+		.header-actions :global(button iconify-icon) {
+			font-size: 14px;
+		}
+		.toolbar :global(button) {
+			border-radius: 3px;
 		}
 	}
 
@@ -1013,50 +996,6 @@
 
 	.input-row textarea::placeholder {
 		color: #666;
-	}
-
-	.dead-pane {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 12px;
-		padding: 32px;
-		color: #888;
-		text-align: center;
-	}
-
-	.dead-pane :global(.dead-icon) {
-		font-size: 48px;
-		color: #555;
-	}
-
-	.dead-pane h2 {
-		font-size: 20px;
-		font-weight: 600;
-		color: #aaa;
-		margin: 0;
-	}
-
-	.dead-target {
-		font-family: monospace;
-		font-size: 13px;
-		color: #666;
-		margin: 0;
-	}
-
-	.dead-hint {
-		font-size: 13px;
-		color: #555;
-		margin: 0;
-		max-width: 300px;
-	}
-
-	.dead-actions {
-		display: flex;
-		gap: 8px;
-		margin-top: 4px;
 	}
 
 	.send-btn-wrapper {

@@ -5,6 +5,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { upsertSession, writeLink } from "../db/sessions-json.js";
 import { resolveSession } from "./resolve-session.js";
+import { projectSlug } from "../utils/slug.js";
 
 /** Pre-trust a workspace directory in ~/.claude.json so Claude skips the trust dialog */
 function ensureWorkspaceTrusted(cwd: string) {
@@ -30,7 +31,7 @@ export function createNewSessionCommand(): Command {
   return new Command("new-session")
     .description("Spawn a new Claude Code session in a detached tmux session")
     .requiredOption("--cwd <path>", "Working directory for the new session")
-    .option("--name <name>", "Custom session name (default: claude-<timestamp>)")
+    .option("--name <name>", "Custom session name (default: <project>-<timestamp>)")
     .option("--no-skip-permissions", "Don't add --dangerously-skip-permissions")
     .option("--linked-to <target>", "Link to an existing session (ID or tmux target)")
     .action((options: { cwd: string; name?: string; skipPermissions: boolean; linkedTo?: string }) => {
@@ -51,7 +52,7 @@ export function createNewSessionCommand(): Command {
         process.exit(2);
       }
 
-      const sessionName = options.name || `claude-${Date.now()}`;
+      const sessionName = options.name || `${projectSlug(cwd, "claude")}-${Date.now()}`;
       const claudeArgs = ["claude"];
       if (options.skipPermissions) {
         claudeArgs.push("--dangerously-skip-permissions");

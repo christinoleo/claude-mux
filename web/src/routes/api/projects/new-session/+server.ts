@@ -6,6 +6,7 @@ import { upsertSession, type SessionAgent } from '$shared/db/index.js';
 import { AGENTS, parseAgent } from '$shared/agents.js';
 import { homedir } from 'os';
 import { join } from 'path';
+import { projectSlug } from '$shared/utils/slug.js';
 
 /** Pre-trust a workspace directory in ~/.claude.json so Claude skips the trust dialog */
 function ensureWorkspaceTrusted(cwd: string) {
@@ -45,7 +46,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		// Pre-trust the workspace so Claude skips the trust dialog
 		ensureWorkspaceTrusted(cwd);
 
-		const sessionName = `${selectedAgent}-${Date.now()}`;
+		const sessionName = `${projectSlug(cwd, selectedAgent)}-${selectedAgent}-${Date.now()}`;
 
 		// Strip TMUX from env so `tmux new-session` doesn't refuse with
 		// "sessions should be nested with care" when the server process

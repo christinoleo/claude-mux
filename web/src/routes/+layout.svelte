@@ -290,17 +290,18 @@
 			align-items: center;
 			justify-content: center;
 			position: fixed;
-			top: 12px;
-			left: 12px;
+			top: 3px;
+			left: 5px;
 			z-index: 50;
-			width: 44px;
-			height: 44px;
+			width: 28px;
+			height: 28px;
+			padding: 0;
 			background: hsl(var(--secondary));
 			border: none;
-			border-radius: 8px;
+			border-radius: 4px;
 			color: hsl(var(--foreground));
 			cursor: pointer;
-			font-size: 22px;
+			font-size: 18px;
 		}
 
 		.hamburger:hover {
