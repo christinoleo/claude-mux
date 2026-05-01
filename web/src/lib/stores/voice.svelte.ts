@@ -36,7 +36,7 @@ function saveSettings(settings: PersistedSettings): void {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 	} catch {
-		// ignore storage errors
+		// quota exceeded or private browsing — settings won't persist this session
 	}
 }
 
@@ -58,6 +58,7 @@ class VoiceStore {
 		return this.prefs.language;
 	}
 	set language(v: VoiceLanguage) {
+		if (this.prefs.language === v) return;
 		this.prefs.language = v;
 		saveSettings(this.prefs);
 	}
@@ -66,6 +67,7 @@ class VoiceStore {
 		return this.prefs.autoSubmit;
 	}
 	set autoSubmit(v: boolean) {
+		if (this.prefs.autoSubmit === v) return;
 		this.prefs.autoSubmit = v;
 		saveSettings(this.prefs);
 	}
@@ -74,6 +76,7 @@ class VoiceStore {
 		return this.prefs.deviceId;
 	}
 	set deviceId(v: string | null) {
+		if (this.prefs.deviceId === v) return;
 		this.prefs.deviceId = v;
 		saveSettings(this.prefs);
 	}
@@ -151,6 +154,7 @@ class VoiceStore {
 			if (ac.signal.aborted) {
 				this.status = 'idle';
 				this.error = null;
+				this.lastText = null;
 				return null;
 			}
 			this.fail(err instanceof Error ? err.message : 'Transcription failed');

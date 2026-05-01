@@ -57,10 +57,16 @@ export function longPress(node: HTMLElement, options: LongPressOptions): LongPre
 		}
 	}
 
+	function onTouchCancel(): void {
+		clear();
+		triggered = false;
+	}
+
 	node.addEventListener('mousedown', onMouseDown);
 	node.addEventListener('touchstart', onTouchStart, { passive: true });
 	node.addEventListener('touchmove', clear);
 	node.addEventListener('touchend', onTouchEnd);
+	node.addEventListener('touchcancel', onTouchCancel);
 	node.addEventListener('mouseup', clear);
 	node.addEventListener('mouseleave', clear);
 	node.addEventListener('click', onClickCapture, { capture: true });
@@ -72,6 +78,7 @@ export function longPress(node: HTMLElement, options: LongPressOptions): LongPre
 			node.removeEventListener('touchstart', onTouchStart);
 			node.removeEventListener('touchmove', clear);
 			node.removeEventListener('touchend', onTouchEnd);
+			node.removeEventListener('touchcancel', onTouchCancel);
 			node.removeEventListener('mouseup', clear);
 			node.removeEventListener('mouseleave', clear);
 			node.removeEventListener('click', onClickCapture, { capture: true });

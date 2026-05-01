@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { browser } from '$app/environment';
 	import { onDestroy, onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { longPress } from '$lib/actions/longPress';
+	import { clickOutside } from '$lib/actions/clickOutside';
 	import { voiceStore, type VoiceLanguage } from '$lib/stores/voice.svelte';
 	import { listAudioInputs, type AudioInputDevice } from '$lib/voice/recorder';
 
@@ -21,10 +21,9 @@
 	);
 
 	const MAX_RECORDING_MS = 10 * 60 * 1000;
+	const LONG_TRANSCRIBE_MS = 5000;
 
 	let elapsed = $state(0);
-	let elapsedTimer: ReturnType<typeof setInterval> | null = null;
-	let autoStopTimer: ReturnType<typeof setTimeout> | null = null;
 	let isLongTranscribe = $state(false);
 	let menuOpen = $state(false);
 	let devices = $state<AudioInputDevice[]>([]);
@@ -36,65 +35,30 @@
 		}
 		const id = setTimeout(() => {
 			isLongTranscribe = true;
-		}, 5000);
+		}, LONG_TRANSCRIBE_MS);
 		return () => clearTimeout(id);
 	});
 
 	$effect(() => {
-		if (!menuOpen || !browser) return;
-		const handler = (e: Event) => {
-			const t = e.target as HTMLElement;
-			if (!t.closest('.voice-btn-wrapper')) {
-				menuOpen = false;
-			}
-		};
-		const timer = setTimeout(() => {
-			document.addEventListener('click', handler);
-			document.addEventListener('contextmenu', handler);
-		}, 10);
+		if (status !== 'recording') {
+			elapsed = 0;
+			return;
+		}
+		elapsed = 0;
+		const tick = setInterval(() => {
+			const next = voiceStore.startedAt
+				? Math.floor((Date.now() - voiceStore.startedAt) / 1000)
+				: 0;
+			if (next !== elapsed) elapsed = next;
+		}, 1000);
+		const auto = setTimeout(() => void toggleVoice(), MAX_RECORDING_MS);
 		return () => {
-			clearTimeout(timer);
-			document.removeEventListener('click', handler);
-			document.removeEventListener('contextmenu', handler);
+			clearInterval(tick);
+			clearTimeout(auto);
 		};
 	});
 
 	const transcribingLabel = $derived(isLongTranscribe ? 'Setting up' : 'Cancel');
-
-	function tickElapsed(): void {
-		const next = voiceStore.startedAt
-			? Math.floor((Date.now() - voiceStore.startedAt) / 1000)
-			: 0;
-		if (next !== elapsed) elapsed = next;
-	}
-
-	function startElapsedTimer(): void {
-		stopElapsedTimer();
-		elapsed = 0;
-		elapsedTimer = setInterval(tickElapsed, 1000);
-	}
-
-	function stopElapsedTimer(): void {
-		if (elapsedTimer) {
-			clearInterval(elapsedTimer);
-			elapsedTimer = null;
-		}
-		elapsed = 0;
-	}
-
-	function startAutoStop(): void {
-		clearAutoStop();
-		autoStopTimer = setTimeout(() => {
-			void toggleVoice();
-		}, MAX_RECORDING_MS);
-	}
-
-	function clearAutoStop(): void {
-		if (autoStopTimer) {
-			clearTimeout(autoStopTimer);
-			autoStopTimer = null;
-		}
-	}
 
 	async function toggleVoice(): Promise<void> {
 		if (!target || !supported) return;
@@ -105,17 +69,11 @@
 		}
 
 		if (status === 'recording') {
-			clearAutoStop();
-			stopElapsedTimer();
 			await voiceStore.stopAndSend(target);
 			return;
 		}
 
 		await voiceStore.startRecording();
-		if (voiceStore.status === 'recording') {
-			startElapsedTimer();
-			startAutoStop();
-		}
 	}
 
 	async function openMenu(): Promise<void> {
@@ -190,8 +148,6 @@
 
 	onDestroy(() => {
 		window.removeEventListener('keydown', onWindowKeydown);
-		stopElapsedTimer();
-		clearAutoStop();
 	});
 </script>
 
@@ -203,6 +159,10 @@
 		use:longPress={{
 			onTrigger: () => void openMenu(),
 			enabled: canOpenMenu
+		}}
+		use:clickOutside={{
+			enabled: () => menuOpen,
+			onOutside: () => (menuOpen = false)
 		}}
 	>
 		<Button
