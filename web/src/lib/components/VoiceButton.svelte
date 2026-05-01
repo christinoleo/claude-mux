@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { voiceStore } from '$lib/stores/voice.svelte';
 
@@ -18,6 +18,7 @@
 
 	let elapsed = $state(0);
 	let elapsedTimer: ReturnType<typeof setInterval> | null = null;
+	let keyHeld = false;
 
 	function tickElapsed(): void {
 		const next = voiceStore.startedAt
@@ -40,25 +41,70 @@
 		elapsed = 0;
 	}
 
-	async function handlePointerDown(e: PointerEvent): Promise<void> {
-		if (!target || !supported || status === 'transcribing') return;
-		e.preventDefault();
-		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+	function canStart(): boolean {
+		return !!target && supported && (status === 'idle' || status === 'error');
+	}
 
+	async function startPTT(): Promise<void> {
+		if (!canStart()) return;
 		await voiceStore.startRecording();
 		if (voiceStore.status === 'recording') startElapsedTimer();
 	}
 
-	async function handlePointerUp(e: PointerEvent): Promise<void> {
-		(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-		stopElapsedTimer();
+	async function stopPTT(): Promise<void> {
 		if (!target || voiceStore.status !== 'recording') return;
+		stopElapsedTimer();
 		await voiceStore.stopAndSend(target);
 	}
 
-	function handlePointerCancel(): void {
+	function cancelPTT(): void {
 		stopElapsedTimer();
 		if (voiceStore.status === 'recording') voiceStore.cancel();
+	}
+
+	async function handlePointerDown(e: PointerEvent): Promise<void> {
+		if (keyHeld) return;
+		e.preventDefault();
+		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+		await startPTT();
+	}
+
+	async function handlePointerUp(e: PointerEvent): Promise<void> {
+		if (keyHeld) return;
+		(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+		await stopPTT();
+	}
+
+	function isHotkey(e: KeyboardEvent): boolean {
+		return (
+			e.code === 'Backquote' &&
+			e.ctrlKey &&
+			!e.altKey &&
+			!e.metaKey &&
+			!e.shiftKey
+		);
+	}
+
+	async function onWindowKeydown(e: KeyboardEvent): Promise<void> {
+		if (e.repeat || keyHeld) return;
+		if (!isHotkey(e)) return;
+		if (!canStart()) return;
+		e.preventDefault();
+		keyHeld = true;
+		await startPTT();
+	}
+
+	async function onWindowKeyup(e: KeyboardEvent): Promise<void> {
+		if (!keyHeld) return;
+		if (e.code !== 'Backquote' && e.key !== 'Control') return;
+		keyHeld = false;
+		await stopPTT();
+	}
+
+	function onWindowBlur(): void {
+		if (!keyHeld) return;
+		keyHeld = false;
+		cancelPTT();
 	}
 
 	function formatElapsed(s: number): string {
@@ -67,7 +113,17 @@
 		return `${m}:${r.toString().padStart(2, '0')}`;
 	}
 
+	onMount(() => {
+		if (!supported) return;
+		window.addEventListener('keydown', onWindowKeydown);
+		window.addEventListener('keyup', onWindowKeyup);
+		window.addEventListener('blur', onWindowBlur);
+	});
+
 	onDestroy(() => {
+		window.removeEventListener('keydown', onWindowKeydown);
+		window.removeEventListener('keyup', onWindowKeyup);
+		window.removeEventListener('blur', onWindowBlur);
 		stopElapsedTimer();
 	});
 </script>
@@ -80,8 +136,8 @@
 		disabled={!target || status === 'transcribing'}
 		onpointerdown={handlePointerDown}
 		onpointerup={handlePointerUp}
-		onpointercancel={handlePointerCancel}
-		title={errorMsg ?? 'Hold to talk'}
+		onpointercancel={cancelPTT}
+		title={errorMsg ?? 'Hold to talk (Ctrl+`)'}
 	>
 		{#if status === 'transcribing'}
 			<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>
