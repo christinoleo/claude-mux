@@ -1,6 +1,6 @@
 import { createInterface } from "readline";
 import { mkdirSync, existsSync } from "fs";
-import { CLAUDE_WATCH_DIR, SESSIONS_DIR } from "../utils/paths.js";
+import { CLAUDE_MUX_DIR, SESSIONS_DIR } from "../utils/paths.js";
 import { installHooks, saveClaudeSettings, uninstallHooks } from "./hooks.js";
 
 async function prompt(question: string): Promise<string> {
@@ -27,11 +27,11 @@ export async function runSetup(): Promise<void> {
 
   // Step 1: Create data directories
   console.log("Step 1: Creating data directories...");
-  if (!existsSync(CLAUDE_WATCH_DIR)) {
-    mkdirSync(CLAUDE_WATCH_DIR, { recursive: true });
-    console.log(`  Created ${CLAUDE_WATCH_DIR}`);
+  if (!existsSync(CLAUDE_MUX_DIR)) {
+    mkdirSync(CLAUDE_MUX_DIR, { recursive: true });
+    console.log(`  Created ${CLAUDE_MUX_DIR}`);
   } else {
-    console.log(`  ${CLAUDE_WATCH_DIR} already exists`);
+    console.log(`  ${CLAUDE_MUX_DIR} already exists`);
   }
   if (!existsSync(SESSIONS_DIR)) {
     mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -72,7 +72,7 @@ export async function runCleanup(): Promise<void> {
   uninstallHooks();
   console.log("  Hooks removed successfully");
 
-  console.log("\nData directory: " + CLAUDE_WATCH_DIR);
+  console.log("\nData directory: " + CLAUDE_MUX_DIR);
   console.log("  (Manual removal: rm -rf ~/.claude-mux)");
 
   console.log("\n Cleanup complete!\n");

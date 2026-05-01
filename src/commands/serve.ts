@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { CLAUDE_WATCH_DIR, SESSIONS_DIR, DEFAULT_SERVER_PORT } from "../utils/paths.js";
+import { CLAUDE_MUX_DIR, SESSIONS_DIR, DEFAULT_SERVER_PORT } from "../utils/paths.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -13,8 +13,8 @@ export interface ServeOptions {
 
 export async function runServe(options: ServeOptions): Promise<void> {
   // Auto-create data directories if needed
-  if (!existsSync(CLAUDE_WATCH_DIR)) {
-    mkdirSync(CLAUDE_WATCH_DIR, { recursive: true });
+  if (!existsSync(CLAUDE_MUX_DIR)) {
+    mkdirSync(CLAUDE_MUX_DIR, { recursive: true });
   }
   if (!existsSync(SESSIONS_DIR)) {
     mkdirSync(SESSIONS_DIR, { recursive: true });

@@ -21,7 +21,7 @@ interface HooksConfig {
   [eventName: string]: HookMatcher[];
 }
 
-interface ClaudeWatchMetadata {
+interface ClaudeMuxMetadata {
   version: string;
   installedAt: string;
   hookPath?: string;
@@ -29,8 +29,13 @@ interface ClaudeWatchMetadata {
 
 interface ClaudeSettings {
   hooks?: HooksConfig;
-  "claude-watch"?: ClaudeWatchMetadata;
+  "claude-mux"?: ClaudeMuxMetadata;
+  "claude-watch"?: ClaudeMuxMetadata;
   [key: string]: unknown;
+}
+
+export function getClaudeMuxMetadata(settings: ClaudeSettings): ClaudeMuxMetadata | undefined {
+  return settings["claude-mux"] ?? settings["claude-watch"];
 }
 
 /** True when running from source (bun src/cli.ts) vs built dist/ */
@@ -188,7 +193,7 @@ export function loadClaudeSettings(): ClaudeSettings {
  */
 export function getInstalledHooksVersion(): string | null {
   const settings = loadClaudeSettings();
-  return settings["claude-watch"]?.version ?? null;
+  return getClaudeMuxMetadata(settings)?.version ?? null;
 }
 
 /**
@@ -213,15 +218,21 @@ export function checkHooksStatus(): "install" | "update" | "current" {
   }
 
   // Check version
-  const installedVersion = settings["claude-watch"]?.version;
+  const meta = getClaudeMuxMetadata(settings);
+  const installedVersion = meta?.version;
   if (!installedVersion || installedVersion !== VERSION) {
     return "update";
   }
 
   // Check if hook path has changed (e.g., switched from dev to prod or vice versa)
-  const installedPath = settings["claude-watch"]?.hookPath;
+  const installedPath = meta?.hookPath;
   const currentPath = getHookScriptPath("claude-mux-hook.js");
   if (installedPath && installedPath !== currentPath) {
+    return "update";
+  }
+
+  // Migrate legacy "claude-watch" key on the fly when "claude-mux" is missing
+  if (!settings["claude-mux"] && settings["claude-watch"]) {
     return "update";
   }
 
@@ -317,12 +328,14 @@ export function installHooks(): { diff: string; newSettings: ClaudeSettings } {
   const newSettings: ClaudeSettings = {
     ...currentSettings,
     hooks: mergedHooks,
-    "claude-watch": {
+    "claude-mux": {
       version: VERSION,
       installedAt: new Date().toISOString(),
       hookPath: getHookScriptPath("claude-mux-hook.js"),
     },
   };
+
+  delete newSettings["claude-watch"];
 
   const diff = generateDiff(currentSettings, newSettings);
 
@@ -348,7 +361,8 @@ export function uninstallHooks(): void {
     newSettings.hooks = cleanedHooks;
   }
 
-  // Remove claude-watch metadata
+  // Remove claude-mux metadata (and legacy claude-watch key)
+  delete newSettings["claude-mux"];
   delete newSettings["claude-watch"];
 
   saveClaudeSettings(newSettings);

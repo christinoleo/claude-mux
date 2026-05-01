@@ -4,17 +4,15 @@ const COOKIE_NAME = 'claude-mux-session';
 const MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
 
 /**
- * Check if authentication is enabled (CLAUDE_WATCH_PASSWORD env var is set)
+ * Check if authentication is enabled.
+ * Prefers CLAUDE_MUX_PASSWORD; falls back to legacy CLAUDE_WATCH_PASSWORD.
  */
 export function isAuthEnabled(): boolean {
-	return !!process.env.CLAUDE_WATCH_PASSWORD;
+	return !!(process.env.CLAUDE_MUX_PASSWORD || process.env.CLAUDE_WATCH_PASSWORD);
 }
 
-/**
- * Get the configured password (empty string if not set)
- */
 function getPassword(): string {
-	return process.env.CLAUDE_WATCH_PASSWORD || '';
+	return process.env.CLAUDE_MUX_PASSWORD || process.env.CLAUDE_WATCH_PASSWORD || '';
 }
 
 /**

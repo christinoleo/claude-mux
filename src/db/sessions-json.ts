@@ -12,9 +12,19 @@ import { homedir } from "os";
 import { isPidAlive } from "../utils/pid.js";
 
 // Paths
-const CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
-const DEFAULT_SESSIONS_DIR = join(CLAUDE_WATCH_DIR, "sessions");
-const LINKS_PATH = join(CLAUDE_WATCH_DIR, "links.json");
+const LEGACY_CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
+const CLAUDE_MUX_DIR = join(homedir(), ".claude-mux");
+
+try {
+  if (existsSync(LEGACY_CLAUDE_WATCH_DIR) && !existsSync(CLAUDE_MUX_DIR)) {
+    renameSync(LEGACY_CLAUDE_WATCH_DIR, CLAUDE_MUX_DIR);
+  }
+} catch {
+  // ignore — caller will create the new dir if needed
+}
+
+const DEFAULT_SESSIONS_DIR = join(CLAUDE_MUX_DIR, "sessions");
+const LINKS_PATH = join(CLAUDE_MUX_DIR, "links.json");
 
 // Schema version
 const SCHEMA_VERSION = 1;
@@ -343,8 +353,8 @@ export function readLinks(): Record<string, string> {
 export function writeLink(orchestratorTarget: string, mainTarget: string): void {
   const links = readLinks();
   links[orchestratorTarget] = mainTarget;
-  if (!existsSync(CLAUDE_WATCH_DIR)) {
-    mkdirSync(CLAUDE_WATCH_DIR, { recursive: true });
+  if (!existsSync(CLAUDE_MUX_DIR)) {
+    mkdirSync(CLAUDE_MUX_DIR, { recursive: true });
   }
   const tmpPath = LINKS_PATH + ".tmp";
   writeFileSync(tmpPath, JSON.stringify(links, null, 2));

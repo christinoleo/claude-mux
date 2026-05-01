@@ -14,8 +14,10 @@ import {
   runServe,
 } from "./commands/index.js";
 import { runSetup, runCleanup } from "./setup/index.js";
-import { DEFAULT_SERVER_PORT } from "./utils/paths.js";
+import { DEFAULT_SERVER_PORT, migrateLegacyDataDir } from "./utils/paths.js";
 import { VERSION } from "./utils/version.js";
+
+migrateLegacyDataDir();
 
 // Deprecation warning helper
 function deprecationWarning(oldFlag: string, newCommand: string): void {

@@ -28,9 +28,20 @@ import { join } from "path";
 import { homedir } from "os";
 
 // Paths
-const CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
-const SESSIONS_DIR = join(CLAUDE_WATCH_DIR, "sessions");
-const DEBUG_LOG_PATH = join(CLAUDE_WATCH_DIR, "debug.log");
+const LEGACY_CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
+const CLAUDE_MUX_DIR = join(homedir(), ".claude-mux");
+
+// Inline migration: rename legacy ~/.claude-watch to ~/.claude-mux on first run
+try {
+  if (existsSync(LEGACY_CLAUDE_WATCH_DIR) && !existsSync(CLAUDE_MUX_DIR)) {
+    renameSync(LEGACY_CLAUDE_WATCH_DIR, CLAUDE_MUX_DIR);
+  }
+} catch {
+  // ignore — fall through with whichever dir we end up using
+}
+
+const SESSIONS_DIR = join(CLAUDE_MUX_DIR, "sessions");
+const DEBUG_LOG_PATH = join(CLAUDE_MUX_DIR, "debug.log");
 
 // Schema version
 const SCHEMA_VERSION = 1;

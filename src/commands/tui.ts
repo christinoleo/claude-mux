@@ -7,7 +7,7 @@ import { createInterface } from "readline";
 import { join } from "path";
 import { App } from "../app.js";
 import { isInTmux, getTmuxSessionName } from "../tmux/detect.js";
-import { CLAUDE_WATCH_DIR, SESSIONS_DIR, DEFAULT_SERVER_PORT } from "../utils/paths.js";
+import { CLAUDE_MUX_DIR, SESSIONS_DIR, DEFAULT_SERVER_PORT } from "../utils/paths.js";
 import { VERSION } from "../utils/version.js";
 import { isPidAlive } from "../utils/pid.js";
 import {
@@ -115,8 +115,8 @@ export async function runTui(options: TuiOptions): Promise<void> {
   // We're in the watch session, run the TUI
 
   // Auto-create data directories if needed
-  if (!existsSync(CLAUDE_WATCH_DIR)) {
-    mkdirSync(CLAUDE_WATCH_DIR, { recursive: true });
+  if (!existsSync(CLAUDE_MUX_DIR)) {
+    mkdirSync(CLAUDE_MUX_DIR, { recursive: true });
   }
   if (!existsSync(SESSIONS_DIR)) {
     mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -127,7 +127,9 @@ export async function runTui(options: TuiOptions): Promise<void> {
   if (hooksStatus !== "current") {
     const installedVersion = getInstalledHooksVersion();
     const settings = loadClaudeSettings();
-    const installedPath = settings["claude-watch"]?.hookPath;
+    const installedPath =
+      (settings["claude-mux"] as { hookPath?: string } | undefined)?.hookPath ??
+      (settings["claude-watch"] as { hookPath?: string } | undefined)?.hookPath;
     const currentPath = getHookScriptPath("claude-mux-hook.js");
     const pathChanged = installedPath && installedPath !== currentPath;
 
@@ -165,7 +167,7 @@ export async function runTui(options: TuiOptions): Promise<void> {
   }
 
   // Check if another instance is already running
-  const lockFile = join(CLAUDE_WATCH_DIR, "claude-mux.lock");
+  const lockFile = join(CLAUDE_MUX_DIR, "claude-mux.lock");
   if (existsSync(lockFile)) {
     try {
       const lock = JSON.parse(readFileSync(lockFile, "utf-8"));
