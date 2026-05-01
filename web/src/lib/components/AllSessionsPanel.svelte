@@ -12,6 +12,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
+	import { longPress } from '$lib/actions/longPress';
 
 	interface Props {
 		onSessionSelect?: () => void;
@@ -44,21 +45,11 @@
 	}
 
 	let agentPickerCwd = $state<string | null>(null);
-	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function pickAgent(agent: SessionAgent) {
 		const cwd = agentPickerCwd;
 		agentPickerCwd = null;
 		if (cwd) newSessionInProject(cwd, agent);
-	}
-
-	function startLongPress(cwd: string) {
-		clearLongPress();
-		longPressTimer = setTimeout(() => { agentPickerCwd = cwd; }, 500);
-	}
-
-	function clearLongPress() {
-		if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 	}
 
 	// Project tree node type
@@ -187,11 +178,7 @@
 
 	onMount(() => {
 		sessionStore.loadSavedProjects();
-		const unsubscribe = tmuxPanesStore.subscribe();
-		return () => {
-			unsubscribe();
-			clearLongPress();
-		};
+		return tmuxPanesStore.subscribe();
 	});
 
 	// Auto-persist any project we see a session in, so the group doesn't
@@ -450,10 +437,7 @@
 								class="project-btn"
 								onclick={() => newSessionInProject(project.cwd)}
 								oncontextmenu={(e) => { e.preventDefault(); agentPickerCwd = project.cwd; }}
-								ontouchstart={() => startLongPress(project.cwd)}
-								ontouchend={clearLongPress}
-								ontouchmove={clearLongPress}
-								ontouchcancel={clearLongPress}
+								use:longPress={{ onTrigger: () => (agentPickerCwd = project.cwd) }}
 								title="New Session (right-click or long-press for agent)"
 							>
 								<iconify-icon icon="mdi:plus"></iconify-icon>

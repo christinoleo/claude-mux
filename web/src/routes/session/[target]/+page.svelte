@@ -12,6 +12,8 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import TerminalRenderer from '$lib/components/TerminalRenderer.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
+	import { longPress } from '$lib/actions/longPress';
+	import { clickOutside } from '$lib/actions/clickOutside';
 
 	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
 
@@ -52,8 +54,6 @@
 	// Tap candidate: modifier keydown with no intervening key → arm on keyup
 	let ctrlTapCandidate = false;
 	let altTapCandidate = false;
-	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-	let longPressTriggered = false;
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
 
 	const moreKeys: { label: string; keys: string; icon: string }[] = [
@@ -266,74 +266,6 @@
 		e.preventDefault();
 		queuePopoverOpen = true;
 	}
-
-	function startLongPress() {
-		longPressTriggered = false;
-		if (longPressTimer) clearTimeout(longPressTimer);
-		longPressTimer = setTimeout(() => {
-			longPressTimer = null;
-			longPressTriggered = true;
-			queuePopoverOpen = true;
-		}, 500);
-	}
-
-	function cancelLongPress() {
-		if (longPressTimer) {
-			clearTimeout(longPressTimer);
-			longPressTimer = null;
-		}
-	}
-
-	function handleSendTouchEnd(e: TouchEvent) {
-		cancelLongPress();
-		// Touch has no click event to capture; suppress here if long-press fired
-		if (longPressTriggered) {
-			e.preventDefault();
-			longPressTriggered = false;
-		}
-	}
-
-	function handleSendMouseDown(e: MouseEvent) {
-		// Right button is handled by contextmenu; only left triggers long-press
-		if (e.button !== 0) return;
-		startLongPress();
-	}
-
-	function handleSendClickCapture(e: MouseEvent) {
-		if (longPressTriggered) {
-			e.preventDefault();
-			e.stopPropagation();
-			longPressTriggered = false;
-		}
-	}
-
-	// If the popover closes without a click on the Send wrapper (user clicked an
-	// item inside it, or outside entirely), the long-press flag would stay true
-	// and swallow the next legitimate Send click. Reset on close.
-	$effect(() => {
-		if (!queuePopoverOpen) longPressTriggered = false;
-	});
-
-	// Close queue dropdown on click outside
-	$effect(() => {
-		if (!queuePopoverOpen || !browser) return;
-		const handler = (e: Event) => {
-			const target = e.target as HTMLElement;
-			if (!target.closest('.send-btn-wrapper')) {
-				queuePopoverOpen = false;
-			}
-		};
-		// Delay to avoid immediate close from the triggering event
-		const timeout = setTimeout(() => {
-			document.addEventListener('click', handler);
-			document.addEventListener('contextmenu', handler);
-		}, 10);
-		return () => {
-			clearTimeout(timeout);
-			document.removeEventListener('click', handler);
-			document.removeEventListener('contextmenu', handler);
-		};
-	});
 
 	function cycleCtrl() {
 		ctrlCount = (ctrlCount + 1) % 3;
@@ -684,13 +616,11 @@
 			></textarea>
 			<div class="send-btn-wrapper"
 				oncontextmenu={handleSendContextMenu}
-				ontouchstart={startLongPress}
-				ontouchend={handleSendTouchEnd}
-				ontouchmove={cancelLongPress}
-				onmousedown={handleSendMouseDown}
-				onmouseup={cancelLongPress}
-				onmouseleave={cancelLongPress}
-				onclickcapture={handleSendClickCapture}
+				use:longPress={{ onTrigger: () => (queuePopoverOpen = true) }}
+				use:clickOutside={{
+					enabled: () => queuePopoverOpen,
+					onOutside: () => (queuePopoverOpen = false)
+				}}
 			>
 				<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg">
 					<iconify-icon icon="mdi:send"></iconify-icon>
