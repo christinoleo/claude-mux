@@ -1,7 +1,11 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { onDestroy, onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
-	import { voiceStore } from '$lib/stores/voice.svelte';
+	import { Checkbox } from '$lib/components/ui/checkbox';
+	import { longPress } from '$lib/actions/longPress';
+	import { voiceStore, type VoiceLanguage } from '$lib/stores/voice.svelte';
+	import { listAudioInputs, type AudioInputDevice } from '$lib/voice/recorder';
 
 	interface Props {
 		target: string | null;
@@ -16,35 +20,46 @@
 		status === 'recording' || status === 'error' ? 'destructive' : 'secondary'
 	);
 
+	const MAX_RECORDING_MS = 10 * 60 * 1000;
+
 	let elapsed = $state(0);
 	let elapsedTimer: ReturnType<typeof setInterval> | null = null;
-	let keyHeld = false;
+	let autoStopTimer: ReturnType<typeof setTimeout> | null = null;
 	let isLongTranscribe = $state(false);
-	let longTranscribeTimer: ReturnType<typeof setTimeout> | null = null;
+	let menuOpen = $state(false);
+	let devices = $state<AudioInputDevice[]>([]);
 
 	$effect(() => {
-		if (status === 'transcribing') {
-			if (!longTranscribeTimer && !isLongTranscribe) {
-				longTranscribeTimer = setTimeout(() => {
-					isLongTranscribe = true;
-					longTranscribeTimer = null;
-				}, 5000);
-			}
-		} else {
+		if (status !== 'transcribing') {
 			isLongTranscribe = false;
-			if (longTranscribeTimer) {
-				clearTimeout(longTranscribeTimer);
-				longTranscribeTimer = null;
-			}
+			return;
 		}
+		const id = setTimeout(() => {
+			isLongTranscribe = true;
+		}, 5000);
+		return () => clearTimeout(id);
+	});
+
+	$effect(() => {
+		if (!menuOpen || !browser) return;
+		const handler = (e: Event) => {
+			const t = e.target as HTMLElement;
+			if (!t.closest('.voice-btn-wrapper')) {
+				menuOpen = false;
+			}
+		};
+		const timer = setTimeout(() => {
+			document.addEventListener('click', handler);
+			document.addEventListener('contextmenu', handler);
+		}, 10);
+		return () => {
+			clearTimeout(timer);
+			document.removeEventListener('click', handler);
+			document.removeEventListener('contextmenu', handler);
+		};
 	});
 
 	const transcribingLabel = $derived(isLongTranscribe ? 'Setting up' : 'Cancel');
-	const transcribingTitle = $derived(
-		isLongTranscribe
-			? 'First-run setup (whisper.cpp build + model download). Click or Ctrl+` to cancel.'
-			: 'Click or Ctrl+` to cancel transcription'
-	);
 
 	function tickElapsed(): void {
 		const next = voiceStore.startedAt
@@ -67,42 +82,59 @@
 		elapsed = 0;
 	}
 
-	function canStart(): boolean {
-		return !!target && supported && (status === 'idle' || status === 'error');
+	function startAutoStop(): void {
+		clearAutoStop();
+		autoStopTimer = setTimeout(() => {
+			void toggleVoice();
+		}, MAX_RECORDING_MS);
 	}
 
-	async function startPTT(): Promise<void> {
-		if (!canStart()) return;
-		await voiceStore.startRecording();
-		if (voiceStore.status === 'recording') startElapsedTimer();
+	function clearAutoStop(): void {
+		if (autoStopTimer) {
+			clearTimeout(autoStopTimer);
+			autoStopTimer = null;
+		}
 	}
 
-	async function stopPTT(): Promise<void> {
-		if (!target || voiceStore.status !== 'recording') return;
-		stopElapsedTimer();
-		await voiceStore.stopAndSend(target);
-	}
+	async function toggleVoice(): Promise<void> {
+		if (!target || !supported) return;
 
-	function cancelPTT(): void {
-		stopElapsedTimer();
-		if (voiceStore.status === 'recording') voiceStore.cancel();
-	}
-
-	async function handlePointerDown(e: PointerEvent): Promise<void> {
-		if (keyHeld) return;
-		e.preventDefault();
 		if (status === 'transcribing') {
 			voiceStore.cancelTranscribing();
 			return;
 		}
-		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-		await startPTT();
+
+		if (status === 'recording') {
+			clearAutoStop();
+			stopElapsedTimer();
+			await voiceStore.stopAndSend(target);
+			return;
+		}
+
+		await voiceStore.startRecording();
+		if (voiceStore.status === 'recording') {
+			startElapsedTimer();
+			startAutoStop();
+		}
 	}
 
-	async function handlePointerUp(e: PointerEvent): Promise<void> {
-		if (keyHeld) return;
-		(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-		await stopPTT();
+	async function openMenu(): Promise<void> {
+		try {
+			devices = await listAudioInputs();
+		} catch {
+			devices = [];
+		}
+		menuOpen = true;
+	}
+
+	function canOpenMenu(): boolean {
+		return status === 'idle' || status === 'error';
+	}
+
+	function handleContextMenu(e: MouseEvent): void {
+		if (!canOpenMenu()) return;
+		e.preventDefault();
+		void openMenu();
 	}
 
 	function isHotkey(e: KeyboardEvent): boolean {
@@ -116,30 +148,10 @@
 	}
 
 	async function onWindowKeydown(e: KeyboardEvent): Promise<void> {
-		if (e.repeat || keyHeld) return;
+		if (e.repeat) return;
 		if (!isHotkey(e)) return;
-		if (status === 'transcribing') {
-			e.preventDefault();
-			voiceStore.cancelTranscribing();
-			return;
-		}
-		if (!canStart()) return;
 		e.preventDefault();
-		keyHeld = true;
-		await startPTT();
-	}
-
-	async function onWindowKeyup(e: KeyboardEvent): Promise<void> {
-		if (!keyHeld) return;
-		if (e.code !== 'Backquote' && e.key !== 'Control') return;
-		keyHeld = false;
-		await stopPTT();
-	}
-
-	function onWindowBlur(): void {
-		if (!keyHeld) return;
-		keyHeld = false;
-		cancelPTT();
+		await toggleVoice();
 	}
 
 	function formatElapsed(s: number): string {
@@ -148,53 +160,133 @@
 		return `${m}:${r.toString().padStart(2, '0')}`;
 	}
 
+	const buttonTitle = $derived.by(() => {
+		if (errorMsg) return errorMsg;
+		if (status === 'transcribing')
+			return isLongTranscribe
+				? 'First-run setup. Tap or Ctrl+` to cancel.'
+				: 'Tap or Ctrl+` to cancel transcription';
+		if (status === 'recording') return 'Tap or Ctrl+` to stop';
+		return 'Tap or Ctrl+` to record. Long-press or right-click for settings.';
+	});
+
+	function setLanguage(lang: VoiceLanguage): void {
+		voiceStore.language = lang;
+	}
+
+	function setDevice(e: Event): void {
+		const value = (e.target as HTMLSelectElement).value;
+		voiceStore.deviceId = value || null;
+	}
+
+	function setAutoSubmit(checked: boolean | 'indeterminate'): void {
+		voiceStore.autoSubmit = checked === true;
+	}
+
 	onMount(() => {
 		if (!supported) return;
 		window.addEventListener('keydown', onWindowKeydown);
-		window.addEventListener('keyup', onWindowKeyup);
-		window.addEventListener('blur', onWindowBlur);
 	});
 
 	onDestroy(() => {
 		window.removeEventListener('keydown', onWindowKeydown);
-		window.removeEventListener('keyup', onWindowKeyup);
-		window.removeEventListener('blur', onWindowBlur);
 		stopElapsedTimer();
-		if (longTranscribeTimer) clearTimeout(longTranscribeTimer);
+		clearAutoStop();
 	});
 </script>
 
 {#if supported}
-	<Button
-		{variant}
-		size="toolbar"
-		class="flex-1 voice-btn {status}"
-		disabled={!target}
-		onpointerdown={handlePointerDown}
-		onpointerup={handlePointerUp}
-		onpointercancel={cancelPTT}
-		title={errorMsg ?? (status === 'transcribing' ? transcribingTitle : 'Hold to talk (Ctrl+`)')}
+	<div
+		class="voice-btn-wrapper"
+		oncontextmenu={handleContextMenu}
+		role="presentation"
+		use:longPress={{
+			onTrigger: () => void openMenu(),
+			enabled: canOpenMenu
+		}}
 	>
-		{#if status === 'transcribing'}
-			<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>
-			<span>{transcribingLabel}</span>
-		{:else if status === 'recording'}
-			<iconify-icon icon="mdi:microphone"></iconify-icon>
-			<span>{formatElapsed(elapsed)}</span>
-		{:else if status === 'error'}
-			<iconify-icon icon="mdi:microphone-off"></iconify-icon>
-			<span>Mic</span>
-		{:else}
-			<iconify-icon icon="mdi:microphone"></iconify-icon>
-			<span>Hold</span>
+		<Button
+			{variant}
+			size="toolbar"
+			class="flex-1 voice-btn {status}"
+			disabled={!target}
+			onclick={() => void toggleVoice()}
+			title={buttonTitle}
+		>
+			{#if status === 'transcribing'}
+				<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>
+				<span>{transcribingLabel}</span>
+			{:else if status === 'recording'}
+				<iconify-icon icon="mdi:microphone"></iconify-icon>
+				<span>{formatElapsed(elapsed)}</span>
+			{:else if status === 'error'}
+				<iconify-icon icon="mdi:microphone-off"></iconify-icon>
+				<span>Mic</span>
+			{:else}
+				<iconify-icon icon="mdi:microphone"></iconify-icon>
+				<span>Talk</span>
+			{/if}
+		</Button>
+
+		{#if menuOpen}
+			<div class="voice-menu">
+				<div class="setting-row">
+					<span class="setting-label">Language</span>
+					<div class="lang-row">
+						{#each ['auto', 'en', 'pt'] as const as lang}
+							<Button
+								variant={voiceStore.language === lang ? 'success' : 'secondary'}
+								size="toolbar"
+								class="flex-1"
+								onclick={() => setLanguage(lang)}
+							>
+								{lang.toUpperCase()}
+							</Button>
+						{/each}
+					</div>
+				</div>
+
+				<label class="setting-row inline">
+					<Checkbox
+						checked={voiceStore.autoSubmit}
+						onCheckedChange={setAutoSubmit}
+					/>
+					<span class="setting-label inline">Auto-submit (Enter after transcript)</span>
+				</label>
+
+				<div class="setting-row">
+					<label class="setting-label" for="voice-device">Microphone</label>
+					<select
+						id="voice-device"
+						class="device-select"
+						value={voiceStore.deviceId ?? ''}
+						onchange={setDevice}
+					>
+						<option value="">System default</option>
+						{#each devices as d (d.deviceId)}
+							<option value={d.deviceId}>{d.label}</option>
+						{/each}
+					</select>
+					{#if devices.length === 0}
+						<p class="setting-hint">Allow mic access first to see device names.</p>
+					{/if}
+				</div>
+			</div>
 		{/if}
-	</Button>
+	</div>
 {/if}
 
 <style>
+	.voice-btn-wrapper {
+		position: relative;
+		display: flex;
+		flex: 1;
+	}
+
 	:global(.voice-btn) {
 		touch-action: none;
 		user-select: none;
+		width: 100%;
 	}
 
 	:global(.voice-btn.recording) {
@@ -213,5 +305,69 @@
 
 	@keyframes voice-spin {
 		to { transform: rotate(360deg); }
+	}
+
+	.voice-menu {
+		position: absolute;
+		bottom: calc(100% + 6px);
+		right: 0;
+		width: 18rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.85rem;
+		padding: 0.8rem;
+		background: #1a1a1a;
+		border: 1px solid #333;
+		border-radius: 6px;
+		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+		z-index: 50;
+	}
+
+	.setting-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.setting-row.inline {
+		flex-direction: row;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+	}
+
+	.setting-label {
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #aaa;
+	}
+
+	.setting-label.inline {
+		text-transform: none;
+		letter-spacing: normal;
+		color: #ddd;
+		font-size: 0.85rem;
+	}
+
+	.lang-row {
+		display: flex;
+		gap: 0.35rem;
+	}
+
+	.device-select {
+		width: 100%;
+		padding: 0.4rem 0.5rem;
+		background: #222;
+		color: #eee;
+		border: 1px solid #444;
+		border-radius: 4px;
+		font-size: 0.85rem;
+	}
+
+	.setting-hint {
+		font-size: 0.7rem;
+		color: #888;
+		margin: 0;
 	}
 </style>

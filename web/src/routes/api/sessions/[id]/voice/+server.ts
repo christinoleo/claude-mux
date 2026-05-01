@@ -8,6 +8,7 @@ const MAX_BYTES = 25 * 1024 * 1024;
 export const POST: RequestHandler = async ({ params, request, url }) => {
 	const target = decodeURIComponent(params.id);
 	const inject = url.searchParams.get('inject') !== 'false';
+	const submit = url.searchParams.get('submit') === '1';
 	const language = url.searchParams.get('lang') ?? undefined;
 
 	const contentType = request.headers.get('content-type') ?? 'audio/webm';
@@ -34,12 +35,12 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
 
 	if (inject && text) {
 		try {
-			sendTextToPane(target, text, { appendEnter: false });
+			sendTextToPane(target, text, { appendEnter: submit });
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'send-keys failed';
 			return json({ text, injected: false, error: message }, { status: 200 });
 		}
 	}
 
-	return json({ text, injected: inject && Boolean(text) });
+	return json({ text, injected: inject && Boolean(text), submitted: inject && submit && Boolean(text) });
 };

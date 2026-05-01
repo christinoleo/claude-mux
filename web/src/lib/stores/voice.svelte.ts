@@ -2,6 +2,43 @@ import { browser } from '$app/environment';
 import { VoiceRecorder, isVoiceSupported, type RecorderResult } from '$lib/voice/recorder';
 
 export type VoiceStatus = 'idle' | 'recording' | 'transcribing' | 'error';
+export type VoiceLanguage = 'auto' | 'en' | 'pt';
+
+const STORAGE_KEY = 'claude-mux-voice-settings';
+const MIN_UTTERANCE_MS = 200;
+
+interface PersistedSettings {
+	language: VoiceLanguage;
+	autoSubmit: boolean;
+	deviceId: string | null;
+}
+
+const DEFAULTS: PersistedSettings = {
+	language: 'auto',
+	autoSubmit: false,
+	deviceId: null
+};
+
+function loadSettings(): PersistedSettings {
+	if (!browser) return { ...DEFAULTS };
+	try {
+		const raw = localStorage.getItem(STORAGE_KEY);
+		if (!raw) return { ...DEFAULTS };
+		const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
+		return { ...DEFAULTS, ...parsed };
+	} catch {
+		return { ...DEFAULTS };
+	}
+}
+
+function saveSettings(settings: PersistedSettings): void {
+	if (!browser) return;
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+	} catch {
+		// ignore storage errors
+	}
+}
 
 class VoiceStore {
 	status = $state<VoiceStatus>('idle');
@@ -9,11 +46,36 @@ class VoiceStore {
 	lastText = $state<string | null>(null);
 	startedAt = $state<number | null>(null);
 
+	private prefs = $state<PersistedSettings>(loadSettings());
 	private recorder: VoiceRecorder | null = null;
 	private inflightAbort: AbortController | null = null;
 
 	get supported(): boolean {
 		return browser && isVoiceSupported();
+	}
+
+	get language(): VoiceLanguage {
+		return this.prefs.language;
+	}
+	set language(v: VoiceLanguage) {
+		this.prefs.language = v;
+		saveSettings(this.prefs);
+	}
+
+	get autoSubmit(): boolean {
+		return this.prefs.autoSubmit;
+	}
+	set autoSubmit(v: boolean) {
+		this.prefs.autoSubmit = v;
+		saveSettings(this.prefs);
+	}
+
+	get deviceId(): string | null {
+		return this.prefs.deviceId;
+	}
+	set deviceId(v: string | null) {
+		this.prefs.deviceId = v;
+		saveSettings(this.prefs);
 	}
 
 	async startRecording(): Promise<void> {
@@ -25,7 +87,11 @@ class VoiceStore {
 
 		try {
 			if (!this.recorder) this.recorder = new VoiceRecorder();
-			await this.recorder.start();
+			const result = await this.recorder.start(this.deviceId);
+			if (result.fellBackToDefault && this.deviceId !== null) {
+				// Saved device disappeared; clear so the picker reflects reality.
+				this.deviceId = null;
+			}
 			this.status = 'recording';
 			this.error = null;
 			this.startedAt = Date.now();
@@ -45,7 +111,7 @@ class VoiceStore {
 			return null;
 		}
 
-		if (result.blob.size === 0 || result.durationMs < 200) {
+		if (result.blob.size === 0 || result.durationMs < MIN_UTTERANCE_MS) {
 			this.status = 'idle';
 			this.startedAt = null;
 			return null;
@@ -57,8 +123,14 @@ class VoiceStore {
 		const ac = new AbortController();
 		this.inflightAbort = ac;
 
+		const params = new URLSearchParams();
+		if (this.language !== 'auto') params.set('lang', this.language);
+		if (this.autoSubmit) params.set('submit', '1');
+		const qs = params.toString();
+		const url = `/api/sessions/${encodeURIComponent(target)}/voice${qs ? `?${qs}` : ''}`;
+
 		try {
-			const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/voice`, {
+			const res = await fetch(url, {
 				method: 'POST',
 				headers: { 'Content-Type': result.mimeType },
 				body: result.blob,

@@ -27,18 +27,30 @@ export class VoiceRecorder {
 	private pending: { resolve: (r: RecorderResult) => void; reject: (e: Error) => void } | null =
 		null;
 
-	async start(): Promise<void> {
+	async start(deviceId?: string | null): Promise<{ fellBackToDefault: boolean }> {
 		if (this.recorder && this.recorder.state === 'recording') {
 			throw new Error('Already recording');
 		}
 
-		this.stream = await navigator.mediaDevices.getUserMedia({
-			audio: {
-				echoCancellation: true,
-				noiseSuppression: true,
-				autoGainControl: true
+		const audio: MediaTrackConstraints = {
+			echoCancellation: true,
+			noiseSuppression: true,
+			autoGainControl: true
+		};
+		if (deviceId) audio.deviceId = { exact: deviceId };
+
+		let fellBackToDefault = false;
+		try {
+			this.stream = await navigator.mediaDevices.getUserMedia({ audio });
+		} catch (err) {
+			if (deviceId && err instanceof Error && err.name === 'OverconstrainedError') {
+				delete audio.deviceId;
+				this.stream = await navigator.mediaDevices.getUserMedia({ audio });
+				fellBackToDefault = true;
+			} else {
+				throw err;
 			}
-		});
+		}
 
 		const mimeType = pickMimeType();
 		const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
@@ -69,6 +81,7 @@ export class VoiceRecorder {
 		};
 
 		this.recorder.start();
+		return { fellBackToDefault };
 	}
 
 	async stop(): Promise<RecorderResult> {
@@ -114,4 +127,19 @@ export function isVoiceSupported(): boolean {
 		typeof MediaRecorder !== 'undefined' &&
 		pickMimeType() !== ''
 	);
+}
+
+export interface AudioInputDevice {
+	deviceId: string;
+	label: string;
+}
+
+export async function listAudioInputs(): Promise<AudioInputDevice[]> {
+	if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
+		return [];
+	}
+	const devices = await navigator.mediaDevices.enumerateDevices();
+	return devices
+		.filter((d) => d.kind === 'audioinput')
+		.map((d) => ({ deviceId: d.deviceId, label: d.label || 'Microphone' }));
 }
