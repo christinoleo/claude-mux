@@ -5,29 +5,31 @@
 
 	interface Props {
 		target: string | null;
-		onTranscript?: (text: string) => void;
 	}
 
-	let { target, onTranscript }: Props = $props();
+	let { target }: Props = $props();
 
 	const supported = $derived(voiceStore.supported);
 	const status = $derived(voiceStore.status);
 	const errorMsg = $derived(voiceStore.error);
+	const variant = $derived(
+		status === 'recording' || status === 'error' ? 'destructive' : 'secondary'
+	);
 
-	let pressed = $state(false);
 	let elapsed = $state(0);
 	let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
 	function tickElapsed(): void {
-		const startedAt = voiceStore.startedAt;
-		if (startedAt) elapsed = Math.floor((Date.now() - startedAt) / 1000);
+		const next = voiceStore.startedAt
+			? Math.floor((Date.now() - voiceStore.startedAt) / 1000)
+			: 0;
+		if (next !== elapsed) elapsed = next;
 	}
 
 	function startElapsedTimer(): void {
 		stopElapsedTimer();
 		elapsed = 0;
-		tickElapsed();
-		elapsedTimer = setInterval(tickElapsed, 250);
+		elapsedTimer = setInterval(tickElapsed, 1000);
 	}
 
 	function stopElapsedTimer(): void {
@@ -42,29 +44,21 @@
 		if (!target || !supported || status === 'transcribing') return;
 		e.preventDefault();
 		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-		pressed = true;
 
-		if (status === 'error') voiceStore.clearError();
 		await voiceStore.startRecording();
 		if (voiceStore.status === 'recording') startElapsedTimer();
 	}
 
-	async function handlePointerEnd(e: PointerEvent): Promise<void> {
-		if (!pressed) return;
-		pressed = false;
+	async function handlePointerUp(e: PointerEvent): Promise<void> {
 		(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
 		stopElapsedTimer();
-
 		if (!target || voiceStore.status !== 'recording') return;
-		const text = await voiceStore.stopAndSend(target);
-		if (text) onTranscript?.(text);
+		await voiceStore.stopAndSend(target);
 	}
 
 	function handlePointerCancel(): void {
-		if (!pressed) return;
-		pressed = false;
 		stopElapsedTimer();
-		voiceStore.cancel();
+		if (voiceStore.status === 'recording') voiceStore.cancel();
 	}
 
 	function formatElapsed(s: number): string {
@@ -79,40 +73,33 @@
 </script>
 
 {#if supported}
-	<div class="voice-wrap">
-		<Button
-			variant={status === 'recording' ? 'destructive' : status === 'error' ? 'destructive' : 'secondary'}
-			size="toolbar"
-			class="flex-1 voice-btn {status}"
-			disabled={!target || status === 'transcribing'}
-			onpointerdown={handlePointerDown}
-			onpointerup={handlePointerEnd}
-			onpointerleave={handlePointerEnd}
-			onpointercancel={handlePointerCancel}
-			title={errorMsg ?? 'Hold to talk'}
-		>
-			{#if status === 'transcribing'}
-				<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>
-				<span>...</span>
-			{:else if status === 'recording'}
-				<iconify-icon icon="mdi:microphone"></iconify-icon>
-				<span>{formatElapsed(elapsed)}</span>
-			{:else if status === 'error'}
-				<iconify-icon icon="mdi:microphone-off"></iconify-icon>
-				<span>Mic</span>
-			{:else}
-				<iconify-icon icon="mdi:microphone"></iconify-icon>
-				<span>Hold</span>
-			{/if}
-		</Button>
-	</div>
+	<Button
+		{variant}
+		size="toolbar"
+		class="flex-1 voice-btn {status}"
+		disabled={!target || status === 'transcribing'}
+		onpointerdown={handlePointerDown}
+		onpointerup={handlePointerUp}
+		onpointercancel={handlePointerCancel}
+		title={errorMsg ?? 'Hold to talk'}
+	>
+		{#if status === 'transcribing'}
+			<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>
+			<span>...</span>
+		{:else if status === 'recording'}
+			<iconify-icon icon="mdi:microphone"></iconify-icon>
+			<span>{formatElapsed(elapsed)}</span>
+		{:else if status === 'error'}
+			<iconify-icon icon="mdi:microphone-off"></iconify-icon>
+			<span>Mic</span>
+		{:else}
+			<iconify-icon icon="mdi:microphone"></iconify-icon>
+			<span>Hold</span>
+		{/if}
+	</Button>
 {/if}
 
 <style>
-	.voice-wrap {
-		display: contents;
-	}
-
 	:global(.voice-btn) {
 		touch-action: none;
 		user-select: none;

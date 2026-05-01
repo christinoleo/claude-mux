@@ -32,15 +32,13 @@ export class VoiceRecorder {
 			throw new Error('Already recording');
 		}
 
-		if (!this.stream) {
-			this.stream = await navigator.mediaDevices.getUserMedia({
-				audio: {
-					echoCancellation: true,
-					noiseSuppression: true,
-					autoGainControl: true
-				}
-			});
-		}
+		this.stream = await navigator.mediaDevices.getUserMedia({
+			audio: {
+				echoCancellation: true,
+				noiseSuppression: true,
+				autoGainControl: true
+			}
+		});
 
 		const mimeType = pickMimeType();
 		const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
@@ -56,6 +54,7 @@ export class VoiceRecorder {
 			const used = this.recorder?.mimeType || mimeType || 'audio/webm';
 			const blob = new Blob(this.chunks, { type: used });
 			const durationMs = performance.now() - this.startedAt;
+			this.releaseStream();
 			this.pending?.resolve({ blob, mimeType: used, durationMs });
 			this.pending = null;
 		};
@@ -64,6 +63,7 @@ export class VoiceRecorder {
 			const err =
 				(ev as unknown as { error?: Error }).error ??
 				new Error('MediaRecorder error');
+			this.releaseStream();
 			this.pending?.reject(err);
 			this.pending = null;
 		};
@@ -93,18 +93,17 @@ export class VoiceRecorder {
 				// ignore
 			}
 		}
+		this.releaseStream();
 		this.pending?.reject(new Error('Cancelled'));
 		this.pending = null;
 		this.chunks = [];
 		this.recorder = null;
 	}
 
-	dispose(): void {
-		this.cancel();
-		if (this.stream) {
-			for (const t of this.stream.getTracks()) t.stop();
-			this.stream = null;
-		}
+	private releaseStream(): void {
+		if (!this.stream) return;
+		for (const t of this.stream.getTracks()) t.stop();
+		this.stream = null;
 	}
 }
 

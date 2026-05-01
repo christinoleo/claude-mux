@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { randomUUID } from "crypto";
 import { join } from "path";
 import { nodewhisper } from "nodejs-whisper";
@@ -17,12 +17,8 @@ export type WhisperModelName =
 
 const DEFAULT_MODEL: WhisperModelName = "base.en";
 
-function ensureDirs(): void {
-	mkdirSync(VOICE_MODELS_DIR, { recursive: true });
-	mkdirSync(VOICE_TMP_DIR, { recursive: true });
-}
-
-let inflight: Promise<string> | null = null;
+mkdirSync(VOICE_MODELS_DIR, { recursive: true });
+mkdirSync(VOICE_TMP_DIR, { recursive: true });
 
 const TIMESTAMP_LINE = /^\[\d\d:\d\d:\d\d\.\d{3}\s-->\s\d\d:\d\d:\d\d\.\d{3}\]\s+/;
 
@@ -45,43 +41,29 @@ export async function transcribeAudio(
 	audio: Buffer,
 	opts: TranscribeOptions = {}
 ): Promise<string> {
-	if (inflight) {
-		throw new Error("Voice transcription already in progress");
-	}
 	const model = opts.model ?? DEFAULT_MODEL;
-	ensureDirs();
-
 	const ext = pickExtension(opts.mime);
 	const tmpPath = join(VOICE_TMP_DIR, `${randomUUID()}.${ext}`);
 	writeFileSync(tmpPath, audio);
 
-	const run = (async () => {
-		try {
-			const raw = await nodewhisper(tmpPath, {
-				modelName: model,
-				autoDownloadModelName: model,
-				modelRootPath: VOICE_MODELS_DIR,
-				removeWavFileAfterTranscription: true,
-				whisperOptions: {
-					outputInText: true,
-					language: opts.language ?? (model.endsWith(".en") ? "en" : "auto")
-				}
-			});
-			return stripTimestamps(raw);
-		} finally {
-			try {
-				if (existsSync(tmpPath)) unlinkSync(tmpPath);
-			} catch {
-				// ignore
-			}
-		}
-	})();
-
-	inflight = run;
 	try {
-		return await run;
+		const raw = await nodewhisper(tmpPath, {
+			modelName: model,
+			autoDownloadModelName: model,
+			modelRootPath: VOICE_MODELS_DIR,
+			removeWavFileAfterTranscription: true,
+			whisperOptions: {
+				outputInText: true,
+				language: opts.language ?? (model.endsWith(".en") ? "en" : "auto")
+			}
+		});
+		return stripTimestamps(raw);
 	} finally {
-		inflight = null;
+		try {
+			unlinkSync(tmpPath);
+		} catch {
+			// already gone
+		}
 	}
 }
 
