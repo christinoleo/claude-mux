@@ -276,9 +276,10 @@
 
 	function resetLocalStorage() {
 		showConfirm('Reset Local Data', 'This will clear all saved projects, preferences, and cached data. The page will reload.', () => {
-			localStorage.removeItem('claude-mux-projects');
-			localStorage.removeItem('claude-mux-preferences');
-			localStorage.removeItem('claude-mux-sidebar-width');
+			for (let i = localStorage.length - 1; i >= 0; i--) {
+				const key = localStorage.key(i);
+				if (key && key.startsWith('claude-mux-')) localStorage.removeItem(key);
+			}
 			window.location.reload();
 		});
 	}

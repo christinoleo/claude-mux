@@ -96,23 +96,6 @@ export class VoiceRecorder {
 		});
 	}
 
-	cancel(): void {
-		if (this.recorder && this.recorder.state !== 'inactive') {
-			this.recorder.onstop = null;
-			this.recorder.onerror = null;
-			try {
-				this.recorder.stop();
-			} catch {
-				// ignore
-			}
-		}
-		this.releaseStream();
-		this.pending?.reject(new Error('Cancelled'));
-		this.pending = null;
-		this.chunks = [];
-		this.recorder = null;
-	}
-
 	private releaseStream(): void {
 		if (!this.stream) return;
 		for (const t of this.stream.getTracks()) t.stop();

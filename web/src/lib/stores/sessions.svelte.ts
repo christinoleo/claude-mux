@@ -127,19 +127,11 @@ class SessionStore extends ReliableWebSocket {
 		if (orderChanged) {
 			// IDs reordered — can still reuse unchanged objects
 			const result: Session[] = new Array(incoming.length);
-			let anyChanged = false;
 			for (let i = 0; i < incoming.length; i++) {
 				const prev = currentById.get(incoming[i].id);
-				if (prev && !sessionChanged(prev, incoming[i])) {
-					result[i] = prev; // reuse reference
-				} else {
-					result[i] = incoming[i];
-					anyChanged = true;
-				}
+				result[i] = prev && !sessionChanged(prev, incoming[i]) ? prev : incoming[i];
 			}
-			if (anyChanged || orderChanged) {
-				this.sessions = result;
-			}
+			this.sessions = result;
 			return;
 		}
 
