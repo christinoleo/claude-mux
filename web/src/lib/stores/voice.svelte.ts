@@ -10,6 +10,7 @@ class VoiceStore {
 	startedAt = $state<number | null>(null);
 
 	private recorder: VoiceRecorder | null = null;
+	private inflightAbort: AbortController | null = null;
 
 	get supported(): boolean {
 		return browser && isVoiceSupported();
@@ -53,11 +54,15 @@ class VoiceStore {
 		this.status = 'transcribing';
 		this.startedAt = null;
 
+		const ac = new AbortController();
+		this.inflightAbort = ac;
+
 		try {
 			const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/voice`, {
 				method: 'POST',
 				headers: { 'Content-Type': result.mimeType },
-				body: result.blob
+				body: result.blob,
+				signal: ac.signal
 			});
 
 			if (!res.ok) {
@@ -71,8 +76,15 @@ class VoiceStore {
 			this.status = 'idle';
 			return text;
 		} catch (err) {
+			if (ac.signal.aborted) {
+				this.status = 'idle';
+				this.error = null;
+				return null;
+			}
 			this.fail(err instanceof Error ? err.message : 'Transcription failed');
 			return null;
+		} finally {
+			if (this.inflightAbort === ac) this.inflightAbort = null;
 		}
 	}
 
@@ -80,6 +92,11 @@ class VoiceStore {
 		this.recorder?.cancel();
 		this.status = 'idle';
 		this.startedAt = null;
+	}
+
+	cancelTranscribing(): void {
+		if (this.status !== 'transcribing' || !this.inflightAbort) return;
+		this.inflightAbort.abort();
 	}
 
 	private fail(message: string): void {

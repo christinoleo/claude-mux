@@ -22,7 +22,11 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
 
 	let text: string;
 	try {
-		text = await transcribeAudio(Buffer.from(buf), { mime: contentType, language });
+		text = await transcribeAudio(Buffer.from(buf), {
+			mime: contentType,
+			language,
+			signal: request.signal
+		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Transcription failed';
 		throw error(500, message);

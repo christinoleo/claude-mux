@@ -19,6 +19,32 @@
 	let elapsed = $state(0);
 	let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 	let keyHeld = false;
+	let isLongTranscribe = $state(false);
+	let longTranscribeTimer: ReturnType<typeof setTimeout> | null = null;
+
+	$effect(() => {
+		if (status === 'transcribing') {
+			if (!longTranscribeTimer && !isLongTranscribe) {
+				longTranscribeTimer = setTimeout(() => {
+					isLongTranscribe = true;
+					longTranscribeTimer = null;
+				}, 5000);
+			}
+		} else {
+			isLongTranscribe = false;
+			if (longTranscribeTimer) {
+				clearTimeout(longTranscribeTimer);
+				longTranscribeTimer = null;
+			}
+		}
+	});
+
+	const transcribingLabel = $derived(isLongTranscribe ? 'Setting up' : 'Cancel');
+	const transcribingTitle = $derived(
+		isLongTranscribe
+			? 'First-run setup (whisper.cpp build + model download). Click or Ctrl+` to cancel.'
+			: 'Click or Ctrl+` to cancel transcription'
+	);
 
 	function tickElapsed(): void {
 		const next = voiceStore.startedAt
@@ -65,6 +91,10 @@
 	async function handlePointerDown(e: PointerEvent): Promise<void> {
 		if (keyHeld) return;
 		e.preventDefault();
+		if (status === 'transcribing') {
+			voiceStore.cancelTranscribing();
+			return;
+		}
 		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
 		await startPTT();
 	}
@@ -88,6 +118,11 @@
 	async function onWindowKeydown(e: KeyboardEvent): Promise<void> {
 		if (e.repeat || keyHeld) return;
 		if (!isHotkey(e)) return;
+		if (status === 'transcribing') {
+			e.preventDefault();
+			voiceStore.cancelTranscribing();
+			return;
+		}
 		if (!canStart()) return;
 		e.preventDefault();
 		keyHeld = true;
@@ -125,6 +160,7 @@
 		window.removeEventListener('keyup', onWindowKeyup);
 		window.removeEventListener('blur', onWindowBlur);
 		stopElapsedTimer();
+		if (longTranscribeTimer) clearTimeout(longTranscribeTimer);
 	});
 </script>
 
@@ -133,15 +169,15 @@
 		{variant}
 		size="toolbar"
 		class="flex-1 voice-btn {status}"
-		disabled={!target || status === 'transcribing'}
+		disabled={!target}
 		onpointerdown={handlePointerDown}
 		onpointerup={handlePointerUp}
 		onpointercancel={cancelPTT}
-		title={errorMsg ?? 'Hold to talk (Ctrl+`)'}
+		title={errorMsg ?? (status === 'transcribing' ? transcribingTitle : 'Hold to talk (Ctrl+`)')}
 	>
 		{#if status === 'transcribing'}
 			<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>
-			<span>...</span>
+			<span>{transcribingLabel}</span>
 		{:else if status === 'recording'}
 			<iconify-icon icon="mdi:microphone"></iconify-icon>
 			<span>{formatElapsed(elapsed)}</span>
