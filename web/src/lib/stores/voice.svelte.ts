@@ -1,10 +1,10 @@
 import { browser } from '$app/environment';
 import { VoiceRecorder, isVoiceSupported, type RecorderResult } from '$lib/voice/recorder';
+import { createPersisted } from './persisted';
 
 export type VoiceStatus = 'idle' | 'recording' | 'transcribing' | 'error';
 export type VoiceLanguage = 'auto' | 'en' | 'pt';
 
-const STORAGE_KEY = 'claude-mux-voice-settings';
 const MIN_UTTERANCE_MS = 200;
 
 interface PersistedSettings {
@@ -13,39 +13,18 @@ interface PersistedSettings {
 	deviceId: string | null;
 }
 
-const DEFAULTS: PersistedSettings = {
+const persisted = createPersisted<PersistedSettings>('claude-mux-voice-settings', {
 	language: 'auto',
 	autoSubmit: false,
 	deviceId: null
-};
-
-function loadSettings(): PersistedSettings {
-	if (!browser) return { ...DEFAULTS };
-	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return { ...DEFAULTS };
-		const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
-		return { ...DEFAULTS, ...parsed };
-	} catch {
-		return { ...DEFAULTS };
-	}
-}
-
-function saveSettings(settings: PersistedSettings): void {
-	if (!browser) return;
-	try {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-	} catch {
-		// quota exceeded or private browsing — settings won't persist this session
-	}
-}
+});
 
 class VoiceStore {
 	status = $state<VoiceStatus>('idle');
 	error = $state<string | null>(null);
 	startedAt = $state<number | null>(null);
 
-	private prefs = $state<PersistedSettings>(loadSettings());
+	private prefs = $state<PersistedSettings>(persisted.load());
 	private recorder: VoiceRecorder | null = null;
 	private inflightAbort: AbortController | null = null;
 
@@ -59,7 +38,7 @@ class VoiceStore {
 	set language(v: VoiceLanguage) {
 		if (this.prefs.language === v) return;
 		this.prefs.language = v;
-		saveSettings(this.prefs);
+		persisted.save(this.prefs);
 	}
 
 	get autoSubmit(): boolean {
@@ -68,7 +47,7 @@ class VoiceStore {
 	set autoSubmit(v: boolean) {
 		if (this.prefs.autoSubmit === v) return;
 		this.prefs.autoSubmit = v;
-		saveSettings(this.prefs);
+		persisted.save(this.prefs);
 	}
 
 	get deviceId(): string | null {
@@ -77,7 +56,7 @@ class VoiceStore {
 	set deviceId(v: string | null) {
 		if (this.prefs.deviceId === v) return;
 		this.prefs.deviceId = v;
-		saveSettings(this.prefs);
+		persisted.save(this.prefs);
 	}
 
 	async startRecording(): Promise<void> {

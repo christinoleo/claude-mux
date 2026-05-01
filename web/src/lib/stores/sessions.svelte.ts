@@ -1,7 +1,9 @@
-import { browser } from '$app/environment';
 import { ReliableWebSocket } from './websocket-base.svelte';
+import { createPersisted } from './persisted';
 import { SessionsWsMessageSchema, type SystemStatsMessage } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
+
+const savedProjectsStore = createPersisted<string[]>('claude-mux-projects', []);
 
 export interface Screenshot {
 	path: string;
@@ -172,18 +174,13 @@ class SessionStore extends ReliableWebSocket {
 	}
 
 	loadSavedProjects(): void {
-		if (!browser) return;
-		try {
-			this.savedProjects = JSON.parse(localStorage.getItem('claude-mux-projects') || '[]');
-		} catch {
-			this.savedProjects = [];
-		}
+		this.savedProjects = savedProjectsStore.load();
 	}
 
 	saveProject(cwd: string): void {
-		if (!browser || this.savedProjects.includes(cwd)) return;
+		if (this.savedProjects.includes(cwd)) return;
 		this.savedProjects = [...this.savedProjects, cwd];
-		localStorage.setItem('claude-mux-projects', JSON.stringify(this.savedProjects));
+		savedProjectsStore.save(this.savedProjects);
 	}
 
 	/**
@@ -199,7 +196,7 @@ class SessionStore extends ReliableWebSocket {
 
 	removeProject(cwd: string): void {
 		this.savedProjects = this.savedProjects.filter((p) => p !== cwd);
-		localStorage.setItem('claude-mux-projects', JSON.stringify(this.savedProjects));
+		savedProjectsStore.save(this.savedProjects);
 	}
 }
 
