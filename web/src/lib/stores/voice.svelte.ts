@@ -43,7 +43,6 @@ function saveSettings(settings: PersistedSettings): void {
 class VoiceStore {
 	status = $state<VoiceStatus>('idle');
 	error = $state<string | null>(null);
-	lastText = $state<string | null>(null);
 	startedAt = $state<number | null>(null);
 
 	private prefs = $state<PersistedSettings>(loadSettings());
@@ -147,14 +146,11 @@ class VoiceStore {
 
 			const data = (await res.json()) as { text?: string };
 			const text = data.text ?? '';
-			this.lastText = text;
 			this.status = 'idle';
 			return text;
 		} catch (err) {
 			if (ac.signal.aborted) {
-				this.status = 'idle';
 				this.error = null;
-				this.lastText = null;
 				return null;
 			}
 			this.fail(err instanceof Error ? err.message : 'Transcription failed');
@@ -164,14 +160,11 @@ class VoiceStore {
 		}
 	}
 
-	cancel(): void {
-		this.recorder?.cancel();
-		this.status = 'idle';
-		this.startedAt = null;
-	}
-
 	cancelTranscribing(): void {
 		if (this.status !== 'transcribing' || !this.inflightAbort) return;
+		// Flip status synchronously so a follow-up startRecording() in the same tick
+		// doesn't bail on the still-transcribing guard before the catch handler runs.
+		this.status = 'idle';
 		this.inflightAbort.abort();
 	}
 

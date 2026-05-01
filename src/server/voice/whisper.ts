@@ -16,9 +16,16 @@ import { VOICE_DIR, VOICE_MODELS_DIR, VOICE_TMP_DIR } from "../../utils/paths.js
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..", "..");
-const WORKER_TS = join(__dirname, "transcribe-worker.ts");
-const WORKER_JS = join(__dirname, "transcribe-worker.js");
-const WORKER_PATH = existsSync(WORKER_TS) ? WORKER_TS : WORKER_JS;
+const WORKER_PATH = (() => {
+	const ts = join(__dirname, "transcribe-worker.ts");
+	const js = join(__dirname, "transcribe-worker.js");
+	if (existsSync(ts)) return ts;
+	if (existsSync(js)) return js;
+	throw new Error(
+		`transcribe-worker not found next to ${__dirname}; ` +
+			`build artifacts may be missing — run \`bun run build:cli\` if needed`
+	);
+})();
 const TRANSCRIPT_DELIM = "---CLAUDE-MUX-TRANSCRIPT---";
 
 export type WhisperModelName =
@@ -145,6 +152,7 @@ interface ActiveWorker {
 
 const activeWorkers = new Set<ActiveWorker>();
 const WORKER_TIMEOUT_MS = 15 * 60 * 1000;
+const KILL_GRACE_MS = 5000;
 const MAX_BUFFER_BYTES = 1 << 20;
 
 function killGroup(pid: number, signal: NodeJS.Signals): void {
@@ -187,7 +195,7 @@ async function runWorker(
 		if (killed || pid === 0) return;
 		killed = true;
 		killGroup(pid, "SIGTERM");
-		setTimeout(() => killGroup(pid, "SIGKILL"), 5000).unref();
+		setTimeout(() => killGroup(pid, "SIGKILL"), KILL_GRACE_MS).unref();
 	};
 
 	const entry: ActiveWorker = { pid, cleanup };
@@ -240,13 +248,19 @@ function shutdownWorkers(): void {
 	activeWorkers.clear();
 }
 
-process.on("SIGINT", shutdownWorkers);
-process.on("SIGTERM", shutdownWorkers);
-process.on("SIGHUP", shutdownWorkers);
+const SHUTDOWN_SIGNALS: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+for (const sig of SHUTDOWN_SIGNALS) process.on(sig, shutdownWorkers);
 process.on("exit", shutdownWorkers);
 
 if (import.meta.hot) {
-	import.meta.hot.dispose(shutdownWorkers);
+	// Dev-only: Vite re-imports this module on hot reload. Without this, each
+	// reload leaves stale signal handlers stacked on `process` (and their old
+	// `activeWorkers` set refs) until process exit.
+	import.meta.hot.dispose(() => {
+		shutdownWorkers();
+		for (const sig of SHUTDOWN_SIGNALS) process.off(sig, shutdownWorkers);
+		process.off("exit", shutdownWorkers);
+	});
 }
 
 function pickExtension(mime: string | undefined): string {
