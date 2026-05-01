@@ -212,6 +212,7 @@
 	});
 
 	async function sendKeys(keys: string) {
+		if (!target) return;
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -220,6 +221,7 @@
 	}
 
 	async function sendText() {
+		if (!target) return;
 		if (!textInput.trim()) {
 			// Empty input: just send Enter key
 			await sendKeys('Enter');
@@ -238,7 +240,7 @@
 	}
 
 	async function sendTextRaw() {
-		if (!textInput) return;
+		if (!target || !textInput) return;
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -249,7 +251,7 @@
 	}
 
 	async function queueText() {
-		if (!textInput.trim()) return;
+		if (!target || !textInput.trim()) return;
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },

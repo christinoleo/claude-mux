@@ -19,12 +19,10 @@
 	const currentSession = $derived(sessionStore.sessionByTarget.get(target));
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
 
-	// Re-fetch queue when count changes
+	// Refetch only when the server-reported count diverges from our local view —
+	// otherwise local DELETE/clear already overwrote `queue` from the response.
 	$effect(() => {
-		// Track queueCount to trigger re-fetch
-		if (queueCount >= 0) {
-			fetchQueue();
-		}
+		if (queueCount !== queue.length) fetchQueue();
 	});
 
 	async function fetchQueue() {
