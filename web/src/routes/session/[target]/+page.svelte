@@ -11,6 +11,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Popover from '$lib/components/ui/popover';
 	import TerminalRenderer from '$lib/components/TerminalRenderer.svelte';
+	import VoiceButton from '$lib/components/VoiceButton.svelte';
 
 	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
 
@@ -655,6 +656,7 @@
 				<iconify-icon icon="mdi:stop"></iconify-icon>
 				<span>Esc</span>
 			</Button>
+			<VoiceButton {target} />
 		</div>
 
 		<form class="input-row" onsubmit={(e) => { e.preventDefault(); if (modArmed) sendModSequence(); else sendText(); }}>
