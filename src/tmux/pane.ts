@@ -5,24 +5,6 @@ import { isInTmux } from "./detect.js";
 const execFileAsync = promisify(execFile);
 
 /**
- * Get the title of a tmux pane.
- * @param target - The tmux target in format "session:window.pane"
- * @returns The pane title, or null if failed
- */
-export function getPaneTitle(target: string): string | null {
-  try {
-    const result = execFileSync("tmux", ["display-message", "-p", "-t", target, "#{pane_title}"], {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 1000,
-    });
-    return result.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Capture the contents of a tmux pane.
  * @param target - The tmux target in format "session:window.pane"
  * @returns The pane contents as a string, or null if capture failed
@@ -39,21 +21,6 @@ export function capturePaneContent(target: string): string | null {
       timeout: 1000,
     });
     return result;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Async version of getPaneTitle. Does not block the event loop.
- */
-export async function getPaneTitleAsync(target: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync("tmux", ["display-message", "-p", "-t", target, "#{pane_title}"], {
-      encoding: "utf-8",
-      timeout: 1000,
-    });
-    return stdout.trim() || null;
   } catch {
     return null;
   }
@@ -100,35 +67,6 @@ export async function capturePaneContentAsync(target: string): Promise<string | 
 }
 
 /**
- * Async version of checkForInterruption. Does not block the event loop.
- */
-export async function checkForInterruptionAsync(tmuxTarget: string): Promise<{ state: 'idle'; current_action: null; prompt_text: null } | null> {
-  const content = await capturePaneContentAsync(tmuxTarget);
-  if (!content) return null;
-
-  const interruption = detectRecentInterruption(content);
-  if (interruption) {
-    return { state: 'idle', current_action: null, prompt_text: null };
-  }
-  return null;
-}
-
-/**
- * Check if the pane content shows Claude is actively working.
- * Looks for interrupt hints which appear when Claude is processing.
- */
-export function isPaneShowingWorking(content: string): boolean {
-  if (!content) return false;
-
-  // These patterns appear when Claude is actively working
-  return (
-    content.includes("Esc to interrupt") ||
-    content.includes("esc to interrupt") ||
-    content.includes("ctrl+c to interrupt")
-  );
-}
-
-/**
  * Check if the pane shows a spinner (e.g. during compaction).
  * Claude Code uses braille spinner characters (U+2800–U+28FF) in the status area.
  * Checks the bottom few lines of the pane where the spinner would appear.
@@ -138,21 +76,6 @@ export function isPaneShowingSpinner(content: string): boolean {
   const bottomLines = content.split('\n').slice(-5).join('');
   // Braille spinner characters: ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ etc. (U+2800-U+28FF)
   return /[\u2800-\u28FF]/.test(bottomLines);
-}
-
-/**
- * Check if the pane content shows Claude is at the prompt (idle).
- * Claude is idle if "Esc to interrupt" is NOT present.
- */
-export function isPaneShowingPrompt(content: string): boolean {
-  if (!content) return false;
-
-  // If "Esc to interrupt" is present, Claude is still working
-  if (isPaneShowingWorking(content)) {
-    return false;
-  }
-
-  return true;
 }
 
 /**

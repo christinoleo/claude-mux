@@ -8,13 +8,10 @@
  * - Backpressure handling for slow clients
  */
 
-import { execFileSync, execFile } from 'child_process';
-import { promisify } from 'util';
+import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
-
-const execFileAsync = promisify(execFile);
 import { getAllSessions, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
-import { checkForInterruptionAsync, getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner } from '../tmux/pane.js';
+import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, detectRecentInterruption } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { sessionWatcher } from './watcher.js';
 import { drainQueues, getQueueCounts } from './message-queue.js';
@@ -144,22 +141,26 @@ function deduplicateByTmuxTarget<T extends { tmux_target: string | null; last_up
 }
 
 /**
- * Async session state sync. Does not block the event loop.
- * Runs all interruption checks concurrently.
+ * Capture each target's pane once per refresh and run all content-derived
+ * checks (interruption, spinner, RC URL) off that single capture instead of
+ * re-spawning `tmux capture-pane` three times per session per tick.
  */
-async function syncSessionStatesAsync(): Promise<void> {
+async function captureAndSyncSessions(): Promise<Map<string, string>> {
 	const sessions = getAllSessions().filter((s) => s.tmux_target);
+	const captures = new Map<string, string>();
 	await Promise.all(
 		sessions.map(async (session) => {
 			if (!session.tmux_target) return;
 			const content = await capturePaneContentAsync(session.tmux_target);
 			if (!content) return;
-			// Check for interruption (busy → idle)
-			if (session.state !== 'idle') {
-				const update = await checkForInterruptionAsync(session.tmux_target);
-				if (update) {
-					updateSession(session.id, update);
-				}
+			captures.set(session.tmux_target, content);
+
+			if (session.state !== 'idle' && detectRecentInterruption(content)) {
+				updateSession(session.id, {
+					state: 'idle',
+					current_action: null,
+					prompt_text: null
+				});
 			}
 			// If hook says idle but pane shows a spinner (e.g. compaction), override to busy
 			if (session.state === 'idle' && isPaneShowingSpinner(content)) {
@@ -167,6 +168,7 @@ async function syncSessionStatesAsync(): Promise<void> {
 			}
 		})
 	);
+	return captures;
 }
 
 /**
@@ -174,9 +176,8 @@ async function syncSessionStatesAsync(): Promise<void> {
  * and concurrent interruption checks to avoid blocking the event loop.
  */
 export async function getEnrichedSessionsAsync(): Promise<(Session & { pane_title: string | null; pane_alive: boolean })[]> {
-	// Run interrupt checks and pane title batch fetch concurrently
-	const [, paneTitles] = await Promise.all([
-		syncSessionStatesAsync(),
+	const [captures, paneTitles] = await Promise.all([
+		captureAndSyncSessions(),
 		getAllPaneTitles()
 	]);
 
@@ -184,22 +185,19 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & { pane_titl
 	const links = readLinks();
 
 	// Scan for Remote Control URLs in pane content (detect new URLs and clear stale ones)
-	await Promise.all(
-		sessions
-			.filter((s) => s.tmux_target)
-			.map(async (s) => {
-				const content = await capturePaneContentAsync(s.tmux_target!);
-				if (!content) return;
-				const rcUrl = detectRemoteControlUrl(content);
-				if (rcUrl && rcUrl !== s.rc_url) {
-					updateSession(s.id, { rc_url: rcUrl });
-					s.rc_url = rcUrl;
-				} else if (!rcUrl && s.rc_url) {
-					updateSession(s.id, { rc_url: null });
-					s.rc_url = null;
-				}
-			})
-	);
+	for (const s of sessions) {
+		if (!s.tmux_target) continue;
+		const content = captures.get(s.tmux_target);
+		if (!content) continue;
+		const rcUrl = detectRemoteControlUrl(content);
+		if (rcUrl && rcUrl !== s.rc_url) {
+			updateSession(s.id, { rc_url: rcUrl });
+			s.rc_url = rcUrl;
+		} else if (!rcUrl && s.rc_url) {
+			updateSession(s.id, { rc_url: null });
+			s.rc_url = null;
+		}
+	}
 
 	const enrichedSessions = sessions.map((s) => {
 		const paneTitle = s.tmux_target ? (paneTitles.get(s.tmux_target) ?? null) : null;
