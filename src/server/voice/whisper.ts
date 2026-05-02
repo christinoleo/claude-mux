@@ -16,16 +16,34 @@ import { VOICE_DIR, VOICE_MODELS_DIR, VOICE_TMP_DIR } from "../../utils/paths.js
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..", "..");
-const WORKER_PATH = (() => {
-	const ts = join(__dirname, "transcribe-worker.ts");
-	const js = join(__dirname, "transcribe-worker.js");
-	if (existsSync(ts)) return ts;
-	if (existsSync(js)) return js;
+
+// Resolved lazily: when this module is bundled into SvelteKit's server output,
+// `__dirname` no longer sits next to the worker file. Falling back to the CLI
+// entry's directory covers both `bun src/cli.ts` (dev) and `bun dist/cli.js` (prod).
+let workerPath: string | null = null;
+function resolveWorkerPath(): string {
+	if (workerPath) return workerPath;
+	const candidates: string[] = [
+		join(__dirname, "transcribe-worker.ts"),
+		join(__dirname, "transcribe-worker.js")
+	];
+	const entry = process.argv[1];
+	if (entry) {
+		const entryDir = dirname(entry);
+		candidates.push(join(entryDir, "server/voice/transcribe-worker.js"));
+		candidates.push(join(entryDir, "server/voice/transcribe-worker.ts"));
+	}
+	for (const p of candidates) {
+		if (existsSync(p)) {
+			workerPath = p;
+			return p;
+		}
+	}
 	throw new Error(
-		`transcribe-worker not found next to ${__dirname}; ` +
+		`transcribe-worker not found (looked in ${candidates.join(", ")}); ` +
 			`build artifacts may be missing — run \`bun run build:cli\` if needed`
 	);
-})();
+}
 const TRANSCRIPT_DELIM = "---CLAUDE-MUX-TRANSCRIPT---";
 
 export type WhisperModelName =
@@ -177,7 +195,7 @@ async function runWorker(
 
 	const proc = spawn(
 		"bun",
-		[WORKER_PATH, audioPath, model, language, VOICE_MODELS_DIR, CUDA_AVAILABLE ? "1" : "0"],
+		[resolveWorkerPath(), audioPath, model, language, VOICE_MODELS_DIR, CUDA_AVAILABLE ? "1" : "0"],
 		{
 			cwd: PROJECT_ROOT,
 			stdio: ["ignore", "pipe", "pipe"],

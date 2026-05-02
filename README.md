@@ -52,6 +52,7 @@
 - **Project grouping** &mdash; sessions organized by working directory with color-coded borders
 - **ANSI terminal rendering** &mdash; real tmux colors via [ansi_up](https://github.com/drudru/ansi_up), toggleable
 - **Session control** &mdash; send text, keys (Up/Down/Tab/Esc/Ctrl-C), Yes/No/Always quick buttons
+- **Voice input** &mdash; local Whisper transcription (CPU or CUDA, auto-detected). Trigger with `F2`, `Pause`, or `Ctrl+\`` while the input is focused; press `Enter` to stop and submit, `Esc` or the `×` overlay to discard. Long-press the mic button for language, microphone, and auto-submit settings
 - **Orchestrator pairing** &mdash; main + orchestrator sessions grouped together with role labels
 - **Remote Control** &mdash; auto-detects Claude's `/rc` and opens it in a new window
 - **Mobile-first** &mdash; touch toolbar, hamburger sidebar, swipe gestures
@@ -138,6 +139,8 @@ Claude Code events  ──>  Hook script  ──>  JSON files (~/.claude-mux/ses
 
 **Status not updating** &mdash; Verify hooks: `grep claude-mux ~/.claude/settings.json`
 
+**Voice transcription slow on first use** &mdash; The first invocation builds whisper.cpp and downloads a Whisper model into `~/.claude-mux/voice/`. Subsequent runs reuse the cache. CUDA is used automatically if `nvidia-smi` and `nvcc` are present.
+
 ---
 
 ## Requirements
@@ -145,6 +148,7 @@ Claude Code events  ──>  Hook script  ──>  JSON files (~/.claude-mux/ses
 - [Bun](https://bun.sh) >= 1.0
 - tmux
 - Claude Code with hooks support
+- Optional, for voice input: a working C/C++ toolchain (whisper.cpp builds on first use); NVIDIA CUDA toolkit for GPU transcription
 
 ---
 

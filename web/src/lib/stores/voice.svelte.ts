@@ -1,5 +1,10 @@
 import { browser } from '$app/environment';
-import { VoiceRecorder, isVoiceSupported, type RecorderResult } from '$lib/voice/recorder';
+import {
+	VoiceRecorder,
+	isVoiceSupported,
+	voiceUnsupportedReason,
+	type RecorderResult
+} from '$lib/voice/recorder';
 import { createPersisted } from './persisted';
 
 export type VoiceStatus = 'idle' | 'recording' | 'transcribing' | 'error';
@@ -11,25 +16,40 @@ interface PersistedSettings {
 	language: VoiceLanguage;
 	autoSubmit: boolean;
 	deviceId: string | null;
+	gain: number;
+	noiseSuppression: boolean;
 }
 
 const persisted = createPersisted<PersistedSettings>('claude-mux-voice-settings', {
 	language: 'auto',
 	autoSubmit: false,
-	deviceId: null
+	deviceId: null,
+	gain: 1,
+	noiseSuppression: true
 });
 
 class VoiceStore {
 	status = $state<VoiceStatus>('idle');
 	error = $state<string | null>(null);
 	startedAt = $state<number | null>(null);
+	level = $state<{ rms: number; peak: number }>({ rms: 0, peak: 0 });
 
 	private prefs = $state<PersistedSettings>(persisted.load());
 	private recorder: VoiceRecorder | null = null;
 	private inflightAbort: AbortController | null = null;
+	private levelRaf: number | null = null;
 
 	get supported(): boolean {
 		return browser && isVoiceSupported();
+	}
+
+	get unsupportedReason(): string | null {
+		if (!browser) return null;
+		return voiceUnsupportedReason();
+	}
+
+	get isActive(): boolean {
+		return this.status === 'recording' || this.status === 'transcribing';
 	}
 
 	get language(): VoiceLanguage {
@@ -59,6 +79,25 @@ class VoiceStore {
 		persisted.save(this.prefs);
 	}
 
+	get gain(): number {
+		return this.prefs.gain;
+	}
+	set gain(v: number) {
+		const clamped = Math.max(0.1, Math.min(10, v));
+		if (this.prefs.gain === clamped) return;
+		this.prefs.gain = clamped;
+		persisted.save(this.prefs);
+	}
+
+	get noiseSuppression(): boolean {
+		return this.prefs.noiseSuppression;
+	}
+	set noiseSuppression(v: boolean) {
+		if (this.prefs.noiseSuppression === v) return;
+		this.prefs.noiseSuppression = v;
+		persisted.save(this.prefs);
+	}
+
 	async startRecording(): Promise<void> {
 		if (this.status === 'recording' || this.status === 'transcribing') return;
 		if (!this.supported) {
@@ -68,7 +107,10 @@ class VoiceStore {
 
 		try {
 			if (!this.recorder) this.recorder = new VoiceRecorder();
-			const result = await this.recorder.start(this.deviceId);
+			const result = await this.recorder.start(this.deviceId, {
+				gain: this.gain,
+				noiseSuppression: this.noiseSuppression
+			});
 			if (result.fellBackToDefault && this.deviceId !== null) {
 				// Saved device disappeared; clear so the picker reflects reality.
 				this.deviceId = null;
@@ -76,14 +118,38 @@ class VoiceStore {
 			this.status = 'recording';
 			this.error = null;
 			this.startedAt = Date.now();
+			this.startLevelLoop();
 		} catch (err) {
 			this.fail(err instanceof Error ? err.message : 'Microphone access denied');
 		}
 	}
 
-	async stopAndSend(target: string): Promise<string | null> {
+	private startLevelLoop(): void {
+		this.stopLevelLoop();
+		const tick = (): void => {
+			if (this.status !== 'recording' || !this.recorder) {
+				this.levelRaf = null;
+				return;
+			}
+			const lvl = this.recorder.getLevel();
+			if (lvl) this.level = lvl;
+			this.levelRaf = requestAnimationFrame(tick);
+		};
+		this.levelRaf = requestAnimationFrame(tick);
+	}
+
+	private stopLevelLoop(): void {
+		if (this.levelRaf !== null) {
+			cancelAnimationFrame(this.levelRaf);
+			this.levelRaf = null;
+		}
+		this.level = { rms: 0, peak: 0 };
+	}
+
+	async stopAndSend(target: string, submit = this.autoSubmit): Promise<string | null> {
 		if (this.status !== 'recording' || !this.recorder) return null;
 
+		this.stopLevelLoop();
 		let result: RecorderResult;
 		try {
 			result = await this.recorder.stop();
@@ -91,6 +157,9 @@ class VoiceStore {
 			this.fail(err instanceof Error ? err.message : 'Recording failed');
 			return null;
 		}
+
+		// Cancel may have flipped status to idle while we awaited recorder.stop().
+		if (this.status !== 'recording') return null;
 
 		if (result.blob.size === 0 || result.durationMs < MIN_UTTERANCE_MS) {
 			this.status = 'idle';
@@ -101,12 +170,12 @@ class VoiceStore {
 		this.status = 'transcribing';
 		this.startedAt = null;
 
-		const ac = new AbortController();
-		this.inflightAbort = ac;
-
 		const params = new URLSearchParams();
 		if (this.language !== 'auto') params.set('lang', this.language);
-		if (this.autoSubmit) params.set('submit', '1');
+		if (submit) params.set('submit', '1');
+
+		const ac = new AbortController();
+		this.inflightAbort = ac;
 		const qs = params.toString();
 		const url = `/api/sessions/${encodeURIComponent(target)}/voice${qs ? `?${qs}` : ''}`;
 
@@ -145,6 +214,43 @@ class VoiceStore {
 		// doesn't bail on the still-transcribing guard before the catch handler runs.
 		this.status = 'idle';
 		this.inflightAbort.abort();
+	}
+
+	async cancelRecording(): Promise<void> {
+		if (this.status !== 'recording' || !this.recorder) return;
+		this.status = 'idle';
+		this.startedAt = null;
+		this.stopLevelLoop();
+		try {
+			await this.recorder.stop();
+		} catch {
+			// recorder already torn down; nothing to do
+		}
+	}
+
+	async toggle(target: string): Promise<void> {
+		if (!this.supported) return;
+		if (this.status === 'transcribing') {
+			this.cancelTranscribing();
+			return;
+		}
+		if (this.status === 'recording') {
+			await this.stopAndSend(target);
+			return;
+		}
+		await this.startRecording();
+	}
+
+	async cancel(): Promise<void> {
+		if (this.status === 'recording') {
+			await this.cancelRecording();
+		} else if (this.status === 'transcribing') {
+			this.cancelTranscribing();
+		}
+	}
+
+	async stopAndSubmit(target: string): Promise<string | null> {
+		return this.stopAndSend(target, true);
 	}
 
 	private fail(message: string): void {

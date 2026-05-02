@@ -12,6 +12,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import TerminalRenderer from '$lib/components/TerminalRenderer.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
+	import { voiceStore } from '$lib/stores/voice.svelte';
 	import { longPress } from '$lib/actions/longPress';
 	import { clickOutside } from '$lib/actions/clickOutside';
 
@@ -269,6 +270,20 @@
 		queuePopoverOpen = true;
 	}
 
+	async function finishVoiceIfRecording(): Promise<boolean> {
+		if (!target || voiceStore.status !== 'recording') return false;
+		await voiceStore.stopAndSubmit(target);
+		return true;
+	}
+
+	function isVoiceHotkey(e: KeyboardEvent): boolean {
+		if (e.altKey || e.metaKey || e.shiftKey) return false;
+		if (e.code === 'F2' && !e.ctrlKey) return true;
+		if (e.code === 'Pause' && !e.ctrlKey) return true;
+		if (e.code === 'Backquote' && e.ctrlKey) return true;
+		return false;
+	}
+
 	function cycleCtrl() {
 		ctrlCount = (ctrlCount + 1) % 3;
 	}
@@ -295,7 +310,14 @@
 		await sendKeys(tokens.join(' '));
 	}
 
-	function handleKeydown(e: KeyboardEvent) {
+	async function handleKeydown(e: KeyboardEvent) {
+		if (!e.repeat && isVoiceHotkey(e)) {
+			e.preventDefault();
+			ctrlTapCandidate = false;
+			altTapCandidate = false;
+			if (target) await voiceStore.toggle(target);
+			return;
+		}
 		if (e.key === 'Control') {
 			if (!e.repeat) ctrlTapCandidate = true;
 			return;
@@ -311,6 +333,10 @@
 
 		if (e.key === 'Escape') {
 			e.preventDefault();
+			if (voiceStore.isActive) {
+				await voiceStore.cancel();
+				return;
+			}
 			if (modArmed) {
 				ctrlCount = 0;
 				altCount = 0;
@@ -334,6 +360,7 @@
 			queueText();
 		} else if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
+			if (await finishVoiceIfRecording()) return;
 			if (modArmed) {
 				sendModSequence();
 			} else {
@@ -593,7 +620,7 @@
 			<VoiceButton {target} />
 		</div>
 
-		<form class="input-row" onsubmit={(e) => { e.preventDefault(); if (modArmed) sendModSequence(); else sendText(); }}>
+		<form class="input-row" onsubmit={async (e) => { e.preventDefault(); if (await finishVoiceIfRecording()) return; if (modArmed) sendModSequence(); else sendText(); }}>
 			{#if ctrlCount > 0}
 				<button type="button" class="mod-chip" onclick={() => (ctrlCount = 0)} title="Disarm Ctrl">
 					<iconify-icon icon="mdi:apple-keyboard-control"></iconify-icon>
