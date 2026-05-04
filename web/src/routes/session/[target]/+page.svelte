@@ -13,6 +13,7 @@
 	import TerminalRenderer from '$lib/components/TerminalRenderer.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import { voiceStore } from '$lib/stores/voice.svelte';
+	import AskQuestionPanel from '$lib/components/AskQuestionPanel.svelte';
 	import { longPress } from '$lib/actions/longPress';
 	import { clickOutside } from '$lib/actions/clickOutside';
 
@@ -271,8 +272,8 @@
 	}
 
 	async function finishVoiceIfRecording(): Promise<boolean> {
-		if (!target || voiceStore.status !== 'recording') return false;
-		await voiceStore.stopAndSubmit(target);
+		if (voiceStore.status !== 'recording' || !voiceStore.isOwnedBy(target)) return false;
+		await voiceStore.stopAndSubmit();
 		return true;
 	}
 
@@ -315,7 +316,9 @@
 			e.preventDefault();
 			ctrlTapCandidate = false;
 			altTapCandidate = false;
-			if (target) await voiceStore.toggle(target);
+			if (target && (!voiceStore.isActive || voiceStore.isOwnedBy(target))) {
+				await voiceStore.toggle(target);
+			}
 			return;
 		}
 		if (e.key === 'Control') {
@@ -333,7 +336,7 @@
 
 		if (e.key === 'Escape') {
 			e.preventDefault();
-			if (voiceStore.isActive) {
+			if (voiceStore.isOwnedBy(target)) {
 				await voiceStore.cancel();
 				return;
 			}
@@ -533,6 +536,15 @@
 				<pre class="raw-output">{displayOutput}</pre>
 			{/if}
 		</div>
+
+		{#if currentSession?.pending_question && currentSession.tmux_target}
+			{#key currentSession.pending_question.started_at}
+				<AskQuestionPanel
+					question={currentSession.pending_question}
+					target={currentSession.tmux_target}
+				/>
+			{/key}
+		{/if}
 
 		<div class="toolbar">
 			{#if hasSelection}

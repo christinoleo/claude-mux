@@ -13,8 +13,12 @@
 	let { target }: Props = $props();
 
 	const supported = $derived(voiceStore.supported);
-	const status = $derived(voiceStore.status);
-	const errorMsg = $derived(voiceStore.error);
+	// Voice is a single-mic singleton owned by the page that started it; non-owner
+	// pages render as idle so stray clicks/hotkeys/Esc can't hijack it.
+	const isOwner = $derived(voiceStore.isOwnedBy(target));
+	const busyElsewhere = $derived(voiceStore.isActive && !isOwner);
+	const status = $derived(isOwner ? voiceStore.status : 'idle');
+	const errorMsg = $derived(isOwner ? voiceStore.error : null);
 	const variant = $derived(
 		status === 'recording' || status === 'error' ? 'destructive' : 'secondary'
 	);
@@ -60,6 +64,7 @@
 	const transcribingLabel = $derived(isLongTranscribe ? 'Setting up' : 'Working');
 
 	async function toggleVoice(): Promise<void> {
+		if (busyElsewhere) return;
 		if (target) await voiceStore.toggle(target);
 	}
 
@@ -73,7 +78,7 @@
 	}
 
 	function canOpenMenu(): boolean {
-		return status === 'idle' || status === 'error';
+		return !busyElsewhere && (status === 'idle' || status === 'error');
 	}
 
 	function handleContextMenu(e: MouseEvent): void {
@@ -89,6 +94,9 @@
 	}
 
 	const buttonTitle = $derived.by(() => {
+		if (busyElsewhere) {
+			return `Voice ${voiceStore.status} on ${voiceStore.ownerTarget}. Switch to that session to control it.`;
+		}
 		if (errorMsg) return errorMsg;
 		if (status === 'transcribing')
 			return isLongTranscribe
@@ -156,11 +164,14 @@
 			{variant}
 			size="toolbar"
 			class="flex-1 voice-btn {status}"
-			disabled={!target}
+			disabled={!target || busyElsewhere}
 			onclick={() => void toggleVoice()}
 			title={buttonTitle}
 		>
-			{#if status === 'transcribing'}
+			{#if busyElsewhere}
+				<iconify-icon icon="mdi:microphone-off"></iconify-icon>
+				<span>In use</span>
+			{:else if status === 'transcribing'}
 				<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>
 				<span>{transcribingLabel}</span>
 			{:else if status === 'recording'}
@@ -176,7 +187,7 @@
 		</Button>
 	{/if}
 
-	{#if voiceStore.isActive}
+	{#if isOwner && voiceStore.isActive}
 			<button
 				type="button"
 				class="voice-cancel"

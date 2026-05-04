@@ -33,6 +33,7 @@ class VoiceStore {
 	error = $state<string | null>(null);
 	startedAt = $state<number | null>(null);
 	level = $state<{ rms: number; peak: number }>({ rms: 0, peak: 0 });
+	ownerTarget = $state<string | null>(null);
 
 	private prefs = $state<PersistedSettings>(persisted.load());
 	private recorder: VoiceRecorder | null = null;
@@ -50,6 +51,10 @@ class VoiceStore {
 
 	get isActive(): boolean {
 		return this.status === 'recording' || this.status === 'transcribing';
+	}
+
+	isOwnedBy(target: string | null): boolean {
+		return target != null && this.ownerTarget === target;
 	}
 
 	get language(): VoiceLanguage {
@@ -98,10 +103,14 @@ class VoiceStore {
 		persisted.save(this.prefs);
 	}
 
-	async startRecording(): Promise<void> {
+	async startRecording(target: string): Promise<void> {
 		if (this.status === 'recording' || this.status === 'transcribing') return;
 		if (!this.supported) {
 			this.fail('Voice not supported in this browser');
+			return;
+		}
+		if (!target) {
+			this.fail('No target for voice recording');
 			return;
 		}
 
@@ -115,6 +124,7 @@ class VoiceStore {
 				// Saved device disappeared; clear so the picker reflects reality.
 				this.deviceId = null;
 			}
+			this.ownerTarget = target;
 			this.status = 'recording';
 			this.error = null;
 			this.startedAt = Date.now();
@@ -146,8 +156,14 @@ class VoiceStore {
 		this.level = { rms: 0, peak: 0 };
 	}
 
-	async stopAndSend(target: string, submit = this.autoSubmit): Promise<string | null> {
+	async stopAndSend(submit = this.autoSubmit): Promise<string | null> {
 		if (this.status !== 'recording' || !this.recorder) return null;
+		const target = this.ownerTarget;
+		if (!target) {
+			// Should never happen — ownerTarget is set in lockstep with status='recording'.
+			this.fail('Voice owner missing');
+			return null;
+		}
 
 		this.stopLevelLoop();
 		let result: RecorderResult;
@@ -164,6 +180,7 @@ class VoiceStore {
 		if (result.blob.size === 0 || result.durationMs < MIN_UTTERANCE_MS) {
 			this.status = 'idle';
 			this.startedAt = null;
+			this.ownerTarget = null;
 			return null;
 		}
 
@@ -195,6 +212,7 @@ class VoiceStore {
 			const data = (await res.json()) as { text?: string };
 			const text = data.text ?? '';
 			this.status = 'idle';
+			this.ownerTarget = null;
 			return text;
 		} catch (err) {
 			if (ac.signal.aborted) {
@@ -213,6 +231,7 @@ class VoiceStore {
 		// Flip status synchronously so a follow-up startRecording() in the same tick
 		// doesn't bail on the still-transcribing guard before the catch handler runs.
 		this.status = 'idle';
+		this.ownerTarget = null;
 		this.inflightAbort.abort();
 	}
 
@@ -220,6 +239,7 @@ class VoiceStore {
 		if (this.status !== 'recording' || !this.recorder) return;
 		this.status = 'idle';
 		this.startedAt = null;
+		this.ownerTarget = null;
 		this.stopLevelLoop();
 		try {
 			await this.recorder.stop();
@@ -230,15 +250,18 @@ class VoiceStore {
 
 	async toggle(target: string): Promise<void> {
 		if (!this.supported) return;
+		// Cross-target toggles are no-ops: a different page must not steal an
+		// in-flight recording or transcription owned by another session.
+		if (this.isActive && this.ownerTarget !== target) return;
 		if (this.status === 'transcribing') {
 			this.cancelTranscribing();
 			return;
 		}
 		if (this.status === 'recording') {
-			await this.stopAndSend(target);
+			await this.stopAndSend();
 			return;
 		}
-		await this.startRecording();
+		await this.startRecording(target);
 	}
 
 	async cancel(): Promise<void> {
@@ -249,14 +272,15 @@ class VoiceStore {
 		}
 	}
 
-	async stopAndSubmit(target: string): Promise<string | null> {
-		return this.stopAndSend(target, true);
+	async stopAndSubmit(): Promise<string | null> {
+		return this.stopAndSend(true);
 	}
 
 	private fail(message: string): void {
 		this.status = 'error';
 		this.error = message;
 		this.startedAt = null;
+		this.ownerTarget = null;
 	}
 }
 
