@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { browser } from '$app/environment';
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { terminalStore } from '$lib/stores/terminal.svelte';
 	import { sessionStore, stateColor, splitPaneTitle, getSessionDisplayName } from '$lib/stores/sessions.svelte';
 	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
@@ -13,6 +13,8 @@
 	import TerminalRenderer from '$lib/components/TerminalRenderer.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import { voiceStore } from '$lib/stores/voice.svelte';
+	import { draftsStore } from '$lib/stores/drafts.svelte';
+	import { untrack } from 'svelte';
 	import AskQuestionPanel from '$lib/components/AskQuestionPanel.svelte';
 	import { longPress } from '$lib/actions/longPress';
 	import { clickOutside } from '$lib/actions/clickOutside';
@@ -184,6 +186,21 @@
 	});
 
 	onMount(() => tmuxPanesStore.subscribe());
+
+	// Load runs in $effect.pre so it precedes the save effect in the same flush;
+	// otherwise a target switch would persist the previous textInput under the
+	// new target.
+	$effect.pre(() => {
+		const t = target;
+		untrack(() => {
+			textInput = draftsStore.get(t);
+		});
+		void tick().then(autoResize);
+	});
+
+	$effect(() => {
+		draftsStore.set(target, textInput);
+	});
 
 	function handleScroll() {
 		if (!outputElement) return;

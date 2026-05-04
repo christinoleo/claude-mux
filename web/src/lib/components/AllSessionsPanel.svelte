@@ -4,6 +4,7 @@
 	import { page } from '$app/stores';
 	import { sessionStore, stateColor, getProjectColor, groupSessions, splitPaneTitle, getSessionDisplayName, findDeepestProject, type Session } from '$lib/stores/sessions.svelte';
 	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
+	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { AGENTS, AGENT_IDS } from '$shared/agents.js';
 	import type { SessionAgent } from '$shared/db/index.js';
 	import type { TmuxPane } from '$lib/types/tmux';
@@ -291,12 +292,15 @@
 		{@const isActive = session.tmux_target === currentTarget}
 		{@const isDead = session.pane_alive === false}
 		{@const parsed = session.pane_title ? splitPaneTitle(session.pane_title) : null}
+		{@const draft = !isActive && !isDead ? draftsStore.get(session.tmux_target) : ''}
+		{@const hasDraft = draft.length > 0}
 		<a
 			href="/session/{encodeURIComponent(session.tmux_target)}"
 			class="session"
 			class:active={isActive}
 			class:orchestrator={isOrchestrator}
 			class:dead={isDead}
+			class:has-draft={hasDraft}
 			onclick={(e) => handleSessionClick(e, session.tmux_target!)}
 		>
 			<iconify-icon icon={agentMeta.icon} class="row-prefix" style="color: {agentMeta.color};" title={agentMeta.label}></iconify-icon>
@@ -310,9 +314,19 @@
 					{/if}
 					{getSessionDisplayName(session)}
 				</div>
-				<div class="session-status">{isDead ? 'pane closed' : (session.current_action || session.state)}</div>
+				{#if hasDraft}
+					<div class="session-status draft-status" title={draft}>
+						<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
+						<span class="draft-preview">{draftsStore.preview(session.tmux_target)}</span>
+					</div>
+				{:else}
+					<div class="session-status">{isDead ? 'pane closed' : (session.current_action || session.state)}</div>
+				{/if}
 			</div>
 			<div class="session-right">
+				{#if session.pending_question}
+					<span class="question-badge" title="Claude is asking a question">?</span>
+				{/if}
 				{#if session.rc_url}
 					<iconify-icon icon="mdi:cellphone-link" style="color: #27ae60; font-size: 12px;" title="Remote Control active"></iconify-icon>
 				{/if}
@@ -358,12 +372,15 @@
 	{@const isActive = pane.target === currentTarget}
 	{@const detected = detectPaneAgent(pane.command || '')}
 	{@const meta = detected ? AGENTS[detected] : null}
+	{@const draft = !isActive ? draftsStore.get(pane.target) : ''}
+	{@const hasDraft = draft.length > 0}
 	<a
 		href="/session/{encodeURIComponent(pane.target)}"
 		class="session"
 		class:tmux-row={!meta}
 		class:agent-row={!!meta}
 		class:active={isActive}
+		class:has-draft={hasDraft}
 		onclick={(e) => handleSessionClick(e, pane.target)}
 	>
 		<iconify-icon
@@ -375,7 +392,12 @@
 		></iconify-icon>
 		<div class="session-info">
 			<div class="session-name">{pane.target}</div>
-			{#if !compact}
+			{#if hasDraft}
+				<div class="session-status draft-status" title={draft}>
+					<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
+					<span class="draft-preview">{draftsStore.preview(pane.target)}</span>
+				</div>
+			{:else if !compact}
 				<div class="session-status">{meta?.label ?? pane.command}</div>
 			{/if}
 		</div>
@@ -400,10 +422,18 @@
 				<Button
 					variant="secondary"
 					size="icon"
+					onclick={() => location.reload()}
+					title="Refresh page"
+				>
+					<iconify-icon icon="mdi:refresh"></iconify-icon>
+				</Button>
+				<Button
+					variant="secondary"
+					size="icon"
 					onclick={resetLocalStorage}
 					title="Reset local data (projects, preferences, cache)"
 				>
-					<iconify-icon icon="mdi:refresh"></iconify-icon>
+					<iconify-icon icon="mdi:database-refresh"></iconify-icon>
 				</Button>
 			{/if}
 			<Button
@@ -743,11 +773,62 @@
 		line-height: 1.3;
 	}
 
+	.session-status.draft-status {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		color: var(--draft-color);
+		font-style: italic;
+		font-size: 11px;
+	}
+
+	.session-status.draft-status iconify-icon {
+		font-size: 11px;
+		opacity: 0.85;
+		flex-shrink: 0;
+	}
+
+	.draft-preview {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		min-width: 0;
+	}
+
+	.session.has-draft {
+		--draft-color: #e8b35c;
+		box-shadow: inset 2px 0 0 0 color-mix(in oklch, var(--draft-color) 55%, transparent);
+	}
+
+	.session.has-draft:hover {
+		box-shadow: inset 2px 0 0 0 var(--draft-color);
+	}
+
 	.session-right {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		flex-shrink: 0;
+	}
+
+	.question-badge {
+		font-size: 10px;
+		font-weight: 700;
+		color: #fff;
+		background: #e74c3c;
+		border-radius: 50%;
+		width: 16px;
+		height: 16px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		animation: pulse-badge 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulse-badge {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
 	}
 
 	.state-dot {
