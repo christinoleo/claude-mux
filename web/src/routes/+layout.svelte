@@ -4,6 +4,8 @@
 	import { browser } from '$app/environment';
 	import { onMount, onDestroy } from 'svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
+	import { preferences } from '$lib/stores/preferences.svelte';
+	import { acquireWakeLock, releaseWakeLock } from '$lib/wakeLock.svelte';
 	import AllSessionsPanel from '$lib/components/AllSessionsPanel.svelte';
 	import ScreenshotsPanel from '$lib/components/ScreenshotsPanel.svelte';
 	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
@@ -58,6 +60,25 @@
 
 	onDestroy(() => {
 		sessionStore.disconnect();
+		if (browser) void releaseWakeLock();
+	});
+
+	function handleVisibility() {
+		if (document.visibilityState === 'visible' && preferences.keepAwake) {
+			void acquireWakeLock();
+		}
+	}
+
+	$effect(() => {
+		if (!browser) return;
+		if (preferences.keepAwake) void acquireWakeLock();
+		else void releaseWakeLock();
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		document.addEventListener('visibilitychange', handleVisibility);
+		return () => document.removeEventListener('visibilitychange', handleVisibility);
 	});
 
 	// Resize handlers

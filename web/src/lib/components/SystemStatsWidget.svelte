@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { sessionStore } from '$lib/stores/sessions.svelte';
+	import { preferences } from '$lib/stores/preferences.svelte';
+	import { wakeLockSupported } from '$lib/wakeLock.svelte';
 
 	function barColor(percent: number): string {
 		if (percent >= 90) return '#e74c3c';
@@ -13,6 +15,7 @@
 	}
 
 	const stats = $derived(sessionStore.systemStats);
+	const supported = wakeLockSupported();
 </script>
 
 <div class="system-stats">
@@ -38,6 +41,16 @@
 			</div>
 			<span class="stat-value">{stats.swap}%</span>
 		</div>
+	{/if}
+	{#if supported}
+		<label class="awake-row">
+			<input
+				type="checkbox"
+				checked={preferences.keepAwake}
+				onchange={(e) => (preferences.keepAwake = e.currentTarget.checked)}
+			/>
+			<span>Keep screen on</span>
+		</label>
 	{/if}
 </div>
 
@@ -88,5 +101,21 @@
 		text-align: right;
 		flex-shrink: 0;
 		font-variant-numeric: tabular-nums;
+	}
+
+	.awake-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 4px;
+		font-size: 11px;
+		color: hsl(var(--muted-foreground));
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.awake-row input {
+		margin: 0;
+		cursor: pointer;
 	}
 </style>

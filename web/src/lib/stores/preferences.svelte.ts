@@ -2,10 +2,12 @@ import { createPersisted } from './persisted';
 
 interface Preferences {
 	terminalTheming: boolean;
+	keepAwake: boolean;
 }
 
 const persisted = createPersisted<Preferences>('claude-mux-preferences', {
-	terminalTheming: true
+	terminalTheming: true,
+	keepAwake: false
 });
 
 class PreferencesStore {
@@ -18,6 +20,16 @@ class PreferencesStore {
 	set terminalTheming(value: boolean) {
 		if (this.prefs.terminalTheming === value) return;
 		this.prefs.terminalTheming = value;
+		persisted.save(this.prefs);
+	}
+
+	get keepAwake(): boolean {
+		return this.prefs.keepAwake;
+	}
+
+	set keepAwake(value: boolean) {
+		if (this.prefs.keepAwake === value) return;
+		this.prefs.keepAwake = value;
 		persisted.save(this.prefs);
 	}
 
