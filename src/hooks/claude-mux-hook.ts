@@ -56,6 +56,23 @@ interface Screenshot {
   timestamp: number;
 }
 
+interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+interface PendingQuestionItem {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options?: QuestionOption[];
+}
+
+interface PendingQuestion {
+  questions: PendingQuestionItem[];
+  started_at: number;
+}
+
 interface Session {
   v: number;
   id: string;
@@ -71,6 +88,8 @@ interface Session {
   chrome_active?: boolean;
   linked_to?: string | null;
   rc_url?: string | null;
+  display_name?: string | null;
+  pending_question?: PendingQuestion | null;
 }
 
 interface HookInput {
@@ -84,6 +103,17 @@ interface HookInput {
     file_path?: string;
     filePath?: string;
     description?: string;
+    // AskUserQuestion: multi-question form
+    questions?: Array<{
+      question?: string;
+      header?: string;
+      multiSelect?: boolean;
+      options?: Array<{ label: string; description?: string }>;
+    }>;
+    // AskUserQuestion: single-question form
+    question?: string;
+    multiSelect?: boolean;
+    options?: Array<{ label: string; description?: string }>;
   };
 }
 
@@ -430,6 +460,16 @@ function handleUserPromptSubmit(input: HookInput): void {
       setPaneTitle(session.tmux_target, title);
     }
   }
+  // Mirror Claude's `/rename <name>` slash command into display_name
+  if (input.prompt) {
+    const m = input.prompt.match(/^\s*\/rename\s+(.+?)\s*$/);
+    if (m) {
+      const next = m[1].trim().slice(0, 120);
+      session.display_name = next.length > 0 ? next : null;
+    } else if (/^\s*\/rename\s*$/.test(input.prompt)) {
+      session.display_name = null;
+    }
+  }
   session.last_update = Date.now();
   writeSession(session);
 }
@@ -440,6 +480,7 @@ function handleStop(input: HookInput): void {
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "idle";
   session.current_action = null;
+  session.pending_question = null;
   session.last_update = Date.now();
   writeSession(session);
 }
@@ -487,12 +528,18 @@ function handleNotificationElicitation(input: HookInput): void {
 function handlePreToolUse(input: HookInput): void {
   const session = getOrCreateSession(input);
 
+  debugLog(`handlePreToolUse: tool_name=${input.tool_name}, tool_input keys=${input.tool_input ? Object.keys(input.tool_input).join(',') : 'none'}`);
+
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
+  session.last_update = Date.now();
+
+  // AskUserQuestion never fires PreToolUse (Claude Code built-in tool, bypasses hooks).
+  // Detected instead via JSONL file watcher on the server side.
   session.state = "busy";
   session.current_action = input.tool_name
     ? formatToolAction(input.tool_name, input.tool_input)
     : "Working...";
-  session.last_update = Date.now();
+  }
 
   // Capture screenshots from Chrome MCP
   if (input.tool_name?.includes("take_screenshot") && input.tool_input?.filePath) {
@@ -512,6 +559,7 @@ function handlePostToolUse(input: HookInput): void {
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
   session.current_action = null;
+  session.pending_question = null;
   session.last_update = Date.now();
   writeSession(session);
 }
@@ -522,6 +570,7 @@ function handlePostToolUseFailure(input: HookInput): void {
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
   session.current_action = null;
+  session.pending_question = null;
   session.last_update = Date.now();
   writeSession(session);
 }

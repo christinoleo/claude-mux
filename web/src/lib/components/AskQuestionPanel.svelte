@@ -12,6 +12,7 @@
 
 	const q = $derived(question.questions[0]);
 	const hasOptions = $derived((q?.options?.length ?? 0) > 0);
+	const isMulti = $derived(q?.multiSelect === true);
 
 	let collapsed = $state(false);
 	let hidden = $state(false);
@@ -87,7 +88,7 @@
 	}
 </script>
 
-{#if !hidden}
+{#if !hidden && !isMulti}
 <div class="ask-panel" class:collapsed>
 	<div class="ask-header" role="button" tabindex="0"
 		onclick={() => (collapsed = !collapsed)}

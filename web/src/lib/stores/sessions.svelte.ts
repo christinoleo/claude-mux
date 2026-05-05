@@ -10,6 +10,23 @@ export interface Screenshot {
 	timestamp: number;
 }
 
+export interface QuestionOption {
+	label: string;
+	description?: string;
+}
+
+export interface PendingQuestionItem {
+	question: string;
+	header?: string;
+	multiSelect?: boolean;
+	options?: QuestionOption[];
+}
+
+export interface PendingQuestion {
+	questions: PendingQuestionItem[];
+	started_at: number;
+}
+
 export type SystemStats = Omit<SystemStatsMessage, 'type' | 'timestamp'>;
 
 export interface Session {
@@ -32,6 +49,7 @@ export interface Session {
 	queue_count?: number;
 	display_name?: string | null;
 	agent?: SessionAgent;
+	pending_question?: PendingQuestion | null;
 }
 
 /** Fields that change frequently and should trigger a session object replacement */
@@ -52,6 +70,11 @@ function sessionChanged(a: Session, b: Session): boolean {
 	if (aShots && bShots && aShots.length > 0) {
 		if (aShots[aShots.length - 1].timestamp !== bShots[bShots.length - 1].timestamp) return true;
 	}
+	// pending_question: compare by presence + started_at
+	const aPQ = a.pending_question;
+	const bPQ = b.pending_question;
+	if ((aPQ == null) !== (bPQ == null)) return true;
+	if (aPQ && bPQ && aPQ.started_at !== bPQ.started_at) return true;
 	return false;
 }
 

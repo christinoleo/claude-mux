@@ -22,7 +22,7 @@ async function confirm(question: string): Promise<boolean> {
   return answer === "y" || answer === "yes";
 }
 
-export async function runSetup(): Promise<void> {
+export async function runSetup(opts: { yes?: boolean } = {}): Promise<void> {
   console.log("\n claude-mux Setup\n");
 
   // Step 1: Create data directories
@@ -47,8 +47,8 @@ export async function runSetup(): Promise<void> {
   console.log(diff);
   console.log("");
 
-  const confirmHooks = await confirm("Apply these changes to Claude settings?");
-  if (confirmHooks) {
+  const apply = opts.yes || await confirm("Apply these changes to Claude settings?");
+  if (apply) {
     saveClaudeSettings(newSettings);
     console.log("  Hooks installed successfully");
   } else {

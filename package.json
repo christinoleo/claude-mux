@@ -24,7 +24,7 @@
     "dev": "tsc -p tsconfig.cli.json --watch",
     "dev:serve": "while true; do (cd web && bun run dev --host 0.0.0.0 --port 3434); echo 'Dev server crashed, restarting in 2s...'; sleep 2; done",
     "start": "bun dist/cli.js",
-    "prod:restart": "bun run build && (lsof -ti:3456 | xargs -r kill 2>/dev/null; sleep 1; nohup bun dist/cli.js serve --port 3456 --host 127.0.0.1 >/tmp/claude-mux-prod.log 2>&1 & disown); echo 'Prod server restarted on 127.0.0.1:3456 (logs: /tmp/claude-mux-prod.log)'",
+    "prod:restart": "bun run build && bun dist/cli.js setup --yes && (pkill -f '^bun dist/cli\\.js serve --port 3456' 2>/dev/null; lsof -ti:3456 | xargs -r kill -9 2>/dev/null; sleep 1; pgrep -af '^bun dist/cli\\.js serve --port 3456' && (echo 'ERROR: stale serve still alive, aborting' >&2; exit 1); nohup bun dist/cli.js serve --port 3456 --host 127.0.0.1 >/tmp/claude-mux-prod.log 2>&1 & disown); echo 'Prod server restarted on 127.0.0.1:3456 (logs: /tmp/claude-mux-prod.log)'",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
