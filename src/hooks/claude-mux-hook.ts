@@ -103,17 +103,6 @@ interface HookInput {
     file_path?: string;
     filePath?: string;
     description?: string;
-    // AskUserQuestion: multi-question form
-    questions?: Array<{
-      question?: string;
-      header?: string;
-      multiSelect?: boolean;
-      options?: Array<{ label: string; description?: string }>;
-    }>;
-    // AskUserQuestion: single-question form
-    question?: string;
-    multiSelect?: boolean;
-    options?: Array<{ label: string; description?: string }>;
   };
 }
 
@@ -528,20 +517,13 @@ function handleNotificationElicitation(input: HookInput): void {
 function handlePreToolUse(input: HookInput): void {
   const session = getOrCreateSession(input);
 
-  debugLog(`handlePreToolUse: tool_name=${input.tool_name}, tool_input keys=${input.tool_input ? Object.keys(input.tool_input).join(',') : 'none'}`);
-
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.last_update = Date.now();
-
-  // AskUserQuestion never fires PreToolUse (Claude Code built-in tool, bypasses hooks).
-  // Detected instead via JSONL file watcher on the server side.
   session.state = "busy";
   session.current_action = input.tool_name
     ? formatToolAction(input.tool_name, input.tool_input)
     : "Working...";
-  }
 
-  // Capture screenshots from Chrome MCP
   if (input.tool_name?.includes("take_screenshot") && input.tool_input?.filePath) {
     session.screenshots = session.screenshots || [];
     session.screenshots.push({
