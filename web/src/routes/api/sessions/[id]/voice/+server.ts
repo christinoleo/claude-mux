@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { sendTextToPane } from '$shared/server/message-queue.js';
-import { transcribeAudio } from '$shared/server/voice/index.js';
+import { transcribeAudio } from '$lib/server/voice/index.js';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 

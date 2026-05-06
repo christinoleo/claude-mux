@@ -1,3 +1,5 @@
+import { env } from "$env/dynamic/private";
+
 const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
 
 export type WhisperModelName =
@@ -18,7 +20,7 @@ export async function transcribeAudio(
 	audio: Buffer,
 	opts: TranscribeOptions = {}
 ): Promise<string> {
-	const apiKey = process.env.GROQ_API_KEY;
+	const apiKey = env.GROQ_API_KEY;
 	if (!apiKey) {
 		throw new Error(
 			"GROQ_API_KEY not set. Get a key at https://console.groq.com/keys and export GROQ_API_KEY=..."
