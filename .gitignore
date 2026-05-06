@@ -18,3 +18,9 @@ bun.lock
 
 # BMAD working directory
 _bmad/
+
+# Local env files (keep .env.example committed)
+.env
+.env.local
+web/.env
+web/.env.local

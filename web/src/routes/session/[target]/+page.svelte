@@ -20,6 +20,7 @@
 	import { clickOutside } from '$lib/actions/clickOutside';
 
 	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
+	const voiceEnabled = $derived(Boolean($page.data.voiceEnabled));
 
 	// Find session state from session store (O(1) Map lookup)
 	const currentSession = $derived(
@@ -289,12 +290,14 @@
 	}
 
 	async function finishVoiceIfRecording(): Promise<boolean> {
+		if (!voiceEnabled) return false;
 		if (voiceStore.status !== 'recording' || !voiceStore.isOwnedBy(target)) return false;
 		await voiceStore.stopAndSubmit();
 		return true;
 	}
 
 	function isVoiceHotkey(e: KeyboardEvent): boolean {
+		if (!voiceEnabled) return false;
 		if (e.altKey || e.metaKey || e.shiftKey) return false;
 		if (e.code === 'F2' && !e.ctrlKey) return true;
 		if (e.code === 'Pause' && !e.ctrlKey) return true;
@@ -646,7 +649,9 @@
 				<iconify-icon icon="mdi:stop"></iconify-icon>
 				<span>Esc</span>
 			</Button>
-			<VoiceButton {target} />
+			{#if voiceEnabled}
+				<VoiceButton {target} />
+			{/if}
 		</div>
 
 		<form class="input-row" onsubmit={async (e) => { e.preventDefault(); if (await finishVoiceIfRecording()) return; if (modArmed) sendModSequence(); else sendText(); }}>

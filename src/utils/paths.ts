@@ -6,10 +6,6 @@ export const LEGACY_CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
 export const CLAUDE_MUX_DIR = join(homedir(), ".claude-mux");
 export const SESSIONS_DIR = join(CLAUDE_MUX_DIR, "sessions");
 export const CONFIG_PATH = join(CLAUDE_MUX_DIR, "config.json");
-export const VOICE_DIR = join(CLAUDE_MUX_DIR, "voice");
-export const VOICE_MODELS_DIR = join(VOICE_DIR, "models");
-export const VOICE_TMP_DIR = join(VOICE_DIR, "tmp");
-
 export const CLAUDE_DIR = join(homedir(), ".claude");
 export const CLAUDE_SETTINGS_PATH = join(CLAUDE_DIR, "settings.json");
 
