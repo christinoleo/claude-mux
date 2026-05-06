@@ -56,23 +56,6 @@ interface Screenshot {
   timestamp: number;
 }
 
-interface QuestionOption {
-  label: string;
-  description?: string;
-}
-
-interface PendingQuestionItem {
-  question: string;
-  header?: string;
-  multiSelect?: boolean;
-  options?: QuestionOption[];
-}
-
-interface PendingQuestion {
-  questions: PendingQuestionItem[];
-  started_at: number;
-}
-
 interface Session {
   v: number;
   id: string;
@@ -89,7 +72,6 @@ interface Session {
   linked_to?: string | null;
   rc_url?: string | null;
   display_name?: string | null;
-  pending_question?: PendingQuestion | null;
 }
 
 interface HookInput {
@@ -469,7 +451,6 @@ function handleStop(input: HookInput): void {
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "idle";
   session.current_action = null;
-  session.pending_question = null;
   session.last_update = Date.now();
   writeSession(session);
 }
@@ -541,7 +522,6 @@ function handlePostToolUse(input: HookInput): void {
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
   session.current_action = null;
-  session.pending_question = null;
   session.last_update = Date.now();
   writeSession(session);
 }
@@ -552,7 +532,6 @@ function handlePostToolUseFailure(input: HookInput): void {
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
   session.current_action = null;
-  session.pending_question = null;
   session.last_update = Date.now();
   writeSession(session);
 }

@@ -15,7 +15,6 @@
 	import { voiceStore } from '$lib/stores/voice.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { untrack } from 'svelte';
-	import AskQuestionPanel from '$lib/components/AskQuestionPanel.svelte';
 	import { longPress } from '$lib/actions/longPress';
 	import { clickOutside } from '$lib/actions/clickOutside';
 
@@ -556,15 +555,6 @@
 				<pre class="raw-output">{displayOutput}</pre>
 			{/if}
 		</div>
-
-		{#if currentSession?.pending_question && currentSession.tmux_target}
-			{#key currentSession.pending_question.started_at}
-				<AskQuestionPanel
-					question={currentSession.pending_question}
-					target={currentSession.tmux_target}
-				/>
-			{/key}
-		{/if}
 
 		<div class="toolbar">
 			{#if hasSelection}

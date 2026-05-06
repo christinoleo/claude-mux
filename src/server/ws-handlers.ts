@@ -14,7 +14,6 @@ import { getAllSessions, updateSession, readLinks, cleanupStaleSessions, type Se
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, detectRecentInterruption } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { sessionWatcher } from './watcher.js';
-import { jsonlWatcher } from './jsonl-watcher.js';
 import { drainQueues, getQueueCounts } from './message-queue.js';
 import type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 
@@ -371,7 +370,6 @@ export class SessionsWsManager {
 		if (this.clients.size === 1 && !this.unsubscribe) {
 			console.log('[ws:sessions] First client, subscribing to watcher');
 			this.unsubscribe = sessionWatcher.subscribe(() => this.refreshAndBroadcast());
-			jsonlWatcher.start();
 			// Start interrupt check timer - runs independently of file changes
 			// to catch interruptions triggered by web UI (Escape key).
 			// Uses async getEnrichedSessionsAsync to avoid blocking the event loop.
@@ -419,7 +417,6 @@ export class SessionsWsManager {
 			this.unsubscribe();
 			this.unsubscribe = null;
 			this.lastHash = '';
-			jsonlWatcher.stop();
 			// Stop interrupt check timer
 			if (this.interruptCheckTimer) {
 				clearInterval(this.interruptCheckTimer);

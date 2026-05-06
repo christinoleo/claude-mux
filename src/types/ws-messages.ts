@@ -20,23 +20,6 @@ const ScreenshotSchema = z.object({
 	timestamp: z.number()
 });
 
-const QuestionOptionSchema = z.object({
-	label: z.string(),
-	description: z.string().optional()
-});
-
-const PendingQuestionItemSchema = z.object({
-	question: z.string(),
-	header: z.string().optional(),
-	multiSelect: z.boolean().optional(),
-	options: z.array(QuestionOptionSchema).optional()
-});
-
-const PendingQuestionSchema = z.object({
-	questions: z.array(PendingQuestionItemSchema),
-	started_at: z.number()
-});
-
 const EnrichedSessionSchema = z.object({
 	v: z.number(),
 	id: z.string(),
@@ -56,8 +39,7 @@ const EnrichedSessionSchema = z.object({
 	pane_title: z.string().nullable(),
 	pane_alive: z.boolean(),
 	queue_count: z.number().optional(),
-	agent: z.enum(AGENT_IDS).optional(),
-	pending_question: PendingQuestionSchema.nullable().optional()
+	agent: z.enum(AGENT_IDS).optional()
 });
 
 // ============================================================================

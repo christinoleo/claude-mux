@@ -324,9 +324,6 @@
 				{/if}
 			</div>
 			<div class="session-right">
-				{#if session.pending_question}
-					<span class="question-badge" title="Claude is asking a question">?</span>
-				{/if}
 				{#if session.rc_url}
 					<iconify-icon icon="mdi:cellphone-link" style="color: #27ae60; font-size: 12px;" title="Remote Control active"></iconify-icon>
 				{/if}
@@ -809,26 +806,6 @@
 		align-items: center;
 		gap: 6px;
 		flex-shrink: 0;
-	}
-
-	.question-badge {
-		font-size: 10px;
-		font-weight: 700;
-		color: #fff;
-		background: #e74c3c;
-		border-radius: 50%;
-		width: 16px;
-		height: 16px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-shrink: 0;
-		animation: pulse-badge 1.5s ease-in-out infinite;
-	}
-
-	@keyframes pulse-badge {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.5; }
 	}
 
 	.state-dot {

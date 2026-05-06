@@ -47,23 +47,6 @@ export interface Screenshot {
   timestamp: number;
 }
 
-export interface QuestionOption {
-  label: string;
-  description?: string;
-}
-
-export interface PendingQuestionItem {
-  question: string;
-  header?: string;
-  multiSelect?: boolean;
-  options?: QuestionOption[];
-}
-
-export interface PendingQuestion {
-  questions: PendingQuestionItem[];
-  started_at: number;
-}
-
 export interface Session {
   v: number;
   id: string;
@@ -81,7 +64,6 @@ export interface Session {
   rc_url?: string | null;
   display_name?: string | null;
   agent?: SessionAgent;
-  pending_question?: PendingQuestion | null;
 }
 
 export interface SessionInput {
@@ -104,7 +86,6 @@ export interface SessionUpdate {
   prompt_text?: string | null;
   rc_url?: string | null;
   display_name?: string | null;
-  pending_question?: PendingQuestion | null;
 }
 
 /**
@@ -197,9 +178,6 @@ export function updateSession(id: string, update: SessionUpdate): void {
   if (update.display_name !== undefined) {
     const trimmed = update.display_name?.trim();
     session.display_name = trimmed ? trimmed.slice(0, 120) : null;
-  }
-  if (update.pending_question !== undefined) {
-    session.pending_question = update.pending_question;
   }
   session.last_update = Date.now();
 
