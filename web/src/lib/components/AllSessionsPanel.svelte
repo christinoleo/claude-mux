@@ -80,6 +80,16 @@
 		return groups;
 	});
 
+	const recencyRanks = $derived.by(() => {
+		const ranks = new Map<string, number>();
+		for (const sessions of sessionsByProject.values()) {
+			if (sessions.length < 2) continue;
+			const sorted = [...sessions].sort((a, b) => (b.last_update ?? 0) - (a.last_update ?? 0));
+			sorted.forEach((s, i) => ranks.set(s.id, i + 1));
+		}
+		return ranks;
+	});
+
 	// Get all projects (from sessions + saved)
 	const allProjects = $derived.by(() => {
 		const projects = new Set<string>();
@@ -286,8 +296,13 @@
 	}
 </script>
 
+{#snippet rankBadge(rank: number | undefined)}
+	{#if rank !== undefined}<span class="rank" class:rank-top={rank === 1}>{rank}</span>{/if}
+{/snippet}
+
 {#snippet sessionCard(session: Session, isOrchestrator: boolean, subfolder: string | null)}
 	{@const agentMeta = AGENTS[session.agent ?? 'claude']}
+	{@const rank = !isOrchestrator ? recencyRanks.get(session.id) : undefined}
 	{#if session.tmux_target}
 		{@const isActive = session.tmux_target === currentTarget}
 		{@const isDead = session.pane_alive === false}
@@ -316,11 +331,15 @@
 				</div>
 				{#if hasDraft}
 					<div class="session-status draft-status" title={draft}>
+						{@render rankBadge(rank)}
 						<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
 						<span class="draft-preview">{draftsStore.preview(session.tmux_target)}</span>
 					</div>
 				{:else}
-					<div class="session-status">{isDead ? 'pane closed' : (session.current_action || session.state)}</div>
+					<div class="session-status">
+						{@render rankBadge(rank)}
+						{isDead ? 'pane closed' : (session.current_action || session.state)}
+					</div>
 				{/if}
 			</div>
 			<div class="session-right">
@@ -813,6 +832,36 @@
 		height: 8px;
 		border-radius: 50%;
 		flex-shrink: 0;
+	}
+
+	.rank {
+		display: inline-block;
+		font-size: 10px;
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		color: #8a8a8a;
+		letter-spacing: 0.02em;
+		flex-shrink: 0;
+		margin-right: 4px;
+	}
+
+	.rank.rank-top {
+		color: #b8e0c2;
+	}
+
+	.rank::after {
+		content: '·';
+		color: #555;
+		margin-left: 4px;
+		font-weight: 400;
+	}
+
+	.session.active .rank {
+		color: #c8c8c8;
+	}
+
+	.session.active .rank.rank-top {
+		color: #d4f0dc;
 	}
 
 	.state-symbol {
