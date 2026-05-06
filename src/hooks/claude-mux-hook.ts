@@ -78,6 +78,9 @@ interface HookInput {
   session_id: string;
   cwd: string;
   hook_event_name?: string;
+  // SessionStart payload: why the session is starting.
+  // "compact"/"resume" share session_id with prior state; we must preserve user-meaningful fields.
+  source?: "startup" | "resume" | "clear" | "compact";
   prompt?: string;
   tool_name?: string;
   tool_input?: {
@@ -335,6 +338,12 @@ async function readStdin(): Promise<HookInput> {
 function handleSessionStart(input: HookInput): void {
   const tmuxTarget = getTmuxTarget();
   const pid = getClaudePid();
+  const existing = readSession(input.session_id);
+  const source = input.source ?? "startup";
+  // compact/resume keep the same session_id and continue prior work — preserve user-meaningful state.
+  // clear wipes context but session identity remains, so keep display_name only.
+  const preserveAll = source === "compact" || source === "resume";
+  const preserveName = preserveAll || source === "clear";
 
   // Clean up any stale sessions with the same tmux_target before creating new one
   // Preserve linked_to from pre-registered sessions (set by new-session --linked-to)
@@ -350,6 +359,7 @@ function handleSessionStart(input: HookInput): void {
   const gitRoot = getGitRoot(input.cwd);
 
   const session: Session = {
+    ...(preserveAll && existing ? existing : {}),
     v: SCHEMA_VERSION,
     id: input.session_id,
     pid,
@@ -358,9 +368,10 @@ function handleSessionStart(input: HookInput): void {
     tmux_target: tmuxTarget,
     state: "idle",
     current_action: null,
-    prompt_text: null,
+    prompt_text: preserveAll ? (existing?.prompt_text ?? null) : null,
+    display_name: preserveName ? (existing?.display_name ?? null) : null,
     last_update: Date.now(),
-    linked_to: linkedTo,
+    linked_to: linkedTo ?? existing?.linked_to ?? null,
   };
   writeSession(session);
 }
