@@ -269,6 +269,11 @@
 		if (textareaElement) textareaElement.style.height = 'auto';
 	}
 
+	async function acceptSuggestion() {
+		queuePopoverOpen = false;
+		await sendKeys('Tab Enter');
+	}
+
 	async function queueText() {
 		if (!target || !textInput.trim()) return;
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
@@ -375,6 +380,11 @@
 		if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && textInput === '' && !modArmed) {
 			e.preventDefault();
 			sendKeys(e.key === 'ArrowUp' ? 'Up' : 'Down');
+			return;
+		}
+		if (e.key === 'Tab' && textInput === '' && !modArmed && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+			e.preventDefault();
+			sendKeys('Tab');
 			return;
 		}
 		if (e.key === 'Enter' && e.ctrlKey && e.shiftKey) {
@@ -691,6 +701,10 @@
 						<Button variant="secondary" size="toolbar" class="min-w-[140px] min-h-[40px] justify-start gap-2" onclick={sendTextRaw}>
 							<iconify-icon icon="mdi:send-variant-outline"></iconify-icon>
 							<span>Send without Enter</span>
+						</Button>
+						<Button variant="secondary" size="toolbar" class="min-w-[140px] min-h-[40px] justify-start gap-2" onclick={acceptSuggestion}>
+							<iconify-icon icon="mdi:keyboard-tab"></iconify-icon>
+							<span>Accept suggestion</span>
 						</Button>
 					</div>
 				{/if}
