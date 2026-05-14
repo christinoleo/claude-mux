@@ -553,15 +553,23 @@
 						<span>Refresh</span>
 					</Button>
 				</div>
-				<div class="header-actions-mobile">
-					<Popover.Root bind:open={headerOverflowOpen}>
-						<Popover.Trigger
-							class="inline-flex items-center justify-center w-9 h-9 rounded-md bg-[#222] text-stone-100 hover:bg-[#333] cursor-pointer"
-							aria-label="More actions"
-						>
-							<iconify-icon icon="mdi:dots-vertical" style="font-size: 20px;"></iconify-icon>
-						</Popover.Trigger>
-						<Popover.Content side="bottom" align="end" class="w-44 p-1 bg-[#1a1a1a] border-[#333]">
+			{/if}
+			<div class="header-actions-desktop">
+				<Button variant="ghost-destructive" size="toolbar" class="kill-btn" onclick={() => (showConfirmKill = true)} title="Kill Session">
+					<iconify-icon icon="mdi:power"></iconify-icon>
+					<span class="kill-label">Kill</span>
+				</Button>
+			</div>
+			<div class="header-actions-mobile">
+				<Popover.Root bind:open={headerOverflowOpen}>
+					<Popover.Trigger
+						class="inline-flex items-center justify-center w-9 h-9 rounded-md bg-[#222] text-stone-100 hover:bg-[#333] cursor-pointer"
+						aria-label="More actions"
+					>
+						<iconify-icon icon="mdi:dots-vertical" style="font-size: 20px;"></iconify-icon>
+					</Popover.Trigger>
+					<Popover.Content side="bottom" align="end" class="w-44 p-1 bg-[#1a1a1a] border-[#333]">
+						{#if isAlive}
 							<button class="overflow-item" onclick={() => { copyTmuxCmd(); headerOverflowOpen = false; }}>
 								<iconify-icon icon={showCopied ? 'mdi:check' : 'mdi:content-copy'}></iconify-icon>
 								<span>{showCopied ? 'Copied!' : 'Copy tmux cmd'}</span>
@@ -574,14 +582,15 @@
 								<iconify-icon icon="mdi:refresh"></iconify-icon>
 								<span>Refresh page</span>
 							</button>
-						</Popover.Content>
-					</Popover.Root>
-				</div>
-			{/if}
-			<Button variant="ghost-destructive" size="toolbar" class="kill-btn" onclick={() => (showConfirmKill = true)} title="Kill Session">
-				<iconify-icon icon="mdi:power"></iconify-icon>
-				<span class="kill-label">Kill</span>
-			</Button>
+							<div class="overflow-sep"></div>
+						{/if}
+						<button class="overflow-item overflow-item-destructive" onclick={() => { showConfirmKill = true; headerOverflowOpen = false; }}>
+							<iconify-icon icon="mdi:power"></iconify-icon>
+							<span>Kill session</span>
+						</button>
+					</Popover.Content>
+				</Popover.Root>
+			</div>
 		</div>
 	</header>
 
@@ -868,6 +877,17 @@
 	.overflow-item :global(iconify-icon) {
 		font-size: 16px;
 		opacity: 0.8;
+	}
+	.overflow-item-destructive {
+		color: #e76060;
+	}
+	.overflow-item-destructive:hover {
+		background: rgba(231, 96, 96, 0.12);
+	}
+	.overflow-sep {
+		height: 1px;
+		background: #2a2a2a;
+		margin: 4px 2px;
 	}
 
 	.title-row {
