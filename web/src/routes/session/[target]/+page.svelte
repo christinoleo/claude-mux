@@ -41,10 +41,13 @@
 	const stateDotColor = $derived(
 		paneIsDead ? '#555' : isPlainPane ? '#888' : stateColor(currentSession?.state || 'idle')
 	);
+	// Inline status next to the title. Skip bare states (idle/busy/etc.)
+	// since the state symbol + color already convey them; only show when
+	// there's information the symbol can't carry.
 	const statusText = $derived.by(() => {
 		if (paneIsDead) return 'pane closed';
-		if (isPlainPane) return tmuxPane?.command || 'shell';
-		return currentSession?.current_action || currentSession?.state || 'idle';
+		if (isPlainPane) return tmuxPane?.command || null;
+		return currentSession?.current_action || null;
 	});
 	const parsedTitle = $derived(currentSession?.pane_title ? splitPaneTitle(currentSession.pane_title) : null);
 
@@ -571,7 +574,7 @@
 						<iconify-icon icon="mdi:pencil"></iconify-icon>
 					{/if}
 				</button>
-				<span class="status">{statusText}</span>
+				{#if statusText}<span class="status">· {statusText}</span>{/if}
 			</div>
 		</div>
 		<div class="header-actions">
@@ -850,7 +853,7 @@
 		margin-left: 4px;
 	}
 	.header.compact .status {
-		display: none;
+		font-size: 11px;
 	}
 	.header.compact .state-symbol {
 		font-size: 13px;
@@ -943,9 +946,12 @@
 
 	.title-info {
 		display: flex;
-		flex-direction: column;
+		flex-direction: row;
+		align-items: baseline;
+		gap: 6px;
 		min-width: 0;
 		flex: 1;
+		overflow: hidden;
 	}
 
 	.target-btn {
@@ -1002,6 +1008,8 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		min-width: 0;
+		flex-shrink: 1;
 	}
 
 	.header-actions {
