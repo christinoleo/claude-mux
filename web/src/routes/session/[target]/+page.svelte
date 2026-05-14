@@ -214,19 +214,22 @@
 	}
 
 	$effect(() => {
-		if (!headerEl || !nameTextEl) return;
+		if (!headerEl) return;
 		const ro = new ResizeObserver(measureHeader);
-		// Observe both: headerEl catches viewport/sidebar changes, nameTextEl
-		// catches font load and sibling additions (e.g. status appearing)
-		// that change the title's available room without resizing the header.
 		ro.observe(headerEl);
-		ro.observe(nameTextEl);
 		measureHeader();
-		// Fonts swap async; measure again once the real font is ready.
+		// Font swap fires no ResizeObserver tick on header; remeasure once
+		// the real font is ready. Bail out if the component unmounted first.
+		let cancelled = false;
 		if (browser && document.fonts?.ready) {
-			document.fonts.ready.then(measureHeader);
+			document.fonts.ready.then(() => {
+				if (!cancelled) measureHeader();
+			});
 		}
-		return () => ro.disconnect();
+		return () => {
+			cancelled = true;
+			ro.disconnect();
+		};
 	});
 
 	$effect(() => {
