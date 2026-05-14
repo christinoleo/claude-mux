@@ -194,6 +194,15 @@
 
 	onMount(() => tmuxPanesStore.subscribe());
 
+	$effect(() => {
+		if (!browser || !target) return;
+		try {
+			localStorage.setItem('claude-mux-last-session', target);
+		} catch {
+			// quota / private mode — resume just won't work this device
+		}
+	});
+
 	// Adaptive header: switch to the ⋮ dropdown only when inline actions
 	// would crowd the title. ResizeObserver handles header width changes;
 	// a separate effect handles name changes (no observer rebuild).

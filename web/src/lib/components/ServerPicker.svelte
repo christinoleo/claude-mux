@@ -43,7 +43,7 @@
 				{@const isCurrent = server.hostname === serverStore.current.hostname}
 				<li>
 					<a
-						href={server.url}
+						href="{server.url}/?resume=1"
 						class="server-item"
 						class:active={isCurrent}
 						aria-current={isCurrent ? 'page' : undefined}

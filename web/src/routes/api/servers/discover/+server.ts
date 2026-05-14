@@ -27,6 +27,10 @@ function buildUrl(dnsName: string): string {
 	return `https://${stripDot(dnsName)}:${PORT}`;
 }
 
+function hostnameFromDns(dnsName: string): string {
+	return stripDot(dnsName).split('.')[0];
+}
+
 async function probe(url: string): Promise<boolean> {
 	const ctrl = new AbortController();
 	const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
@@ -53,13 +57,13 @@ export const GET: RequestHandler = async () => {
 	}
 
 	const self: ServerInfo = {
-		hostname: status.Self.HostName,
+		hostname: hostnameFromDns(status.Self.DNSName),
 		url: buildUrl(status.Self.DNSName)
 	};
 
 	const candidates = Object.values(status.Peer ?? {})
 		.filter((p) => p.Online && p.DNSName)
-		.map<ServerInfo>((p) => ({ hostname: p.HostName, url: buildUrl(p.DNSName) }));
+		.map<ServerInfo>((p) => ({ hostname: hostnameFromDns(p.DNSName), url: buildUrl(p.DNSName) }));
 
 	const probes = await Promise.all(candidates.map((c) => probe(c.url)));
 	const responders = candidates.filter((_, i) => probes[i]);
