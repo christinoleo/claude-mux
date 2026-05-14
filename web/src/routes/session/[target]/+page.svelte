@@ -57,8 +57,36 @@
 	let moreOpen = $state(false);
 	let commandsOpen = $state(false);
 	let queuePopoverOpen = $state(false);
+	let attachPickerOpen = $state(false);
 	let ctrlCount = $state(0);
 	let altCount = $state(0);
+
+	// File attachments staged for the next send (see docs/adr/0001, 0002).
+	type AttachmentStatus = 'uploading' | 'ready' | 'failed';
+	interface Attachment {
+		localId: string;
+		file: File;
+		name: string;
+		size: number;
+		mime: string;
+		status: AttachmentStatus;
+		path?: string;
+		error?: string;
+		thumb?: string;
+		abort?: AbortController;
+	}
+	let attachments = $state<Attachment[]>([]);
+	let cameraInput: HTMLInputElement | null = $state(null);
+	let galleryInput: HTMLInputElement | null = $state(null);
+	let filesInput: HTMLInputElement | null = $state(null);
+	let isTouchDevice = $state(false);
+	let dropActive = $state(false);
+
+	const canSend = $derived(attachments.every((a) => a.status === 'ready'));
+	const readyPaths = $derived(
+		attachments.filter((a) => a.status === 'ready' && a.path).map((a) => a.path!)
+	);
+	const hasAttachments = $derived(attachments.length > 0);
 	// Tap candidate: modifier keydown with no intervening key → arm on keyup
 	let ctrlTapCandidate = false;
 	let altTapCandidate = false;
@@ -258,7 +286,9 @@
 
 	async function sendText() {
 		if (!target) return;
-		if (!textInput.trim()) {
+		if (!canSend) return;
+		const paths = readyPaths;
+		if (!textInput.trim() && paths.length === 0) {
 			// Empty input: just send Enter key
 			await sendKeys('Enter');
 			return;
@@ -266,9 +296,10 @@
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: textInput })
+			body: JSON.stringify({ text: textInput, attachments: paths })
 		});
 		textInput = '';
+		clearAttachments();
 		// Reset textarea height after sending
 		if (textareaElement) {
 			textareaElement.style.height = 'auto';
@@ -276,13 +307,17 @@
 	}
 
 	async function sendTextRaw() {
-		if (!target || !textInput) return;
+		if (!target) return;
+		if (!canSend) return;
+		const paths = readyPaths;
+		if (!textInput && paths.length === 0) return;
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: textInput, raw: true })
+			body: JSON.stringify({ text: textInput, raw: true, attachments: paths })
 		});
 		textInput = '';
+		clearAttachments();
 		if (textareaElement) textareaElement.style.height = 'auto';
 	}
 
@@ -293,12 +328,14 @@
 
 	async function queueText() {
 		if (!target || !textInput.trim()) return;
+		if (!canSend) return;
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: textInput })
+			body: JSON.stringify({ text: textInput, attachments: readyPaths })
 		});
 		textInput = '';
+		clearAttachments();
 		queuePopoverOpen = false;
 		if (textareaElement) {
 			textareaElement.style.height = 'auto';
@@ -309,6 +346,183 @@
 		e.preventDefault();
 		queuePopoverOpen = true;
 	}
+
+	// ─── Attachments ────────────────────────────────────────────────────────
+
+	function makeLocalId(): string {
+		return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+			? crypto.randomUUID()
+			: `att-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+	}
+
+	async function doUpload(localId: string, file: File, signal: AbortSignal) {
+		const sessionId = currentSession?.id;
+		if (!sessionId) {
+			attachments = attachments.map((a) =>
+				a.localId === localId ? { ...a, status: 'failed', error: 'No active session' } : a
+			);
+			return;
+		}
+		const form = new FormData();
+		form.append('file', file);
+		try {
+			const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/attach`, {
+				method: 'POST',
+				body: form,
+				signal
+			});
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({}));
+				throw new Error(body.error || `HTTP ${res.status}`);
+			}
+			const data = (await res.json()) as { path: string; name: string; size: number; mime: string };
+			attachments = attachments.map((a) =>
+				a.localId === localId ? { ...a, status: 'ready', path: data.path, abort: undefined } : a
+			);
+		} catch (err) {
+			if (signal.aborted) return;
+			const msg = err instanceof Error ? err.message : String(err);
+			attachments = attachments.map((a) =>
+				a.localId === localId ? { ...a, status: 'failed', error: msg, abort: undefined } : a
+			);
+		}
+	}
+
+	function uploadAttachment(file: File) {
+		const localId = makeLocalId();
+		const thumb = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
+		const abort = new AbortController();
+		const chip: Attachment = {
+			localId,
+			file,
+			name: file.name || `pasted-${Date.now()}`,
+			size: file.size,
+			mime: file.type || 'application/octet-stream',
+			status: 'uploading',
+			thumb,
+			abort
+		};
+		attachments = [...attachments, chip];
+		void doUpload(localId, file, abort.signal);
+	}
+
+	function uploadFiles(files: FileList | File[] | null | undefined) {
+		if (!files) return;
+		for (const f of Array.from(files)) uploadAttachment(f);
+	}
+
+	function retryAttachment(localId: string) {
+		const chip = attachments.find((a) => a.localId === localId);
+		if (!chip || chip.status !== 'failed') return;
+		const abort = new AbortController();
+		attachments = attachments.map((a) =>
+			a.localId === localId
+				? { ...a, status: 'uploading', error: undefined, abort }
+				: a
+		);
+		void doUpload(localId, chip.file, abort.signal);
+	}
+
+	function removeAttachment(localId: string) {
+		const chip = attachments.find((a) => a.localId === localId);
+		if (!chip) return;
+		chip.abort?.abort();
+		if (chip.thumb) URL.revokeObjectURL(chip.thumb);
+		if (chip.status === 'ready' && chip.path && currentSession?.id) {
+			// Best-effort server cleanup; chip is gone either way.
+			void fetch(
+				`/api/sessions/${encodeURIComponent(currentSession.id)}/attach?path=${encodeURIComponent(chip.path)}`,
+				{ method: 'DELETE' }
+			);
+		}
+		attachments = attachments.filter((a) => a.localId !== localId);
+	}
+
+	function clearAttachments() {
+		for (const a of attachments) {
+			a.abort?.abort();
+			if (a.thumb) URL.revokeObjectURL(a.thumb);
+		}
+		attachments = [];
+	}
+
+	function handlePaste(e: ClipboardEvent) {
+		const files = e.clipboardData?.files;
+		if (files && files.length > 0) {
+			e.preventDefault();
+			uploadFiles(files);
+		}
+	}
+
+	function handlePickerInput(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		uploadFiles(input.files);
+		input.value = '';
+		attachPickerOpen = false;
+	}
+
+	function openPicker(which: 'camera' | 'gallery' | 'files') {
+		attachPickerOpen = false;
+		const el = which === 'camera' ? cameraInput : which === 'gallery' ? galleryInput : filesInput;
+		// Tick so popover close doesn't swallow the click on iOS.
+		setTimeout(() => el?.click(), 0);
+	}
+
+	// Clear chips on session change (revoke blob URLs, abort in-flight uploads).
+	$effect.pre(() => {
+		const _t = target;
+		untrack(clearAttachments);
+	});
+
+	// Touch detection + window-level drag-drop wiring.
+	onMount(() => {
+		if (!browser) return;
+		try {
+			isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+		} catch {
+			isTouchDevice = 'ontouchstart' in window;
+		}
+
+		let counter = 0;
+		const hasFiles = (e: DragEvent) =>
+			Array.from(e.dataTransfer?.types ?? []).includes('Files');
+		const onEnter = (e: DragEvent) => {
+			if (!hasFiles(e)) return;
+			counter++;
+			if (counter === 1) dropActive = true;
+			e.preventDefault();
+		};
+		const onLeave = (e: DragEvent) => {
+			if (!hasFiles(e)) return;
+			counter--;
+			if (counter <= 0) {
+				counter = 0;
+				dropActive = false;
+			}
+		};
+		const onOver = (e: DragEvent) => {
+			if (!hasFiles(e)) return;
+			e.preventDefault();
+			if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+		};
+		const onDrop = (e: DragEvent) => {
+			if (!hasFiles(e)) return;
+			e.preventDefault();
+			counter = 0;
+			dropActive = false;
+			uploadFiles(e.dataTransfer?.files);
+		};
+		window.addEventListener('dragenter', onEnter);
+		window.addEventListener('dragleave', onLeave);
+		window.addEventListener('dragover', onOver);
+		window.addEventListener('drop', onDrop);
+		return () => {
+			window.removeEventListener('dragenter', onEnter);
+			window.removeEventListener('dragleave', onLeave);
+			window.removeEventListener('dragover', onOver);
+			window.removeEventListener('drop', onDrop);
+		};
+	});
 
 	async function finishVoiceIfRecording(): Promise<boolean> {
 		if (!voiceEnabled) return false;
@@ -662,6 +876,55 @@
 				<iconify-icon icon="mdi:stop"></iconify-icon>
 				<span>Esc</span>
 			</Button>
+			<!-- Attach popover -->
+			<Popover.Root bind:open={attachPickerOpen}>
+				<Popover.Trigger class="flex-1 flex-col gap-0.5 px-2 py-1.5 min-w-11 h-auto text-[9px] uppercase tracking-wide inline-flex shrink-0 items-center justify-center rounded-md font-medium cursor-pointer bg-[#222] text-stone-100 hover:bg-[#333]">
+					<iconify-icon icon="mdi:paperclip" style="font-size: 18px;"></iconify-icon>
+					<span>Attach</span>
+				</Popover.Trigger>
+				<Popover.Content side="top" class="w-auto p-2 bg-[#1a1a1a] border-[#333]">
+					<div class="popover-grid">
+						{#if isTouchDevice}
+							<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => openPicker('camera')}>
+								<iconify-icon icon="mdi:camera"></iconify-icon>
+								<span>Camera</span>
+							</Button>
+						{/if}
+						<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => openPicker('gallery')}>
+							<iconify-icon icon="mdi:image-multiple"></iconify-icon>
+							<span>{isTouchDevice ? 'Gallery' : 'Image'}</span>
+						</Button>
+						<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => openPicker('files')}>
+							<iconify-icon icon="mdi:file-document-outline"></iconify-icon>
+							<span>Files</span>
+						</Button>
+					</div>
+				</Popover.Content>
+			</Popover.Root>
+			<input
+				bind:this={cameraInput}
+				type="file"
+				accept="image/*"
+				capture="environment"
+				multiple
+				class="attach-input-hidden"
+				onchange={handlePickerInput}
+			/>
+			<input
+				bind:this={galleryInput}
+				type="file"
+				accept="image/*,video/*"
+				multiple
+				class="attach-input-hidden"
+				onchange={handlePickerInput}
+			/>
+			<input
+				bind:this={filesInput}
+				type="file"
+				multiple
+				class="attach-input-hidden"
+				onchange={handlePickerInput}
+			/>
 			{#if voiceEnabled}
 				<VoiceButton {target} />
 			{/if}
@@ -680,6 +943,41 @@
 					<span>Alt{altCount > 1 ? `×${altCount}` : ''}</span>
 				</button>
 			{/if}
+			{#each attachments as att (att.localId)}
+				<span
+					class="attach-chip"
+					class:attach-chip-uploading={att.status === 'uploading'}
+					class:attach-chip-failed={att.status === 'failed'}
+					title={att.status === 'failed' ? `Upload failed: ${att.error}` : att.name}
+				>
+					{#if att.thumb}
+						<img class="attach-thumb" src={att.thumb} alt="" />
+					{:else}
+						<iconify-icon icon="mdi:file-outline"></iconify-icon>
+					{/if}
+					<span class="attach-name">{att.name}</span>
+					{#if att.status === 'uploading'}
+						<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
+					{:else if att.status === 'failed'}
+						<button
+							type="button"
+							class="attach-action"
+							title="Retry"
+							onclick={() => retryAttachment(att.localId)}
+						>
+							<iconify-icon icon="mdi:refresh"></iconify-icon>
+						</button>
+					{/if}
+					<button
+						type="button"
+						class="attach-action"
+						title="Remove"
+						onclick={() => removeAttachment(att.localId)}
+					>
+						<iconify-icon icon="mdi:close"></iconify-icon>
+					</button>
+				</span>
+			{/each}
 			<textarea
 				bind:this={textareaElement}
 				bind:value={textInput}
@@ -689,6 +987,7 @@
 				onkeyup={handleKeyup}
 				onblur={handleBlur}
 				oninput={autoResize}
+				onpaste={handlePaste}
 			></textarea>
 			<div class="send-btn-wrapper"
 				oncontextmenu={handleSendContextMenu}
@@ -698,7 +997,7 @@
 					onOutside: () => (queuePopoverOpen = false)
 				}}
 			>
-				<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg">
+				<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg" disabled={!canSend}>
 					<iconify-icon icon="mdi:send"></iconify-icon>
 				</Button>
 				{#if queueCount > 0}
@@ -737,6 +1036,13 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+{#if dropActive}
+	<div class="drop-overlay">
+		<iconify-icon icon="mdi:tray-arrow-down"></iconify-icon>
+		<span>Drop files to attach</span>
+	</div>
+{/if}
 
 <style>
 	.session-container {
@@ -938,6 +1244,95 @@
 	}
 	.mod-chip:hover {
 		background: #257048;
+	}
+
+	.attach-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 48px;
+		padding: 0 6px 0 6px;
+		background: #1f2c44;
+		color: #d4e3ff;
+		border: 1px solid #3a6ad4;
+		border-radius: 8px;
+		font-size: 12px;
+		max-width: 220px;
+		flex-shrink: 0;
+	}
+	.attach-chip-uploading {
+		opacity: 0.75;
+	}
+	.attach-chip-failed {
+		background: #4a1d22;
+		color: #ffd4d4;
+		border-color: #d44d4d;
+	}
+	.attach-chip .attach-thumb {
+		width: 36px;
+		height: 36px;
+		object-fit: cover;
+		border-radius: 4px;
+		display: block;
+	}
+	.attach-chip > iconify-icon {
+		font-size: 22px;
+	}
+	.attach-chip .attach-name {
+		max-width: 120px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.attach-action {
+		background: transparent;
+		border: 0;
+		color: inherit;
+		cursor: pointer;
+		padding: 4px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+	}
+	.attach-action:hover {
+		background: rgba(255, 255, 255, 0.12);
+	}
+	.attach-spin {
+		font-size: 16px;
+		animation: attach-spin 1s linear infinite;
+	}
+	@keyframes attach-spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.attach-input-hidden {
+		position: absolute;
+		left: -9999px;
+		width: 1px;
+		height: 1px;
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.drop-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(20, 40, 80, 0.55);
+		backdrop-filter: blur(2px);
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+		border: 3px dashed #4f8df7;
+		color: #d4e3ff;
+		font-size: 20px;
+		font-weight: 600;
+		gap: 12px;
+	}
+	.drop-overlay iconify-icon {
+		font-size: 48px;
 	}
 
 	.input-row textarea {

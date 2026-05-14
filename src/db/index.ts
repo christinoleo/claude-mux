@@ -12,6 +12,8 @@ export {
   cleanupStaleSessions,
   getSessionsDir,
   setSessionsDir,
+  ATTACHMENTS_DIR,
+  getSessionAttachmentsDir,
   type Session,
   type SessionState,
   type SessionAgent,

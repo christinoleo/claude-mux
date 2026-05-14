@@ -6,8 +6,9 @@ import {
   renameSync,
   unlinkSync,
   readdirSync,
+  rmSync,
 } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import { homedir } from "os";
 import { isPidAlive } from "../utils/pid.js";
 
@@ -25,6 +26,13 @@ try {
 
 const DEFAULT_SESSIONS_DIR = join(CLAUDE_MUX_DIR, "sessions");
 const LINKS_PATH = join(CLAUDE_MUX_DIR, "links.json");
+
+// Attachments root: per-session uploads (see docs/adr/0001, docs/adr/0002).
+export const ATTACHMENTS_DIR = join(CLAUDE_MUX_DIR, "attachments");
+
+export function getSessionAttachmentsDir(id: string): string {
+  return resolve(ATTACHMENTS_DIR, id);
+}
 
 // Schema version
 const SCHEMA_VERSION = 1;
@@ -195,6 +203,16 @@ export function deleteSession(id: string): void {
     }
   } catch {
     // Ignore errors (file may already be deleted)
+  }
+  // Sweep this session's attachment dir. Single cleanup site for attachment
+  // backing files (see docs/adr/0002).
+  try {
+    const attachDir = getSessionAttachmentsDir(id);
+    if (existsSync(attachDir)) {
+      rmSync(attachDir, { recursive: true, force: true });
+    }
+  } catch {
+    // Best-effort
   }
 }
 
