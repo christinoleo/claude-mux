@@ -10,6 +10,7 @@
 	import ScreenshotsPanel from '$lib/components/ScreenshotsPanel.svelte';
 	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
 	import SystemStatsWidget from '$lib/components/SystemStatsWidget.svelte';
+	import { STORAGE_KEYS } from '$lib/constants';
 
 	let { children } = $props();
 
@@ -20,7 +21,7 @@
 	let isDragging = false;
 
 	// Resizable sidebar state
-	const SIDEBAR_WIDTH_KEY = 'claude-mux-sidebar-width';
+	const SIDEBAR_WIDTH_KEY = STORAGE_KEYS.sidebarWidth;
 	const MIN_WIDTH = 200;
 	const MAX_WIDTH = 500;
 	const DEFAULT_WIDTH = 300;

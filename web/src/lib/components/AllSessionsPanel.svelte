@@ -1086,9 +1086,6 @@
 		gap: 8px;
 	}
 
-	.compact .header-actions {
-		justify-content: flex-start;
-	}
 
 	.compact .scroll-content {
 		padding: 4px 0;

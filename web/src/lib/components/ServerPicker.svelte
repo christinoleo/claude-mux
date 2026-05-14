@@ -76,18 +76,18 @@
 		min-width: 0;
 	}
 
-	:global(.trigger:hover) {
+	:global(.server-picker-trigger:hover) {
 		background: hsl(var(--accent));
 	}
 
-	:global(.trigger .hostname) {
+	:global(.server-picker-trigger .hostname) {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		max-width: 140px;
 	}
 
-	:global(.trigger .dot) {
+	:global(.server-picker-trigger .dot) {
 		width: 8px;
 		height: 8px;
 		border-radius: 50%;
@@ -95,7 +95,7 @@
 		flex-shrink: 0;
 	}
 
-	:global(.trigger .chev) {
+	:global(.server-picker-trigger .chev) {
 		font-size: 14px;
 		opacity: 0.6;
 	}
