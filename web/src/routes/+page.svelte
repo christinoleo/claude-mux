@@ -5,35 +5,41 @@
 	import { sessionStore } from '$lib/stores/sessions.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
 
-	let attempted = $state(false);
+	type Phase = 'waiting' | 'redirecting' | 'fallback';
+	let phase = $state<Phase>('waiting');
 
 	$effect(() => {
-		if (!browser || attempted) return;
-		if (!sessionStore.connected) return;
-		if (sessionStore.sessions.length === 0) return;
+		if (!browser || phase !== 'waiting') return;
 
-		attempted = true;
-
-		const validTargets = new Set(
-			sessionStore.sessions
-				.map((s) => s.tmux_target)
-				.filter((t): t is string => !!t)
-		);
-
-		let saved: string | null = null;
-		try {
-			saved = localStorage.getItem(STORAGE_KEYS.lastSession);
-		} catch {
-			// ignore
+		if (sessionStore.sessions.length > 0) {
+			const validTargets = new Set(
+				sessionStore.sessions
+					.map((s) => s.tmux_target)
+					.filter((t): t is string => !!t)
+			);
+			let saved: string | null = null;
+			try {
+				saved = localStorage.getItem(STORAGE_KEYS.lastSession);
+			} catch {
+				// ignore
+			}
+			const pick =
+				saved && validTargets.has(saved)
+					? saved
+					: sessionStore.sessions.find((s) => s.tmux_target)?.tmux_target;
+			if (pick) {
+				phase = 'redirecting';
+				void goto(`/session/${encodeURIComponent(pick)}`, { replaceState: true });
+			}
+			return;
 		}
 
-		const pick =
-			saved && validTargets.has(saved)
-				? saved
-				: sessionStore.sessions.find((s) => s.tmux_target)?.tmux_target;
-
-		if (pick) {
-			void goto(`/session/${encodeURIComponent(pick)}`, { replaceState: true });
+		if (sessionStore.connected) {
+			// Show fallback only after first sessions message has had time to land.
+			const t = setTimeout(() => {
+				if (phase === 'waiting') phase = 'fallback';
+			}, 300);
+			return () => clearTimeout(t);
 		}
 	});
 </script>
@@ -42,9 +48,11 @@
 	<title>claude-mux</title>
 </svelte:head>
 
-<div class="root-page">
-	<AllSessionsPanel />
-</div>
+{#if phase === 'fallback'}
+	<div class="root-page">
+		<AllSessionsPanel />
+	</div>
+{/if}
 
 <style>
 	.root-page {
