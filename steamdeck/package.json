@@ -1,0 +1,46 @@
+{
+  "name": "claude-mux-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "claude-mux desktop client",
+  "main": "main.js",
+  "author": "Leo",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --linux AppImage",
+    "release": "bun scripts/release.ts"
+  },
+  "build": {
+    "appId": "dev.claudemux.desktop",
+    "productName": "claude-mux",
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "Utility"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://ubuntu.taimen-pirarucu.ts.net:3456/downloads/"
+    },
+    "directories": {
+      "output": "dist-electron"
+    }
+  },
+  "devDependencies": {
+    "electron": "^42.0.1",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.3"
+  }
+}

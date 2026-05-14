@@ -20,6 +20,8 @@ export async function runServe(options: ServeOptions): Promise<void> {
     mkdirSync(SESSIONS_DIR, { recursive: true });
   }
 
+  process.env.CLAUDE_MUX_RELEASES_DIR ??= join(__dirname, "..", "..", "steamdeck", "releases");
+
   // Path to built SvelteKit handler
   const handlerPath = join(__dirname, "..", "web", "handler.js");
 

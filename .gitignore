@@ -24,3 +24,8 @@ _bmad/
 .env.local
 web/.env
 web/.env.local
+
+# Electron build artifacts (steamdeck client)
+steamdeck/dist-electron/
+steamdeck/releases/
+steamdeck/node_modules/
