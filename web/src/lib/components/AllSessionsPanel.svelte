@@ -14,6 +14,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { longPress } from '$lib/actions/longPress';
+	import ServerPicker from './ServerPicker.svelte';
 
 	interface Props {
 		onSessionSelect?: () => void;
@@ -422,9 +423,7 @@
 
 <div class="all-sessions-panel" class:compact>
 	<header class="header">
-		<a href="/" class="title-link">
-			<h1>claude-mux</h1>
-		</a>
+		<ServerPicker />
 		<div class="header-actions">
 			{#if !compact}
 				<Button
@@ -632,21 +631,6 @@
 		top: 0;
 		z-index: 1;
 		background: hsl(var(--background));
-	}
-
-	.title-link {
-		text-decoration: none;
-		color: inherit;
-	}
-
-	.title-link:hover h1 {
-		color: hsl(var(--primary));
-	}
-
-	.header h1 {
-		font-size: 16px;
-		margin: 0;
-		transition: color 0.15s;
 	}
 
 	.header-actions {
@@ -1094,10 +1078,6 @@
 	/* Compact mode adjustments */
 	.compact .header {
 		padding: 10px 12px;
-	}
-
-	.compact .header h1 {
-		font-size: 14px;
 	}
 
 	.compact .scroll-content {
