@@ -51,6 +51,7 @@
 	let textInput = $state('');
 	let showConfirmKill = $state(false);
 	let moreOpen = $state(false);
+	let headerOverflowOpen = $state(false);
 	let commandsOpen = $state(false);
 	let queuePopoverOpen = $state(false);
 	let ctrlCount = $state(0);
@@ -538,22 +539,48 @@
 		</div>
 		<div class="header-actions">
 			{#if isAlive}
-				<Button variant="secondary" size="toolbar" onclick={copyTmuxCmd} title="Copy tmux attach command" class={showCopied ? 'bg-green-800 text-green-300' : ''}>
-					<iconify-icon icon={showCopied ? "mdi:check" : "mdi:content-copy"}></iconify-icon>
-					<span>{showCopied ? 'Copied!' : 'Tmux'}</span>
-				</Button>
-				<Button variant="secondary" size="toolbar" onclick={handleResize} title="Resize tmux pane to fit viewport">
-					<iconify-icon icon="mdi:fit-to-screen"></iconify-icon>
-					<span>Fit</span>
-				</Button>
-				<Button variant="secondary" size="toolbar" onclick={() => location.reload()} title="Refresh page">
-					<iconify-icon icon="mdi:refresh"></iconify-icon>
-					<span>Refresh</span>
-				</Button>
+				<div class="header-actions-desktop">
+					<Button variant="secondary" size="toolbar" onclick={copyTmuxCmd} title="Copy tmux attach command" class={showCopied ? 'bg-green-800 text-green-300' : ''}>
+						<iconify-icon icon={showCopied ? "mdi:check" : "mdi:content-copy"}></iconify-icon>
+						<span>{showCopied ? 'Copied!' : 'Tmux'}</span>
+					</Button>
+					<Button variant="secondary" size="toolbar" onclick={handleResize} title="Resize tmux pane to fit viewport">
+						<iconify-icon icon="mdi:fit-to-screen"></iconify-icon>
+						<span>Fit</span>
+					</Button>
+					<Button variant="secondary" size="toolbar" onclick={() => location.reload()} title="Refresh page">
+						<iconify-icon icon="mdi:refresh"></iconify-icon>
+						<span>Refresh</span>
+					</Button>
+				</div>
+				<div class="header-actions-mobile">
+					<Popover.Root bind:open={headerOverflowOpen}>
+						<Popover.Trigger
+							class="inline-flex items-center justify-center w-9 h-9 rounded-md bg-[#222] text-stone-100 hover:bg-[#333] cursor-pointer"
+							aria-label="More actions"
+						>
+							<iconify-icon icon="mdi:dots-vertical" style="font-size: 20px;"></iconify-icon>
+						</Popover.Trigger>
+						<Popover.Content side="bottom" align="end" class="w-44 p-1 bg-[#1a1a1a] border-[#333]">
+							<button class="overflow-item" onclick={() => { copyTmuxCmd(); headerOverflowOpen = false; }}>
+								<iconify-icon icon={showCopied ? 'mdi:check' : 'mdi:content-copy'}></iconify-icon>
+								<span>{showCopied ? 'Copied!' : 'Copy tmux cmd'}</span>
+							</button>
+							<button class="overflow-item" onclick={() => { handleResize(); headerOverflowOpen = false; }}>
+								<iconify-icon icon="mdi:fit-to-screen"></iconify-icon>
+								<span>Fit to viewport</span>
+							</button>
+							<button class="overflow-item" onclick={() => location.reload()}>
+								<iconify-icon icon="mdi:refresh"></iconify-icon>
+								<span>Refresh page</span>
+							</button>
+						</Popover.Content>
+					</Popover.Root>
+				</div>
 			{/if}
-			<Button variant="ghost-destructive" size="toolbar" onclick={() => (showConfirmKill = true)} title="Kill Session">
+			<Button variant="ghost-destructive" size="toolbar" class="kill-btn" onclick={() => (showConfirmKill = true)} title="Kill Session">
 				<iconify-icon icon="mdi:power"></iconify-icon>
-				<span>Kill</span>
+				<span class="kill-label">Kill</span>
 			</Button>
 		</div>
 	</header>
@@ -745,54 +772,102 @@
 		border-bottom: 1px solid #222;
 	}
 
+	.header-actions-mobile {
+		display: none;
+	}
+
 	/* Make room for hamburger menu on mobile */
 	@media (max-width: 768px) {
 		.header {
-			padding: 2px 6px 2px 40px;
-			gap: 5px;
+			min-height: 40px;
+			padding: 4px 6px 4px 44px;
+			gap: 6px;
 		}
 		.title-row {
-			gap: 4px;
+			gap: 6px;
 		}
 		.title-info {
 			flex-direction: row;
-			align-items: baseline;
-			gap: 5px;
+			align-items: center;
+			gap: 6px;
+			overflow: hidden;
+			flex-wrap: nowrap;
 		}
 		.target-btn {
-			font-size: 12px;
-			padding: 2px 3px;
-			margin: -2px -3px;
+			font-size: 13px;
+			padding: 2px 4px;
+			margin: -2px -4px;
+			min-height: 0;
 		}
 		.target-btn iconify-icon {
-			font-size: 11px;
+			font-size: 12px;
 			margin-left: 4px;
 		}
 		.status {
-			font-size: 9px;
+			display: none;
 		}
 		.state-symbol {
-			font-size: 12px;
+			font-size: 13px;
 		}
 		.state-symbol.braille {
-			font-size: 14px;
+			font-size: 15px;
 		}
 		.state {
 			width: 8px;
 			height: 8px;
 		}
-		.header-actions :global(button) {
-			font-size: 8px;
-			padding: 2px 4px;
-			min-width: 36px;
-			border-radius: 3px;
+		.header-actions {
+			gap: 4px;
 		}
-		.header-actions :global(button iconify-icon) {
-			font-size: 14px;
+		.header-actions-desktop {
+			display: none;
+		}
+		.header-actions-mobile {
+			display: flex;
+		}
+		.header-actions-mobile :global([data-popover-trigger]),
+		.header-actions-mobile > :global(*) {
+			width: 32px;
+			height: 32px;
+		}
+		.header-actions :global(.kill-btn) {
+			padding: 0;
+			width: 32px;
+			height: 32px;
+			min-width: 0;
+			border-radius: 6px;
+		}
+		.header-actions :global(.kill-btn .kill-label) {
+			display: none;
+		}
+		.header-actions :global(.kill-btn iconify-icon) {
+			font-size: 18px;
 		}
 		.toolbar :global(button) {
 			border-radius: 3px;
 		}
+	}
+
+	.overflow-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		padding: 8px 10px;
+		background: transparent;
+		border: none;
+		color: hsl(var(--foreground));
+		font-size: 13px;
+		text-align: left;
+		cursor: pointer;
+		border-radius: 4px;
+	}
+	.overflow-item:hover {
+		background: rgba(255, 255, 255, 0.06);
+	}
+	.overflow-item :global(iconify-icon) {
+		font-size: 16px;
+		opacity: 0.8;
 	}
 
 	.title-row {

@@ -310,19 +310,19 @@
 			display: flex;
 			align-items: center;
 			justify-content: center;
-			position: fixed;
-			top: 3px;
-			left: 5px;
+			position: absolute;
+			top: 4px;
+			left: 6px;
 			z-index: 50;
-			width: 28px;
-			height: 28px;
+			width: 32px;
+			height: 32px;
 			padding: 0;
 			background: hsl(var(--secondary));
 			border: none;
-			border-radius: 4px;
+			border-radius: 6px;
 			color: hsl(var(--foreground));
 			cursor: pointer;
-			font-size: 18px;
+			font-size: 20px;
 		}
 
 		.hamburger:hover {
