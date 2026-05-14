@@ -429,32 +429,30 @@
 	<header class="header">
 		<ServerPicker />
 		<div class="header-actions">
-			{#if !compact}
-				<Button
-					variant="secondary"
-					size="icon"
-					onclick={closeChrome}
-					title="Close Chrome/Brave debugging instances"
-				>
-					<iconify-icon icon="mdi:google-chrome"></iconify-icon>
-				</Button>
-				<Button
-					variant="secondary"
-					size="icon"
-					onclick={() => location.reload()}
-					title="Refresh page"
-				>
-					<iconify-icon icon="mdi:refresh"></iconify-icon>
-				</Button>
-				<Button
-					variant="secondary"
-					size="icon"
-					onclick={resetLocalStorage}
-					title="Reset local data (projects, preferences, cache)"
-				>
-					<iconify-icon icon="mdi:database-refresh"></iconify-icon>
-				</Button>
-			{/if}
+			<Button
+				variant="secondary"
+				size="icon"
+				onclick={closeChrome}
+				title="Close Chrome/Brave debugging instances"
+			>
+				<iconify-icon icon="mdi:google-chrome"></iconify-icon>
+			</Button>
+			<Button
+				variant="secondary"
+				size="icon"
+				onclick={() => location.reload()}
+				title="Refresh page"
+			>
+				<iconify-icon icon="mdi:refresh"></iconify-icon>
+			</Button>
+			<Button
+				variant="secondary"
+				size="icon"
+				onclick={resetLocalStorage}
+				title="Reset local data (projects, preferences, cache)"
+			>
+				<iconify-icon icon="mdi:database-refresh"></iconify-icon>
+			</Button>
 			<Button
 				variant={sessionStore.paused ? 'destructive' : 'secondary'}
 				size="icon"
