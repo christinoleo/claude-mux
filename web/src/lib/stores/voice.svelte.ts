@@ -22,7 +22,7 @@ interface PersistedSettings {
 
 const persisted = createPersisted<PersistedSettings>('claude-mux-voice-settings', {
 	language: 'auto',
-	autoSubmit: false,
+	autoSubmit: true,
 	deviceId: null,
 	gain: 1,
 	noiseSuppression: true
