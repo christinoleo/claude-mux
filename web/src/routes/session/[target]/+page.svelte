@@ -779,17 +779,28 @@
 		padding: 12px 16px;
 		background: #111;
 		border-bottom: 1px solid #222;
+		container-type: inline-size;
+		container-name: hdr;
 	}
 
 	.header-actions-mobile {
 		display: none;
 	}
 
-	/* Make room for hamburger menu on mobile */
+	/* Hamburger room only depends on viewport (sidebar collapse) */
 	@media (max-width: 768px) {
 		.header {
 			min-height: 40px;
 			padding: 4px 6px 4px 44px;
+		}
+	}
+
+	/* Compact mode: switch when header itself runs out of room,
+	   not based on viewport. Inline actions stay until they'd
+	   crowd the title; below ~520px container width they collapse
+	   into the ⋮ overflow popover. */
+	@container hdr (max-width: 520px) {
+		.header {
 			gap: 6px;
 		}
 		.title-row {
