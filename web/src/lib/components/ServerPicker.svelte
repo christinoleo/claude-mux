@@ -15,12 +15,12 @@
 </script>
 
 <Popover.Root bind:open>
-	<Popover.Trigger class="trigger" aria-label="Switch server">
+	<Popover.Trigger class="server-picker-trigger" aria-label="Switch server">
 		<span class="dot"></span>
 		<span class="hostname">{serverStore.current.hostname || 'claude-mux'}</span>
 		<iconify-icon icon="mdi:chevron-down" class="chev"></iconify-icon>
 	</Popover.Trigger>
-	<Popover.Content class="picker-content" align="start" sideOffset={4}>
+	<Popover.Content class="server-picker-content" align="start" sideOffset={4}>
 		<header class="picker-header">
 			<span class="picker-title">Servers</span>
 			<button
@@ -43,7 +43,7 @@
 				{@const isCurrent = server.hostname === serverStore.current.hostname}
 				<li>
 					<a
-						href="{server.url}/?resume=1"
+						href="{server.url}/"
 						class="server-item"
 						class:active={isCurrent}
 						aria-current={isCurrent ? 'page' : undefined}
@@ -61,7 +61,7 @@
 </Popover.Root>
 
 <style>
-	:global(.trigger) {
+	:global(.server-picker-trigger) {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
@@ -100,9 +100,10 @@
 		opacity: 0.6;
 	}
 
-	:global(.picker-content) {
+	:global(.server-picker-content) {
 		width: 220px;
 		padding: 6px;
+		z-index: 70;
 	}
 
 	.picker-header {

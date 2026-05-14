@@ -15,6 +15,7 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { longPress } from '$lib/actions/longPress';
 	import ServerPicker from './ServerPicker.svelte';
+	import { STORAGE_KEYS } from '$lib/constants';
 
 	interface Props {
 		onSessionSelect?: () => void;
@@ -286,7 +287,7 @@
 		await fetch('/api/chrome', { method: 'DELETE' });
 	}
 
-	const RESET_KEEP_KEYS = new Set(['claude-mux-last-session']);
+	const RESET_KEEP_KEYS = new Set<string>([STORAGE_KEYS.lastSession]);
 
 	function resetLocalStorage() {
 		showConfirm('Reset Local Data', 'This will clear all saved projects, preferences, and cached data. The page will reload.', () => {
@@ -431,7 +432,7 @@
 		<div class="header-actions">
 			<Button
 				variant="secondary"
-				size="icon"
+				size="icon-sm"
 				onclick={closeChrome}
 				title="Close Chrome/Brave debugging instances"
 			>
@@ -439,7 +440,7 @@
 			</Button>
 			<Button
 				variant="secondary"
-				size="icon"
+				size="icon-sm"
 				onclick={() => location.reload()}
 				title="Refresh page"
 			>
@@ -447,7 +448,7 @@
 			</Button>
 			<Button
 				variant="secondary"
-				size="icon"
+				size="icon-sm"
 				onclick={resetLocalStorage}
 				title="Reset local data (projects, preferences, cache)"
 			>
@@ -455,13 +456,13 @@
 			</Button>
 			<Button
 				variant={sessionStore.paused ? 'destructive' : 'secondary'}
-				size="icon"
+				size="icon-sm"
 				onclick={() => sessionStore.togglePause()}
 				title={sessionStore.paused ? 'Resume' : 'Pause'}
 			>
 				<iconify-icon icon={sessionStore.paused ? 'mdi:play' : 'mdi:pause'}></iconify-icon>
 			</Button>
-			<Button variant="secondary" size="icon" onclick={openFolderBrowser} title="New Project">
+			<Button variant="secondary" size="icon-sm" onclick={openFolderBrowser} title="New Project">
 				<iconify-icon icon="mdi:plus"></iconify-icon>
 			</Button>
 		</div>
@@ -1080,6 +1081,13 @@
 	/* Compact mode adjustments */
 	.compact .header {
 		padding: 10px 12px;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 8px;
+	}
+
+	.compact .header-actions {
+		justify-content: flex-start;
 	}
 
 	.compact .scroll-content {

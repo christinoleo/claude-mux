@@ -2,22 +2,38 @@
 	import AllSessionsPanel from '$lib/components/AllSessionsPanel.svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
+	import { sessionStore } from '$lib/stores/sessions.svelte';
+	import { STORAGE_KEYS } from '$lib/constants';
+
+	let attempted = $state(false);
 
 	$effect(() => {
-		if (!browser) return;
-		if ($page.url.searchParams.get('resume') !== '1') return;
-		let target: string | null = null;
+		if (!browser || attempted) return;
+		if (!sessionStore.connected) return;
+		if (sessionStore.sessions.length === 0) return;
+
+		attempted = true;
+
+		const validTargets = new Set(
+			sessionStore.sessions
+				.map((s) => s.tmux_target)
+				.filter((t): t is string => !!t)
+		);
+
+		let saved: string | null = null;
 		try {
-			target = localStorage.getItem('claude-mux-last-session');
+			saved = localStorage.getItem(STORAGE_KEYS.lastSession);
 		} catch {
-			return;
+			// ignore
 		}
-		if (target) {
-			void goto(`/session/${encodeURIComponent(target)}`, {
-				replaceState: true,
-				state: { resumed: true }
-			});
+
+		const pick =
+			saved && validTargets.has(saved)
+				? saved
+				: sessionStore.sessions.find((s) => s.tmux_target)?.tmux_target;
+
+		if (pick) {
+			void goto(`/session/${encodeURIComponent(pick)}`, { replaceState: true });
 		}
 	});
 </script>

@@ -17,6 +17,7 @@
 	import { untrack } from 'svelte';
 	import { longPress } from '$lib/actions/longPress';
 	import { clickOutside } from '$lib/actions/clickOutside';
+	import { STORAGE_KEYS } from '$lib/constants';
 
 	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
 	const voiceEnabled = $derived(Boolean($page.data.voiceEnabled));
@@ -54,10 +55,6 @@
 	let textInput = $state('');
 	let showConfirmKill = $state(false);
 	let moreOpen = $state(false);
-	let headerOverflowOpen = $state(false);
-	let headerCompact = $state(false);
-	let headerEl: HTMLElement | undefined = $state();
-	let nameTextEl: HTMLElement | undefined = $state();
 	let commandsOpen = $state(false);
 	let queuePopoverOpen = $state(false);
 	let ctrlCount = $state(0);
@@ -198,64 +195,13 @@
 		if (!browser || !target) return;
 		try {
 			if (isAlive) {
-				localStorage.setItem('claude-mux-last-session', target);
-			} else if (paneIsDead) {
-				if (localStorage.getItem('claude-mux-last-session') === target) {
-					localStorage.removeItem('claude-mux-last-session');
-				}
-				if ($page.state?.resumed) {
-					void goto('/', { replaceState: true });
-				}
+				localStorage.setItem(STORAGE_KEYS.lastSession, target);
+			} else if (paneIsDead && localStorage.getItem(STORAGE_KEYS.lastSession) === target) {
+				localStorage.removeItem(STORAGE_KEYS.lastSession);
 			}
 		} catch {
 			// quota / private mode — resume just won't work this device
 		}
-	});
-
-	// Adaptive header: switch to the ⋮ dropdown only when inline actions
-	// would crowd the title. ResizeObserver handles header width changes;
-	// a separate effect handles name changes (no observer rebuild).
-	// Width difference between the inline icon row (4×32 + 3 gaps = 140)
-	// and the compact dropdown trigger (32). Hysteresis margin prevents
-	// oscillation when collapsing/expanding the header on resize.
-	const INLINE_VS_COMPACT_WIDTH = 108;
-
-	function measureHeader() {
-		if (!nameTextEl) return;
-		const natural = nameTextEl.scrollWidth;
-		const avail = nameTextEl.clientWidth;
-		if (!headerCompact && natural > avail + 1) {
-			headerCompact = true;
-		} else if (headerCompact && natural + INLINE_VS_COMPACT_WIDTH <= avail) {
-			headerCompact = false;
-		}
-	}
-
-	$effect(() => {
-		if (!headerEl) return;
-		const ro = new ResizeObserver(measureHeader);
-		ro.observe(headerEl);
-		measureHeader();
-		// Font swap fires no ResizeObserver tick on header; remeasure once
-		// the real font is ready. Bail out if the component unmounted first.
-		let cancelled = false;
-		if (browser && document.fonts?.ready) {
-			document.fonts.ready.then(() => {
-				if (!cancelled) measureHeader();
-			});
-		}
-		return () => {
-			cancelled = true;
-			ro.disconnect();
-		};
-	});
-
-	$effect(() => {
-		// Re-measure when title or inline status changes; either can flip
-		// truncation without a corresponding ResizeObserver tick.
-		void (currentSession?.display_name ?? target);
-		void statusText;
-		measureHeader();
 	});
 
 	// Load runs in $effect.pre so it precedes the save effect in the same flush;
@@ -584,7 +530,7 @@
 </svelte:head>
 
 <div class="session-container">
-	<header class="header" class:compact={headerCompact} bind:this={headerEl}>
+	<header class="header">
 		<div class="title-row">
 			{#if parsedTitle?.symbol}
 				<span class="state-symbol" class:braille={parsedTitle.isBraille} style="color: {stateDotColor}">{parsedTitle.symbol}</span>
@@ -599,7 +545,7 @@
 					disabled={!isClaudeSession}
 					title={isClaudeSession ? 'Tap to rename' : undefined}
 				>
-					<span class="name-text" bind:this={nameTextEl}>{currentSession ? getSessionDisplayName(currentSession) : target}</span>
+					<span class="name-text">{currentSession ? getSessionDisplayName(currentSession) : target}</span>
 					{#if isClaudeSession}
 						<iconify-icon icon="mdi:pencil"></iconify-icon>
 					{/if}
@@ -608,53 +554,20 @@
 			</div>
 		</div>
 		<div class="header-actions">
-			<div class="header-actions-desktop">
-				{#if isAlive}
-					<Button variant="secondary" size="icon-sm" onclick={copyTmuxCmd} class={showCopied ? 'bg-emerald-900 text-emerald-300 hover:bg-emerald-900' : ''}>
-						<iconify-icon icon={showCopied ? 'mdi:check' : 'mdi:content-copy'} style="font-size: 18px;"></iconify-icon>
-					</Button>
-					<Button variant="secondary" size="icon-sm" onclick={handleResize}>
-						<iconify-icon icon="mdi:fit-to-screen" style="font-size: 18px;"></iconify-icon>
-					</Button>
-					<Button variant="secondary" size="icon-sm" onclick={() => location.reload()}>
-						<iconify-icon icon="mdi:refresh" style="font-size: 18px;"></iconify-icon>
-					</Button>
-				{/if}
-				<Button variant="secondary" size="icon-sm" onclick={() => (showConfirmKill = true)} class="text-red-400 hover:bg-red-950/40 hover:text-red-300">
-					<iconify-icon icon="mdi:power" style="font-size: 18px;"></iconify-icon>
+			{#if isAlive}
+				<Button variant="secondary" size="icon-sm" onclick={copyTmuxCmd} class={showCopied ? 'bg-emerald-900 text-emerald-300 hover:bg-emerald-900' : ''}>
+					<iconify-icon icon={showCopied ? 'mdi:check' : 'mdi:content-copy'} style="font-size: 18px;"></iconify-icon>
 				</Button>
-			</div>
-			<div class="header-actions-mobile">
-				<Popover.Root bind:open={headerOverflowOpen}>
-					<Popover.Trigger
-						class="inline-flex items-center justify-center w-9 h-9 rounded-md bg-[#222] text-stone-100 hover:bg-[#333] cursor-pointer"
-						aria-label="More actions"
-					>
-						<iconify-icon icon="mdi:dots-vertical" style="font-size: 20px;"></iconify-icon>
-					</Popover.Trigger>
-					<Popover.Content side="bottom" align="end" class="w-44 p-1 bg-[#1a1a1a] border-[#333]">
-						{#if isAlive}
-							<button class="overflow-item" onclick={() => { copyTmuxCmd(); headerOverflowOpen = false; }}>
-								<iconify-icon icon={showCopied ? 'mdi:check' : 'mdi:content-copy'}></iconify-icon>
-								<span>{showCopied ? 'Copied!' : 'Copy tmux cmd'}</span>
-							</button>
-							<button class="overflow-item" onclick={() => { handleResize(); headerOverflowOpen = false; }}>
-								<iconify-icon icon="mdi:fit-to-screen"></iconify-icon>
-								<span>Fit to viewport</span>
-							</button>
-							<button class="overflow-item" onclick={() => location.reload()}>
-								<iconify-icon icon="mdi:refresh"></iconify-icon>
-								<span>Refresh page</span>
-							</button>
-							<div class="overflow-sep"></div>
-						{/if}
-						<button class="overflow-item overflow-item-destructive" onclick={() => { showConfirmKill = true; headerOverflowOpen = false; }}>
-							<iconify-icon icon="mdi:power"></iconify-icon>
-							<span>Kill session</span>
-						</button>
-					</Popover.Content>
-				</Popover.Root>
-			</div>
+				<Button variant="secondary" size="icon-sm" onclick={handleResize}>
+					<iconify-icon icon="mdi:fit-to-screen" style="font-size: 18px;"></iconify-icon>
+				</Button>
+				<Button variant="secondary" size="icon-sm" onclick={() => location.reload()}>
+					<iconify-icon icon="mdi:refresh" style="font-size: 18px;"></iconify-icon>
+				</Button>
+			{/if}
+			<Button variant="secondary" size="icon-sm" onclick={() => (showConfirmKill = true)} class="text-red-400 hover:bg-red-950/40 hover:text-red-300">
+				<iconify-icon icon="mdi:power" style="font-size: 18px;"></iconify-icon>
+			</Button>
 		</div>
 	</header>
 
@@ -845,107 +758,19 @@
 		border-bottom: 1px solid #222;
 	}
 
-	.header-actions-mobile {
-		display: none;
-	}
-
-	/* Hamburger room only depends on viewport (sidebar collapse) */
+	/* Sidebar-toggle hamburger overlaps the header on narrow viewports */
 	@media (max-width: 768px) {
 		.header {
 			min-height: 40px;
 			padding: 4px 6px 4px 44px;
+			gap: 6px;
 		}
-	}
-
-	/* Compact mode: JS toggles .compact when the title would
-	   truncate next to the inline actions. */
-	.header.compact {
-		gap: 6px;
-	}
-	.header.compact .title-row {
-		gap: 6px;
-	}
-	.header.compact .title-info {
-		flex-direction: row;
-		align-items: center;
-		gap: 6px;
-		overflow: hidden;
-		flex-wrap: nowrap;
-	}
-	.header.compact .target-btn {
-		font-size: 13px;
-		padding: 2px 4px;
-		margin: -2px -4px;
-		min-height: 0;
-	}
-	.header.compact .target-btn iconify-icon {
-		font-size: 12px;
-		margin-left: 4px;
-	}
-	.header.compact .status {
-		font-size: 11px;
-	}
-	.header.compact .state-symbol {
-		font-size: 13px;
-	}
-	.header.compact .state-symbol.braille {
-		font-size: 15px;
-	}
-	.header.compact .state {
-		width: 8px;
-		height: 8px;
-	}
-	.header.compact .header-actions {
-		gap: 4px;
-	}
-	.header.compact .header-actions-desktop {
-		display: none;
-	}
-	.header.compact .header-actions-mobile {
-		display: flex;
-	}
-	.header.compact .header-actions-mobile :global([data-popover-trigger]),
-	.header.compact .header-actions-mobile > :global(*) {
-		width: 32px;
-		height: 32px;
-	}
-	@media (max-width: 768px) {
+		.header-actions {
+			gap: 4px;
+		}
 		.toolbar :global(button) {
 			border-radius: 3px;
 		}
-	}
-
-	.overflow-item {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		width: 100%;
-		padding: 8px 10px;
-		background: transparent;
-		border: none;
-		color: hsl(var(--foreground));
-		font-size: 13px;
-		text-align: left;
-		cursor: pointer;
-		border-radius: 4px;
-	}
-	.overflow-item:hover {
-		background: rgba(255, 255, 255, 0.06);
-	}
-	.overflow-item :global(iconify-icon) {
-		font-size: 16px;
-		opacity: 0.8;
-	}
-	.overflow-item-destructive {
-		color: #e76060;
-	}
-	.overflow-item-destructive:hover {
-		background: rgba(231, 96, 96, 0.12);
-	}
-	.overflow-sep {
-		height: 1px;
-		background: #2a2a2a;
-		margin: 4px 2px;
 	}
 
 	.title-row {
@@ -1045,6 +870,7 @@
 	.header-actions {
 		display: flex;
 		gap: 6px;
+		flex-shrink: 0;
 	}
 
 	.output {

@@ -1,9 +1,9 @@
 import { browser } from '$app/environment';
 import { createPersisted } from './persisted';
+import { STORAGE_KEYS } from '$lib/constants';
 import type { DiscoverResponse, ServerInfo } from '$lib/types/servers';
 
-const CACHE_KEY = 'claude-mux-servers';
-const cache = createPersisted<ServerInfo[]>(CACHE_KEY, []);
+const cache = createPersisted<ServerInfo[]>(STORAGE_KEYS.servers, []);
 
 function detectCurrent(): ServerInfo {
 	if (!browser) return { hostname: '', url: '' };
@@ -22,7 +22,7 @@ class ServerStore {
 	init(): void {
 		this.current = detectCurrent();
 		const cached = cache.load();
-		this.servers = cached.length > 0 ? cached : [this.current];
+		this.servers = cached.length > 0 ? cached : this.current.hostname ? [this.current] : [];
 	}
 
 	async refresh(): Promise<void> {
