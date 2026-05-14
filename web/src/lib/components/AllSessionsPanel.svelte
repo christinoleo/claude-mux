@@ -16,6 +16,7 @@
 	import { longPress } from '$lib/actions/longPress';
 	import ServerPicker from './ServerPicker.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
+	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 
 	interface Props {
 		onSessionSelect?: () => void;
@@ -300,6 +301,23 @@
 			window.location.reload();
 		});
 	}
+
+	const sidebarActions: ChordAction[] = $derived([
+		{ label: 'Close Chrome', icon: 'mdi:google-chrome', run: () => void closeChrome() },
+		{ label: 'Refresh', icon: 'mdi:refresh', run: () => location.reload() },
+		{ label: 'Reset data', icon: 'mdi:database-refresh', run: () => resetLocalStorage(), danger: true },
+		{
+			label: sessionStore.paused ? 'Resume' : 'Pause',
+			icon: sessionStore.paused ? 'mdi:play' : 'mdi:pause',
+			run: () => sessionStore.togglePause(),
+			variant: sessionStore.paused ? 'destructive' : 'secondary'
+		},
+		{ label: 'New project', icon: 'mdi:plus', run: () => void openFolderBrowser() }
+	]);
+
+	$effect(() => {
+		sidebarActionsStore.set(sidebarActions);
+	});
 </script>
 
 {#snippet rankBadge(rank: number | undefined)}
@@ -430,41 +448,17 @@
 	<header class="header">
 		<ServerPicker />
 		<div class="header-actions">
-			<Button
-				variant="secondary"
-				size="icon-sm"
-				onclick={closeChrome}
-				title="Close Chrome/Brave debugging instances"
-			>
-				<iconify-icon icon="mdi:google-chrome"></iconify-icon>
-			</Button>
-			<Button
-				variant="secondary"
-				size="icon-sm"
-				onclick={() => location.reload()}
-				title="Refresh page"
-			>
-				<iconify-icon icon="mdi:refresh"></iconify-icon>
-			</Button>
-			<Button
-				variant="secondary"
-				size="icon-sm"
-				onclick={resetLocalStorage}
-				title="Reset local data (projects, preferences, cache)"
-			>
-				<iconify-icon icon="mdi:database-refresh"></iconify-icon>
-			</Button>
-			<Button
-				variant={sessionStore.paused ? 'destructive' : 'secondary'}
-				size="icon-sm"
-				onclick={() => sessionStore.togglePause()}
-				title={sessionStore.paused ? 'Resume' : 'Pause'}
-			>
-				<iconify-icon icon={sessionStore.paused ? 'mdi:play' : 'mdi:pause'}></iconify-icon>
-			</Button>
-			<Button variant="secondary" size="icon-sm" onclick={openFolderBrowser} title="New Project">
-				<iconify-icon icon="mdi:plus"></iconify-icon>
-			</Button>
+			{#each sidebarActions as action (action.label)}
+				<Button
+					variant={action.variant ?? 'secondary'}
+					size="icon-sm"
+					onclick={action.run}
+					title={action.label}
+					class={action.danger ? 'text-red-400 hover:bg-red-950/40 hover:text-red-300' : ''}
+				>
+					<iconify-icon icon={action.icon}></iconify-icon>
+				</Button>
+			{/each}
 		</div>
 	</header>
 

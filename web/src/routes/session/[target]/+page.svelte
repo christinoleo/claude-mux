@@ -18,6 +18,8 @@
 	import { longPress } from '$lib/actions/longPress';
 	import { clickOutside } from '$lib/actions/clickOutside';
 	import { STORAGE_KEYS } from '$lib/constants';
+	import { useGamepad, STICK_DEADZONE } from '$lib/gamepad.svelte';
+	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 
 	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
 	const voiceEnabled = $derived(Boolean($page.data.voiceEnabled));
@@ -60,6 +62,61 @@
 	let attachPickerOpen = $state(false);
 	let ctrlCount = $state(0);
 	let altCount = $state(0);
+	let chordMenuOpen = $state(false);
+	let chordRow = $state(0);
+	let chordCol = $state(0);
+	let chordGrid = $state<ChordAction[][]>([]);
+	let chordTitle = $state('');
+	let showCopied = $state(false);
+
+	const headerActions: ChordAction[] = $derived([
+		...(isAlive
+			? [
+					{
+						label: 'Copy cmd',
+						icon: showCopied ? 'mdi:check' : 'mdi:content-copy',
+						run: () => copyTmuxCmd(),
+						flashing: showCopied
+					},
+					{ label: 'Fit screen', icon: 'mdi:fit-to-screen', run: () => handleResize() },
+					{ label: 'Refresh', icon: 'mdi:refresh', run: () => location.reload() }
+				]
+			: []),
+		{ label: 'Kill pane', icon: 'mdi:power', run: () => (showConfirmKill = true), danger: true }
+	]);
+
+	const slashAndCtrlActions: ChordAction[] = [
+		{ label: '/clear', icon: 'mdi:broom', run: () => runText('/clear') },
+		{ label: '/compact', icon: 'mdi:archive-arrow-down', run: () => runText('/compact') },
+		{ label: '/resume', icon: 'mdi:play-circle-outline', run: () => runText('/resume') },
+		{ label: '/memory', icon: 'mdi:memory', run: () => runText('/memory') },
+		{ label: '/init', icon: 'mdi:rocket-launch-outline', run: () => runText('/init') },
+		{ label: '/grill-me', icon: 'mdi:fire', run: () => runText('/grill-me') },
+		{ label: '/grill-with-docs', icon: 'mdi:fire-circle', run: () => runText('/grill-with-docs') },
+		{ label: '/tdd', icon: 'mdi:test-tube', run: () => runText('/tdd') },
+		{ label: '/diagnose', icon: 'mdi:stethoscope', run: () => runText('/diagnose') },
+		{ label: '/simplify', icon: 'mdi:vector-difference-ab', run: () => runText('/simplify') },
+		{ label: '/frontend-design', icon: 'mdi:palette-outline', run: () => runText('/frontend-design') },
+		{ label: '/ak:linus', icon: 'mdi:code-tags-check', run: () => runText('/ak:linus') },
+		{ label: '/ak:replan', icon: 'mdi:clipboard-text-outline', run: () => runText('/ak:replan') },
+		{ label: '/ak:redelta', icon: 'mdi:compare', run: () => runText('/ak:redelta') },
+		{ label: '/ak:triage', icon: 'mdi:sort-variant', run: () => runText('/ak:triage') },
+		{ label: '/ak:verify', icon: 'mdi:check-decagram', run: () => runText('/ak:verify') },
+		{ label: '/ak:bcheck', icon: 'mdi:checkbox-marked-circle-outline', run: () => runText('/ak:bcheck') },
+		{ label: '/ak:p1', icon: 'mdi:numeric-1-circle', run: () => runText('/ak:p1') },
+		{ label: '/ak:p2', icon: 'mdi:numeric-2-circle', run: () => runText('/ak:p2') },
+		{ label: 'Ctrl+L', icon: 'mdi:eraser', run: () => void sendKeys('C-l') },
+		{ label: 'Ctrl+U', icon: 'mdi:backspace-outline', run: () => void sendKeys('C-u') },
+		{ label: 'Ctrl+W', icon: 'mdi:delete-sweep-outline', run: () => void sendKeys('C-w') },
+		{ label: 'Ctrl+C', icon: 'mdi:stop', run: () => void sendKeys('C-c') },
+		{ label: 'Ctrl+R', icon: 'mdi:magnify', run: () => void sendKeys('C-r') }
+	];
+
+	function chunk<T>(arr: T[], size: number): T[][] {
+		const out: T[][] = [];
+		for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+		return out;
+	}
 
 	// File attachments staged for the next send (see docs/adr/0001, 0002).
 	type AttachmentStatus = 'uploading' | 'ready' | 'failed';
@@ -134,7 +191,6 @@
 	let outputElement: HTMLDivElement | null = $state(null);
 	let textareaElement: HTMLTextAreaElement | null = $state(null);
 	let userScrolledUp = $state(false);
-	let showCopied = $state(false);
 	let showSelectionCopied = $state(false);
 	let selectedText = $state('');
 	let measureCanvas: HTMLCanvasElement | null = null;
@@ -548,6 +604,128 @@
 	}
 	const modArmed = $derived(ctrlCount > 0 || altCount > 0);
 
+	async function runText(text: string) {
+		if (!target) return;
+		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ text })
+		});
+	}
+
+	function chordRowLen(): number {
+		return chordGrid[chordRow]?.length ?? 0;
+	}
+	function chordStepCol(delta: number) {
+		const n = chordRowLen();
+		if (n === 0) return;
+		chordCol = (chordCol + delta + n) % n;
+	}
+	function chordStepRow(delta: number) {
+		const rows = chordGrid.length;
+		if (rows === 0) return;
+		chordRow = (chordRow + delta + rows) % rows;
+		const cols = chordRowLen();
+		if (chordCol >= cols) chordCol = Math.max(0, cols - 1);
+	}
+
+	function openChord(grid: ChordAction[][], title: string) {
+		chordGrid = grid.filter((r) => r.length > 0);
+		chordRow = 0;
+		chordCol = 0;
+		chordTitle = title;
+		chordMenuOpen = true;
+	}
+	function closeChord() {
+		chordMenuOpen = false;
+	}
+
+	$effect(() => {
+		if (!browser) return;
+		const handler = (e: WheelEvent) => {
+			if (!outputElement) return;
+			const t = e.target as Element | null;
+			if (!t) return;
+			if (outputElement.contains(t)) return;
+			// Only hijack wheel from non-scrollable regions; leave native scroll alone.
+			let el: Element | null = t;
+			while (el && el !== document.body) {
+				const style = getComputedStyle(el);
+				const overflowY = style.overflowY;
+				if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight) return;
+				el = el.parentElement;
+			}
+			outputElement.scrollTop += e.deltaY;
+		};
+		window.addEventListener('wheel', handler, { passive: true });
+		return () => window.removeEventListener('wheel', handler);
+	});
+
+	useGamepad({
+		enabled: () => target != null,
+		axes: () => (axes) => {
+			const ly = axes[1] ?? 0;
+			if (chordMenuOpen) return;
+			if (Math.abs(ly) < STICK_DEADZONE) return;
+			if (outputElement) outputElement.scrollTop += ly * 24;
+		},
+		buttons: () => ({
+			A: () => {
+				if (chordMenuOpen) {
+					chordGrid[chordRow]?.[chordCol]?.run();
+					closeChord();
+				} else {
+					void sendText();
+				}
+			},
+			B: async () => {
+				if (chordMenuOpen) return closeChord();
+				if (voiceStore.isOwnedBy(target)) {
+					await voiceStore.cancel();
+				} else {
+					void sendKeys('Escape');
+				}
+			},
+			X: async () => {
+				if (chordMenuOpen) return;
+				if (!target) return;
+				if (!voiceStore.isActive || voiceStore.isOwnedBy(target)) {
+					await voiceStore.toggle(target);
+				}
+			},
+			Y: () => {
+				if (chordMenuOpen) return;
+				commandsOpen = !commandsOpen;
+			},
+			L1: () => history.back(),
+			R1: () => history.forward(),
+			L2: {
+				press: () => openChord(chunk(slashAndCtrlActions, 5), 'Commands'),
+				release: closeChord
+			},
+			R2: {
+				press: () => openChord([headerActions, sidebarActionsStore.actions], 'Actions'),
+				release: closeChord
+			},
+			DpadUp: () => {
+				if (chordMenuOpen) chordStepRow(-1);
+				else void sendKeys('Up');
+			},
+			DpadDown: () => {
+				if (chordMenuOpen) chordStepRow(1);
+				else void sendKeys('Down');
+			},
+			DpadLeft: () => {
+				if (chordMenuOpen) chordStepCol(-1);
+				else void sendKeys('Left');
+			},
+			DpadRight: () => {
+				if (chordMenuOpen) chordStepCol(1);
+				else void sendKeys('Right');
+			}
+		})
+	});
+
 	async function sendModSequence() {
 		const text = textInput;
 		const count = Math.max(ctrlCount, altCount);
@@ -743,6 +921,29 @@
 	<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
 </svelte:head>
 
+{#if chordMenuOpen}
+	<div class="chord-overlay">
+		<div class="chord-source-label">{chordTitle}</div>
+		<div class="chord-grid">
+			{#each chordGrid as row, r}
+				<div class="chord-row">
+					{#each row as item, c (item.label)}
+						<div
+							class="chord-item"
+							class:selected={r === chordRow && c === chordCol}
+							class:danger={item.danger}
+						>
+							<iconify-icon icon={item.icon} style="font-size: 28px;"></iconify-icon>
+							<span>{item.label}</span>
+						</div>
+					{/each}
+				</div>
+			{/each}
+		</div>
+		<div class="chord-hint">D-pad: navigate · A: run · B or release trigger: cancel</div>
+	</div>
+{/if}
+
 <div class="session-container">
 	<header class="header">
 		<div class="title-row">
@@ -768,20 +969,21 @@
 			</div>
 		</div>
 		<div class="header-actions">
-			{#if isAlive}
-				<Button variant="secondary" size="icon-sm" onclick={copyTmuxCmd} class={showCopied ? 'bg-emerald-900 text-emerald-300 hover:bg-emerald-900' : ''}>
-					<iconify-icon icon={showCopied ? 'mdi:check' : 'mdi:content-copy'} style="font-size: 18px;"></iconify-icon>
+			{#each headerActions as action (action.label)}
+				<Button
+					variant="secondary"
+					size="icon-sm"
+					onclick={action.run}
+					title={action.label}
+					class={action.flashing
+						? 'bg-emerald-900 text-emerald-300 hover:bg-emerald-900'
+						: action.danger
+							? 'text-red-400 hover:bg-red-950/40 hover:text-red-300'
+							: ''}
+				>
+					<iconify-icon icon={action.icon} style="font-size: 18px;"></iconify-icon>
 				</Button>
-				<Button variant="secondary" size="icon-sm" onclick={handleResize}>
-					<iconify-icon icon="mdi:fit-to-screen" style="font-size: 18px;"></iconify-icon>
-				</Button>
-				<Button variant="secondary" size="icon-sm" onclick={() => location.reload()}>
-					<iconify-icon icon="mdi:refresh" style="font-size: 18px;"></iconify-icon>
-				</Button>
-			{/if}
-			<Button variant="secondary" size="icon-sm" onclick={() => (showConfirmKill = true)} class="text-red-400 hover:bg-red-950/40 hover:text-red-300">
-				<iconify-icon icon="mdi:power" style="font-size: 18px;"></iconify-icon>
-			</Button>
+			{/each}
 		</div>
 	</header>
 
@@ -1045,6 +1247,70 @@
 {/if}
 
 <style>
+	.chord-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+		z-index: 1000;
+		pointer-events: none;
+	}
+	.chord-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		background: #111;
+		padding: 1.25rem;
+		border-radius: 12px;
+		border: 1px solid #333;
+		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+	}
+	.chord-row {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: center;
+	}
+	.chord-item {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.75rem 0.9rem;
+		min-width: 5rem;
+		border-radius: 8px;
+		background: #1a1a1a;
+		color: #ccc;
+		border: 2px solid transparent;
+		transition: transform 80ms, border-color 80ms, background 80ms;
+		font-size: 0.85rem;
+	}
+	.chord-item.selected {
+		border-color: #e2a052;
+		background: #2a1f10;
+		color: #fff;
+		transform: scale(1.08);
+	}
+	.chord-item.danger.selected {
+		border-color: #dc2626;
+		background: #2a1010;
+		color: #fca5a5;
+	}
+	.chord-source-label {
+		color: #e2a052;
+		font-size: 0.75rem;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+	}
+	.chord-hint {
+		color: #888;
+		font-size: 0.85rem;
+		letter-spacing: 0.04em;
+	}
+
 	.session-container {
 		height: 100%;
 		display: flex;
