@@ -9,7 +9,7 @@
 		if ($page.url.searchParams.get('resume') !== '1') return;
 		let target: string | null = null;
 		try {
-			target = sessionStorage.getItem('claude-mux-last-session');
+			target = localStorage.getItem('claude-mux-last-session');
 		} catch {
 			return;
 		}

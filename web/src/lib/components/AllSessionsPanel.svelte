@@ -286,11 +286,15 @@
 		await fetch('/api/chrome', { method: 'DELETE' });
 	}
 
+	const RESET_KEEP_KEYS = new Set(['claude-mux-last-session']);
+
 	function resetLocalStorage() {
 		showConfirm('Reset Local Data', 'This will clear all saved projects, preferences, and cached data. The page will reload.', () => {
 			for (let i = localStorage.length - 1; i >= 0; i--) {
 				const key = localStorage.key(i);
-				if (key && key.startsWith('claude-mux-')) localStorage.removeItem(key);
+				if (key && key.startsWith('claude-mux-') && !RESET_KEEP_KEYS.has(key)) {
+					localStorage.removeItem(key);
+				}
 			}
 			window.location.reload();
 		});

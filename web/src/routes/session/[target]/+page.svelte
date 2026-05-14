@@ -198,10 +198,10 @@
 		if (!browser || !target) return;
 		try {
 			if (isAlive) {
-				sessionStorage.setItem('claude-mux-last-session', target);
+				localStorage.setItem('claude-mux-last-session', target);
 			} else if (paneIsDead) {
-				if (sessionStorage.getItem('claude-mux-last-session') === target) {
-					sessionStorage.removeItem('claude-mux-last-session');
+				if (localStorage.getItem('claude-mux-last-session') === target) {
+					localStorage.removeItem('claude-mux-last-session');
 				}
 				if ($page.state?.resumed) {
 					void goto('/', { replaceState: true });
