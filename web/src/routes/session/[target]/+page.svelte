@@ -214,17 +214,26 @@
 	}
 
 	$effect(() => {
-		if (!headerEl) return;
+		if (!headerEl || !nameTextEl) return;
 		const ro = new ResizeObserver(measureHeader);
+		// Observe both: headerEl catches viewport/sidebar changes, nameTextEl
+		// catches font load and sibling additions (e.g. status appearing)
+		// that change the title's available room without resizing the header.
 		ro.observe(headerEl);
+		ro.observe(nameTextEl);
 		measureHeader();
+		// Fonts swap async; measure again once the real font is ready.
+		if (browser && document.fonts?.ready) {
+			document.fonts.ready.then(measureHeader);
+		}
 		return () => ro.disconnect();
 	});
 
 	$effect(() => {
-		// Re-measure when displayed name changes (may fit or not without
-		// any header resize triggering the observer).
+		// Re-measure when title or inline status changes; either can flip
+		// truncation without a corresponding ResizeObserver tick.
 		void (currentSession?.display_name ?? target);
+		void statusText;
 		measureHeader();
 	});
 
