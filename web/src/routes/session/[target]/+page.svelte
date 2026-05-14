@@ -1013,6 +1013,15 @@
 		padding: 4px;
 		z-index: 10;
 		box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		max-width: calc(100vw - 16px);
+	}
+
+	.queue-dropdown :global(button) {
+		width: 100%;
+		justify-content: flex-start;
 		white-space: nowrap;
 	}
 

@@ -455,6 +455,15 @@ export class SessionsWsManager {
 		return { type: 'systemStats' as const, ...cachedSystemStats, timestamp: Date.now() };
 	}
 
+	/**
+	 * Public trigger for an immediate fresh broadcast. Used by API mutation
+	 * endpoints (rename/kill/restart) so the UI updates instantly instead of
+	 * waiting up to 500ms for the file watcher poll to detect mtime change.
+	 */
+	broadcastNow(): void {
+		this.refreshAndBroadcast();
+	}
+
 	private refreshAndBroadcast(): void {
 		// If already refreshing, queue a follow-up refresh so we don't lose
 		// watcher notifications that arrive while async tmux calls are in-flight.

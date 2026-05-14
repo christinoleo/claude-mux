@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { execFileSync } from 'child_process';
 import { deleteSession } from '$shared/db/index.js';
+import { broadcastSessions } from '$lib/server/ws-managers.js';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const id = decodeURIComponent(params.id);
@@ -33,6 +34,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		} catch {
 			// Cleanup is best-effort
 		}
+		broadcastSessions();
 		return json({ ok: true });
 	} catch {
 		// Even if kill fails, clean up session
@@ -41,6 +43,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		} catch {
 			// Ignore
 		}
+		broadcastSessions();
 		return json({ ok: true });
 	}
 };

@@ -15,17 +15,17 @@ function devWebSocket() {
 
 			// Import shared handlers
 			const {
-				SessionsWsManager,
-				TerminalWsManager,
 				handleWsMessage,
 				parseWsPath,
 				resizePane
 			} = await import('../src/server/ws-handlers.js');
 			type WsClient = import('../src/server/ws-handlers.js').WsClient;
 
-			// Create manager instances with debug enabled for dev
-			const sessionsWsManager = new SessionsWsManager({ debug: true });
-			const terminalWsManager = new TerminalWsManager({ debug: true });
+			// Use globalThis-backed singletons so API mutation routes and
+			// this WS plugin share the same client registry.
+			const { sessionsWsManager, terminalWsManager } = await import(
+				'./src/lib/server/ws-managers.js'
+			);
 
 			// Track WebSocket -> target mapping for cleanup
 			const wsTargets = new WeakMap<WebSocket, string>();

@@ -1,17 +1,12 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import {
-	SessionsWsManager,
-	TerminalWsManager,
 	handleWsMessage,
 	parseWsPath,
 	resizePane,
 	type WsClient
 } from '$shared/server/ws-handlers.js';
+import { sessionsWsManager, terminalWsManager } from '$lib/server/ws-managers.js';
 import { isAuthEnabled, validateAuthToken, AUTH_COOKIE } from '$lib/server/auth.js';
-
-// Global manager instances with config
-const sessionsWsManager = new SessionsWsManager({ debug: true });
-const terminalWsManager = new TerminalWsManager({ debug: true });
 
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
 const wsDataMap = new WeakMap<

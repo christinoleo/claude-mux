@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getSession, updateSession } from '$shared/db/index.js';
 import { sendTextToPane } from '$shared/server/message-queue.js';
+import { broadcastSessions } from '$lib/server/ws-managers.js';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const id = params.id;
@@ -15,6 +16,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	}
 	const name = body.name ?? null;
 	updateSession(id, { display_name: name });
+	broadcastSessions();
 
 	const target = session.tmux_target;
 	if (target && name && name.trim().length > 0) {
