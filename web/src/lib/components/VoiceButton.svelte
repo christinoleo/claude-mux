@@ -144,7 +144,7 @@
 		enabled: () => supported && canOpenMenu()
 	}}
 	use:clickOutside={{
-		enabled: () => menuOpen,
+		enabled: menuOpen,
 		onOutside: () => (menuOpen = false)
 	}}
 >

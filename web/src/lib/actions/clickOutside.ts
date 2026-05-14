@@ -1,6 +1,6 @@
 export interface ClickOutsideOptions {
 	onOutside: () => void;
-	enabled?: () => boolean;
+	enabled?: boolean;
 }
 
 export interface ClickOutsideAction {
@@ -34,7 +34,7 @@ export function clickOutside(node: HTMLElement, options: ClickOutsideOptions): C
 	}
 
 	function sync(): void {
-		const wantAttached = opts.enabled ? opts.enabled() : true;
+		const wantAttached = opts.enabled ?? true;
 		if (wantAttached && !attached && !pendingTimer) {
 			pendingTimer = setTimeout(() => {
 				pendingTimer = null;

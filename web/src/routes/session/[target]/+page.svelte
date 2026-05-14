@@ -671,7 +671,7 @@
 				oncontextmenu={handleSendContextMenu}
 				use:longPress={{ onTrigger: () => (queuePopoverOpen = true) }}
 				use:clickOutside={{
-					enabled: () => queuePopoverOpen,
+					enabled: queuePopoverOpen,
 					onOutside: () => (queuePopoverOpen = false)
 				}}
 			>
