@@ -52,6 +52,9 @@
 	let showConfirmKill = $state(false);
 	let moreOpen = $state(false);
 	let headerOverflowOpen = $state(false);
+	let headerCompact = $state(false);
+	let headerEl: HTMLElement | undefined = $state();
+	let nameTextEl: HTMLElement | undefined = $state();
 	let commandsOpen = $state(false);
 	let queuePopoverOpen = $state(false);
 	let ctrlCount = $state(0);
@@ -187,6 +190,40 @@
 	});
 
 	onMount(() => tmuxPanesStore.subscribe());
+
+	// Adaptive header: switch to the ⋮ dropdown only when inline actions
+	// would crowd the title. ResizeObserver handles header width changes;
+	// a separate effect handles name changes (no observer rebuild).
+	// Width difference between the inline icon row (4×32 + 3 gaps = 140)
+	// and the compact dropdown trigger (32). Hysteresis margin prevents
+	// oscillation when collapsing/expanding the header on resize.
+	const INLINE_VS_COMPACT_WIDTH = 108;
+
+	function measureHeader() {
+		if (!nameTextEl) return;
+		const natural = nameTextEl.scrollWidth;
+		const avail = nameTextEl.clientWidth;
+		if (!headerCompact && natural > avail + 1) {
+			headerCompact = true;
+		} else if (headerCompact && natural + INLINE_VS_COMPACT_WIDTH <= avail) {
+			headerCompact = false;
+		}
+	}
+
+	$effect(() => {
+		if (!headerEl) return;
+		const ro = new ResizeObserver(measureHeader);
+		ro.observe(headerEl);
+		measureHeader();
+		return () => ro.disconnect();
+	});
+
+	$effect(() => {
+		// Re-measure when displayed name changes (may fit or not without
+		// any header resize triggering the observer).
+		void (currentSession?.display_name ?? target);
+		measureHeader();
+	});
 
 	// Load runs in $effect.pre so it precedes the save effect in the same flush;
 	// otherwise a target switch would persist the previous textInput under the
@@ -514,7 +551,7 @@
 </svelte:head>
 
 <div class="session-container">
-	<header class="header">
+	<header class="header" class:compact={headerCompact} bind:this={headerEl}>
 		<div class="title-row">
 			{#if parsedTitle?.symbol}
 				<span class="state-symbol" class:braille={parsedTitle.isBraille} style="color: {stateDotColor}">{parsedTitle.symbol}</span>
@@ -529,7 +566,7 @@
 					disabled={!isClaudeSession}
 					title={isClaudeSession ? 'Tap to rename' : undefined}
 				>
-					<span class="name-text">{currentSession ? getSessionDisplayName(currentSession) : target}</span>
+					<span class="name-text" bind:this={nameTextEl}>{currentSession ? getSessionDisplayName(currentSession) : target}</span>
 					{#if isClaudeSession}
 						<iconify-icon icon="mdi:pencil"></iconify-icon>
 					{/if}
@@ -538,26 +575,20 @@
 			</div>
 		</div>
 		<div class="header-actions">
-			{#if isAlive}
-				<div class="header-actions-desktop">
-					<Button variant="secondary" size="toolbar" onclick={copyTmuxCmd} title="Copy tmux attach command" class={showCopied ? 'bg-green-800 text-green-300' : ''}>
-						<iconify-icon icon={showCopied ? "mdi:check" : "mdi:content-copy"}></iconify-icon>
-						<span>{showCopied ? 'Copied!' : 'Tmux'}</span>
-					</Button>
-					<Button variant="secondary" size="toolbar" onclick={handleResize} title="Resize tmux pane to fit viewport">
-						<iconify-icon icon="mdi:fit-to-screen"></iconify-icon>
-						<span>Fit</span>
-					</Button>
-					<Button variant="secondary" size="toolbar" onclick={() => location.reload()} title="Refresh page">
-						<iconify-icon icon="mdi:refresh"></iconify-icon>
-						<span>Refresh</span>
-					</Button>
-				</div>
-			{/if}
 			<div class="header-actions-desktop">
-				<Button variant="ghost-destructive" size="toolbar" class="kill-btn" onclick={() => (showConfirmKill = true)} title="Kill Session">
-					<iconify-icon icon="mdi:power"></iconify-icon>
-					<span class="kill-label">Kill</span>
+				{#if isAlive}
+					<Button variant="secondary" size="icon-sm" onclick={copyTmuxCmd} class={showCopied ? 'bg-emerald-900 text-emerald-300 hover:bg-emerald-900' : ''}>
+						<iconify-icon icon={showCopied ? 'mdi:check' : 'mdi:content-copy'} style="font-size: 18px;"></iconify-icon>
+					</Button>
+					<Button variant="secondary" size="icon-sm" onclick={handleResize}>
+						<iconify-icon icon="mdi:fit-to-screen" style="font-size: 18px;"></iconify-icon>
+					</Button>
+					<Button variant="secondary" size="icon-sm" onclick={() => location.reload()}>
+						<iconify-icon icon="mdi:refresh" style="font-size: 18px;"></iconify-icon>
+					</Button>
+				{/if}
+				<Button variant="secondary" size="icon-sm" onclick={() => (showConfirmKill = true)} class="text-red-400 hover:bg-red-950/40 hover:text-red-300">
+					<iconify-icon icon="mdi:power" style="font-size: 18px;"></iconify-icon>
 				</Button>
 			</div>
 			<div class="header-actions-mobile">
@@ -779,8 +810,6 @@
 		padding: 12px 16px;
 		background: #111;
 		border-bottom: 1px solid #222;
-		container-type: inline-size;
-		container-name: hdr;
 	}
 
 	.header-actions-mobile {
@@ -795,74 +824,59 @@
 		}
 	}
 
-	/* Compact mode: switch when header itself runs out of room,
-	   not based on viewport. Inline actions stay until they'd
-	   crowd the title; below ~520px container width they collapse
-	   into the ⋮ overflow popover. */
-	@container hdr (max-width: 520px) {
-		.header {
-			gap: 6px;
-		}
-		.title-row {
-			gap: 6px;
-		}
-		.title-info {
-			flex-direction: row;
-			align-items: center;
-			gap: 6px;
-			overflow: hidden;
-			flex-wrap: nowrap;
-		}
-		.target-btn {
-			font-size: 13px;
-			padding: 2px 4px;
-			margin: -2px -4px;
-			min-height: 0;
-		}
-		.target-btn iconify-icon {
-			font-size: 12px;
-			margin-left: 4px;
-		}
-		.status {
-			display: none;
-		}
-		.state-symbol {
-			font-size: 13px;
-		}
-		.state-symbol.braille {
-			font-size: 15px;
-		}
-		.state {
-			width: 8px;
-			height: 8px;
-		}
-		.header-actions {
-			gap: 4px;
-		}
-		.header-actions-desktop {
-			display: none;
-		}
-		.header-actions-mobile {
-			display: flex;
-		}
-		.header-actions-mobile :global([data-popover-trigger]),
-		.header-actions-mobile > :global(*) {
-			width: 32px;
-			height: 32px;
-		}
-		.header-actions :global(.kill-btn) {
-			padding: 0;
-			width: 32px;
-			height: 32px;
-			min-width: 0;
-			border-radius: 6px;
-		}
-		.header-actions :global(.kill-btn .kill-label) {
-			display: none;
-		}
-		.header-actions :global(.kill-btn iconify-icon) {
-			font-size: 18px;
-		}
+	/* Compact mode: JS toggles .compact when the title would
+	   truncate next to the inline actions. */
+	.header.compact {
+		gap: 6px;
+	}
+	.header.compact .title-row {
+		gap: 6px;
+	}
+	.header.compact .title-info {
+		flex-direction: row;
+		align-items: center;
+		gap: 6px;
+		overflow: hidden;
+		flex-wrap: nowrap;
+	}
+	.header.compact .target-btn {
+		font-size: 13px;
+		padding: 2px 4px;
+		margin: -2px -4px;
+		min-height: 0;
+	}
+	.header.compact .target-btn iconify-icon {
+		font-size: 12px;
+		margin-left: 4px;
+	}
+	.header.compact .status {
+		display: none;
+	}
+	.header.compact .state-symbol {
+		font-size: 13px;
+	}
+	.header.compact .state-symbol.braille {
+		font-size: 15px;
+	}
+	.header.compact .state {
+		width: 8px;
+		height: 8px;
+	}
+	.header.compact .header-actions {
+		gap: 4px;
+	}
+	.header.compact .header-actions-desktop {
+		display: none;
+	}
+	.header.compact .header-actions-mobile {
+		display: flex;
+	}
+	.header.compact .header-actions-mobile :global([data-popover-trigger]),
+	.header.compact .header-actions-mobile > :global(*) {
+		width: 32px;
+		height: 32px;
+	}
+	@media (max-width: 768px) {
 		.toolbar :global(button) {
 			border-radius: 3px;
 		}
