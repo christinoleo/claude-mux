@@ -41,6 +41,9 @@ jobs:
             exit 1
           fi
 
+      - name: Upgrade npm (OIDC trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
