@@ -41,9 +41,6 @@ jobs:
             exit 1
           fi
 
-      - name: Upgrade npm (OIDC trusted publishing needs >= 11.5.1)
-        run: npm install -g npm@latest
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -51,7 +48,9 @@ jobs:
         run: bun run build
 
       - name: Publish to npm (trusted publishing, no token)
-        run: npm publish --access public --provenance
+        # npm 11.5.1+ required for OIDC trusted publishing without an auth token.
+        # `npx npm@latest` avoids overwriting the runner's bundled npm mid-process.
+        run: npx -y npm@latest publish --access public --provenance
 
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
