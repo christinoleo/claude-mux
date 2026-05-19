@@ -488,20 +488,22 @@ export class SessionsWsManager {
 				this.lastHash = hash;
 				const data = JSON.stringify(message);
 
-				for (const client of this.clients) {
-					if (!this.sendToClient(client, message, data)) {
-						this.clients.delete(client);
-						this.droppedClients++;
-						log(
-							{
-								level: 'warn',
-								component: 'sessions',
-								message: 'Dropped slow client',
-								data: { total: this.clients.size }
-							},
-							this.config
-						);
-					}
+				const drops: WsClient[] = [];
+				for (const client of [...this.clients]) {
+					if (!this.sendToClient(client, message, data)) drops.push(client);
+				}
+				for (const client of drops) {
+					this.clients.delete(client);
+					this.droppedClients++;
+					log(
+						{
+							level: 'warn',
+							component: 'sessions',
+							message: 'Dropped slow client',
+							data: { total: this.clients.size }
+						},
+						this.config
+					);
 				}
 			})
 			.catch((err) => {
@@ -531,11 +533,13 @@ export class SessionsWsManager {
 		this.lastStatsHash = hash;
 
 		const data = JSON.stringify(message);
-		for (const client of this.clients) {
-			if (!this.sendToClient(client, message, data)) {
-				this.clients.delete(client);
-				this.droppedClients++;
-			}
+		const drops: WsClient[] = [];
+		for (const client of [...this.clients]) {
+			if (!this.sendToClient(client, message, data)) drops.push(client);
+		}
+		for (const client of drops) {
+			this.clients.delete(client);
+			this.droppedClients++;
 		}
 	}
 
@@ -740,22 +744,23 @@ export class TerminalWsManager {
 
 		const clients = this.clients.get(target);
 		if (clients) {
-			for (const client of clients) {
-				if (!this.sendToClient(client, message, data)) {
-					// Client is slow/dead, remove it
-					clients.delete(client);
-					this.totalClients--;
-					this.droppedClients++;
-					log(
-						{
-							level: 'warn',
-							component: 'terminal',
-							message: 'Dropped slow client',
-							data: { target, total: this.totalClients }
-						},
-						this.config
-					);
-				}
+			const drops: WsClient[] = [];
+			for (const client of [...clients]) {
+				if (!this.sendToClient(client, message, data)) drops.push(client);
+			}
+			for (const client of drops) {
+				clients.delete(client);
+				this.totalClients--;
+				this.droppedClients++;
+				log(
+					{
+						level: 'warn',
+						component: 'terminal',
+						message: 'Dropped slow client',
+						data: { target, total: this.totalClients }
+					},
+					this.config
+				);
 			}
 
 			// Clean up if no clients left

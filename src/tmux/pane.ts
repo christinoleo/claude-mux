@@ -26,27 +26,39 @@ export function capturePaneContent(target: string): string | null {
   }
 }
 
+// child_process timeout sends SIGTERM but does not settle the promise if the
+// subprocess is wedged (D state, blocked stdio pipe). Wrap with a hard race so
+// callers can never hang the broadcast pipeline.
+function hardTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      () => { clearTimeout(timer); resolve(fallback); },
+    );
+  });
+}
+
 /**
  * Batch-fetch all pane titles in a single tmux command.
  * Returns a Map of "session:window.pane" -> title (or null if pane has no title).
  */
 export async function getAllPaneTitles(): Promise<Map<string, string | null>> {
   const result = new Map<string, string | null>();
-  try {
-    const { stdout } = await execFileAsync("tmux", [
+  const stdout = await hardTimeout(
+    execFileAsync("tmux", [
       "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}\t#{pane_title}"
-    ], { encoding: "utf-8", timeout: 2000 });
-
-    for (const line of stdout.trim().split("\n")) {
-      if (!line) continue;
-      const tabIdx = line.indexOf("\t");
-      if (tabIdx === -1) continue;
-      const target = line.slice(0, tabIdx);
-      const title = line.slice(tabIdx + 1).trim();
-      result.set(target, title || null);
-    }
-  } catch {
-    // tmux not available or no panes
+    ], { encoding: "utf-8", timeout: 2000 }).then((r) => r.stdout),
+    2500,
+    "",
+  );
+  for (const line of stdout.trim().split("\n")) {
+    if (!line) continue;
+    const tabIdx = line.indexOf("\t");
+    if (tabIdx === -1) continue;
+    const target = line.slice(0, tabIdx);
+    const title = line.slice(tabIdx + 1).trim();
+    result.set(target, title || null);
   }
   return result;
 }
@@ -55,15 +67,14 @@ export async function getAllPaneTitles(): Promise<Map<string, string | null>> {
  * Async version of capturePaneContent. Does not block the event loop.
  */
 export async function capturePaneContentAsync(target: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync("tmux", ["capture-pane", "-p", "-t", target], {
+  return hardTimeout(
+    execFileAsync("tmux", ["capture-pane", "-p", "-t", target], {
       encoding: "utf-8",
       timeout: 1000,
-    });
-    return stdout;
-  } catch {
-    return null;
-  }
+    }).then((r) => r.stdout),
+    1500,
+    null,
+  );
 }
 
 /**
