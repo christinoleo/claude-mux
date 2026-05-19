@@ -8,3 +8,4 @@ export { createWaitIdleCommand } from "./wait-idle.js";
 export { createStatusCommand } from "./status.js";
 export { createCaptureCommand } from "./capture.js";
 export { createNewSessionCommand } from "./new-session.js";
+export { createUpdateCommand, runUpdate } from "./update.js";
