@@ -66,9 +66,28 @@
 
 ## Installation
 
+**One-liner (recommended)** &mdash; installs bun, claude-mux, hooks, and starts the server on `127.0.0.1:3456`:
+
 ```bash
-bun install -g claude-mux
-# or: npm install -g claude-mux
+curl -fsSL https://raw.githubusercontent.com/christinoleo/claude-mux/main/scripts/install.sh | bash
+```
+
+Override defaults with env vars: `CLAUDE_MUX_VERSION`, `CLAUDE_MUX_PORT`, `CLAUDE_MUX_NO_SETUP=1`, `CLAUDE_MUX_NO_SERVE=1`.
+
+**Manual** &mdash; if you already have a Node/Bun toolchain:
+
+```bash
+npm install -g claude-mux       # or: bun install -g claude-mux
+claude-mux setup                # install Claude Code hooks
+```
+
+If `npm install -g` fails with `EACCES`, your npm prefix is a system path. Switch to a user prefix (one-time):
+
+```bash
+mkdir -p ~/.npm-global
+npm config set prefix ~/.npm-global
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.bashrc
+exec $SHELL -l
 ```
 
 <details>
@@ -81,6 +100,33 @@ bun install && bun run build
 bun link  # makes 'claude-mux' available globally
 ```
 </details>
+
+---
+
+## Updating
+
+```bash
+claude-mux update           # npm i -g latest, re-syncs hooks, restarts prod server if running
+claude-mux update --force   # reinstall even when already on latest
+```
+
+`update` stops the prod server before reinstalling so live module files aren't clobbered, then re-runs `setup --yes` so hook paths stay current.
+
+---
+
+## Running as a service (boot autostart)
+
+`claude-mux service install` writes a **systemd user unit** (no root needed for install):
+
+```bash
+claude-mux service install                  # writes ~/.config/systemd/user/claude-mux.service, enables + starts
+claude-mux service status                   # systemctl --user status …
+claude-mux service uninstall --purge        # disable + remove unit
+
+sudo loginctl enable-linger $USER           # ONE-TIME sudo: keeps service running after logout / starts on boot
+```
+
+Logs: `journalctl --user -u claude-mux.service -f`
 
 ---
 
@@ -105,6 +151,10 @@ claude-mux serve --port 3456 --host 0.0.0.0
 |---------|-------------|
 | `claude-mux serve` | Start web server (`--port`, `--host`, `--auth <password>`) |
 | `claude-mux setup` | Install Claude Code hooks |
+| `claude-mux update` | `npm i -g` latest, re-sync hooks, restart prod server |
+| `claude-mux service install` | Install systemd user unit (boot autostart, no root) |
+| `claude-mux service uninstall` | Disable systemd user unit (`--purge` removes the file) |
+| `claude-mux service status` | Show systemd service status |
 | `claude-mux uninstall` | Remove hooks and configuration |
 | `claude-mux send <target> [text]` | Send text or `--keys` to a session |
 | `claude-mux status <target>` | Get session state as JSON |

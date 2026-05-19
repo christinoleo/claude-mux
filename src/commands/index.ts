@@ -9,3 +9,4 @@ export { createStatusCommand } from "./status.js";
 export { createCaptureCommand } from "./capture.js";
 export { createNewSessionCommand } from "./new-session.js";
 export { createUpdateCommand, runUpdate } from "./update.js";
+export { createServiceCommand } from "./service.js";

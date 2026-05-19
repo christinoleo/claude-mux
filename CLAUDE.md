@@ -37,6 +37,32 @@ Run a single test file:
 bun vitest run tests/db/sessions.test.ts
 ```
 
+## Releasing
+
+Releases are fully automated. **Do not `npm publish` manually.**
+
+```bash
+npm version minor    # bumps package.json + src/utils/version.ts, commits, tags vX.Y.Z
+git push origin main
+git push origin vX.Y.Z   # tag push triggers .github/workflows/release.yml
+```
+
+The workflow builds CLI + web, publishes to npm via **OIDC trusted publishing** (no token, no MFA — the trust anchor is `christinoleo/claude-mux` + `release.yml` registered on npmjs.com), and creates a GitHub release. Publish runs as `npx -y npm@latest publish --access public --provenance` because the runner's bundled npm is too old for OIDC.
+
+After release, other machines update with: `claude-mux update`.
+
+## Service management on remote hosts
+
+For machines that should run claude-mux as a long-lived service (e.g. `engage`):
+
+```bash
+claude-mux service install               # ~/.config/systemd/user/claude-mux.service, enabled + started
+sudo loginctl enable-linger $USER        # one-time: survive logout, start on boot
+journalctl --user -u claude-mux -f       # logs
+```
+
+`update` restarts a `nohup`-launched server it finds on :3456, but it does **not** restart a systemd-managed instance. On systemd hosts, after `claude-mux update` run `systemctl --user restart claude-mux.service` (or use `--skip-restart` on update and restart explicitly).
+
 ## Architecture
 
 claude-mux has three main components:

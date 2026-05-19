@@ -11,6 +11,7 @@ import {
   createCaptureCommand,
   createNewSessionCommand,
   createUpdateCommand,
+  createServiceCommand,
   runTui,
   runServe,
 } from "./commands/index.js";
@@ -43,6 +44,7 @@ program.addCommand(createStatusCommand());
 program.addCommand(createCaptureCommand());
 program.addCommand(createNewSessionCommand());
 program.addCommand(createUpdateCommand());
+program.addCommand(createServiceCommand());
 
 // BACKWARD COMPATIBILITY: Support old flags on root command
 program
