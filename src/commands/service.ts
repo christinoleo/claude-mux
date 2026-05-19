@@ -10,15 +10,22 @@ const USER_UNIT_DIR = join(homedir(), ".config", "systemd", "user");
 const UNIT_PATH = join(USER_UNIT_DIR, SERVICE_NAME);
 
 function which(cmd: string): string | null {
-  try {
-    const out = execSync(`command -v ${cmd}`, {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    return out || null;
-  } catch {
-    return null;
+  // Probe with a login shell so we pick up PATH additions from ~/.bashrc /
+  // ~/.profile (e.g. ~/.local/bin from Anthropic's claude installer, or nvm).
+  // The plain `command -v` runs with whatever PATH this process inherited,
+  // which under SSH non-login is far too minimal.
+  for (const args of [["bash", "-lc"], ["sh", "-lc"]]) {
+    try {
+      const out = execSync(`${args[0]} ${args[1]} ${JSON.stringify(`command -v ${cmd}`)}`, {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+      if (out) return out;
+    } catch {
+      /* try next shell */
+    }
   }
+  return null;
 }
 
 function hasSystemd(): boolean {
@@ -31,15 +38,18 @@ function buildUnit(port: number, host: string): string {
     throw new Error("`claude-mux` not on PATH; install it first.");
   }
   // Build a PATH that systemd can use to find `bun` (runtime), `tmux`, and
-  // the agent binaries (`claude`, `gemini`, ...) which usually live alongside
-  // claude-mux in the npm prefix's bin dir.
-  const npmBinDir = dirname(claudeMuxBin);
-  const bunBin = which("bun");
-  const claudeBin = which("claude");
+  // the agent binaries (`claude`, `gemini`, ...). These live in varied places:
+  // npm prefix bin (claude-mux itself), nvm bin, ~/.bun/bin, and ~/.local/bin
+  // (Anthropic's native claude installer drops there).
   const dirs = new Set<string>();
-  if (bunBin) dirs.add(dirname(bunBin));
-  dirs.add(npmBinDir);
-  if (claudeBin) dirs.add(dirname(claudeBin));
+  dirs.add(dirname(claudeMuxBin));
+  for (const cmd of ["bun", "claude", "gemini", "copilot", "tmux"]) {
+    const p = which(cmd);
+    if (p) dirs.add(dirname(p));
+  }
+  // ~/.local/bin is the XDG default for user binaries; include even if no
+  // probed agent currently lives there, since users often add binaries later.
+  if (process.env.HOME) dirs.add(`${process.env.HOME}/.local/bin`);
   for (const d of ["/usr/local/bin", "/usr/bin", "/bin"]) dirs.add(d);
   const pathValue = Array.from(dirs).join(":");
 
