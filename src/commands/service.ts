@@ -30,8 +30,18 @@ function buildUnit(port: number, host: string): string {
   if (!claudeMuxBin) {
     throw new Error("`claude-mux` not on PATH; install it first.");
   }
+  // Build a PATH that systemd can use to find `bun` (runtime), `tmux`, and
+  // the agent binaries (`claude`, `gemini`, ...) which usually live alongside
+  // claude-mux in the npm prefix's bin dir.
+  const npmBinDir = dirname(claudeMuxBin);
   const bunBin = which("bun");
-  const extraPath = bunBin ? `${dirname(bunBin)}:` : "";
+  const claudeBin = which("claude");
+  const dirs = new Set<string>();
+  if (bunBin) dirs.add(dirname(bunBin));
+  dirs.add(npmBinDir);
+  if (claudeBin) dirs.add(dirname(claudeBin));
+  for (const d of ["/usr/local/bin", "/usr/bin", "/bin"]) dirs.add(d);
+  const pathValue = Array.from(dirs).join(":");
 
   return `[Unit]
 Description=claude-mux serve (web dashboard + WebSocket)
@@ -40,7 +50,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-Environment=PATH=${extraPath}%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${pathValue}
+# Optional env file (e.g. GROQ_API_KEY=...). Leading dash = ok if missing.
+EnvironmentFile=-%h/.config/claude-mux/env
 ExecStart=${claudeMuxBin} serve --port ${port} --host ${host}
 Restart=on-failure
 RestartSec=3
