@@ -61,7 +61,7 @@ sudo loginctl enable-linger $USER        # one-time: survive logout, start on bo
 journalctl --user -u claude-mux -f       # logs
 ```
 
-`update` restarts a `nohup`-launched server it finds on :3456, but it does **not** restart a systemd-managed instance. On systemd hosts, after `claude-mux update` run `systemctl --user restart claude-mux.service` (or use `--skip-restart` on update and restart explicitly).
+`update` auto-detects how the server is running and restarts it accordingly: `systemctl --user stop/start claude-mux.service` for systemd-managed hosts, or `nohup claude-mux serve` for hosts started manually. Use `--skip-restart` to leave the server alone.
 
 ## Architecture
 

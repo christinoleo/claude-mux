@@ -18,6 +18,20 @@ function getLatestVersion(): string | null {
   }
 }
 
+const SYSTEMD_UNIT = "claude-mux.service";
+
+function isSystemdManaged(): boolean {
+  const r = spawnSync("systemctl", ["--user", "is-active", "--quiet", SYSTEMD_UNIT], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  return r.status === 0;
+}
+
+function systemctlUser(...args: string[]): number {
+  const r = spawnSync("systemctl", ["--user", ...args], { stdio: "inherit" });
+  return r.status ?? 1;
+}
+
 function findProdPid(): number | null {
   try {
     const out = execSync(
@@ -94,8 +108,16 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
 
   // Stop the running prod server BEFORE `npm i -g` so the install doesn't
   // overwrite module files the live process is still loading lazily.
-  const wasRunning = !opts.skipRestart ? findProdPid() : null;
-  if (wasRunning) await stopProd(wasRunning);
+  const skipRestart = !!opts.skipRestart;
+  const systemdActive = !skipRestart && isSystemdManaged();
+  const nohupPid = !skipRestart && !systemdActive ? findProdPid() : null;
+
+  if (systemdActive) {
+    console.log(`Stopping ${SYSTEMD_UNIT} (systemd)...`);
+    systemctlUser("stop", SYSTEMD_UNIT);
+  } else if (nohupPid) {
+    await stopProd(nohupPid);
+  }
 
   console.log(`\nInstalling claude-mux@${latest} globally via npm...`);
   const install = spawnSync("npm", ["i", "-g", `claude-mux@${latest}`], {
@@ -103,7 +125,9 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
   });
   if (install.status !== 0) {
     console.error("npm install failed.");
-    if (wasRunning) {
+    if (systemdActive) {
+      console.error(`Old server was stopped; restart it with: systemctl --user start ${SYSTEMD_UNIT}`);
+    } else if (nohupPid) {
       console.error("Old server was stopped; restart it manually with `claude-mux serve`.");
     }
     process.exit(install.status ?? 1);
@@ -112,11 +136,15 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
   console.log("\nRe-running setup to sync hooks...");
   await runSetup({ yes: true });
 
-  if (wasRunning) {
+  if (systemdActive) {
+    console.log("");
+    console.log(`Starting ${SYSTEMD_UNIT} (systemd)...`);
+    systemctlUser("start", SYSTEMD_UNIT);
+  } else if (nohupPid) {
     console.log("");
     startProd();
-  } else if (!opts.skipRestart) {
-    console.log("Prod server was not running; skipping restart.");
+  } else if (!skipRestart) {
+    console.log("No running server detected (neither systemd nor nohup); skipping restart.");
   }
 
   console.log("\nUpdate complete.");
