@@ -128,6 +128,19 @@ sudo loginctl enable-linger $USER           # ONE-TIME sudo: keeps service runni
 
 Logs: `journalctl --user -u claude-mux.service -f`
 
+### Secrets / API keys (Groq voice, etc.)
+
+The unit reads `~/.config/claude-mux/env` if present (`EnvironmentFile=-`). Put any `KEY=value` env vars there — they survive restarts and stay out of the unit file. Voice transcription needs `GROQ_API_KEY`:
+
+```bash
+umask 077
+mkdir -p ~/.config/claude-mux
+printf 'GROQ_API_KEY=gsk_...\n' > ~/.config/claude-mux/env
+systemctl --user restart claude-mux.service
+```
+
+Edit the file then `systemctl --user restart claude-mux.service` to pick up changes.
+
 ---
 
 ## Quick Start

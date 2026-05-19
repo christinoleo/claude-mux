@@ -63,11 +63,33 @@
 	let ctrlCount = $state(0);
 	let altCount = $state(0);
 	let chordMenuOpen = $state(false);
-	let chordRow = $state(0);
-	let chordCol = $state(0);
-	let chordGrid = $state<ChordAction[][]>([]);
+	let chordIndex = $state(0);
+	let chordItems = $state<ChordAction[]>([]);
 	let chordTitle = $state('');
+	let chordStickArmed = $state(false);
+	let chordStickX = $state(0);
+	let chordStickY = $state(0);
 	let showCopied = $state(false);
+	const CHORD_STICK_DEADZONE = 0.3;
+	const CHORD_RING_THRESHOLD = 0.7;
+	const CHORD_RING_RADII = [130, 220];
+	const CHORD_CURSOR_RADIUS_PX = 240;
+	const CHORD_MAX_PER_RING = 12;
+	let chordInnerCount = $state(0);
+	const chordRings = $derived.by(() => {
+		const items = chordItems;
+		if (chordInnerCount <= 0 || chordInnerCount >= items.length) return [items];
+		return [items.slice(0, chordInnerCount), items.slice(chordInnerCount)];
+	});
+	const chordPositions = $derived(
+		chordRings.flatMap((ring, ringIdx) => {
+			const r = CHORD_RING_RADII[ringIdx] ?? CHORD_RING_RADII[CHORD_RING_RADII.length - 1];
+			return ring.map((_, i) => {
+				const angle = (i / ring.length) * Math.PI * 2 - Math.PI / 2;
+				return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+			});
+		})
+	);
 
 	const headerActions: ChordAction[] = $derived([
 		...(isAlive
@@ -85,7 +107,15 @@
 		{ label: 'Kill pane', icon: 'mdi:power', run: () => (showConfirmKill = true), danger: true }
 	]);
 
-	const slashAndCtrlActions: ChordAction[] = [
+	const ctrlActions: ChordAction[] = [
+		{ label: 'Ctrl+L', icon: 'mdi:eraser', run: () => void sendKeys('C-l') },
+		{ label: 'Ctrl+U', icon: 'mdi:backspace-outline', run: () => void sendKeys('C-u') },
+		{ label: 'Ctrl+W', icon: 'mdi:delete-sweep-outline', run: () => void sendKeys('C-w') },
+		{ label: 'Ctrl+C', icon: 'mdi:stop', run: () => void sendKeys('C-c') },
+		{ label: 'Ctrl+R', icon: 'mdi:magnify', run: () => void sendKeys('C-r') }
+	];
+
+	const slashActions: ChordAction[] = [
 		{ label: '/clear', icon: 'mdi:broom', run: () => runText('/clear') },
 		{ label: '/compact', icon: 'mdi:archive-arrow-down', run: () => runText('/compact') },
 		{ label: '/resume', icon: 'mdi:play-circle-outline', run: () => runText('/resume') },
@@ -104,12 +134,7 @@
 		{ label: '/ak:verify', icon: 'mdi:check-decagram', run: () => runText('/ak:verify') },
 		{ label: '/ak:bcheck', icon: 'mdi:checkbox-marked-circle-outline', run: () => runText('/ak:bcheck') },
 		{ label: '/ak:p1', icon: 'mdi:numeric-1-circle', run: () => runText('/ak:p1') },
-		{ label: '/ak:p2', icon: 'mdi:numeric-2-circle', run: () => runText('/ak:p2') },
-		{ label: 'Ctrl+L', icon: 'mdi:eraser', run: () => void sendKeys('C-l') },
-		{ label: 'Ctrl+U', icon: 'mdi:backspace-outline', run: () => void sendKeys('C-u') },
-		{ label: 'Ctrl+W', icon: 'mdi:delete-sweep-outline', run: () => void sendKeys('C-w') },
-		{ label: 'Ctrl+C', icon: 'mdi:stop', run: () => void sendKeys('C-c') },
-		{ label: 'Ctrl+R', icon: 'mdi:magnify', run: () => void sendKeys('C-r') }
+		{ label: '/ak:p2', icon: 'mdi:numeric-2-circle', run: () => runText('/ak:p2') }
 	];
 
 	function chunk<T>(arr: T[], size: number): T[][] {
@@ -613,31 +638,32 @@
 		});
 	}
 
-	function chordRowLen(): number {
-		return chordGrid[chordRow]?.length ?? 0;
-	}
-	function chordStepCol(delta: number) {
-		const n = chordRowLen();
+	function chordStep(delta: number) {
+		const n = chordItems.length;
 		if (n === 0) return;
-		chordCol = (chordCol + delta + n) % n;
-	}
-	function chordStepRow(delta: number) {
-		const rows = chordGrid.length;
-		if (rows === 0) return;
-		chordRow = (chordRow + delta + rows) % rows;
-		const cols = chordRowLen();
-		if (chordCol >= cols) chordCol = Math.max(0, cols - 1);
+		chordIndex = (chordIndex + delta + n) % n;
+		chordStickArmed = true;
 	}
 
-	function openChord(grid: ChordAction[][], title: string) {
-		chordGrid = grid.filter((r) => r.length > 0);
-		chordRow = 0;
-		chordCol = 0;
+	function openChord(items: ChordAction[], title: string, innerCount = 0) {
+		chordItems = items;
+		chordInnerCount = innerCount;
+		chordIndex = 0;
 		chordTitle = title;
+		chordStickArmed = false;
+		chordStickX = 0;
+		chordStickY = 0;
 		chordMenuOpen = true;
 	}
 	function closeChord() {
 		chordMenuOpen = false;
+		chordStickArmed = false;
+		chordStickX = 0;
+		chordStickY = 0;
+	}
+	function releaseChord() {
+		if (chordStickArmed) chordItems[chordIndex]?.run();
+		closeChord();
 	}
 
 	$effect(() => {
@@ -664,15 +690,35 @@
 	useGamepad({
 		enabled: () => target != null,
 		axes: () => (axes) => {
+			const lx = axes[0] ?? 0;
 			const ly = axes[1] ?? 0;
-			if (chordMenuOpen) return;
+			if (chordMenuOpen) {
+				chordStickX = lx;
+				chordStickY = ly;
+				const mag = Math.hypot(lx, ly);
+				if (mag < CHORD_STICK_DEADZONE || chordItems.length === 0) {
+					chordStickArmed = false;
+					return;
+				}
+				chordStickArmed = true;
+				const rings = chordRings;
+				const ringIdx = rings.length > 1 && mag >= CHORD_RING_THRESHOLD ? 1 : 0;
+				const ring = rings[ringIdx];
+				const stickAngle = Math.atan2(ly, lx);
+				const norm = (stickAngle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2);
+				const localIdx = Math.round((norm / (Math.PI * 2)) * ring.length) % ring.length;
+				let offset = 0;
+				for (let i = 0; i < ringIdx; i++) offset += rings[i].length;
+				chordIndex = offset + localIdx;
+				return;
+			}
 			if (Math.abs(ly) < STICK_DEADZONE) return;
 			if (outputElement) outputElement.scrollTop += ly * 24;
 		},
 		buttons: () => ({
 			A: () => {
 				if (chordMenuOpen) {
-					chordGrid[chordRow]?.[chordCol]?.run();
+					chordItems[chordIndex]?.run();
 					closeChord();
 				} else {
 					void sendText();
@@ -700,27 +746,26 @@
 			L1: () => history.back(),
 			R1: () => history.forward(),
 			L2: {
-				press: () => openChord(chunk(slashAndCtrlActions, 5), 'Commands'),
-				release: closeChord
+				press: () => openChord([...ctrlActions, ...slashActions], 'Commands', ctrlActions.length),
+				release: releaseChord
 			},
 			R2: {
-				press: () => openChord([headerActions, sidebarActionsStore.actions], 'Actions'),
-				release: closeChord
+				press: () =>
+					openChord([...headerActions, ...sidebarActionsStore.actions], 'Actions'),
+				release: releaseChord
 			},
 			DpadUp: () => {
-				if (chordMenuOpen) chordStepRow(-1);
-				else void sendKeys('Up');
+				if (!chordMenuOpen) void sendKeys('Up');
 			},
 			DpadDown: () => {
-				if (chordMenuOpen) chordStepRow(1);
-				else void sendKeys('Down');
+				if (!chordMenuOpen) void sendKeys('Down');
 			},
 			DpadLeft: () => {
-				if (chordMenuOpen) chordStepCol(-1);
+				if (chordMenuOpen) chordStep(-1);
 				else void sendKeys('Left');
 			},
 			DpadRight: () => {
-				if (chordMenuOpen) chordStepCol(1);
+				if (chordMenuOpen) chordStep(1);
 				else void sendKeys('Right');
 			}
 		})
@@ -807,6 +852,18 @@
 			} else {
 				sendText();
 			}
+		}
+	}
+
+	// Mobile soft keyboards (iOS especially) don't fire reliable repeated
+	// keydown events for Backspace during long-press — they fire `beforeinput`
+	// with inputType="deleteContentBackward" each time, including at the
+	// keyboard's accelerated repeat rate. Mirror handleKeydown's empty-input
+	// Backspace forwarding here so long-press-to-delete works on mobile.
+	function handleBeforeInput(e: InputEvent) {
+		if (e.inputType === 'deleteContentBackward' && textInput === '' && !modArmed) {
+			e.preventDefault();
+			void sendKeys('BSpace');
 		}
 	}
 
@@ -923,24 +980,41 @@
 
 {#if chordMenuOpen}
 	<div class="chord-overlay">
-		<div class="chord-source-label">{chordTitle}</div>
-		<div class="chord-grid">
-			{#each chordGrid as row, r}
-				<div class="chord-row">
-					{#each row as item, c (item.label)}
+		<div class="chord-panel">
+			<div class="chord-title">{chordTitle}</div>
+			<div class="chord-stage">
+				<div class="chord-ring">
+					{#each chordItems as item, i (item.label)}
+						{@const pos = chordPositions[i] ?? { x: 0, y: 0 }}
 						<div
 							class="chord-item"
-							class:selected={r === chordRow && c === chordCol}
+							class:armed={chordStickArmed && chordIndex === i}
 							class:danger={item.danger}
+							style:--x="{pos.x}px"
+							style:--y="{pos.y}px"
 						>
-							<iconify-icon icon={item.icon} style="font-size: 28px;"></iconify-icon>
+							<iconify-icon icon={item.icon}></iconify-icon>
 							<span>{item.label}</span>
 						</div>
 					{/each}
 				</div>
-			{/each}
+				<div class="chord-deadzone" class:inactive={!chordStickArmed}>
+					<span>Cancel</span>
+				</div>
+				<div
+					class="chord-cursor"
+					class:armed={chordStickArmed}
+					style:--cx="{chordStickX * CHORD_CURSOR_RADIUS_PX}px"
+					style:--cy="{chordStickY * CHORD_CURSOR_RADIUS_PX}px"
+				></div>
+			</div>
+			<div
+				class="chord-status"
+				class:danger={chordStickArmed && chordItems[chordIndex]?.danger}
+			>
+				{chordStickArmed ? chordItems[chordIndex]?.label ?? '' : 'Release to cancel'}
+			</div>
 		</div>
-		<div class="chord-hint">D-pad: navigate · A: run · B or release trigger: cancel</div>
 	</div>
 {/if}
 
@@ -1132,7 +1206,7 @@
 			{/if}
 		</div>
 
-		<form class="input-row" onsubmit={async (e) => { e.preventDefault(); if (await finishVoiceIfRecording()) return; if (modArmed) sendModSequence(); else sendText(); }}>
+		<form class="input-row" onsubmit={async (e) => { e.preventDefault(); if (await finishVoiceIfRecording()) { handleResize(); return; } if (modArmed) await sendModSequence(); else await sendText(); handleResize(); }}>
 			{#if ctrlCount > 0}
 				<button type="button" class="mod-chip" onclick={() => (ctrlCount = 0)} title="Disarm Ctrl">
 					<iconify-icon icon="mdi:apple-keyboard-control"></iconify-icon>
@@ -1187,6 +1261,7 @@
 				rows={1}
 				onkeydown={handleKeydown}
 				onkeyup={handleKeyup}
+				onbeforeinput={handleBeforeInput}
 				onblur={handleBlur}
 				oninput={autoResize}
 				onpaste={handlePaste}
@@ -1250,65 +1325,164 @@
 	.chord-overlay {
 		position: fixed;
 		inset: 0;
-		background: rgba(0, 0, 0, 0.6);
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 1rem;
+		display: grid;
+		place-items: center;
 		z-index: 1000;
 		pointer-events: none;
+		background: radial-gradient(ellipse at center, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.92) 100%);
+		font-family: 'JetBrains Mono', ui-monospace, monospace;
+		animation: chord-fade-in 120ms ease-out;
 	}
-	.chord-grid {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		background: #111;
-		padding: 1.25rem;
-		border-radius: 12px;
-		border: 1px solid #333;
-		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+	@keyframes chord-fade-in {
+		from { opacity: 0; transform: scale(0.96); }
+		to   { opacity: 1; transform: scale(1); }
 	}
-	.chord-row {
-		display: flex;
-		gap: 0.75rem;
-		justify-content: center;
+	.chord-panel {
+		position: relative;
+		padding: 1.25rem 1.5rem 1rem;
+		background: linear-gradient(180deg, #14141a, #0a0a0d);
+		border: 1px solid rgba(226, 160, 82, 0.22);
+		border-radius: 14px;
+		box-shadow:
+			0 0 0 1px rgba(226, 160, 82, 0.06),
+			0 24px 60px rgba(0, 0, 0, 0.7),
+			inset 0 1px 0 rgba(255, 255, 255, 0.04);
+	}
+	.chord-title {
+		color: #e2a052;
+		font-size: 0.65rem;
+		letter-spacing: 0.32em;
+		text-transform: uppercase;
+		text-align: center;
+		opacity: 0.7;
+		margin-bottom: 0.85rem;
+	}
+	.chord-stage {
+		position: relative;
+		isolation: isolate;
+		width: 30rem;
+		height: 30rem;
+	}
+	.chord-ring {
+		position: absolute;
+		inset: 0;
 	}
 	.chord-item {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 4.5rem;
+		min-height: 4.5rem;
+		transform: translate(calc(-50% + var(--x, 0px)), calc(-50% + var(--y, 0px)));
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.4rem;
-		padding: 0.75rem 0.9rem;
-		min-width: 5rem;
-		border-radius: 8px;
-		background: #1a1a1a;
-		color: #ccc;
-		border: 2px solid transparent;
-		transition: transform 80ms, border-color 80ms, background 80ms;
-		font-size: 0.85rem;
+		justify-content: center;
+		gap: 0.25rem;
+		padding: 0.4rem 0.3rem;
+		background: rgba(22, 22, 28, 0.65);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		border-radius: 50%;
+		color: rgba(255, 255, 255, 0.5);
+		font-size: 0.55rem;
+		letter-spacing: 0.03em;
+		text-align: center;
+		transition:
+			border-color 140ms,
+			background 140ms,
+			color 140ms,
+			box-shadow 140ms,
+			scale 140ms cubic-bezier(0.2, 0.9, 0.2, 1);
 	}
-	.chord-item.selected {
-		border-color: #e2a052;
-		background: #2a1f10;
+	.chord-item iconify-icon { font-size: 26px; }
+	.chord-item.armed {
+		background: linear-gradient(180deg, rgba(226,160,82,0.22), rgba(226,160,82,0.04));
+		border-color: rgba(226, 160, 82, 0.85);
 		color: #fff;
-		transform: scale(1.08);
+		scale: 1.15;
+		box-shadow:
+			0 0 28px rgba(226, 160, 82, 0.35),
+			inset 0 1px 0 rgba(255, 255, 255, 0.08);
 	}
-	.chord-item.danger.selected {
-		border-color: #dc2626;
-		background: #2a1010;
-		color: #fca5a5;
+	.chord-item.danger.armed {
+		border-color: rgba(239, 68, 68, 0.9);
+		background: linear-gradient(180deg, rgba(239,68,68,0.22), rgba(239,68,68,0.04));
+		color: #fecaca;
+		box-shadow: 0 0 28px rgba(239, 68, 68, 0.35);
 	}
-	.chord-source-label {
-		color: #e2a052;
-		font-size: 0.75rem;
-		letter-spacing: 0.12em;
+	.chord-deadzone {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 6.5rem;
+		height: 6.5rem;
+		transform: translate(-50%, -50%);
+		border-radius: 50%;
+		border: 1.5px dashed rgba(255, 255, 255, 0.18);
+		display: grid;
+		place-items: center;
+		pointer-events: none;
+		z-index: 2;
+		transition: border-color 180ms, background 180ms;
+	}
+	.chord-deadzone span {
+		font-size: 0.6rem;
+		letter-spacing: 0.25em;
+		color: rgba(255, 255, 255, 0.25);
+		opacity: 0;
+		transition: opacity 160ms, color 160ms;
 		text-transform: uppercase;
 	}
-	.chord-hint {
-		color: #888;
-		font-size: 0.85rem;
-		letter-spacing: 0.04em;
+	.chord-deadzone.inactive {
+		border-color: rgba(239, 68, 68, 0.55);
+		background: radial-gradient(circle, rgba(239, 68, 68, 0.10) 0%, transparent 70%);
+	}
+	.chord-deadzone.inactive span {
+		opacity: 1;
+		color: rgba(252, 165, 165, 0.85);
+	}
+	.chord-cursor {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		transform: translate(calc(-50% + var(--cx, 0px)), calc(-50% + var(--cy, 0px)));
+		background: rgba(239, 68, 68, 0.9);
+		box-shadow:
+			0 0 10px rgba(239, 68, 68, 0.5),
+			0 0 20px rgba(239, 68, 68, 0.25);
+		pointer-events: none;
+		z-index: 3;
+		will-change: transform;
+		transition: background 100ms, box-shadow 100ms;
+	}
+	.chord-cursor.armed {
+		background: #e2a052;
+		box-shadow:
+			0 0 12px rgba(226, 160, 82, 0.9),
+			0 0 28px rgba(226, 160, 82, 0.45);
+	}
+	.chord-cursor::before {
+		content: '';
+		position: absolute;
+		inset: -8px;
+		border-radius: 50%;
+		border: 1px solid currentColor;
+		opacity: 0.25;
+	}
+	.chord-status {
+		margin-top: 1rem;
+		text-align: center;
+		font-size: 0.72rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: rgba(255, 255, 255, 0.75);
+		min-height: 1rem;
+	}
+	.chord-status.danger {
+		color: #fca5a5;
 	}
 
 	.session-container {
