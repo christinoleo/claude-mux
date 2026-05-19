@@ -1,10 +1,23 @@
 import { Command } from "commander";
 import { execSync, spawnSync } from "child_process";
 import { setTimeout as delay } from "timers/promises";
+import { existsSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 import { VERSION } from "../utils/version.js";
 import { runSetup } from "../setup/index.js";
 import { isPidAlive } from "../utils/pid.js";
 import { DEFAULT_SERVER_PORT } from "../utils/paths.js";
+
+const UNIT_PATH = join(homedir(), ".config", "systemd", "user", "claude-mux.service");
+
+// SSH non-login shells often lack XDG_RUNTIME_DIR, which `systemctl --user`
+// needs to reach the user manager. Set it ourselves when missing.
+function ensureXdgRuntime(): void {
+  if (process.env.XDG_RUNTIME_DIR) return;
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (uid !== null) process.env.XDG_RUNTIME_DIR = `/run/user/${uid}`;
+}
 
 function getLatestVersion(): string | null {
   try {
@@ -21,6 +34,11 @@ function getLatestVersion(): string | null {
 const SYSTEMD_UNIT = "claude-mux.service";
 
 function isSystemdManaged(): boolean {
+  // Unit file present means `service install` was run on this host; that's
+  // the authoritative signal. is-active can return false negatives under
+  // SSH non-login where XDG_RUNTIME_DIR is unset.
+  if (existsSync(UNIT_PATH)) return true;
+  ensureXdgRuntime();
   const r = spawnSync("systemctl", ["--user", "is-active", "--quiet", SYSTEMD_UNIT], {
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -28,6 +46,7 @@ function isSystemdManaged(): boolean {
 }
 
 function systemctlUser(...args: string[]): number {
+  ensureXdgRuntime();
   const r = spawnSync("systemctl", ["--user", ...args], { stdio: "inherit" });
   return r.status ?? 1;
 }
@@ -72,11 +91,13 @@ async function stopProd(pid: number): Promise<void> {
 
 function startProd(): void {
   console.log(`Starting prod server on 127.0.0.1:${DEFAULT_SERVER_PORT}...`);
+  // POSIX-clean: with stdin/stdout/stderr redirected, `&` alone fully detaches.
+  // `disown` is bash-only and breaks under /bin/sh = dash (Debian/Ubuntu).
   const result = spawnSync(
     "sh",
     [
       "-c",
-      `nohup claude-mux serve --port ${DEFAULT_SERVER_PORT} --host 127.0.0.1 > /tmp/claude-mux-prod.log 2>&1 & disown`,
+      `nohup claude-mux serve --port ${DEFAULT_SERVER_PORT} --host 127.0.0.1 < /dev/null > /tmp/claude-mux-prod.log 2>&1 &`,
     ],
     { stdio: "inherit" }
   );
