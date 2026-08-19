@@ -14,7 +14,7 @@ bun run dev:serve --host 0.0.0.0     # LAN access
 
 **HMR handles most changes automatically** - no restart needed for Svelte components, stores, routes, or API endpoints. Only `vite.config.ts` changes require a restart.
 
-After each change, check tmux pane `0:1.1` to verify HMR worked. If the server died, restart it. Do not start a new server if one is already running. If the pane reference is wrong, find the correct one and update this file.
+After each change, check tmux pane `dev:1.1` to verify HMR worked. If the server died, restart it. Do not start a new server if one is already running. If the pane reference is wrong, find the correct one and update this file.
 
 ## Build & Development Commands
 

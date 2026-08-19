@@ -12,6 +12,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import TerminalRenderer from '$lib/components/TerminalRenderer.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
+	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import { voiceStore } from '$lib/stores/voice.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { untrack } from 'svelte';
@@ -189,17 +190,18 @@
 		{ label: 'End', keys: 'End', icon: 'mdi:page-last' },
 	];
 
-	const commands: { label: string; text: string; keys?: string; icon: string }[] = [
-		{ label: '/clear', text: '/clear', icon: 'mdi:broom' },
-		{ label: '/rc', text: '/rc', icon: 'mdi:cellphone-link' },
-		{ label: '/ak:linus', text: '/ak:linus', icon: 'mdi:code-tags-check' },
-		{ label: '/ak:replan', text: '/ak:replan', icon: 'mdi:clipboard-text-outline' },
-		{ label: '/ak:redelta', text: '/ak:redelta', icon: 'mdi:compare' },
-		{ label: '/ak:triage', text: '/ak:triage', icon: 'mdi:sort-variant' },
-		{ label: '/ak:verify', text: '/ak:verify', icon: 'mdi:check-decagram' },
-		{ label: '/ak:bcheck', text: '/ak:bcheck', icon: 'mdi:checkbox-marked-circle-outline' },
-		{ label: '/ak:p1', text: '/ak:p1', icon: 'mdi:numeric-1-circle' },
-		{ label: '/ak:p2', text: '/ak:p2', icon: 'mdi:numeric-2-circle' },
+	// Pinned commands — shown first in the command palette (Cmds button)
+	const pinnedCommands = [
+		'/clear',
+		'/rc',
+		'/ak:linus',
+		'/ak:replan',
+		'/ak:redelta',
+		'/ak:triage',
+		'/ak:verify',
+		'/ak:bcheck',
+		'/ak:p1',
+		'/ak:p2',
 	];
 
 	function fillInput(text: string) {
@@ -1113,30 +1115,11 @@
 				</Popover.Content>
 			</Popover.Root>
 
-			<!-- Commands popover -->
-			<Popover.Root bind:open={commandsOpen}>
-				<Popover.Trigger class="flex-1 flex-col gap-0.5 px-2 py-1.5 min-w-11 h-auto text-[9px] uppercase tracking-wide inline-flex shrink-0 items-center justify-center rounded-md font-medium cursor-pointer bg-[#222] text-stone-100 hover:bg-[#333]">
-					<iconify-icon icon="mdi:lightning-bolt" style="font-size: 18px;"></iconify-icon>
-					<span>Cmds</span>
-				</Popover.Trigger>
-				<Popover.Content side="top" class="w-auto p-2 bg-[#1a1a1a] border-[#333]">
-					<div class="popover-grid">
-						{#each commands as cmd}
-							{#if cmd.keys}
-								<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => { sendKeys(cmd.keys!); commandsOpen = false; }}>
-									<iconify-icon icon={cmd.icon}></iconify-icon>
-									<span>{cmd.label}</span>
-								</Button>
-							{:else}
-								<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => fillInput(cmd.text)}>
-									<iconify-icon icon={cmd.icon}></iconify-icon>
-									<span>{cmd.label}</span>
-								</Button>
-							{/if}
-						{/each}
-					</div>
-				</Popover.Content>
-			</Popover.Root>
+			<!-- Commands palette -->
+			<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => (commandsOpen = true)}>
+				<iconify-icon icon="mdi:lightning-bolt"></iconify-icon>
+				<span>Cmds</span>
+			</Button>
 
 			<Button
 				variant={ctrlCount > 0 ? 'success' : 'secondary'}
@@ -1300,6 +1283,8 @@
 			</div>
 		</form>
 </div>
+
+<CommandPalette bind:open={commandsOpen} cwd={currentSession?.cwd} pinned={pinnedCommands} onselect={fillInput} />
 
 <AlertDialog.Root bind:open={showConfirmKill}>
 	<AlertDialog.Content>
