@@ -188,6 +188,10 @@
 		{ label: 'PgDn', keys: 'PageDown', icon: 'mdi:chevron-double-down' },
 		{ label: 'Home', keys: 'Home', icon: 'mdi:page-first' },
 		{ label: 'End', keys: 'End', icon: 'mdi:page-last' },
+		// Clear whatever is typed in Claude's prompt: Ctrl+E (end of line) then
+		// Ctrl+U repeatedly (delete to line start; repeats walk up multiline input).
+		// Extra Ctrl+U on an empty prompt is a no-op, so over-sending is safe.
+		{ label: 'Clear', keys: 'C-e ' + Array(12).fill('C-u').join(' '), icon: 'mdi:eraser' },
 	];
 
 	// Pinned commands — shown first in the command palette (Cmds button)
@@ -385,6 +389,29 @@
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ keys })
 		});
+	}
+
+	// Send button with empty input: single tap → Enter, double tap → Tab+Enter
+	// (accept suggestion). The single Enter is delayed briefly so a second tap
+	// can upgrade it; keyboard Enter stays immediate (see handleKeydown).
+	const DOUBLE_TAP_MS = 300;
+	let emptyEnterTimer: ReturnType<typeof setTimeout> | null = null;
+	async function sendFromButton() {
+		if (!target || !canSend) return;
+		if (textInput.trim() || readyPaths.length > 0) {
+			await sendText();
+			return;
+		}
+		if (emptyEnterTimer) {
+			clearTimeout(emptyEnterTimer);
+			emptyEnterTimer = null;
+			await acceptSuggestion();
+			return;
+		}
+		emptyEnterTimer = setTimeout(() => {
+			emptyEnterTimer = null;
+			void sendKeys('Enter');
+		}, DOUBLE_TAP_MS);
 	}
 
 	async function sendText() {
@@ -1219,7 +1246,7 @@
 			{/if}
 		</div>
 
-		<form class="input-row" onsubmit={async (e) => { e.preventDefault(); if (await finishVoiceIfRecording()) { handleResize(); return; } if (modArmed) await sendModSequence(); else await sendText(); handleResize(); }}>
+		<form class="input-row" onsubmit={async (e) => { e.preventDefault(); if (await finishVoiceIfRecording()) { handleResize(); return; } if (modArmed) await sendModSequence(); else await sendFromButton(); handleResize(); }}>
 			{#if ctrlCount > 0}
 				<button type="button" class="mod-chip" onclick={() => (ctrlCount = 0)} title="Disarm Ctrl">
 					<iconify-icon icon="mdi:apple-keyboard-control"></iconify-icon>
@@ -1287,7 +1314,7 @@
 					onOutside: () => (queuePopoverOpen = false)
 				}}
 			>
-				<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg" disabled={!canSend}>
+				<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg touch-manipulation select-none" disabled={!canSend} title="Send · empty: tap = Enter, double-tap = accept suggestion (Tab+Enter) · long-press = queue">
 					<iconify-icon icon="mdi:send"></iconify-icon>
 				</Button>
 				{#if queueCount > 0}
