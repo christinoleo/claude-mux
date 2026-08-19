@@ -66,6 +66,10 @@ EnvironmentFile=-%h/.config/claude-mux/env
 ExecStart=${claudeMuxBin} serve --port ${port} --host ${host}
 Restart=on-failure
 RestartSec=3
+# tmux sessions started from the dashboard (New Session) spawn the tmux server
+# as a child of this service. Only kill the server process on stop/restart, so
+# \`claude-mux update\` / \`systemctl restart\` never take the Claude sessions down.
+KillMode=process
 StandardOutput=journal
 StandardError=journal
 

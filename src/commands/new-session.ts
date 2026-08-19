@@ -34,7 +34,8 @@ export function createNewSessionCommand(): Command {
     .option("--name <name>", "Custom session name (default: <project>-<timestamp>)")
     .option("--no-skip-permissions", "Don't add --dangerously-skip-permissions")
     .option("--linked-to <target>", "Link to an existing session (ID or tmux target)")
-    .action((options: { cwd: string; name?: string; skipPermissions: boolean; linkedTo?: string }) => {
+    .option("--resume <sessionId>", "Resume an existing Claude Code session (passes --resume to claude)")
+    .action((options: { cwd: string; name?: string; skipPermissions: boolean; linkedTo?: string; resume?: string }) => {
       const cwd = options.cwd;
 
       if (!existsSync(cwd)) {
@@ -56,6 +57,9 @@ export function createNewSessionCommand(): Command {
       const claudeArgs = ["claude"];
       if (options.skipPermissions) {
         claudeArgs.push("--dangerously-skip-permissions");
+      }
+      if (options.resume) {
+        claudeArgs.push("--resume", options.resume);
       }
 
       try {

@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { execSync, spawnSync } from "child_process";
 import { setTimeout as delay } from "timers/promises";
-import { existsSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { VERSION } from "../utils/version.js";
@@ -43,6 +43,29 @@ function isSystemdManaged(): boolean {
     stdio: ["pipe", "pipe", "pipe"],
   });
   return r.status === 0;
+}
+
+/**
+ * Older unit files lack KillMode=process, so stopping the service also killed
+ * the tmux server (and every Claude session) spawned from the dashboard.
+ * Patch the unit in place and daemon-reload BEFORE we stop it.
+ */
+function ensureUnitKillMode(): void {
+  if (!existsSync(UNIT_PATH)) return;
+  try {
+    const unit = readFileSync(UNIT_PATH, "utf-8");
+    if (/^KillMode=/m.test(unit)) return;
+    const patched = unit.replace(
+      /^(RestartSec=.*)$/m,
+      "$1\n# Only kill the server on stop/restart; tmux sessions started from the dashboard live on.\nKillMode=process"
+    );
+    if (patched === unit) return;
+    writeFileSync(UNIT_PATH, patched, "utf-8");
+    console.log("Patched systemd unit: KillMode=process (keeps tmux sessions alive across restarts)");
+    systemctlUser("daemon-reload");
+  } catch (err) {
+    console.warn(`Could not patch unit file: ${String(err)}`);
+  }
 }
 
 function systemctlUser(...args: string[]): number {
@@ -134,6 +157,7 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
   const nohupPid = !skipRestart && !systemdActive ? findProdPid() : null;
 
   if (systemdActive) {
+    ensureUnitKillMode();
     console.log(`Stopping ${SYSTEMD_UNIT} (systemd)...`);
     systemctlUser("stop", SYSTEMD_UNIT);
   } else if (nohupPid) {
