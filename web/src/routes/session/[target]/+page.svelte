@@ -295,6 +295,17 @@
 		terminalStore.setTarget(isAlive ? target : null);
 	});
 
+	// New target: forget any scrolled-up state from the previous session so the
+	// view always opens pinned to the latest output.
+	$effect(() => {
+		target;
+		untrack(() => {
+			userScrolledUp = false;
+			seenAppended = 0;
+			terminalStore.atBottom = true;
+		});
+	});
+
 	onDestroy(() => {
 		terminalStore.setTarget(null);
 	});
@@ -374,11 +385,19 @@
 	// While scrolled up we deliberately leave scrollTop alone: history only appends
 	// below, so whatever the user is reading stays where it is.
 	$effect(() => {
-		// track output changes
+		// track output changes (screen redraws, appended history, and the initial
+		// history tail / load-more prepends, which grow the block above the screen)
 		terminalStore.screen;
 		terminalStore.appended;
+		terminalStore.history.length;
+		terminalStore.historyStart;
 		if (outputElement && !userScrolledUp && !hasSelection) {
-			outputElement.scrollTop = outputElement.scrollHeight;
+			const el = outputElement;
+			el.scrollTop = el.scrollHeight;
+			// Layout may still settle (fonts, viewport/keyboard changes on mobile): pin again next frame.
+			requestAnimationFrame(() => {
+				if (!userScrolledUp && !hasSelection) el.scrollTop = el.scrollHeight;
+			});
 		}
 	});
 
