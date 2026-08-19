@@ -8,7 +8,7 @@ describe("Header", () => {
     const { lastFrame } = render(<Header claudeCount={0} tmuxCount={0} />);
 
     const output = lastFrame();
-    expect(output).toContain("claude-watch");
+    expect(output).toContain("claude-mux");
   });
 
   it("should show claude count", () => {

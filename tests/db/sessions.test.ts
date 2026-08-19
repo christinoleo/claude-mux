@@ -136,9 +136,9 @@ describe("sessions (JSON files)", () => {
       expect(sessions).toEqual([]);
     });
 
-    it("should return all sessions sorted by priority", () => {
+    it("should return all sessions sorted by id (stable ordering)", () => {
       upsertSession({
-        id: "session-1",
+        id: "session-3",
         pid: 1001,
         cwd: "/project1",
         state: "busy",
@@ -150,7 +150,7 @@ describe("sessions (JSON files)", () => {
         state: "waiting",
       });
       upsertSession({
-        id: "session-3",
+        id: "session-1",
         pid: 1003,
         cwd: "/project3",
         state: "permission",
@@ -164,11 +164,13 @@ describe("sessions (JSON files)", () => {
 
       const sessions = getAllSessions();
       expect(sessions.length).toBe(4);
-      // Permission first, then waiting, then idle, then busy
-      expect(sessions[0].state).toBe("permission");
-      expect(sessions[1].state).toBe("waiting");
-      expect(sessions[2].state).toBe("idle");
-      expect(sessions[3].state).toBe("busy");
+      // Sorted by id regardless of state or insertion order
+      expect(sessions.map((s) => s.id)).toEqual([
+        "session-1",
+        "session-2",
+        "session-3",
+        "session-4",
+      ]);
     });
   });
 

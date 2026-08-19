@@ -19,13 +19,13 @@ describe("setup/hooks", () => {
       expect(hooks.SessionEnd).toBeDefined();
     });
 
-    it("should include claude-watch-hook command in all hooks", () => {
+    it("should include claude-mux-hook command in all hooks", () => {
       const hooks = getClaudeWatchHooks();
 
       for (const eventHooks of Object.values(hooks)) {
         for (const matcher of eventHooks) {
           for (const hook of matcher.hooks) {
-            expect(hook.command).toContain("claude-watch-hook");
+            expect(hook.command).toContain("claude-mux-hook");
           }
         }
       }
@@ -86,7 +86,7 @@ describe("setup/hooks", () => {
       for (const eventHooks of Object.values(cleaned)) {
         for (const matcher of eventHooks) {
           for (const hook of matcher.hooks) {
-            expect(hook.command).not.toContain("claude-watch-hook");
+            expect(hook.command).not.toContain("claude-mux-hook");
           }
         }
       }
@@ -100,7 +100,7 @@ describe("setup/hooks", () => {
             hooks: [{ type: "command" as const, command: "some-other-hook" }],
           },
           {
-            hooks: [{ type: "command" as const, command: "node claude-watch-hook" }],
+            hooks: [{ type: "command" as const, command: "node claude-mux-hook" }],
           },
         ],
       };

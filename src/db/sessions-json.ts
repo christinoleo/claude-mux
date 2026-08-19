@@ -249,7 +249,7 @@ export function removeScreenshot(id: string, screenshotPath: string): boolean {
 }
 
 /**
- * Get all sessions, sorted by priority (permission > waiting > idle > busy).
+ * Get all sessions, sorted by ID for stable ordering.
  */
 export function getAllSessions(): Session[] {
   ensureSessionsDir();
