@@ -56,7 +56,7 @@
 
 <style>
 	.root-page {
-		height: 100vh;
+		height: 100dvh;
 		max-width: 800px;
 		margin: 0 auto;
 	}

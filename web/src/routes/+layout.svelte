@@ -136,8 +136,7 @@
 </script>
 
 <svelte:head>
-	<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover" />
 	<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
 </svelte:head>
 
@@ -198,7 +197,9 @@
 <style>
 	:global(body) {
 		margin: 0;
-		min-height: 100vh;
+		min-height: 100dvh;
+		/* Matches the header/toolbar so the iOS status-bar & home-indicator areas blend in */
+		background: #111;
 	}
 
 	:global(iconify-icon) {
@@ -216,8 +217,14 @@
 
 	.app-shell {
 		display: flex;
-		height: 100vh;
+		height: 100dvh;
 		overflow: hidden;
+		box-sizing: border-box;
+		/* Keep UI out from under the notch / home indicator in standalone (PWA) mode */
+		padding-top: env(safe-area-inset-top);
+		padding-bottom: env(safe-area-inset-bottom);
+		padding-left: env(safe-area-inset-left);
+		padding-right: env(safe-area-inset-right);
 	}
 
 	.app-shell.resizing-any {
@@ -291,6 +298,9 @@
 			top: 0;
 			bottom: 0;
 			width: 100% !important;
+			box-sizing: border-box;
+			padding-top: env(safe-area-inset-top);
+			padding-bottom: env(safe-area-inset-bottom);
 			z-index: 60;
 			transform: translateX(-100%);
 			transition: transform 0.2s ease;
