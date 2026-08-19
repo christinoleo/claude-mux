@@ -77,7 +77,8 @@ export const websocket = {
 			target
 				? {
 						resize: (cols, rows) => resizePane(target, cols, rows),
-						setHistory: (lines) => terminalWsManager.setHistoryDepth(target, lines)
+						historyRequest: (before, count) =>
+							terminalWsManager.requestHistory(data!.client, target, before, count)
 					}
 				: undefined
 		);

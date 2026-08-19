@@ -10,7 +10,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Popover from '$lib/components/ui/popover';
-	import TerminalRenderer from '$lib/components/TerminalRenderer.svelte';
+	import TerminalView from '$lib/components/TerminalView.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import { voiceStore } from '$lib/stores/voice.svelte';
@@ -225,7 +225,6 @@
 	// Freeze terminal rendering while user has text selected (iOS dismisses
 	// the copy callout on any DOM mutation under the selection)
 	let hasSelection = $state(false);
-	let frozenOutput = $state('');
 
 	$effect(() => {
 		if (!browser) return;
@@ -233,20 +232,16 @@
 			const sel = window.getSelection();
 			const text = sel?.toString() || '';
 			const selActive = !!(text.length > 0 && outputElement?.contains(sel?.anchorNode ?? null));
-			if (selActive) {
-				selectedText = text;
-				if (!hasSelection) {
-					// Snapshot current output when selection starts
-					frozenOutput = terminalStore.output;
-				}
-			}
+			if (selActive) selectedText = text;
 			hasSelection = selActive;
 		};
 		document.addEventListener('selectionchange', handler);
 		return () => document.removeEventListener('selectionchange', handler);
 	});
 
-	const displayOutput = $derived(hasSelection ? frozenOutput : terminalStore.output);
+	// "New lines below" indicator: history lines appended since the user scrolled up
+	let seenAppended = $state(0);
+	const unseenLines = $derived(userScrolledUp ? Math.max(0, terminalStore.appended - seenAppended) : 0);
 
 	// Measure monospace character dimensions using canvas
 	function measureFont(): { width: number; height: number } {
@@ -334,9 +329,18 @@
 		if (!outputElement) return;
 		const { scrollTop, scrollHeight, clientHeight } = outputElement;
 		const nextScrolledUp = scrollHeight - scrollTop - clientHeight > 50;
-		if (nextScrolledUp !== userScrolledUp) userScrolledUp = nextScrolledUp;
+		if (nextScrolledUp !== userScrolledUp) {
+			userScrolledUp = nextScrolledUp;
+			terminalStore.atBottom = !nextScrolledUp;
+			// Count "new" lines from the moment the user left the bottom
+			seenAppended = terminalStore.appended;
+			if (!nextScrolledUp) terminalStore.trimToBottom();
+		}
 
-		if (scrollTop < 200 && !hasSelection) {
+		// Near the top: fetch an older chunk and keep the viewport anchored on the
+		// same content (history only ever grows at the ends, so the distance from
+		// the bottom is a stable anchor).
+		if (scrollTop < 200 && !hasSelection && !terminalStore.historyAtStart) {
 			const anchor = scrollHeight - scrollTop;
 			const pending = terminalStore.requestMoreHistory();
 			if (pending) {
@@ -351,9 +355,25 @@
 		}
 	}
 
-	// Auto-scroll to bottom only if user hasn't scrolled up and no active selection
+	function scrollToBottom() {
+		if (!outputElement) return;
+		userScrolledUp = false;
+		terminalStore.atBottom = true;
+		seenAppended = terminalStore.appended;
+		terminalStore.trimToBottom();
+		tick().then(() => {
+			if (outputElement) outputElement.scrollTop = outputElement.scrollHeight;
+		});
+	}
+
+	// Auto-scroll to bottom only if user hasn't scrolled up and no active selection.
+	// While scrolled up we deliberately leave scrollTop alone: history only appends
+	// below, so whatever the user is reading stays where it is.
 	$effect(() => {
-		if (outputElement && terminalStore.output && !userScrolledUp && !hasSelection) {
+		// track output changes
+		terminalStore.screen;
+		terminalStore.appended;
+		if (outputElement && !userScrolledUp && !hasSelection) {
 			outputElement.scrollTop = outputElement.scrollHeight;
 		}
 	});
@@ -1063,11 +1083,21 @@
 		</div>
 	</header>
 
-	<div class="output" bind:this={outputElement} onscroll={handleScroll}>
-			{#if preferences.terminalTheming}
-				<TerminalRenderer output={displayOutput} />
-			{:else}
-				<pre class="raw-output">{displayOutput}</pre>
+	<div class="output-wrap">
+			<div class="output" bind:this={outputElement} onscroll={handleScroll}>
+				<TerminalView
+					history={terminalStore.history}
+					historyStart={terminalStore.historyStart}
+					screen={terminalStore.screen}
+					themed={preferences.terminalTheming}
+					frozen={hasSelection}
+				/>
+			</div>
+			{#if userScrolledUp}
+				<button class="jump-bottom" onclick={scrollToBottom} title="Jump to bottom">
+					<iconify-icon icon="mdi:arrow-down"></iconify-icon>
+					{#if unseenLines > 0}<span>{unseenLines} new</span>{/if}
+				</button>
 			{/if}
 		</div>
 
@@ -1604,6 +1634,38 @@
 		flex-shrink: 0;
 	}
 
+	.output-wrap {
+		position: relative;
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.jump-bottom {
+		position: absolute;
+		right: 18px;
+		bottom: 12px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 10px;
+		border-radius: 999px;
+		border: 1px solid #3a3a3a;
+		background: rgba(30, 30, 30, 0.92);
+		color: #e5e5e5;
+		font-size: 12px;
+		cursor: pointer;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+		z-index: 5;
+	}
+	.jump-bottom:hover {
+		background: #2a2a2a;
+	}
+	.jump-bottom iconify-icon {
+		font-size: 16px;
+	}
+
 	.output {
 		flex: 1;
 		overflow-y: auto;
@@ -1618,17 +1680,6 @@
 		word-break: break-word;
 		background: #000;
 		color: #fff;
-	}
-
-	.raw-output {
-		margin: 0;
-		font-family: inherit;
-		font-size: inherit;
-		line-height: inherit;
-		white-space: pre-wrap;
-		word-break: break-word;
-		background: transparent;
-		color: inherit;
 	}
 
 	.toolbar {

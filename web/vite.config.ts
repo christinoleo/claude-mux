@@ -91,7 +91,8 @@ function devWebSocket() {
 					ws.on('message', (data) => {
 						const response = handleWsMessage(data.toString(), {
 							resize: (cols, rows) => resizePane(target, cols, rows),
-							setHistory: (lines) => terminalWsManager.setHistoryDepth(target, lines)
+							historyRequest: (before, count) =>
+								terminalWsManager.requestHistory(client, target, before, count)
 						});
 						if (response === 'pong') ws.send('pong');
 					});

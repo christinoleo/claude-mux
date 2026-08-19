@@ -13,6 +13,7 @@ import { readFileSync } from 'fs';
 import { getAllSessions, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, detectRecentInterruption } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
+import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
 import { getQueueCounts } from './message-queue.js';
 import type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
@@ -97,11 +98,37 @@ export interface WsClient {
 
 export type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 
-export interface TerminalMessage {
-	type: 'output';
-	output: string;
+/** Visible pane changed (or initial). `historySize` is the absolute index right after the last history line. */
+export interface ScreenMessage {
+	type: 'screen';
+	lines: string[];
+	historySize: number;
+	alt: boolean;
+	cols: number;
+	rows: number;
 	timestamp: number;
 }
+
+/** A contiguous block of history lines [start, start+lines.length). */
+export interface HistoryMessage {
+	type: 'history';
+	start: number;
+	lines: string[];
+	historySize: number;
+	timestamp: number;
+}
+
+/** History became invalid (pane reflowed on resize, cleared, alt-screen toggled). Client drops history and re-requests. */
+export interface ResetMessage {
+	type: 'reset';
+	historySize: number;
+	alt: boolean;
+	cols: number;
+	rows: number;
+	timestamp: number;
+}
+
+export type TerminalMessage = ScreenMessage | HistoryMessage | ResetMessage;
 
 export interface ResizeMessage {
 	type: 'resize';
@@ -109,13 +136,17 @@ export interface ResizeMessage {
 	rows: number;
 }
 
-interface SetHistoryMessage {
-	type: 'set_history';
-	lines: number;
+/** Client asks for `count` history lines ending right before absolute index `before`. */
+interface HistoryRequestMessage {
+	type: 'history_request';
+	before: number;
+	count: number;
 }
 
-const DEFAULT_HISTORY_DEPTH = 150;
+const DEFAULT_HISTORY_DEPTH = 200;
 const MAX_HISTORY_DEPTH = 5000;
+/** Max lines served per history_request */
+const MAX_HISTORY_REQUEST = 1000;
 
 // ============================================================================
 // Session Helpers
@@ -586,11 +617,18 @@ export class SessionsWsManager {
 // Terminal WebSocket Manager
 // ============================================================================
 
+interface TargetState {
+	historySize: number;
+	alt: boolean;
+	cols: number;
+	rows: number;
+	screenKey: string;
+}
+
 export class TerminalWsManager {
 	private clients = new Map<string, Set<WsClient>>();
 	private pollTimers = new Map<string, ReturnType<typeof setInterval>>();
-	private lastOutput = new Map<string, string>();
-	private historyDepths = new Map<string, number>();
+	private states = new Map<string, TargetState>();
 	private config: Required<WsConfig>;
 	private totalClients = 0;
 	private droppedClients = 0;
@@ -660,22 +698,70 @@ export class TerminalWsManager {
 		if (this.clients.get(target)!.size === 1) {
 			this.startPolling(target);
 		}
-		const depth = this.historyDepths.get(target) ?? DEFAULT_HISTORY_DEPTH;
-		const output = capturePaneOutput(target, depth) ?? '';
-		this.sendToClient(client, { type: 'output', output, timestamp: Date.now() });
+
+		// Initial state: screen + the last DEFAULT_HISTORY_DEPTH history lines.
+		const snap = snapshotPane(target);
+		const now = Date.now();
+		if (snap) {
+			this.states.set(target, {
+				historySize: snap.historySize,
+				alt: snap.alt,
+				cols: snap.cols,
+				rows: snap.rows,
+				screenKey: snap.screen.join('\n')
+			});
+			this.sendToClient(client, {
+				type: 'screen',
+				lines: snap.screen,
+				historySize: snap.historySize,
+				alt: snap.alt,
+				cols: snap.cols,
+				rows: snap.rows,
+				timestamp: now
+			});
+			if (!snap.alt && snap.historySize > 0) {
+				this.sendHistoryTail(client, target, snap.historySize, DEFAULT_HISTORY_DEPTH);
+			}
+		} else {
+			// Pane gone / not capturable: send an empty screen so the UI renders
+			this.sendToClient(client, {
+				type: 'screen',
+				lines: [],
+				historySize: 0,
+				alt: false,
+				cols: 0,
+				rows: 0,
+				timestamp: now
+			});
+		}
 		return true;
 	}
 
-	setHistoryDepth(target: string, lines: number): void {
-		if (!this.clients.has(target)) return;
-		const requested = Math.max(DEFAULT_HISTORY_DEPTH, Math.min(MAX_HISTORY_DEPTH, Math.floor(lines)));
-		const current = this.historyDepths.get(target) ?? DEFAULT_HISTORY_DEPTH;
-		if (requested <= current) return;
-		this.historyDepths.set(target, requested);
-		// Defer capture off the message dispatch path; lastOutput diffing in
-		// pollAndBroadcast handles dedup against a concurrent poll tick.
-		queueMicrotask(() => {
-			if (this.clients.has(target)) this.pollAndBroadcast(target);
+	/**
+	 * Serve a client's request for `count` history lines before absolute index `before`.
+	 * Replies only to the requesting client (each viewer scrolls independently).
+	 */
+	requestHistory(client: WsClient, target: string, before: number, count: number): void {
+		const state = this.states.get(target);
+		if (!state || state.alt) return;
+		const n = Math.max(1, Math.min(MAX_HISTORY_REQUEST, Math.floor(count)));
+		const end = Math.max(0, Math.min(Math.floor(before), state.historySize));
+		if (end === 0) return;
+		this.sendHistoryTail(client, target, end, n);
+	}
+
+	private sendHistoryTail(client: WsClient, target: string, end: number, count: number): void {
+		const state = this.states.get(target);
+		const known = state?.historySize ?? end;
+		const start = Math.max(0, end - count);
+		const res = fetchHistoryRange(target, start, end, known);
+		if (!res) return;
+		this.sendToClient(client, {
+			type: 'history',
+			start: res.start,
+			lines: res.lines,
+			historySize: res.historySize,
+			timestamp: Date.now()
 		});
 	}
 
@@ -697,23 +783,22 @@ export class TerminalWsManager {
 				if (targetClients.size === 0) {
 					this.stopPolling(target);
 					this.clients.delete(target);
-					this.lastOutput.delete(target);
-					this.historyDepths.delete(target);
+					this.states.delete(target);
 				}
 			}
-		} else {
-			// Find and remove from any target
-			for (const [t, clients] of this.clients) {
-				if (clients.delete(client)) {
-					this.totalClients--;
-					if (clients.size === 0) {
-						this.stopPolling(t);
-						this.clients.delete(t);
-						this.lastOutput.delete(t);
-						this.historyDepths.delete(t);
-					}
-					break;
+			return;
+		}
+
+		// Search all targets for the client
+		for (const [t, clients] of this.clients) {
+			if (clients.delete(client)) {
+				this.totalClients--;
+				if (clients.size === 0) {
+					this.stopPolling(t);
+					this.clients.delete(t);
+					this.states.delete(t);
 				}
+				break;
 			}
 		}
 	}
@@ -733,16 +818,57 @@ export class TerminalWsManager {
 	}
 
 	private pollAndBroadcast(target: string): void {
-		const depth = this.historyDepths.get(target) ?? DEFAULT_HISTORY_DEPTH;
-		const output = capturePaneOutput(target, depth) ?? '';
-		const lastOutput = this.lastOutput.get(target) ?? '';
-		if (output === lastOutput) return;
-		this.lastOutput.set(target, output);
-		const message: TerminalMessage = { type: 'output', output, timestamp: Date.now() };
-		const data = JSON.stringify(message);
+		const snap = snapshotPane(target);
+		if (!snap) return; // pane gone; keep last state, clients will see pane_alive=false via sessions stream
+		const prev = this.states.get(target);
+		const now = Date.now();
+		const messages: TerminalMessage[] = [];
+		const screenKey = snap.screen.join('\n');
 
+		if (!prev) {
+			this.states.set(target, { historySize: snap.historySize, alt: snap.alt, cols: snap.cols, rows: snap.rows, screenKey });
+			messages.push({ type: 'reset', historySize: snap.historySize, alt: snap.alt, cols: snap.cols, rows: snap.rows, timestamp: now });
+			messages.push({ type: 'screen', lines: snap.screen, historySize: snap.historySize, alt: snap.alt, cols: snap.cols, rows: snap.rows, timestamp: now });
+		} else {
+			const reflowed =
+				snap.alt !== prev.alt ||
+				snap.cols !== prev.cols ||
+				snap.rows !== prev.rows ||
+				snap.historySize < prev.historySize;
+			if (reflowed) {
+				// Resize reflows history in tmux; `clear` drops it; alt-screen swaps buffers.
+				messages.push({ type: 'reset', historySize: snap.historySize, alt: snap.alt, cols: snap.cols, rows: snap.rows, timestamp: now });
+			} else if (!snap.alt && snap.historySize > prev.historySize) {
+				const n = snap.historySize - prev.historySize;
+				let lines: string[] | null = null;
+				let start = prev.historySize;
+				if (n <= snap.tail.length) {
+					lines = snap.tail.slice(snap.tail.length - n);
+				} else {
+					// Burst larger than the tail we snapshot each tick — fetch the rest explicitly.
+					const res = fetchHistoryRange(target, prev.historySize, snap.historySize, snap.historySize);
+					if (res) {
+						lines = res.lines;
+						start = res.start;
+					}
+				}
+				if (lines) {
+					messages.push({ type: 'history', start, lines, historySize: snap.historySize, timestamp: now });
+				} else {
+					messages.push({ type: 'reset', historySize: snap.historySize, alt: snap.alt, cols: snap.cols, rows: snap.rows, timestamp: now });
+				}
+			}
+			if (screenKey !== prev.screenKey || reflowed) {
+				messages.push({ type: 'screen', lines: snap.screen, historySize: snap.historySize, alt: snap.alt, cols: snap.cols, rows: snap.rows, timestamp: now });
+			}
+			this.states.set(target, { historySize: snap.historySize, alt: snap.alt, cols: snap.cols, rows: snap.rows, screenKey });
+		}
+
+		if (messages.length === 0) return;
 		const clients = this.clients.get(target);
-		if (clients) {
+		if (!clients) return;
+		for (const message of messages) {
+			const data = JSON.stringify(message);
 			const drops: WsClient[] = [];
 			for (const client of [...clients]) {
 				if (!this.sendToClient(client, message, data)) drops.push(client);
@@ -761,13 +887,11 @@ export class TerminalWsManager {
 					this.config
 				);
 			}
-
-			// Clean up if no clients left
 			if (clients.size === 0) {
 				this.stopPolling(target);
 				this.clients.delete(target);
-				this.lastOutput.delete(target);
-				this.historyDepths.delete(target);
+				this.states.delete(target);
+				return;
 			}
 		}
 	}
@@ -816,7 +940,7 @@ export class TerminalWsManager {
 
 export interface WsMessageHandlers {
 	resize?: (cols: number, rows: number) => void;
-	setHistory?: (lines: number) => void;
+	historyRequest?: (before: number, count: number) => void;
 }
 
 export function handleWsMessage(msgStr: string, handlers?: WsMessageHandlers): 'pong' | null {
@@ -824,16 +948,16 @@ export function handleWsMessage(msgStr: string, handlers?: WsMessageHandlers): '
 	if (!handlers) return null;
 
 	try {
-		const msg = JSON.parse(msgStr) as ResizeMessage | SetHistoryMessage;
+		const msg = JSON.parse(msgStr) as ResizeMessage | HistoryRequestMessage;
 		switch (msg.type) {
 			case 'resize':
 				if (handlers.resize && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
 					handlers.resize(msg.cols, msg.rows);
 				}
 				break;
-			case 'set_history':
-				if (handlers.setHistory && typeof msg.lines === 'number') {
-					handlers.setHistory(msg.lines);
+			case 'history_request':
+				if (handlers.historyRequest && typeof msg.before === 'number' && typeof msg.count === 'number') {
+					handlers.historyRequest(msg.before, msg.count);
 				}
 				break;
 		}
