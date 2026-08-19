@@ -4,6 +4,7 @@
  */
 
 import { execFileSync, execSync } from 'child_process';
+import { getAllSessions } from '../db/index.js';
 
 // ============================================================================
 // Types
@@ -50,6 +51,9 @@ export function sendTextToPane(target: string, text: string, opts: { appendEnter
 interface QueueGlobalState {
 	queues: Map<string, QueuedMessage[]>;
 	pendingDrain: Map<string, number>;
+	/** target → timestamp of last auto-send; blocks re-send until session leaves idle */
+	recentlySent: Map<string, number>;
+	drainTimer: ReturnType<typeof setInterval> | null;
 }
 
 const GLOBAL_KEY = '__claude_mux_message_queue__';
@@ -59,13 +63,20 @@ function getGlobalState(): QueueGlobalState {
 	if (!g[GLOBAL_KEY]) {
 		g[GLOBAL_KEY] = {
 			queues: new Map<string, QueuedMessage[]>(),
-			pendingDrain: new Map<string, number>()
+			pendingDrain: new Map<string, number>(),
+			recentlySent: new Map<string, number>(),
+			drainTimer: null
 		};
 	}
-	return g[GLOBAL_KEY] as QueueGlobalState;
+	const state = g[GLOBAL_KEY] as Partial<QueueGlobalState>;
+	// Backfill fields added after an older module instance created the state (dev HMR)
+	state.recentlySent ??= new Map<string, number>();
+	state.drainTimer ??= null;
+	return state as QueueGlobalState;
 }
 
-const { queues, pendingDrain } = getGlobalState();
+const globalState = getGlobalState();
+const { queues, pendingDrain, recentlySent } = globalState;
 
 // ============================================================================
 // Queue operations
@@ -77,6 +88,7 @@ export function enqueue(target: string, text: string): QueuedMessage[] {
 	}
 	const queue = queues.get(target)!;
 	queue.push({ text, queuedAt: Date.now() });
+	ensureDrainLoop();
 	return queue;
 }
 
@@ -150,8 +162,19 @@ export function drainQueues(sessions: SessionLike[]): void {
 		}
 
 		if (session.state !== 'idle') {
+			// Session picked up work (hook flipped state) — clear send guard
 			pendingDrain.delete(target);
+			recentlySent.delete(target);
 			continue;
+		}
+
+		// After an auto-send, wait for the session to leave idle (UserPromptSubmit
+		// hook) before sending the next message, so two queued messages don't get
+		// pasted into the same prompt. Falls back after 10s in case the hook never fires.
+		const sentAt = recentlySent.get(target);
+		if (sentAt !== undefined) {
+			if (now - sentAt < RESEND_FALLBACK_MS) continue;
+			recentlySent.delete(target);
 		}
 
 		const pendingTime = pendingDrain.get(target);
@@ -159,13 +182,14 @@ export function drainQueues(sessions: SessionLike[]): void {
 			pendingDrain.set(target, now);
 			continue;
 		}
-		if (now - pendingTime < 1000) continue;
+		if (now - pendingTime < IDLE_GRACE_MS) continue;
 
 		pendingDrain.delete(target);
 		const message = dequeue(target);
 		if (!message) continue;
 		try {
 			sendTextToPane(target, message.text);
+			recentlySent.set(target, now);
 			console.log(`[queue] Auto-sent queued message to ${target}`);
 		} catch (err) {
 			console.error(`[queue] Failed to send queued message to ${target}:`, err);
@@ -174,3 +198,34 @@ export function drainQueues(sessions: SessionLike[]): void {
 		}
 	}
 }
+
+const IDLE_GRACE_MS = 1000;
+const RESEND_FALLBACK_MS = 10_000;
+const DRAIN_INTERVAL_MS = 500;
+
+/**
+ * Server-owned drain loop. Runs while any queue is non-empty, independent of
+ * whether a dashboard client is connected (the WS refresh loop only runs with
+ * clients, which previously left queues stuck once the phone closed the app).
+ * State comes straight from the session JSON files written by hooks.
+ */
+export function ensureDrainLoop(): void {
+	if (globalState.drainTimer) return;
+	globalState.drainTimer = setInterval(() => {
+		if (getQueueCounts().size === 0) {
+			if (globalState.drainTimer) clearInterval(globalState.drainTimer);
+			globalState.drainTimer = null;
+			return;
+		}
+		try {
+			drainQueues(getAllSessions());
+		} catch (err) {
+			console.error('[queue] drain loop error:', err);
+		}
+	}, DRAIN_INTERVAL_MS);
+	// Don't keep the process alive just for this timer
+	(globalState.drainTimer as { unref?: () => void }).unref?.();
+}
+
+// Resume draining if queues survived a module reload (dev HMR keeps globalThis)
+if (getQueueCounts().size > 0) ensureDrainLoop();

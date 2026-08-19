@@ -14,7 +14,7 @@ import { getAllSessions, updateSession, readLinks, cleanupStaleSessions, type Se
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, detectRecentInterruption } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { sessionWatcher } from './watcher.js';
-import { drainQueues, getQueueCounts } from './message-queue.js';
+import { getQueueCounts } from './message-queue.js';
 import type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 
 // ============================================================================
@@ -475,8 +475,7 @@ export class SessionsWsManager {
 
 		this.createSessionsMessageAsync('sessions')
 			.then((message) => {
-				// Drain queued messages for sessions that just went idle
-				drainQueues(message.sessions);
+				// (queue draining runs in its own server loop — see message-queue.ts ensureDrainLoop)
 
 				// Merge queue counts into session data for broadcast
 				this.mergeQueueCounts(message.sessions);
