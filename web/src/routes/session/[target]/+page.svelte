@@ -212,12 +212,15 @@
 	function fillInput(text: string) {
 		textInput = textInput ? textInput + ' ' + text : text;
 		// Picked from the dialog: don't immediately re-open the inline slash popup for it.
-		slashDismissedFor = textInput;
+		slashDismissedFor = `${textInput.length - text.length}:${text}`;
 		commandsOpen = false;
 		// Delay focus until after popover closes so it isn't stolen
 		setTimeout(() => {
 			if (textareaElement) {
 				textareaElement.focus();
+				const end = textareaElement.value.length;
+				textareaElement.setSelectionRange(end, end);
+				syncCaret();
 				autoResize();
 			}
 		}, 100);
@@ -713,24 +716,50 @@
 	}
 	const modArmed = $derived(ctrlCount > 0 || altCount > 0);
 
-	// Inline slash popup: typing "/" as the first (and only) token opens the
-	// same command list as the Cmds button, anchored above the input, filtered
-	// by what follows the slash. Picking an entry replaces the token.
+	// Inline slash popup: when the word under the caret starts with "/" (anywhere
+	// in the input), open the same command list as the Cmds button above the
+	// input, filtered by the rest of that word. Picking an entry replaces just
+	// that word; the rest of the input is left alone.
 	let slashList = $state<CommandList | null>(null);
 	let slashDismissedFor = $state<string | null>(null);
-	const slashOpen = $derived(
-		!modArmed && /^\/\S*$/.test(textInput) && textInput !== slashDismissedFor
-	);
-	const slashQuery = $derived(slashOpen ? textInput.slice(1) : '');
+	let caretPos = $state(0);
+	function syncCaret() {
+		if (textareaElement) caretPos = textareaElement.selectionStart ?? textInput.length;
+	}
+	const slashToken = $derived.by(() => {
+		const text = textInput;
+		const pos = Math.min(caretPos, text.length);
+		let start = pos;
+		while (start > 0 && !/\s/.test(text[start - 1])) start--;
+		if (text[start] !== '/') return null;
+		let end = pos;
+		while (end < text.length && !/\s/.test(text[end])) end++;
+		return { start, end, text: text.slice(start, end) };
+	});
+	const slashKey = $derived(slashToken ? `${slashToken.start}:${slashToken.text}` : null);
+	const slashOpen = $derived(!modArmed && slashKey != null && slashKey !== slashDismissedFor);
+	const slashQuery = $derived(slashOpen && slashToken ? slashToken.text.slice(1) : '');
 	function chooseSlash(insert: string) {
+		const tok = slashToken;
+		if (!tok) return;
+		const before = textInput.slice(0, tok.start);
+		const after = textInput.slice(tok.end);
 		// Trailing space closes the popup and matches Claude Code's own completion.
-		textInput = insert + ' ';
+		const sep = after.startsWith(' ') ? '' : ' ';
+		textInput = before + insert + sep + after;
+		const pos = before.length + insert.length + 1;
 		slashDismissedFor = null;
-		textareaElement?.focus();
-		void tick().then(autoResize);
+		caretPos = pos;
+		void tick().then(() => {
+			if (textareaElement) {
+				textareaElement.focus();
+				textareaElement.setSelectionRange(pos, pos);
+			}
+			autoResize();
+		});
 	}
 	function dismissSlash() {
-		slashDismissedFor = textInput;
+		slashDismissedFor = slashKey;
 	}
 
 	async function runText(text: string) {
@@ -1375,10 +1404,13 @@
 				placeholder={modArmed ? 'Type keys, Enter to send as mod sequence…' : 'Type a message...'}
 				rows={1}
 				onkeydown={handleKeydown}
-				onkeyup={handleKeyup}
+				onkeyup={(e) => { handleKeyup(e); syncCaret(); }}
 				onbeforeinput={handleBeforeInput}
 				onblur={handleBlur}
-				oninput={autoResize}
+				oninput={() => { syncCaret(); autoResize(); }}
+				onclick={syncCaret}
+				onfocus={syncCaret}
+				onselect={syncCaret}
 				onpaste={handlePaste}
 			></textarea>
 			<div class="send-btn-wrapper"
