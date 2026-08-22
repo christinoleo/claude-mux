@@ -13,6 +13,7 @@
 	import TerminalView from '$lib/components/TerminalView.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import CommandList from '$lib/components/CommandList.svelte';
 	import { voiceStore } from '$lib/stores/voice.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { untrack } from 'svelte';
@@ -210,6 +211,8 @@
 
 	function fillInput(text: string) {
 		textInput = textInput ? textInput + ' ' + text : text;
+		// Picked from the dialog: don't immediately re-open the inline slash popup for it.
+		slashDismissedFor = textInput;
 		commandsOpen = false;
 		// Delay focus until after popover closes so it isn't stolen
 		setTimeout(() => {
@@ -399,6 +402,19 @@
 				if (!userScrolledUp && !hasSelection) el.scrollTop = el.scrollHeight;
 			});
 		}
+	});
+
+	// Layout can change without any store update (toolbar/attachment rows,
+	// keyboard on mobile, fonts loading): keep the view pinned through those too.
+	$effect(() => {
+		const el = outputElement;
+		if (!el || typeof ResizeObserver === 'undefined') return;
+		const ro = new ResizeObserver(() => {
+			if (!userScrolledUp && !hasSelection) el.scrollTop = el.scrollHeight;
+		});
+		ro.observe(el);
+		for (const child of el.children) ro.observe(child);
+		return () => ro.disconnect();
 	});
 
 	async function sendKeys(keys: string) {
@@ -697,6 +713,26 @@
 	}
 	const modArmed = $derived(ctrlCount > 0 || altCount > 0);
 
+	// Inline slash popup: typing "/" as the first (and only) token opens the
+	// same command list as the Cmds button, anchored above the input, filtered
+	// by what follows the slash. Picking an entry replaces the token.
+	let slashList = $state<CommandList | null>(null);
+	let slashDismissedFor = $state<string | null>(null);
+	const slashOpen = $derived(
+		!modArmed && /^\/\S*$/.test(textInput) && textInput !== slashDismissedFor
+	);
+	const slashQuery = $derived(slashOpen ? textInput.slice(1) : '');
+	function chooseSlash(insert: string) {
+		// Trailing space closes the popup and matches Claude Code's own completion.
+		textInput = insert + ' ';
+		slashDismissedFor = null;
+		textareaElement?.focus();
+		void tick().then(autoResize);
+	}
+	function dismissSlash() {
+		slashDismissedFor = textInput;
+	}
+
 	async function runText(text: string) {
 		if (!target) return;
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
@@ -879,6 +915,15 @@
 		}
 		ctrlTapCandidate = false;
 		altTapCandidate = false;
+
+		if (slashOpen) {
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				dismissSlash();
+				return;
+			}
+			if (slashList?.handleKeydown(e)) return;
+		}
 
 		if (e.key === 'Escape') {
 			e.preventDefault();
@@ -1313,6 +1358,17 @@
 					</button>
 				</span>
 			{/each}
+			{#if slashOpen}
+				<div class="slash-popup">
+					<CommandList
+						bind:this={slashList}
+						cwd={currentSession?.cwd}
+						pinned={pinnedCommands}
+						query={slashQuery}
+						onselect={chooseSlash}
+					/>
+				</div>
+			{/if}
 			<textarea
 				bind:this={textareaElement}
 				bind:value={textInput}
@@ -1737,12 +1793,31 @@
 	}
 
 	.input-row {
+		position: relative;
 		display: flex;
 		align-items: flex-end;
 		gap: 8px;
 		padding: 12px 16px;
 		background: #111;
 		border-top: 1px solid #222;
+	}
+
+	.slash-popup {
+		position: absolute;
+		left: 8px;
+		right: 8px;
+		bottom: 100%;
+		margin-bottom: 6px;
+		max-height: min(50dvh, 420px);
+		display: flex;
+		flex-direction: column;
+		background: #1a1a1a;
+		border: 1px solid #333;
+		border-radius: 8px;
+		overflow: hidden;
+		z-index: 10;
+		box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
+		color: #f5f5f4;
 	}
 
 	.mod-chip {
