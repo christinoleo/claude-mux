@@ -6,7 +6,7 @@
  * a write). Written fresh — the previous jsonl-watcher was removed as buggy
  * (see docs/adr/0003).
  */
-import { closeSync, fstatSync, openSync, readSync } from "fs";
+import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -16,8 +16,55 @@ import { join } from "path";
  * mapping only works session -> path, never in reverse.
  */
 export function transcriptPathFor(cwd: string, sessionId: string): string {
-  const projectDir = cwd.replace(/\//g, "-");
-  return join(homedir(), ".claude", "projects", projectDir, `${sessionId}.jsonl`);
+  return join(projectDirFor(cwd), `${sessionId}.jsonl`);
+}
+
+function projectDirFor(cwd: string): string {
+  return join(homedir(), ".claude", "projects", cwd.replace(/\//g, "-"));
+}
+
+export interface SubagentFile {
+  agentId: string;
+  path: string;
+  meta: SubagentMeta;
+}
+
+export interface SubagentMeta {
+  agentType?: string;
+  description?: string;
+  /** The parent transcript's Task tool_use id — how a subagent finds its card. */
+  toolUseId?: string;
+  spawnDepth?: number;
+  model?: string;
+}
+
+/**
+ * List the subagent transcripts a session has spawned. They live in a sibling
+ * directory named after the session, one `agent-<id>.jsonl` per subagent with
+ * a `.meta.json` beside it linking back to the Task tool call.
+ */
+export function listSubagents(cwd: string, sessionId: string): SubagentFile[] {
+  const dir = join(projectDirFor(cwd), sessionId, "subagents");
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const files: SubagentFile[] = [];
+  for (const name of names) {
+    const agentId = name.match(/^agent-(.+)\.jsonl$/)?.[1];
+    if (!agentId) continue;
+    let meta: SubagentMeta = {};
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(join(dir, `agent-${agentId}.meta.json`), "utf8"));
+      if (parsed && typeof parsed === "object") meta = parsed as SubagentMeta;
+    } catch {
+      // Meta may not be written yet; the transcript still streams.
+    }
+    files.push({ agentId, path: join(dir, name), meta });
+  }
+  return files;
 }
 
 export type TailResult =

@@ -1,17 +1,25 @@
 import { browser } from '$app/environment';
 import { ReliableWebSocket } from './websocket-base.svelte';
 import type { TranscriptEntry } from '../../../../src/transcript/parser.js';
+import type { SubagentPayload } from '../../../../src/server/ws-handlers.js';
+
+export type { SubagentPayload };
 
 interface SnapshotMsg {
 	type: 'snapshot';
 	entries: TranscriptEntry[];
+	subagents: SubagentPayload[];
 	available: boolean;
 }
 interface EntriesMsg {
 	type: 'entries';
 	entries: TranscriptEntry[];
 }
-type TranscriptMsg = SnapshotMsg | EntriesMsg;
+interface SubagentsMsg {
+	type: 'subagents';
+	subagents: SubagentPayload[];
+}
+type TranscriptMsg = SnapshotMsg | EntriesMsg | SubagentsMsg;
 
 /**
  * Transcript view model: an ordered list of entries upserted by id.
@@ -21,6 +29,8 @@ type TranscriptMsg = SnapshotMsg | EntriesMsg;
  */
 class TranscriptStore extends ReliableWebSocket {
 	entries = $state<TranscriptEntry[]>([]);
+	/** Subagents keyed by the Task tool_use id that spawned them. */
+	subagents = $state<Record<string, SubagentPayload>>({});
 	/** False until the session's JSONL file has been found and read. */
 	available = $state(false);
 	/** Entries appended since attach (page diffs it for the "new below" pill). */
@@ -57,6 +67,9 @@ class TranscriptStore extends ReliableWebSocket {
 			case 'entries':
 				this.applyEntries(data);
 				break;
+			case 'subagents':
+				this.applySubagents(data.subagents);
+				break;
 		}
 	}
 
@@ -64,6 +77,15 @@ class TranscriptStore extends ReliableWebSocket {
 		this.entries = msg.entries;
 		this.available = msg.available;
 		this.indexById = new Map(msg.entries.map((entry, i) => [entry.id, i]));
+		this.subagents = {};
+		this.applySubagents(msg.subagents ?? []);
+	}
+
+	/** Subagents arrive whole (they are short), keyed by their parent Task. */
+	private applySubagents(subagents: SubagentPayload[]): void {
+		for (const sub of subagents) {
+			if (sub.toolUseId) this.subagents[sub.toolUseId] = sub;
+		}
 	}
 
 	private applyEntries(msg: EntriesMsg): void {
@@ -100,6 +122,7 @@ class TranscriptStore extends ReliableWebSocket {
 			this.doDisconnect();
 		}
 		this.entries = [];
+		this.subagents = {};
 		this.available = false;
 		this.appended = 0;
 		this.indexById = new Map();

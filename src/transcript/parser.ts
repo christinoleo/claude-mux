@@ -198,6 +198,13 @@ export class TranscriptBuilder {
   /** Queued prompts awaiting a possible re-delivery as a real user line. */
   private pendingQueued: { text: string; id: string }[] = [];
 
+  /**
+   * @param sidechain true when reading a subagent's own file, where every line
+   * is marked `isSidechain` — the main transcript skips those, since subagent
+   * work lives in its own file.
+   */
+  constructor(private readonly sidechain = false) {}
+
   feed(line: string): string[] {
     const trimmed = line.trim();
     if (trimmed.length === 0) return [];
@@ -207,7 +214,8 @@ export class TranscriptBuilder {
     } catch {
       return [];
     }
-    if (!record || record.isSidechain === true) return [];
+    if (!record) return [];
+    if ((record.isSidechain === true) !== this.sidechain) return [];
 
     switch (record.type) {
       case "user":

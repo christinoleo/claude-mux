@@ -12,6 +12,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import TerminalView from '$lib/components/TerminalView.svelte';
 	import TranscriptView from '$lib/components/TranscriptView.svelte';
+	import AgentDock from '$lib/components/AgentDock.svelte';
 	import { transcriptStore } from '$lib/stores/transcript.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
@@ -208,6 +209,24 @@
 	let ctrlTapCandidate = false;
 	let altTapCandidate = false;
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
+	/** Subagents working right now — pinned in the dock so they never scroll away. */
+	const runningAgents = $derived(
+		viewMode === 'transcript'
+			? Object.values(transcriptStore.subagents).filter((a) => a.running)
+			: []
+	);
+
+	/** Scroll the transcript to an agent's Task card and open it. */
+	function revealAgent(toolUseId: string) {
+		const card = outputElement?.querySelector<HTMLDetailsElement>(
+			`[data-entry-id="${CSS.escape(toolUseId)}"]`
+		);
+		if (!card) return;
+		card.open = true;
+		userScrolledUp = true;
+		card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+	}
+
 	/** The transcript's live status row is showing (its height affects scroll). */
 	const liveRowVisible = $derived(
 		viewMode === 'transcript' &&
@@ -1280,6 +1299,7 @@
 						sessionState={currentSession?.state ?? null}
 						currentAction={currentSession?.current_action ?? null}
 						{queueCount}
+						subagents={transcriptStore.subagents}
 						onSendKeys={(keys) => void sendKeys(keys)}
 						onOpenTerminal={() => toggleView()}
 					/>
@@ -1300,6 +1320,8 @@
 				</button>
 			{/if}
 		</div>
+
+		<AgentDock agents={runningAgents} onReveal={revealAgent} />
 
 		<div class="toolbar">
 			{#if hasSelection}

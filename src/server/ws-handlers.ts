@@ -12,7 +12,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
-import { JsonlTailer, transcriptPathFor } from '../transcript/tailer.js';
+import { JsonlTailer, listSubagents, transcriptPathFor, type SubagentMeta } from '../transcript/tailer.js';
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
@@ -985,18 +985,88 @@ export class TerminalWsManager {
 // Transcript WebSocket Manager
 // ============================================================================
 
+/**
+ * A subagent's work, condensed for the Task card that spawned it: what it ran
+ * (summaries only — the parent card doesn't need every tool's full input) plus
+ * the report it returned.
+ */
+export interface SubagentPayload {
+	agentId: string;
+	/** Parent Task tool_use id — the card this belongs under. */
+	toolUseId: string | null;
+	agentType: string | null;
+	description: string | null;
+	model: string | null;
+	activity: { id: string; name: string; summary: string; ok: boolean | null }[];
+	/** The subagent's final message: what it reported back. */
+	report: string | null;
+	running: boolean;
+}
+
 export type TranscriptWsMessage =
-	| { type: 'snapshot'; entries: TranscriptEntry[]; available: boolean; timestamp: number }
-	| { type: 'entries'; entries: TranscriptEntry[]; timestamp: number };
+	| {
+			type: 'snapshot';
+			entries: TranscriptEntry[];
+			subagents: SubagentPayload[];
+			available: boolean;
+			timestamp: number;
+		}
+	| { type: 'entries'; entries: TranscriptEntry[]; timestamp: number }
+	| { type: 'subagents'; subagents: SubagentPayload[]; timestamp: number };
+
+interface SubagentState {
+	tailer: JsonlTailer;
+	builder: TranscriptBuilder;
+	meta: SubagentMeta;
+	/** Serialized payload last sent, to skip unchanged broadcasts. */
+	lastSent: string;
+}
 
 interface TranscriptSessionState {
 	tailer: JsonlTailer;
 	builder: TranscriptBuilder;
 	timer: ReturnType<typeof setInterval>;
 	available: boolean;
+	/** Session cwd + id, for locating the subagents directory. */
+	cwd: string | null;
+	subagents: Map<string, SubagentState>;
+	/** Ticks until the next subagents directory scan. */
+	discoverIn: number;
 }
 
 const TRANSCRIPT_POLL_MS = 500;
+/** Scan for newly spawned subagents every N polls (they appear rarely). */
+const SUBAGENT_DISCOVER_TICKS = 4;
+
+/** Condense a subagent's parsed transcript into what its Task card shows. */
+function subagentPayload(agentId: string, state: SubagentState): SubagentPayload {
+	const activity: SubagentPayload['activity'] = [];
+	let report: string | null = null;
+	for (const entry of state.builder.entries) {
+		if (entry.kind === 'tool') {
+			activity.push({
+				id: entry.id,
+				name: entry.name,
+				summary: entry.summary,
+				ok: entry.result ? entry.result.ok : null
+			});
+		} else if (entry.kind === 'text') {
+			report = entry.text;
+		}
+	}
+	// Still working while its newest tool has no result yet.
+	const running = activity.length > 0 && activity[activity.length - 1].ok === null;
+	return {
+		agentId,
+		toolUseId: state.meta.toolUseId ?? null,
+		agentType: state.meta.agentType ?? null,
+		description: state.meta.description ?? null,
+		model: state.meta.model ?? null,
+		activity,
+		report,
+		running
+	};
+}
 
 /**
  * Streams parsed session transcripts (from ~/.claude/projects JSONL files) to
@@ -1038,6 +1108,7 @@ export class TranscriptWsManager {
 		this.sendToClient(client, {
 			type: 'snapshot',
 			entries: state.builder.entries,
+			subagents: [...state.subagents].map(([id, sub]) => subagentPayload(id, sub)),
 			available: state.available,
 			timestamp: Date.now()
 		});
@@ -1069,11 +1140,61 @@ export class TranscriptWsManager {
 			tailer,
 			builder: new TranscriptBuilder(),
 			available: false,
+			cwd: session?.cwd ?? null,
+			subagents: new Map(),
+			discoverIn: 0,
 			timer: setInterval(() => this.poll(sessionId), TRANSCRIPT_POLL_MS)
 		};
 		// Synchronous initial read so the first snapshot carries history.
 		this.consume(state, tailer.read());
+		this.syncSubagents(sessionId, state);
 		return state;
+	}
+
+	/**
+	 * Pick up newly spawned subagents and tail the known ones. Returns the
+	 * payloads that changed since the last call.
+	 */
+	private syncSubagents(sessionId: string, state: TranscriptSessionState): SubagentPayload[] {
+		if (!state.cwd) return [];
+
+		if (state.discoverIn <= 0) {
+			state.discoverIn = SUBAGENT_DISCOVER_TICKS;
+			for (const file of listSubagents(state.cwd, sessionId)) {
+				const known = state.subagents.get(file.agentId);
+				if (known) {
+					// Meta lands after the transcript starts; keep the latest.
+					known.meta = { ...known.meta, ...file.meta };
+					continue;
+				}
+				state.subagents.set(file.agentId, {
+					tailer: new JsonlTailer(file.path),
+					builder: new TranscriptBuilder(true),
+					meta: file.meta,
+					lastSent: ''
+				});
+			}
+		} else {
+			state.discoverIn--;
+		}
+
+		const changed: SubagentPayload[] = [];
+		for (const [agentId, sub] of state.subagents) {
+			const result = sub.tailer.read();
+			if (result.status === 'reset') {
+				sub.builder = new TranscriptBuilder(true);
+			} else if (result.status === 'lines') {
+				for (const line of result.lines) sub.builder.feed(line);
+			} else if (sub.lastSent !== '') {
+				continue;
+			}
+			const payload = subagentPayload(agentId, sub);
+			const encoded = JSON.stringify(payload);
+			if (encoded === sub.lastSent) continue;
+			sub.lastSent = encoded;
+			changed.push(payload);
+		}
+		return changed;
 	}
 
 	private stopSession(sessionId: string): void {
@@ -1114,27 +1235,33 @@ export class TranscriptWsManager {
 			this.consume(state, result);
 			// Immediately re-read the fresh file and resend full snapshots.
 			this.consume(state, state.tailer.read());
-			const snapshot: TranscriptWsMessage = {
+			this.broadcast(sessionId, {
 				type: 'snapshot',
 				entries: state.builder.entries,
+				subagents: [...state.subagents].map(([id, sub]) => subagentPayload(id, sub)),
 				available: state.available,
 				timestamp: Date.now()
-			};
-			this.broadcast(sessionId, snapshot);
+			});
 			return;
 		}
 
 		const changedIds = this.consume(state, result);
-		if (changedIds.length === 0) return;
-		const seen = new Set<string>();
-		const entries: TranscriptEntry[] = [];
-		for (const id of changedIds) {
-			if (seen.has(id)) continue;
-			seen.add(id);
-			const entry = state.builder.getEntry(id);
-			if (entry) entries.push(entry);
+		if (changedIds.length > 0) {
+			const seen = new Set<string>();
+			const entries: TranscriptEntry[] = [];
+			for (const id of changedIds) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				const entry = state.builder.getEntry(id);
+				if (entry) entries.push(entry);
+			}
+			this.broadcast(sessionId, { type: 'entries', entries, timestamp: Date.now() });
 		}
-		this.broadcast(sessionId, { type: 'entries', entries, timestamp: Date.now() });
+
+		const subagents = this.syncSubagents(sessionId, state);
+		if (subagents.length > 0) {
+			this.broadcast(sessionId, { type: 'subagents', subagents, timestamp: Date.now() });
+		}
 	}
 
 	private broadcast(sessionId: string, message: TranscriptWsMessage): void {

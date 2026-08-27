@@ -2,6 +2,7 @@
 	import { Marked } from 'marked';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
 	import { keysForAnswer } from '../../../../src/tmux/answer-keys';
+	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 
 	type AskEntry = Extract<TranscriptEntry, { kind: 'ask' }>;
 
@@ -10,7 +11,10 @@
 		available,
 		sessionState = null,
 		currentAction = null,
-		queueCount = 0
+		queueCount = 0,
+		subagents = {},
+		onSendKeys,
+		onOpenTerminal
 	}: {
 		entries: TranscriptEntry[];
 		available: boolean;
@@ -23,6 +27,8 @@
 		onSendKeys?: (keys: string) => void;
 		/** Switches to the terminal view (for "Other" / free-text answers). */
 		onOpenTerminal?: () => void;
+		/** Subagent work, keyed by the Task tool_use id that spawned it. */
+		subagents?: Record<string, SubagentPayload>;
 	} = $props();
 
 	/** Local multi-select staging + sequential-question progress per ask card. */
@@ -282,10 +288,29 @@
 		{:else if entry.kind === 'tool'}
 			{@const input = inputPanes(entry.input, entry.name)}
 			{@const showResult = entry.result != null && !(entry.patch && entry.result.ok)}
-			<details class="row tool-card" class:error={entry.result?.ok === false}>
+			{@const sub = subagents[entry.id]}
+			{@const doing = sub?.running ? sub.activity[sub.activity.length - 1] : null}
+			<details
+				class="row tool-card"
+				class:error={entry.result?.ok === false}
+				class:agent={sub != null}
+				data-entry-id={entry.id}
+			>
 				<summary>
 					<iconify-icon class="tool-icon" icon={toolIcon(entry.name)}></iconify-icon>
-					<span class="row-summary mono">{entry.summary}</span>
+					{#if sub}
+						<span class="row-summary agent-line">
+							<span class="agent-name">{sub.description ?? entry.summary}</span>
+							{#if sub.agentType}<span class="agent-type">{sub.agentType}</span>{/if}
+							{#if doing}
+								<span class="agent-doing mono">{doing.summary}</span>
+							{:else if sub.activity.length > 0}
+								<span class="agent-count">{sub.activity.length} tools</span>
+							{/if}
+						</span>
+					{:else}
+						<span class="row-summary mono">{entry.summary}</span>
+					{/if}
 					{#if entry.result}
 						<iconify-icon
 							class="tool-status {entry.result.ok ? 'ok' : 'fail'}"
@@ -295,6 +320,30 @@
 						<iconify-icon class="tool-status running spin" icon="mdi:loading"></iconify-icon>
 					{/if}
 				</summary>
+				{#if sub}
+					<div class="agent-detail">
+						<div class="agent-meta">
+							{#if sub.model}<span class="agent-chip">{sub.model}</span>{/if}
+							<span class="agent-chip">{sub.activity.length} tools</span>
+							{#if sub.running}<span class="agent-chip live">running</span>{/if}
+						</div>
+						<ol class="agent-activity">
+							{#each sub.activity as act (act.id)}
+								<li class:pending={act.ok === null} class:failed={act.ok === false}>
+									<iconify-icon class="tool-icon" icon={toolIcon(act.name)}></iconify-icon>
+									<span class="mono">{act.summary}</span>
+								</li>
+							{/each}
+						</ol>
+						{#if sub.report}
+							<div class="agent-report">
+								<header class="pane-head">Report</header>
+								<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
+								<div class="markdown">{@html renderMarkdown(sub.report)}</div>
+							</div>
+						{/if}
+					</div>
+				{:else}
 				<div class="tool-detail" class:two-col={showResult && !entry.patch}>
 					{#if entry.patch}
 						<section class="pane diff-pane">
@@ -328,7 +377,8 @@
 							<pre>{entry.result.output || '(no output)'}</pre>
 						</section>
 					{/if}
-				</div>
+					</div>
+				{/if}
 			</details>
 		{/if}
 	{/each}
@@ -942,6 +992,100 @@
 		border-left-color: #4d7c5f;
 		background: #161a16;
 		border-radius: 3px;
+	}
+
+	/* --- Subagent Task card: the one row that carries hierarchy. Closed, it
+	   reports what its agent is doing right now; open, it becomes that agent's
+	   own activity log and final report. --- */
+	.tool-card.agent[open] {
+		border-color: #33302a;
+	}
+	.agent-line {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		min-width: 0;
+	}
+	.agent-name {
+		flex-shrink: 0;
+		font-weight: 600;
+		color: #d6d3d1;
+	}
+	.agent-type {
+		flex-shrink: 0;
+		font-size: 9.5px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: #9b8fd4;
+		background: #221f2e;
+		border-radius: 4px;
+		padding: 1px 6px;
+	}
+	.agent-doing,
+	.agent-count {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 11.5px;
+		color: #7d7871;
+	}
+	.agent-doing::before {
+		content: '● ';
+		color: #34d399;
+	}
+
+	.agent-detail {
+		padding: 8px 12px 10px;
+	}
+	.agent-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 5px;
+		margin-bottom: 8px;
+	}
+	.agent-chip {
+		font-size: 10px;
+		color: #a8a29e;
+		background: #232019;
+		border-radius: 4px;
+		padding: 1px 7px;
+	}
+	.agent-chip.live {
+		color: #6ee7b7;
+		background: #14251d;
+	}
+	.agent-activity {
+		list-style: none;
+		margin: 0;
+		padding: 0 0 0 11px;
+		border-left: 2px solid #2b2622;
+	}
+	.agent-activity li {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		padding: 1px 0;
+		font-size: 11.5px;
+		color: #8a837c;
+		min-width: 0;
+	}
+	.agent-activity li span {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.agent-activity li.pending {
+		color: #d6d3d1;
+	}
+	.agent-activity li.failed {
+		color: #f0b0aa;
+	}
+	.agent-report {
+		margin-top: 10px;
+		padding-top: 8px;
+		border-top: 1px solid #262220;
+		font-size: 13.5px;
 	}
 
 	/* --- Live status row --- */
