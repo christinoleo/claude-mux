@@ -11,6 +11,8 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Popover from '$lib/components/ui/popover';
 	import TerminalView from '$lib/components/TerminalView.svelte';
+	import TranscriptView from '$lib/components/TranscriptView.svelte';
+	import { transcriptStore } from '$lib/stores/transcript.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
@@ -56,6 +58,21 @@
 	});
 	const parsedTitle = $derived(currentSession?.pane_title ? splitPaneTitle(currentSession.pane_title) : null);
 
+	// Transcript view exists only for Claude sessions (the JSONL is Claude Code's own log).
+	const canTranscript = $derived(isClaudeSession && (currentSession?.agent ?? 'claude') === 'claude');
+	// Each view has its own URL: default is the transcript, `?view=terminal` the raw mirror.
+	const viewMode = $derived(
+		canTranscript && $page.url.searchParams.get('view') !== 'terminal' ? 'transcript' : 'terminal'
+	);
+
+	function toggleView() {
+		const params = new URLSearchParams($page.url.searchParams);
+		if (viewMode === 'transcript') params.set('view', 'terminal');
+		else params.delete('view');
+		const query = params.toString();
+		goto(`${$page.url.pathname}${query ? `?${query}` : ''}`, { noScroll: true, keepFocus: true });
+	}
+
 	let textInput = $state('');
 	let showConfirmKill = $state(false);
 	let moreOpen = $state(false);
@@ -95,6 +112,15 @@
 	);
 
 	const headerActions: ChordAction[] = $derived([
+		...(isAlive && canTranscript
+			? [
+					{
+						label: viewMode === 'transcript' ? 'Terminal view' : 'Transcript view',
+						icon: viewMode === 'transcript' ? 'mdi:console' : 'mdi:message-text-outline',
+						run: () => toggleView()
+					}
+				]
+			: []),
 		...(isAlive
 			? [
 					{
@@ -182,6 +208,11 @@
 	let ctrlTapCandidate = false;
 	let altTapCandidate = false;
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
+	/** The transcript's live status row is showing (its height affects scroll). */
+	const liveRowVisible = $derived(
+		viewMode === 'transcript' &&
+			(queueCount > 0 || (currentSession?.state ?? 'idle') !== 'idle')
+	);
 
 	const moreKeys: { label: string; keys: string; icon: string }[] = [
 		{ label: 'Bksp', keys: 'BSpace', icon: 'mdi:backspace' },
@@ -258,7 +289,13 @@
 
 	// "New lines below" indicator: history lines appended since the user scrolled up
 	let seenAppended = $state(0);
-	const unseenLines = $derived(userScrolledUp ? Math.max(0, terminalStore.appended - seenAppended) : 0);
+	// Only one view is attached at a time, so a single counter serves both.
+	const appendedNow = $derived(
+		viewMode === 'transcript' ? transcriptStore.appended : terminalStore.appended
+	);
+	const unseenLines = $derived(
+		userScrolledUp ? Math.max(0, appendedNow - seenAppended) : 0
+	);
 
 	// Measure monospace character dimensions using canvas
 	function measureFont(): { width: number; height: number } {
@@ -303,24 +340,38 @@
 	}
 
 	// Drive the terminal store from view state. setTarget owns WS, output,
-	// and history reset together; only attach when target is confirmed alive.
+	// and history reset together; only attach when target is confirmed alive
+	// and the raw mirror is the active view.
 	$effect(() => {
-		terminalStore.setTarget(isAlive ? target : null);
+		terminalStore.setTarget(isAlive && viewMode === 'terminal' ? target : null);
+	});
+
+	// Same contract for the transcript store, keyed by session id.
+	$effect(() => {
+		transcriptStore.setSession(
+			isAlive && viewMode === 'transcript' ? (currentSession?.id ?? null) : null
+		);
 	});
 
 	// New target: forget any scrolled-up state from the previous session so the
 	// view always opens pinned to the latest output.
 	$effect(() => {
 		target;
+		viewMode;
 		untrack(() => {
 			userScrolledUp = false;
 			seenAppended = 0;
 			terminalStore.atBottom = true;
+			// Re-pin after a view switch: content height changes completely.
+			tick().then(() => {
+				if (outputElement) outputElement.scrollTop = outputElement.scrollHeight;
+			});
 		});
 	});
 
 	onDestroy(() => {
 		terminalStore.setTarget(null);
+		transcriptStore.setSession(null);
 	});
 
 	onMount(() => tmuxPanesStore.subscribe());
@@ -361,7 +412,7 @@
 			userScrolledUp = nextScrolledUp;
 			terminalStore.atBottom = !nextScrolledUp;
 			// Count "new" lines from the moment the user left the bottom
-			seenAppended = terminalStore.appended;
+			seenAppended = appendedNow;
 			if (!nextScrolledUp) terminalStore.trimToBottom();
 		}
 
@@ -387,7 +438,7 @@
 		if (!outputElement) return;
 		userScrolledUp = false;
 		terminalStore.atBottom = true;
-		seenAppended = terminalStore.appended;
+		seenAppended = appendedNow;
 		terminalStore.trimToBottom();
 		tick().then(() => {
 			if (outputElement) outputElement.scrollTop = outputElement.scrollHeight;
@@ -404,6 +455,10 @@
 		terminalStore.appended;
 		terminalStore.history.length;
 		terminalStore.historyStart;
+		transcriptStore.entries.length;
+		// A boolean, not the action text: the latter changes on every 500ms
+		// broadcast and would force a layout read/write twice a second.
+		liveRowVisible;
 		if (outputElement && !userScrolledUp && !hasSelection) {
 			const el = outputElement;
 			el.scrollTop = el.scrollHeight;
@@ -1218,13 +1273,25 @@
 
 	<div class="output-wrap">
 			<div class="output" bind:this={outputElement} onscroll={handleScroll}>
-				<TerminalView
-					history={terminalStore.history}
-					historyStart={terminalStore.historyStart}
-					screen={terminalStore.screen}
-					themed={preferences.terminalTheming}
-					frozen={hasSelection}
-				/>
+				{#if viewMode === 'transcript'}
+					<TranscriptView
+						entries={transcriptStore.entries}
+						available={transcriptStore.available}
+						sessionState={currentSession?.state ?? null}
+						currentAction={currentSession?.current_action ?? null}
+						{queueCount}
+						onSendKeys={(keys) => void sendKeys(keys)}
+						onOpenTerminal={() => toggleView()}
+					/>
+				{:else}
+					<TerminalView
+						history={terminalStore.history}
+						historyStart={terminalStore.historyStart}
+						screen={terminalStore.screen}
+						themed={preferences.terminalTheming}
+						frozen={hasSelection}
+					/>
+				{/if}
 			</div>
 			{#if userScrolledUp}
 				<button class="jump-bottom" onclick={scrollToBottom} title="Jump to bottom">

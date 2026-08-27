@@ -5,12 +5,12 @@ import {
 	resizePane,
 	type WsClient
 } from '$shared/server/ws-handlers.js';
-import { sessionsWsManager, terminalWsManager } from '$lib/server/ws-managers.js';
+import { sessionsWsManager, terminalWsManager, transcriptWsManager } from '$lib/server/ws-managers.js';
 
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
 const wsDataMap = new WeakMap<
 	WebSocket,
-	{ type: 'sessions' | 'terminal'; target?: string; client: WsClient }
+	{ type: 'sessions' | 'terminal' | 'transcript'; target?: string; client: WsClient }
 >();
 
 // Handle function for SvelteKit
@@ -40,7 +40,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 // WebSocket handlers for svelte-adapter-bun
 export const websocket = {
-	open(ws: WebSocket & { data?: { type: 'sessions' | 'terminal'; target?: string } }) {
+	open(ws: WebSocket & { data?: { type: 'sessions' | 'terminal' | 'transcript'; target?: string } }) {
 		const data = ws.data;
 		if (!data) return;
 
@@ -59,6 +59,8 @@ export const websocket = {
 			accepted = sessionsWsManager.addClient(client);
 		} else if (data.type === 'terminal' && data.target) {
 			accepted = terminalWsManager.addClient(client, data.target);
+		} else if (data.type === 'transcript' && data.target) {
+			accepted = transcriptWsManager.addClient(client, data.target);
 		}
 
 		// If not accepted (max clients reached), close the connection
@@ -96,6 +98,8 @@ export const websocket = {
 			sessionsWsManager.removeClient(data.client);
 		} else if (data.type === 'terminal') {
 			terminalWsManager.removeClient(data.client, data.target);
+		} else if (data.type === 'transcript') {
+			transcriptWsManager.removeClient(data.client, data.target);
 		}
 
 		wsDataMap.delete(ws);
@@ -116,6 +120,8 @@ export const websocket = {
 				sessionsWsManager.removeClient(data.client);
 			} else if (data.type === 'terminal') {
 				terminalWsManager.removeClient(data.client, data.target);
+			} else if (data.type === 'transcript') {
+				transcriptWsManager.removeClient(data.client, data.target);
 			}
 			wsDataMap.delete(ws);
 		}

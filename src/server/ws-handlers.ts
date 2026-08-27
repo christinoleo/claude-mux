@@ -10,8 +10,10 @@
 
 import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
-import { getAllSessions, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
-import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, detectRecentInterruption } from '../tmux/pane.js';
+import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
+import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
+import { JsonlTailer, transcriptPathFor } from '../transcript/tailer.js';
+import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
@@ -171,14 +173,27 @@ function deduplicateByTmuxTarget<T extends { tmux_target: string | null; last_up
 	return [...byTarget.values(), ...noTarget];
 }
 
+/** Consecutive ticks a busy session's pane has looked idle (Esc edge case). */
+const idleLookTicks = new Map<string, number>();
+
 /**
  * Capture each target's pane once per refresh and run all content-derived
  * checks (interruption, spinner, RC URL) off that single capture instead of
  * re-spawning `tmux capture-pane` three times per session per tick.
  */
-async function captureAndSyncSessions(): Promise<Map<string, string>> {
-	const sessions = getAllSessions().filter((s) => s.tmux_target);
+async function captureAndSyncSessions(): Promise<{
+	captures: Map<string, string>;
+	sessions: Session[];
+}> {
+	const sessions = getAllSessions();
 	const captures = new Map<string, string>();
+
+	/** Persist and mirror onto the in-memory copy, so callers need no re-read. */
+	const apply = (session: Session, patch: Partial<Session>) => {
+		updateSession(session.id, patch);
+		Object.assign(session, patch);
+	};
+
 	await Promise.all(
 		sessions.map(async (session) => {
 			if (!session.tmux_target) return;
@@ -187,19 +202,37 @@ async function captureAndSyncSessions(): Promise<Map<string, string>> {
 			captures.set(session.tmux_target, content);
 
 			if (session.state !== 'idle' && detectRecentInterruption(content)) {
-				updateSession(session.id, {
-					state: 'idle',
-					current_action: null,
-					prompt_text: null
-				});
+				apply(session, { state: 'idle', current_action: null, prompt_text: null });
+			} else if (session.state === 'busy' && isPaneShowingIdlePrompt(content)) {
+				// Esc during thinking leaves no "Interrupted" marker; the pane just
+				// returns to the ready prompt. Debounce two ticks to avoid flapping
+				// on transient frames between tools.
+				const ticks = (idleLookTicks.get(session.id) ?? 0) + 1;
+				if (ticks >= 2) {
+					idleLookTicks.delete(session.id);
+					apply(session, { state: 'idle', current_action: null, prompt_text: null });
+				} else {
+					idleLookTicks.set(session.id, ticks);
+				}
+			} else {
+				idleLookTicks.delete(session.id);
 			}
 			// If hook says idle but pane shows a spinner (e.g. compaction), override to busy
 			if (session.state === 'idle' && isPaneShowingSpinner(content)) {
-				updateSession(session.id, { state: 'busy', current_action: 'Compacting...' });
+				apply(session, { state: 'busy', current_action: 'Compacting...' });
 			}
 		})
 	);
-	return captures;
+
+	// Drop debounce counters for sessions that vanished mid-count.
+	if (idleLookTicks.size > 0) {
+		const live = new Set(sessions.map((s) => s.id));
+		for (const id of idleLookTicks.keys()) {
+			if (!live.has(id)) idleLookTicks.delete(id);
+		}
+	}
+
+	return { captures, sessions };
 }
 
 /**
@@ -207,12 +240,11 @@ async function captureAndSyncSessions(): Promise<Map<string, string>> {
  * and concurrent interruption checks to avoid blocking the event loop.
  */
 export async function getEnrichedSessionsAsync(): Promise<(Session & { pane_title: string | null; pane_alive: boolean })[]> {
-	const [captures, paneTitles] = await Promise.all([
+	const [{ captures, sessions }, paneTitles] = await Promise.all([
 		captureAndSyncSessions(),
 		getAllPaneTitles()
 	]);
 
-	const sessions = getAllSessions();
 	const links = readLinks();
 
 	// Scan for Remote Control URLs in pane content (detect new URLs and clear stale ones)
@@ -613,6 +645,50 @@ export class SessionsWsManager {
 	}
 }
 
+/**
+ * Send one JSON message to a client, dropping it when the socket is closed,
+ * backed up, or throwing. Shared by every channel manager so the backpressure
+ * policy has one definition.
+ */
+function sendJson(
+	client: WsClient,
+	message: unknown,
+	config: Required<WsConfig>,
+	opts: { component: string; maxBuffered: number; data?: string }
+): boolean {
+	try {
+		if (!client.isOpen()) return false;
+		if (client.getBufferedAmount) {
+			const buffered = client.getBufferedAmount();
+			if (buffered > opts.maxBuffered) {
+				log(
+					{
+						level: 'warn',
+						component: opts.component,
+						message: 'Client backpressure detected',
+						data: { buffered }
+					},
+					config
+				);
+				return false;
+			}
+		}
+		client.send(opts.data ?? JSON.stringify(message));
+		return true;
+	} catch (err) {
+		log(
+			{
+				level: 'error',
+				component: opts.component,
+				message: 'Failed to send to client',
+				data: { error: String(err) }
+			},
+			config
+		);
+		return false;
+	}
+}
+
 // ============================================================================
 // Terminal WebSocket Manager
 // ============================================================================
@@ -896,41 +972,189 @@ export class TerminalWsManager {
 		}
 	}
 
-	private sendToClient(client: WsClient, _message: TerminalMessage, data?: string): boolean {
-		try {
-			if (!client.isOpen()) return false;
+	private sendToClient(client: WsClient, message: TerminalMessage, data?: string): boolean {
+		return sendJson(client, message, this.config, {
+			component: 'terminal',
+			maxBuffered: 64 * 1024,
+			data
+		});
+	}
+}
 
-			// Backpressure check
-			if (client.getBufferedAmount) {
-				const buffered = client.getBufferedAmount();
-				if (buffered > 64 * 1024) {
-					log(
-						{
-							level: 'warn',
-							component: 'terminal',
-							message: 'Client backpressure detected',
-							data: { buffered }
-						},
-						this.config
-					);
-					return false;
-				}
-			}
+// ============================================================================
+// Transcript WebSocket Manager
+// ============================================================================
 
-			client.send(data ?? JSON.stringify(_message));
-			return true;
-		} catch (err) {
+export type TranscriptWsMessage =
+	| { type: 'snapshot'; entries: TranscriptEntry[]; available: boolean; timestamp: number }
+	| { type: 'entries'; entries: TranscriptEntry[]; timestamp: number };
+
+interface TranscriptSessionState {
+	tailer: JsonlTailer;
+	builder: TranscriptBuilder;
+	timer: ReturnType<typeof setInterval>;
+	available: boolean;
+}
+
+const TRANSCRIPT_POLL_MS = 500;
+
+/**
+ * Streams parsed session transcripts (from ~/.claude/projects JSONL files) to
+ * clients, keyed by claude-mux session id. Mirrors TerminalWsManager's
+ * lifecycle: first client for a session starts the tailer, last one stops it.
+ */
+export class TranscriptWsManager {
+	private clients = new Map<string, Set<WsClient>>();
+	private sessions = new Map<string, TranscriptSessionState>();
+	private config: Required<WsConfig>;
+
+	constructor(config?: WsConfig) {
+		this.config = { ...DEFAULT_CONFIG, ...config };
+	}
+
+	addClient(client: WsClient, sessionId: string): boolean {
+		const existing = this.clients.get(sessionId);
+		if (existing && existing.size >= this.config.maxTerminalClientsPerTarget) {
 			log(
 				{
-					level: 'error',
-					component: 'terminal',
-					message: 'Failed to send to client',
-					data: { error: String(err) }
+					level: 'warn',
+					component: 'transcript',
+					message: 'Max clients per session reached',
+					data: { sessionId, current: existing.size }
 				},
 				this.config
 			);
 			return false;
 		}
+
+		if (!this.clients.has(sessionId)) this.clients.set(sessionId, new Set());
+		this.clients.get(sessionId)!.add(client);
+
+		let state = this.sessions.get(sessionId);
+		if (!state) {
+			state = this.startSession(sessionId);
+			this.sessions.set(sessionId, state);
+		}
+		this.sendToClient(client, {
+			type: 'snapshot',
+			entries: state.builder.entries,
+			available: state.available,
+			timestamp: Date.now()
+		});
+		return true;
+	}
+
+	removeClient(client: WsClient, sessionId?: string): void {
+		const drop = (id: string, clients: Set<WsClient>) => {
+			if (!clients.delete(client)) return false;
+			if (clients.size === 0) this.stopSession(id);
+			return true;
+		};
+		if (sessionId) {
+			const clients = this.clients.get(sessionId);
+			if (clients) drop(sessionId, clients);
+			return;
+		}
+		for (const [id, clients] of this.clients) {
+			if (drop(id, clients)) break;
+		}
+	}
+
+	private startSession(sessionId: string): TranscriptSessionState {
+		const session = getSession(sessionId);
+		// An unknown session yields an unreadable path; the tailer reports
+		// `missing` and the client gets an empty snapshot.
+		const tailer = new JsonlTailer(session ? transcriptPathFor(session.cwd, sessionId) : '');
+		const state: TranscriptSessionState = {
+			tailer,
+			builder: new TranscriptBuilder(),
+			available: false,
+			timer: setInterval(() => this.poll(sessionId), TRANSCRIPT_POLL_MS)
+		};
+		// Synchronous initial read so the first snapshot carries history.
+		this.consume(state, tailer.read());
+		return state;
+	}
+
+	private stopSession(sessionId: string): void {
+		const state = this.sessions.get(sessionId);
+		if (state) clearInterval(state.timer);
+		this.sessions.delete(sessionId);
+		this.clients.delete(sessionId);
+	}
+
+	/** Apply a tail result to the builder; returns changed entry ids. */
+	private consume(
+		state: TranscriptSessionState,
+		result: ReturnType<JsonlTailer['read']>
+	): string[] {
+		switch (result.status) {
+			case 'lines': {
+				state.available = true;
+				const changed: string[] = [];
+				for (const line of result.lines) changed.push(...state.builder.feed(line));
+				return changed;
+			}
+			case 'reset':
+				// File replaced: rebuild on the next polls from offset 0.
+				state.builder = new TranscriptBuilder();
+				return [];
+			default:
+				return [];
+		}
+	}
+
+	private poll(sessionId: string): void {
+		const state = this.sessions.get(sessionId);
+		const clients = this.clients.get(sessionId);
+		if (!state || !clients || clients.size === 0) return;
+
+		const result = state.tailer.read();
+		if (result.status === 'reset') {
+			this.consume(state, result);
+			// Immediately re-read the fresh file and resend full snapshots.
+			this.consume(state, state.tailer.read());
+			const snapshot: TranscriptWsMessage = {
+				type: 'snapshot',
+				entries: state.builder.entries,
+				available: state.available,
+				timestamp: Date.now()
+			};
+			this.broadcast(sessionId, snapshot);
+			return;
+		}
+
+		const changedIds = this.consume(state, result);
+		if (changedIds.length === 0) return;
+		const seen = new Set<string>();
+		const entries: TranscriptEntry[] = [];
+		for (const id of changedIds) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			const entry = state.builder.getEntry(id);
+			if (entry) entries.push(entry);
+		}
+		this.broadcast(sessionId, { type: 'entries', entries, timestamp: Date.now() });
+	}
+
+	private broadcast(sessionId: string, message: TranscriptWsMessage): void {
+		const clients = this.clients.get(sessionId);
+		if (!clients) return;
+		const data = JSON.stringify(message);
+		for (const client of [...clients]) {
+			if (!this.sendToClient(client, message, data)) {
+				clients.delete(client);
+			}
+		}
+		if (clients.size === 0) this.stopSession(sessionId);
+	}
+
+	private sendToClient(client: WsClient, message: TranscriptWsMessage, data?: string): boolean {
+		return sendJson(client, message, this.config, {
+			component: 'transcript',
+			maxBuffered: 256 * 1024,
+			data
+		});
 	}
 }
 
@@ -975,11 +1199,17 @@ export function handleWsMessage(msgStr: string, handlers?: WsMessageHandlers): '
 export type WsPathResult =
 	| { type: 'sessions' }
 	| { type: 'terminal'; target: string }
+	| { type: 'transcript'; target: string }
 	| null;
 
 export function parseWsPath(pathname: string): WsPathResult {
 	if (pathname === '/api/sessions/stream') {
 		return { type: 'sessions' };
+	}
+
+	const transcriptMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/transcript\/stream$/);
+	if (transcriptMatch) {
+		return { type: 'transcript', target: decodeURIComponent(transcriptMatch[1]) };
 	}
 
 	const termMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/stream$/);

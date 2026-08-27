@@ -90,6 +90,27 @@ export function isPaneShowingSpinner(content: string): boolean {
 }
 
 /**
+ * Heuristic for the Esc edge case hooks can't see: a `busy` session whose
+ * pane shows no work indicator anymore was interrupted (Esc during thinking
+ * prints no "Interrupted" marker in recent Claude Code versions). Inspects
+ * only the bottom lines with cheap string checks; callers should debounce.
+ */
+export function isPaneShowingIdlePrompt(content: string): boolean {
+  if (!content) return false;
+  const bottom = content.split("\n").slice(-12);
+  const joined = bottom.join("\n");
+  // Any active-work or dialog indicator vetoes idle.
+  if (/[⠀-⣿]/.test(joined)) return false; // braille spinner
+  if (/esc to interrupt|esc to cancel|ctrl\+c to interrupt/i.test(joined)) return false;
+  // Activity status line: spinner glyph + word ending in "…", e.g. "✻ Julienning… (1m 39s"
+  // (the finished form "✻ Baked for 33s · done" has no "…" and passes).
+  if (bottom.some((line) => /^\s*[^\w\s❯│>]\s+\S+…/.test(line))) return false;
+  if (/Do you want|❯\s+\d+\./.test(joined)) return false;
+  // The ready input prompt must actually be visible.
+  return bottom.some((line) => /^❯/.test(line.trim()));
+}
+
+/**
  * Detect if the pane shows user interruption or cancellation.
  * Only detects FRESH signals from the most recent interaction.
  *

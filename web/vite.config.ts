@@ -23,7 +23,7 @@ function devWebSocket() {
 
 			// Use globalThis-backed singletons so API mutation routes and
 			// this WS plugin share the same client registry.
-			const { sessionsWsManager, terminalWsManager } = await import(
+			const { sessionsWsManager, terminalWsManager, transcriptWsManager } = await import(
 				'./src/lib/server/ws-managers.js'
 			);
 
@@ -100,6 +100,25 @@ function devWebSocket() {
 					ws.on('close', () => {
 						const t = wsTargets.get(ws);
 						terminalWsManager.removeClient(client, t);
+					});
+				} else if (parsed.type === 'transcript') {
+					const { target } = parsed;
+					const accepted = transcriptWsManager.addClient(client, target);
+					if (!accepted) {
+						ws.close(1013, 'Max clients reached');
+						return;
+					}
+
+					wsTargets.set(ws, target);
+
+					ws.on('message', (data) => {
+						const response = handleWsMessage(data.toString());
+						if (response === 'pong') ws.send('pong');
+					});
+
+					ws.on('close', () => {
+						const t = wsTargets.get(ws);
+						transcriptWsManager.removeClient(client, t);
 					});
 				}
 			});
