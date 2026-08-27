@@ -2,4 +2,4 @@
  * Central version constant for claude-watch.
  * Keep in sync with package.json version.
  */
-export const VERSION = "0.11.0";
+export const VERSION = "0.12.0";
