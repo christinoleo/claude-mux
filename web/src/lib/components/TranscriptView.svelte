@@ -327,6 +327,9 @@
 							<span class="agent-chip">{sub.activity.length} tools</span>
 							{#if sub.running}<span class="agent-chip live">running</span>{/if}
 						</div>
+						{#if sub.trimmed > 0}
+							<div class="agent-trimmed">{sub.trimmed} earlier calls not shown</div>
+						{/if}
 						<ol class="agent-activity">
 							{#each sub.activity as act (act.id)}
 								<li class:pending={act.ok === null} class:failed={act.ok === false}>
@@ -354,7 +357,7 @@
 							<pre class="diff">{#each entry.patch.hunks as hunk, hi (hi)}<span class="diff-hunk">{hunk.header}</span>{'\n'}{#each hunk.lines as dl, li (li)}<span
 										class={dl.startsWith('+') ? 'diff-add' : dl.startsWith('-') ? 'diff-del' : 'diff-ctx'}>{dl}</span>{'\n'}{/each}{/each}</pre>
 						</section>
-					{:else}
+					{:else if input.cmd || input.short.length > 0 || input.long.length > 0}
 						<section class="pane">
 							<header class="pane-head">Input</header>
 							{#if input.cmd}
@@ -393,7 +396,7 @@
 	{/if}
 	{#if sessionState === 'busy'}
 		<div class="live-row busy">
-			<span class="pulse"></span>
+			<span class="pulse-dot"></span>
 			<span class="live-text mono">{currentAction ?? 'Working…'}</span>
 		</div>
 	{:else if sessionState === 'permission'}
@@ -430,7 +433,7 @@
 			'Segoe UI',
 			Roboto,
 			sans-serif;
-		--mono: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+		--mono: var(--font-mono);
 		font-size: 14.5px;
 		line-height: 1.65;
 		color: #d6d3d1;
@@ -1007,7 +1010,11 @@
 		min-width: 0;
 	}
 	.agent-name {
-		flex-shrink: 0;
+		min-width: 0;
+		max-width: 60%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		font-weight: 600;
 		color: #d6d3d1;
 	}
@@ -1060,6 +1067,14 @@
 		margin: 0;
 		padding: 0 0 0 11px;
 		border-left: 2px solid #2b2622;
+		/* Agents reach 150+ calls; scroll inside the card instead of growing it. */
+		max-height: 260px;
+		overflow-y: auto;
+	}
+	.agent-trimmed {
+		font-size: 10.5px;
+		color: #6b6560;
+		margin-bottom: 3px;
 	}
 	.agent-activity li {
 		display: flex;
@@ -1108,27 +1123,7 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.pulse {
-		flex-shrink: 0;
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: #34d399;
-		animation: pulse 1.4s ease-in-out infinite;
-	}
-	@keyframes pulse {
-		0%,
-		100% {
-			opacity: 1;
-			transform: scale(1);
-		}
-		50% {
-			opacity: 0.35;
-			transform: scale(0.75);
-		}
-	}
 	@media (prefers-reduced-motion: reduce) {
-		.pulse,
 		.spin {
 			animation: none;
 		}

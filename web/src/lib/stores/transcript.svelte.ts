@@ -29,8 +29,20 @@ type TranscriptMsg = SnapshotMsg | EntriesMsg | SubagentsMsg;
  */
 class TranscriptStore extends ReliableWebSocket {
 	entries = $state<TranscriptEntry[]>([]);
-	/** Subagents keyed by the Task tool_use id that spawned them. */
+	/** All subagents, keyed by their own id — some have no parent Task id. */
 	subagents = $state<Record<string, SubagentPayload>>({});
+	/** Subagents working right now, newest last. */
+	running: SubagentPayload[] = $derived(
+		Object.values(this.subagents).filter((sub) => sub.running)
+	);
+	/** The subset that can be attached to a Task card, keyed by that card's id. */
+	subagentsByTask: Record<string, SubagentPayload> = $derived(
+		Object.fromEntries(
+			Object.values(this.subagents)
+				.filter((sub) => sub.toolUseId)
+				.map((sub) => [sub.toolUseId as string, sub])
+		)
+	);
 	/** False until the session's JSONL file has been found and read. */
 	available = $state(false);
 	/** Entries appended since attach (page diffs it for the "new below" pill). */
@@ -81,10 +93,10 @@ class TranscriptStore extends ReliableWebSocket {
 		this.applySubagents(msg.subagents ?? []);
 	}
 
-	/** Subagents arrive whole (they are short), keyed by their parent Task. */
+	/** Subagents arrive whole (they are short). */
 	private applySubagents(subagents: SubagentPayload[]): void {
 		for (const sub of subagents) {
-			if (sub.toolUseId) this.subagents[sub.toolUseId] = sub;
+			this.subagents[sub.agentId] = sub;
 		}
 	}
 

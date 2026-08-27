@@ -172,10 +172,16 @@ function toolResultText(sidecar: unknown, blockContent: unknown): string {
   }
   if (typeof blockContent === "string") return blockContent;
   if (Array.isArray(blockContent)) {
-    return blockContent
-      .map((part) => readString(asRecord(part)?.text) ?? "")
-      .filter((text) => text.length > 0)
-      .join("\n");
+    const parts = blockContent
+      .map((part) => {
+        const rec = asRecord(part);
+        // Screenshots and other image results carry no text; name the file the
+        // sidecar saved instead of rendering an empty result.
+        if (rec?.type === "image") return readString(sc?.file) ?? "[image]";
+        return readString(rec?.text) ?? "";
+      })
+      .filter((text) => text.length > 0);
+    if (parts.length > 0) return parts.join("\n");
   }
   if (sc) {
     try {
@@ -194,6 +200,12 @@ function toolResultText(sidecar: unknown, blockContent: unknown): string {
  */
 export class TranscriptBuilder {
   readonly entries: TranscriptEntry[] = [];
+  /**
+   * Subagents the harness has reported as finished. Background agents give no
+   * other completion signal — their launching tool call returns immediately —
+   * so this notification is the authoritative end, keyed by agent id.
+   */
+  readonly finishedAgents = new Set<string>();
   private indexById = new Map<string, number>();
   /** Queued prompts awaiting a possible re-delivery as a real user line. */
   private pendingQueued: { text: string; id: string }[] = [];
@@ -242,6 +254,13 @@ export class TranscriptBuilder {
     return [
       this.upsert({ kind: "queued", id: uuid, ts, text: truncate(prompt, TEXT_CHAR_LIMIT) }),
     ];
+  }
+
+  /** Record a finished subagent from a harness task-notification. */
+  private noteAgentFinished(text: string): void {
+    const agentId = text.match(/<task-id>([^<]+)<\/task-id>/)?.[1];
+    const status = text.match(/<status>([^<]+)<\/status>/)?.[1];
+    if (agentId && status && status !== "running") this.finishedAgents.add(agentId);
   }
 
   /** Hide queued entries that a real user line re-delivers. The delivered
@@ -312,6 +331,10 @@ export class TranscriptBuilder {
       // notifications, reminders) carry origin.kind !== "human"; when origin
       // is absent (older versions) fall back to sniffing system markers.
       const originKind = asRecord(record.origin)?.kind;
+      if (originKind === "task-notification") {
+        this.noteAgentFinished(content);
+        return [];
+      }
       if (originKind !== undefined && originKind !== "human") return [];
       if (originKind === undefined && /^<(task-notification|system-reminder)/.test(content.trim()))
         return [];

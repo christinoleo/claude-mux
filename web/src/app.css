@@ -74,6 +74,7 @@
 }
 
 @theme inline {
+  --font-mono: 'SF Mono', Monaco, 'Cascadia Code', monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -124,5 +125,32 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* One definition for the "something is running" dot, shared by the transcript's
+   live status row and the running-agents overlay — they drifted apart once. */
+.pulse-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  animation: claude-mux-pulse 1.4s ease-in-out infinite;
+}
+@keyframes claude-mux-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.75);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
   }
 }

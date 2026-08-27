@@ -43,7 +43,12 @@ export interface SubagentMeta {
  * directory named after the session, one `agent-<id>.jsonl` per subagent with
  * a `.meta.json` beside it linking back to the Task tool call.
  */
-export function listSubagents(cwd: string, sessionId: string): SubagentFile[] {
+export function listSubagents(
+  cwd: string,
+  sessionId: string,
+  /** Agent ids already tracked; their meta is not re-read. */
+  known?: ReadonlySet<string>,
+): SubagentFile[] {
   const dir = join(projectDirFor(cwd), sessionId, "subagents");
   let names: string[];
   try {
@@ -55,6 +60,7 @@ export function listSubagents(cwd: string, sessionId: string): SubagentFile[] {
   for (const name of names) {
     const agentId = name.match(/^agent-(.+)\.jsonl$/)?.[1];
     if (!agentId) continue;
+    if (known?.has(agentId)) continue;
     let meta: SubagentMeta = {};
     try {
       const parsed: unknown = JSON.parse(readFileSync(join(dir, `agent-${agentId}.meta.json`), "utf8"));
@@ -77,8 +83,14 @@ export type TailResult =
 export class JsonlTailer {
   private offset = 0;
   private partial: Buffer = Buffer.alloc(0);
+  private lastMtimeMs: number | null = null;
 
   constructor(private readonly path: string) {}
+
+  /** Last write seen by the most recent read(), or null before the first one. */
+  mtimeMs(): number | null {
+    return this.lastMtimeMs;
+  }
 
   read(): TailResult {
     let fd: number;
@@ -88,7 +100,9 @@ export class JsonlTailer {
       return { status: "missing" };
     }
     try {
-      const size = fstatSync(fd).size;
+      const stat = fstatSync(fd);
+      this.lastMtimeMs = stat.mtimeMs;
+      const size = stat.size;
       if (size < this.offset) {
         this.offset = 0;
         this.partial = Buffer.alloc(0);

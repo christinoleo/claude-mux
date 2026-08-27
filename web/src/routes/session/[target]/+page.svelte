@@ -12,7 +12,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import TerminalView from '$lib/components/TerminalView.svelte';
 	import TranscriptView from '$lib/components/TranscriptView.svelte';
-	import AgentDock from '$lib/components/AgentDock.svelte';
+	import RunningAgentsOverlay from '$lib/components/RunningAgentsOverlay.svelte';
 	import { transcriptStore } from '$lib/stores/transcript.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
@@ -209,12 +209,8 @@
 	let ctrlTapCandidate = false;
 	let altTapCandidate = false;
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
-	/** Subagents working right now — pinned in the dock so they never scroll away. */
-	const runningAgents = $derived(
-		viewMode === 'transcript'
-			? Object.values(transcriptStore.subagents).filter((a) => a.running)
-			: []
-	);
+	/** Shown only in the transcript, which is the view that streams them. */
+	const runningAgents = $derived(viewMode === 'transcript' ? transcriptStore.running : []);
 
 	/** Scroll the transcript to an agent's Task card and open it. */
 	function revealAgent(toolUseId: string) {
@@ -1299,7 +1295,7 @@
 						sessionState={currentSession?.state ?? null}
 						currentAction={currentSession?.current_action ?? null}
 						{queueCount}
-						subagents={transcriptStore.subagents}
+						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={(keys) => void sendKeys(keys)}
 						onOpenTerminal={() => toggleView()}
 					/>
@@ -1313,6 +1309,7 @@
 					/>
 				{/if}
 			</div>
+			<RunningAgentsOverlay agents={runningAgents} onReveal={revealAgent} />
 			{#if userScrolledUp}
 				<button class="jump-bottom" onclick={scrollToBottom} title="Jump to bottom">
 					<iconify-icon icon="mdi:arrow-down"></iconify-icon>
@@ -1320,8 +1317,6 @@
 				</button>
 			{/if}
 		</div>
-
-		<AgentDock agents={runningAgents} onReveal={revealAgent} />
 
 		<div class="toolbar">
 			{#if hasSelection}

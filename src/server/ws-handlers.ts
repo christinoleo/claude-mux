@@ -12,6 +12,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
+import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { JsonlTailer, listSubagents, transcriptPathFor, type SubagentMeta } from '../transcript/tailer.js';
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
@@ -99,6 +100,7 @@ export interface WsClient {
 // ============================================================================
 
 export type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
+export type { SubagentPayload } from '../transcript/subagent.js';
 
 /** Visible pane changed (or initial). `historySize` is the absolute index right after the last history line. */
 export interface ScreenMessage {
@@ -985,24 +987,6 @@ export class TerminalWsManager {
 // Transcript WebSocket Manager
 // ============================================================================
 
-/**
- * A subagent's work, condensed for the Task card that spawned it: what it ran
- * (summaries only — the parent card doesn't need every tool's full input) plus
- * the report it returned.
- */
-export interface SubagentPayload {
-	agentId: string;
-	/** Parent Task tool_use id — the card this belongs under. */
-	toolUseId: string | null;
-	agentType: string | null;
-	description: string | null;
-	model: string | null;
-	activity: { id: string; name: string; summary: string; ok: boolean | null }[];
-	/** The subagent's final message: what it reported back. */
-	report: string | null;
-	running: boolean;
-}
-
 export type TranscriptWsMessage =
 	| {
 			type: 'snapshot';
@@ -1013,6 +997,7 @@ export type TranscriptWsMessage =
 		}
 	| { type: 'entries'; entries: TranscriptEntry[]; timestamp: number }
 	| { type: 'subagents'; subagents: SubagentPayload[]; timestamp: number };
+
 
 interface SubagentState {
 	tailer: JsonlTailer;
@@ -1038,41 +1023,6 @@ const TRANSCRIPT_POLL_MS = 500;
 /** Scan for newly spawned subagents every N polls (they appear rarely). */
 const SUBAGENT_DISCOVER_TICKS = 4;
 
-/** Condense a subagent's parsed transcript into what its Task card shows. */
-function subagentPayload(agentId: string, state: SubagentState): SubagentPayload {
-	const activity: SubagentPayload['activity'] = [];
-	let report: string | null = null;
-	for (const entry of state.builder.entries) {
-		if (entry.kind === 'tool') {
-			activity.push({
-				id: entry.id,
-				name: entry.name,
-				summary: entry.summary,
-				ok: entry.result ? entry.result.ok : null
-			});
-		} else if (entry.kind === 'text') {
-			report = entry.text;
-		}
-	}
-	// Still working while its newest tool has no result yet.
-	const running = activity.length > 0 && activity[activity.length - 1].ok === null;
-	return {
-		agentId,
-		toolUseId: state.meta.toolUseId ?? null,
-		agentType: state.meta.agentType ?? null,
-		description: state.meta.description ?? null,
-		model: state.meta.model ?? null,
-		activity,
-		report,
-		running
-	};
-}
-
-/**
- * Streams parsed session transcripts (from ~/.claude/projects JSONL files) to
- * clients, keyed by claude-mux session id. Mirrors TerminalWsManager's
- * lifecycle: first client for a session starts the tailer, last one stops it.
- */
 export class TranscriptWsManager {
 	private clients = new Map<string, Set<WsClient>>();
 	private sessions = new Map<string, TranscriptSessionState>();
@@ -1108,7 +1058,9 @@ export class TranscriptWsManager {
 		this.sendToClient(client, {
 			type: 'snapshot',
 			entries: state.builder.entries,
-			subagents: [...state.subagents].map(([id, sub]) => subagentPayload(id, sub)),
+			subagents: [...state.subagents].map(([id, sub]) =>
+				subagentPayload(id, sub, state.builder.finishedAgents.has(id))
+			),
 			available: state.available,
 			timestamp: Date.now()
 		});
@@ -1160,13 +1112,7 @@ export class TranscriptWsManager {
 
 		if (state.discoverIn <= 0) {
 			state.discoverIn = SUBAGENT_DISCOVER_TICKS;
-			for (const file of listSubagents(state.cwd, sessionId)) {
-				const known = state.subagents.get(file.agentId);
-				if (known) {
-					// Meta lands after the transcript starts; keep the latest.
-					known.meta = { ...known.meta, ...file.meta };
-					continue;
-				}
+			for (const file of listSubagents(state.cwd, sessionId, new Set(state.subagents.keys()))) {
 				state.subagents.set(file.agentId, {
 					tailer: new JsonlTailer(file.path),
 					builder: new TranscriptBuilder(true),
@@ -1185,10 +1131,8 @@ export class TranscriptWsManager {
 				sub.builder = new TranscriptBuilder(true);
 			} else if (result.status === 'lines') {
 				for (const line of result.lines) sub.builder.feed(line);
-			} else if (sub.lastSent !== '') {
-				continue;
 			}
-			const payload = subagentPayload(agentId, sub);
+			const payload = subagentPayload(agentId, sub, state.builder.finishedAgents.has(agentId));
 			const encoded = JSON.stringify(payload);
 			if (encoded === sub.lastSent) continue;
 			sub.lastSent = encoded;
@@ -1238,7 +1182,9 @@ export class TranscriptWsManager {
 			this.broadcast(sessionId, {
 				type: 'snapshot',
 				entries: state.builder.entries,
-				subagents: [...state.subagents].map(([id, sub]) => subagentPayload(id, sub)),
+				subagents: [...state.subagents].map(([id, sub]) =>
+				subagentPayload(id, sub, state.builder.finishedAgents.has(id))
+			),
 				available: state.available,
 				timestamp: Date.now()
 			});
