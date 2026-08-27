@@ -62,6 +62,7 @@
 	let commandsOpen = $state(false);
 	let queuePopoverOpen = $state(false);
 	let attachPickerOpen = $state(false);
+	let attachStackOpen = $state(false);
 	let ctrlCount = $state(0);
 	let altCount = $state(0);
 	let chordMenuOpen = $state(false);
@@ -171,6 +172,12 @@
 		attachments.filter((a) => a.status === 'ready' && a.path).map((a) => a.path!)
 	);
 	const hasAttachments = $derived(attachments.length > 0);
+	const stackThumbs = $derived(attachments.filter((a) => a.thumb).slice(-3).reverse());
+	const anyFailed = $derived(attachments.some((a) => a.status === 'failed'));
+	const anyUploading = $derived(attachments.some((a) => a.status === 'uploading'));
+	$effect(() => {
+		if (!hasAttachments) attachStackOpen = false;
+	});
 	// Tap candidate: modifier keydown with no intervening key → arm on keyup
 	let ctrlTapCandidate = false;
 	let altTapCandidate = false;
@@ -973,9 +980,15 @@
 			sendKeys('BSpace');
 			return;
 		}
-		if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && textInput === '' && !modArmed) {
+		const arrowKeys: Record<string, string> = {
+			ArrowUp: 'Up',
+			ArrowDown: 'Down',
+			ArrowLeft: 'Left',
+			ArrowRight: 'Right',
+		};
+		if (arrowKeys[e.key] && textInput === '' && !modArmed) {
 			e.preventDefault();
-			sendKeys(e.key === 'ArrowUp' ? 'Up' : 'Down');
+			sendKeys(arrowKeys[e.key]);
 			return;
 		}
 		if (e.key === 'Tab' && textInput === '' && !modArmed && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -1352,41 +1365,64 @@
 					<span>Alt{altCount > 1 ? `×${altCount}` : ''}</span>
 				</button>
 			{/if}
-			{#each attachments as att (att.localId)}
-				<span
-					class="attach-chip"
-					class:attach-chip-uploading={att.status === 'uploading'}
-					class:attach-chip-failed={att.status === 'failed'}
-					title={att.status === 'failed' ? `Upload failed: ${att.error}` : att.name}
-				>
-					{#if att.thumb}
-						<img class="attach-thumb" src={att.thumb} alt="" />
-					{:else}
-						<iconify-icon icon="mdi:file-outline"></iconify-icon>
-					{/if}
-					<span class="attach-name">{att.name}</span>
-					{#if att.status === 'uploading'}
-						<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
-					{:else if att.status === 'failed'}
-						<button
-							type="button"
-							class="attach-action"
-							title="Retry"
-							onclick={() => retryAttachment(att.localId)}
-						>
-							<iconify-icon icon="mdi:refresh"></iconify-icon>
-						</button>
-					{/if}
-					<button
-						type="button"
-						class="attach-action"
-						title="Remove"
-						onclick={() => removeAttachment(att.localId)}
+			{#if hasAttachments}
+				<Popover.Root bind:open={attachStackOpen}>
+					<Popover.Trigger
+						class="attach-stack"
+						title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
 					>
-						<iconify-icon icon="mdi:close"></iconify-icon>
-					</button>
-				</span>
-			{/each}
+						{#if stackThumbs.length}
+							{#each stackThumbs as t, i (t.localId)}
+								<img class="attach-stack-thumb" src={t.thumb} alt="" style="--i: {i}" />
+							{/each}
+						{:else}
+							<span class="attach-stack-thumb attach-stack-file" style="--i: 0">
+								<iconify-icon icon="mdi:file-outline"></iconify-icon>
+							</span>
+						{/if}
+						<span class="attach-stack-badge" class:attach-stack-badge-failed={anyFailed}>
+							{#if anyUploading}
+								<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
+							{:else}
+								{attachments.length}
+							{/if}
+						</span>
+					</Popover.Trigger>
+					<Popover.Content side="top" align="start" class="w-72 p-2 bg-[#1a1a1a] border-[#333]">
+						<div class="attach-list">
+							{#each attachments as att (att.localId)}
+								<div
+									class="attach-item"
+									class:attach-item-failed={att.status === 'failed'}
+									title={att.status === 'failed' ? `Upload failed: ${att.error}` : att.name}
+								>
+									{#if att.thumb}
+										<img class="attach-item-thumb" src={att.thumb} alt="" />
+									{:else}
+										<span class="attach-item-thumb attach-item-file">
+											<iconify-icon icon="mdi:file-outline"></iconify-icon>
+										</span>
+									{/if}
+									<span class="attach-item-name">{att.name}</span>
+									{#if att.status === 'uploading'}
+										<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
+									{:else if att.status === 'failed'}
+										<button type="button" class="attach-item-btn" title="Retry" onclick={() => retryAttachment(att.localId)}>
+											<iconify-icon icon="mdi:refresh"></iconify-icon>
+										</button>
+									{/if}
+									<button type="button" class="attach-item-btn" title="Remove" onclick={() => removeAttachment(att.localId)}>
+										<iconify-icon icon="mdi:close"></iconify-icon>
+									</button>
+								</div>
+							{/each}
+						</div>
+						{#if attachments.length > 1}
+							<button type="button" class="attach-clear" onclick={clearAttachments}>Remove all</button>
+						{/if}
+					</Popover.Content>
+				</Popover.Root>
+			{/if}
 			{#if slashOpen}
 				<div class="slash-popup">
 					<CommandList
@@ -1875,60 +1911,132 @@
 		background: #257048;
 	}
 
-	.attach-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		height: 48px;
-		padding: 0 6px 0 6px;
-		background: #1f2c44;
-		color: #d4e3ff;
-		border: 1px solid #3a6ad4;
-		border-radius: 8px;
-		font-size: 12px;
-		max-width: 220px;
+	:global(.attach-stack) {
+		position: relative;
 		flex-shrink: 0;
+		width: 48px;
+		height: 48px;
+		border: 0;
+		background: transparent;
+		padding: 0;
+		cursor: pointer;
 	}
-	.attach-chip-uploading {
-		opacity: 0.75;
-	}
-	.attach-chip-failed {
-		background: #4a1d22;
-		color: #ffd4d4;
-		border-color: #d44d4d;
-	}
-	.attach-chip .attach-thumb {
-		width: 36px;
-		height: 36px;
+	.attach-stack-thumb {
+		position: absolute;
+		left: 0;
+		top: 0;
+		width: 40px;
+		height: 40px;
 		object-fit: cover;
-		border-radius: 4px;
-		display: block;
+		border-radius: 6px;
+		border: 1px solid #3a6ad4;
+		background: #1f2c44;
+		transform: translate(calc(var(--i) * 4px), calc(var(--i) * 4px));
+		z-index: calc(3 - var(--i));
 	}
-	.attach-chip > iconify-icon {
+	.attach-stack-file {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: #d4e3ff;
 		font-size: 22px;
 	}
-	.attach-chip .attach-name {
-		max-width: 120px;
+	.attach-stack-badge {
+		position: absolute;
+		right: -4px;
+		top: -4px;
+		z-index: 4;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 5px;
+		border-radius: 9px;
+		background: #27ae60;
+		color: #fff;
+		font-size: 11px;
+		font-weight: 600;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.attach-stack-badge-failed {
+		background: #d44d4d;
+	}
+	.attach-list {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		max-height: 50vh;
+		overflow-y: auto;
+	}
+	.attach-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px;
+		border-radius: 6px;
+		color: #d4e3ff;
+		font-size: 12px;
+	}
+	.attach-item:hover {
+		background: rgba(255, 255, 255, 0.06);
+	}
+	.attach-item-failed {
+		color: #ffd4d4;
+	}
+	.attach-item-thumb {
+		width: 40px;
+		height: 40px;
+		flex-shrink: 0;
+		object-fit: cover;
+		border-radius: 6px;
+		background: #1f2c44;
+	}
+	.attach-item-file {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 22px;
+	}
+	.attach-item-name {
+		flex: 1;
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.attach-action {
-		background: transparent;
-		border: 0;
-		color: inherit;
-		cursor: pointer;
-		padding: 4px;
+	.attach-item-btn {
+		flex-shrink: 0;
+		width: 32px;
+		height: 32px;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 4px;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		color: inherit;
+		cursor: pointer;
+		font-size: 18px;
 	}
-	.attach-action:hover {
+	.attach-item-btn:hover {
 		background: rgba(255, 255, 255, 0.12);
 	}
+	.attach-clear {
+		margin-top: 6px;
+		width: 100%;
+		padding: 6px;
+		border: 0;
+		border-radius: 6px;
+		background: #2a2a2a;
+		color: #ccc;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.attach-clear:hover {
+		background: #4a1d22;
+		color: #ffd4d4;
+	}
 	.attach-spin {
-		font-size: 16px;
 		animation: attach-spin 1s linear infinite;
 	}
 	@keyframes attach-spin {
