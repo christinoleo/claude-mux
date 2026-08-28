@@ -3,6 +3,7 @@
  *
  * Sources scanned (mirrors Claude Code's own lookup):
  *   - built-in slash commands (static list)
+ *   - built-in skills bundled in the Claude Code binary (static list)
  *   - ~/.claude/commands/**\/*.md          (user commands)
  *   - ~/.claude/skills/<name>/SKILL.md     (user skills)
  *   - ~/.claude/agents/*.md                (user subagents)
@@ -64,6 +65,31 @@ const BUILTINS: Array<[string, string]> = [
   ["/tasks", "Show background tasks"],
   ["/statusline", "Configure status line"],
   ["/workflows", "Show running workflows"],
+];
+
+/**
+ * Skills bundled inside the Claude Code binary. They have no SKILL.md on disk —
+ * the binary is a single self-contained executable — so the directory scans below
+ * can never find them. Availability can vary by Claude Code version and account
+ * gating; this list mirrors the ones shipped as of 2.1.x.
+ */
+const BUILTIN_SKILLS: Array<[string, string]> = [
+  ["/artifact-capabilities", "Runtime capabilities a published Artifact page can be granted"],
+  ["/artifact-design", "Design guidance and fundamentals for Artifacts"],
+  ["/artifact-diagramming", "Diagramming know-how for Artifacts"],
+  ["/claude-api", "Reference for the Claude API / Anthropic SDK"],
+  ["/code-review", "Review the current diff or a PR for bugs and cleanups"],
+  ["/dataviz", "Design system for charts, dashboards, and data visualization"],
+  ["/design", "Create a multi-artboard design canvas published as an Artifact"],
+  ["/fewer-permission-prompts", "Build an allowlist from past transcripts to cut permission prompts"],
+  ["/keybindings-help", "Customize keyboard shortcuts in ~/.claude/keybindings.json"],
+  ["/loop", "Run a prompt or slash command on a recurring interval"],
+  ["/run", "Launch and drive this project's app to see a change working"],
+  ["/schedule", "Create, update, list, or run scheduled cloud agents (routines)"],
+  ["/security-review", "Complete a security review of the pending changes"],
+  ["/simplify", "Review changed code for reuse, simplification, and efficiency, then fix"],
+  ["/update-config", "Configure the Claude Code harness via settings.json"],
+  ["/workflow-authoring", "Reference for writing a Workflow tool script"],
 ];
 
 /** Parse a minimal YAML frontmatter block: returns name/description if present. */
@@ -238,6 +264,16 @@ export function discoverCommands(cwd?: string): DiscoveredCommand[] {
     source: "builtin",
     description,
   }));
+
+  result.push(
+    ...BUILTIN_SKILLS.map(([name, description]) => ({
+      name,
+      insert: name,
+      kind: "skill" as const,
+      source: "builtin",
+      description,
+    })),
+  );
 
   result.push(...scanRoot(claudeDir, "user"));
 
