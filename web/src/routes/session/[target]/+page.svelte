@@ -19,6 +19,7 @@
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
+	import RenameSessionDialog from '$lib/components/RenameSessionDialog.svelte';
 	import { voiceStore } from '$lib/stores/voice.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { untrack } from 'svelte';
@@ -1157,23 +1158,7 @@
 		setTimeout(() => { showSelectionCopied = false; }, 2000);
 	}
 
-	async function renameSession() {
-		if (!currentSession) return;
-		const current = currentSession.display_name ?? '';
-		const next = window.prompt('Session name (blank to reset):', current);
-		if (next === null) return;
-		const trimmed = next.trim();
-		if (trimmed === current) return;
-		try {
-			await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/rename`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name: trimmed || null })
-			});
-		} catch {
-			// watcher will reconcile
-		}
-	}
+	let renameId = $state<string | null>(null);
 
 	function copyTmuxCmd() {
 		if (!target) return;
@@ -1245,6 +1230,8 @@
 	</div>
 {/if}
 
+<RenameSessionDialog sessionId={renameId} onClose={() => (renameId = null)} />
+
 <div class="session-container">
 	<header class="header">
 		<div class="title-row">
@@ -1253,7 +1240,7 @@
 				<button
 					type="button"
 					class="target-btn"
-					onclick={renameSession}
+					onclick={() => (renameId = currentSession?.id ?? null)}
 					disabled={!isClaudeSession}
 					title={isClaudeSession ? 'Tap to rename' : undefined}
 				>

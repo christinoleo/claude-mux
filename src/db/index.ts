@@ -3,6 +3,7 @@ export {
   getSession,
   upsertSession,
   updateSession,
+  sanitizeDisplayName,
   deleteSession,
   clearChromeActive,
   removeScreenshot,

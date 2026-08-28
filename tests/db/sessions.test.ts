@@ -11,6 +11,7 @@ import {
   getSessionPids,
   deleteSessionsByPids,
   setSessionsDir,
+  sanitizeDisplayName,
 } from "../../src/db/index.js";
 
 const testDir = join(tmpdir(), `claude-watch-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -227,6 +228,37 @@ describe("sessions (JSON files)", () => {
 
       const sessions = getAllSessions();
       expect(sessions.length).toBe(1);
+    });
+  });
+  describe("display names", () => {
+    it("collapses newlines so the name cannot submit extra lines to the agent", () => {
+      upsertSession({ id: "s1", pid: 1001, cwd: "/p1" });
+
+      updateSession("s1", { display_name: "  hello\nworld  " });
+
+      expect(getSession("s1")?.display_name).toBe("hello world");
+    });
+
+    it("treats a blank name as a reset", () => {
+      upsertSession({ id: "s1", pid: 1001, cwd: "/p1" });
+      updateSession("s1", { display_name: "named" });
+
+      updateSession("s1", { display_name: "   " });
+
+      expect(getSession("s1")?.display_name).toBeNull();
+    });
+
+    it("caps the name at 120 characters", () => {
+      upsertSession({ id: "s1", pid: 1001, cwd: "/p1" });
+
+      updateSession("s1", { display_name: "x".repeat(200) });
+
+      expect(getSession("s1")?.display_name?.length).toBe(120);
+    });
+
+    it("strips control characters", () => {
+      expect(sanitizeDisplayName("a\u0000\u001bb")).toBe("a b");
+      expect(sanitizeDisplayName(null)).toBeNull();
     });
   });
 });

@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getSession, updateSession } from '$shared/db/index.js';
-import { sendTextToPane } from '$shared/server/message-queue.js';
+import { getSession, updateSession, sanitizeDisplayName } from '$shared/db/index.js';
+import { enqueue } from '$shared/server/message-queue.js';
 import { broadcastSessions } from '$lib/server/ws-managers.js';
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -14,19 +14,17 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	} catch {
 		return json({ error: 'Invalid JSON' }, { status: 400 });
 	}
-	const name = body.name ?? null;
+	const name = sanitizeDisplayName(body.name);
 	updateSession(id, { display_name: name });
 	broadcastSessions();
 
-	const target = session.tmux_target;
-	if (target && name && name.trim().length > 0) {
-		setImmediate(() => {
-			try {
-				sendTextToPane(target, `/rename ${name.trim()}`);
-			} catch (err) {
-				console.error(`[rename] send-keys to ${target} failed:`, err);
-			}
-		});
+	// Mirror the name into the agent so its own transcript title matches. Nobody
+	// is at the keyboard for this one, so it goes through the queue rather than
+	// straight to the pane: the queue already knows not to type into a permission
+	// dialog, not to jump ahead of pending messages, and not to land on a prompt
+	// it has just fired at.
+	if (session.tmux_target && name) {
+		enqueue(session.tmux_target, `/rename ${name}`);
 	}
 
 	return json({ ok: true });

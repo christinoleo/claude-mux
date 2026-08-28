@@ -340,10 +340,15 @@ function handleSessionStart(input: HookInput): void {
   const pid = getClaudePid();
   const existing = readSession(input.session_id);
   const source = input.source ?? "startup";
-  // compact/resume keep the same session_id and continue prior work — preserve user-meaningful state.
-  // clear wipes context but session identity remains, so keep display_name only.
-  const preserveAll = source === "compact" || source === "resume";
-  const preserveName = preserveAll || source === "clear";
+  // What a SessionStart keeps, widest source first — each rung includes the one
+  // below it. compact fires mid-turn and the agent carries straight on, so even
+  // the running state survives; without that the session reads as free and the
+  // message queue drains into a busy pane. resume continues prior work but lands
+  // at a prompt. clear wipes the context while the pane stays the same named
+  // session. startup keeps nothing.
+  const keepRunState = source === "compact";
+  const keepContext = keepRunState || source === "resume";
+  const keepName = keepContext || source === "clear";
 
   // Clean up any stale sessions with the same tmux_target before creating new one
   // Preserve linked_to from pre-registered sessions (set by new-session --linked-to)
@@ -359,17 +364,17 @@ function handleSessionStart(input: HookInput): void {
   const gitRoot = getGitRoot(input.cwd);
 
   const session: Session = {
-    ...(preserveAll && existing ? existing : {}),
+    ...(keepContext && existing ? existing : {}),
     v: SCHEMA_VERSION,
     id: input.session_id,
     pid,
     cwd: input.cwd,
     git_root: gitRoot,
     tmux_target: tmuxTarget,
-    state: "idle",
-    current_action: null,
-    prompt_text: preserveAll ? (existing?.prompt_text ?? null) : null,
-    display_name: preserveName ? (existing?.display_name ?? null) : null,
+    state: keepRunState ? (existing?.state ?? "idle") : "idle",
+    current_action: keepRunState ? (existing?.current_action ?? null) : null,
+    prompt_text: keepContext ? (existing?.prompt_text ?? null) : null,
+    display_name: keepName ? (existing?.display_name ?? null) : null,
     last_update: Date.now(),
     linked_to: linkedTo ?? existing?.linked_to ?? null,
   };
@@ -434,23 +439,25 @@ function handleUserPromptSubmit(input: HookInput): void {
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
   session.current_action = "Thinking...";
-  // Capture the first user prompt as session name and set pane title
-  if (input.prompt && !session.prompt_text) {
+  // Capture the first user prompt as session name and set pane title.
+  // Slash commands are control input, not a description of the work — and one of
+  // them (`/rename`) is injected by the dashboard, which would otherwise title the
+  // session after its own rename call.
+  if (input.prompt && !session.prompt_text && !/^\s*\//.test(input.prompt)) {
     session.prompt_text = input.prompt.slice(0, 120);
     const title = promptToTitle(input.prompt);
     if (title && session.tmux_target) {
       setPaneTitle(session.tmux_target, title);
     }
   }
-  // Mirror Claude's `/rename <name>` slash command into display_name
-  if (input.prompt) {
-    const m = input.prompt.match(/^\s*\/rename\s+(.+?)\s*$/);
-    if (m) {
-      const next = m[1].trim().slice(0, 120);
-      session.display_name = next.length > 0 ? next : null;
-    } else if (/^\s*\/rename\s*$/.test(input.prompt)) {
-      session.display_name = null;
-    }
+  // Mirror Claude's `/rename <name>` slash command into display_name. Kept in
+  // step with sanitizeDisplayName in src/db/sessions-json.ts, which does the same
+  // normalising for names arriving from the dashboard — this file stays free of
+  // repo imports so it starts fast on every hook event.
+  const renamed = input.prompt?.match(/^\s*\/rename(?:\s+(.*))?$/);
+  if (renamed) {
+    const next = (renamed[1] ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    session.display_name = next || null;
   }
   session.last_update = Date.now();
   writeSession(session);
@@ -560,7 +567,7 @@ async function main(): Promise<void> {
     const event = mapEventName(input.hook_event_name) ?? process.argv[2];
 
     debugLog(`main: event=${event} (hook_event_name=${input.hook_event_name}, argv=${process.argv[2]})`);
-    debugLog(`main: session_id=${input.session_id}, cwd=${input.cwd}`);
+    debugLog(`main: session_id=${input.session_id}, cwd=${input.cwd}${input.source ? `, source=${input.source}` : ""}`);
 
     if (!event) {
       debugLog(`main: no event resolved, exiting`);

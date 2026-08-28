@@ -165,6 +165,18 @@ export function upsertSession(input: SessionInput): Session {
 }
 
 /**
+ * Names travel two ways: into the session JSON, and into the pane as a
+ * `/rename <name>` line. Newlines and control characters would submit extra
+ * lines to the agent, so they are collapsed before the name is stored.
+ */
+export function sanitizeDisplayName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  // eslint-disable-next-line no-control-regex
+  const flat = name.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  return flat ? flat.slice(0, 120) : null;
+}
+
+/**
  * Update specific fields of a session.
  */
 export function updateSession(id: string, update: SessionUpdate): void {
@@ -184,8 +196,7 @@ export function updateSession(id: string, update: SessionUpdate): void {
     session.rc_url = update.rc_url;
   }
   if (update.display_name !== undefined) {
-    const trimmed = update.display_name?.trim();
-    session.display_name = trimmed ? trimmed.slice(0, 120) : null;
+    session.display_name = sanitizeDisplayName(update.display_name);
   }
   session.last_update = Date.now();
 

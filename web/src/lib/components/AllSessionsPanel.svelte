@@ -15,6 +15,7 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { longPress } from '$lib/actions/longPress';
 	import ServerPicker from './ServerPicker.svelte';
+	import RenameSessionDialog from './RenameSessionDialog.svelte';
 	import FolderPicker from './FolderPicker.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
@@ -42,6 +43,26 @@
 		alertMessage = message;
 		alertOnConfirm = onConfirm;
 		alertOpen = true;
+	}
+
+	// A session row is a link, so a double-click opens naming for the session you
+	// just landed on rather than needing a trip to its header.
+	let renameId = $state<string | null>(null);
+
+	/**
+	 * One click opens the session, two open the rename dialog — the touch
+	 * equivalent is the `longPress` action on the same row. The second click is
+	 * matched on `detail` rather than with a `dblclick` listener, because the first
+	 * click navigates and re-renders the row, leaving the browser without a shared
+	 * target to fire `dblclick` on.
+	 */
+	function handleSessionRowClick(e: MouseEvent, session: Session) {
+		if (e.detail >= 2) {
+			e.preventDefault();
+			renameId = session.id;
+			return;
+		}
+		handleSessionClick(e, session.tmux_target!);
 	}
 
 	let agentPickerCwd = $state<string | null>(null);
@@ -315,7 +336,9 @@
 			class:orchestrator={isOrchestrator}
 			class:dead={isDead}
 			class:has-draft={hasDraft}
-			onclick={(e) => handleSessionClick(e, session.tmux_target!)}
+			onclick={(e) => handleSessionRowClick(e, session)}
+			use:longPress={{ onTrigger: () => (renameId = session.id) }}
+			title="Double-click or long-press to rename"
 		>
 			<iconify-icon icon={agentMeta.icon} class="row-prefix" style="color: {agentMeta.color};" title={agentMeta.label}></iconify-icon>
 			<div class="session-info">
@@ -543,6 +566,8 @@
 	</Dialog.Content>
 </Dialog.Root>
 
+<RenameSessionDialog sessionId={renameId} onClose={() => (renameId = null)} />
+
 <AlertDialog.Root bind:open={alertOpen}>
 	<AlertDialog.Content>
 		<AlertDialog.Header>
@@ -666,6 +691,9 @@
 		color: inherit;
 		transition: background 0.1s;
 		cursor: pointer;
+		/* Rows are navigation, not prose — this also stops the rename
+		   double-click from leaving the label highlighted. */
+		user-select: none;
 	}
 
 	.session:hover {
