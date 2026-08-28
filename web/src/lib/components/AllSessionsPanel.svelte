@@ -9,12 +9,12 @@
 	import type { SessionAgent } from '$shared/db/index.js';
 	import type { TmuxPane } from '$lib/types/tmux';
 	import { Button } from '$lib/components/ui/button';
-	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { longPress } from '$lib/actions/longPress';
 	import ServerPicker from './ServerPicker.svelte';
+	import FolderPicker from './FolderPicker.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 
@@ -28,12 +28,7 @@
 	const tmuxPanes = $derived(tmuxPanesStore.panes);
 	const tmuxPanesLoaded = $derived(tmuxPanesStore.loaded);
 	let showFolderBrowser = $state(false);
-	let browserPath = $state('');
-	let browserFolders = $state<{ name: string; path: string }[]>([]);
-	let browserShowHidden = $state(false);
-	let browserIsRoot = $state(false);
-	let browserParent = $state<string | null>(null);
-	let browserError = $state('');
+	let folderPicker = $state<FolderPicker | null>(null);
 
 	// AlertDialog state
 	let alertOpen = $state(false);
@@ -250,28 +245,8 @@
 		onSessionSelect?.();
 	}
 
-	async function openFolderBrowser() {
-		showFolderBrowser = true;
-		await browseTo('~');
-	}
-
-	async function browseTo(path: string) {
-		browserError = '';
-		const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}&showHidden=${browserShowHidden}`);
-		const data = await res.json();
-		if (data.error) {
-			browserError = data.error;
-			return;
-		}
-		browserPath = data.current;
-		browserFolders = data.folders;
-		browserIsRoot = data.isRoot;
-		browserParent = data.parent;
-	}
-
-	async function selectFolder() {
-		showFolderBrowser = false;
-		await newSessionInProject(browserPath);
+	function openFolderBrowser() {
+		void folderPicker?.openAt();
 	}
 
 	function getProjectName(cwd: string): string {
@@ -539,43 +514,11 @@
 	</div>
 </div>
 
-<Dialog.Root bind:open={showFolderBrowser}>
-	<Dialog.Content class="max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>Select Folder</Dialog.Title>
-		</Dialog.Header>
-		<div class="fb-path">
-			{browserPath}
-		</div>
-		{#if browserError}
-			<p class="text-sm text-destructive">{browserError}</p>
-		{/if}
-		<div class="flex items-center gap-2 py-2">
-			<Checkbox id="show-hidden" checked={browserShowHidden} onCheckedChange={(v) => { browserShowHidden = !!v; browseTo(browserPath); }} />
-			<label for="show-hidden" class="text-sm text-muted-foreground cursor-pointer">Show hidden</label>
-		</div>
-		<ScrollArea class="h-64 rounded-md border">
-			<div class="p-2">
-				{#if !browserIsRoot && browserParent}
-					<button class="fb-item" onclick={() => browseTo(browserParent!)}>
-						<iconify-icon icon="mdi:folder-arrow-up"></iconify-icon>
-						..
-					</button>
-				{/if}
-				{#each browserFolders as folder}
-					<button class="fb-item" onclick={() => browseTo(folder.path)}>
-						<iconify-icon icon="mdi:folder"></iconify-icon>
-						{folder.name}
-					</button>
-				{/each}
-			</div>
-		</ScrollArea>
-		<Dialog.Footer>
-			<Button variant="outline" onclick={() => showFolderBrowser = false}>Cancel</Button>
-			<Button onclick={selectFolder}>Select</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
+<FolderPicker
+	bind:this={folderPicker}
+	bind:open={showFolderBrowser}
+	onpick={(cwd) => newSessionInProject(cwd)}
+/>
 
 <Dialog.Root open={agentPickerCwd !== null} onOpenChange={(o) => { if (!o) agentPickerCwd = null; }}>
 	<Dialog.Content class="max-w-sm">
@@ -989,37 +932,6 @@
 		font-size: 10px;
 		color: #555;
 		letter-spacing: 0;
-	}
-
-	/* Folder browser items */
-	.fb-path {
-		padding: 10px;
-		background: hsl(var(--muted));
-		font-family: monospace;
-		font-size: 13px;
-		color: hsl(var(--muted-foreground));
-		word-break: break-all;
-		border-radius: 6px;
-		margin-bottom: 8px;
-	}
-
-	.fb-item {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		width: 100%;
-		padding: 8px 12px;
-		background: transparent;
-		border: none;
-		color: hsl(var(--foreground));
-		font-size: 13px;
-		text-align: left;
-		cursor: pointer;
-		border-radius: 6px;
-	}
-
-	.fb-item:hover {
-		background: hsl(var(--accent));
 	}
 
 	.agent-choices {

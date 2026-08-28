@@ -2,7 +2,16 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { homedir } from 'os';
 import { existsSync, statSync, readdirSync } from 'fs';
+import { access } from 'fs/promises';
 import { resolve, dirname, join } from 'path';
+
+/** A .git child marks a folder as a repo — the signal that matters when picking a project. */
+async function isRepo(dir: string): Promise<boolean> {
+	return access(join(dir, '.git')).then(
+		() => true,
+		() => false
+	);
+}
 
 export const GET: RequestHandler = async ({ url }) => {
 	let targetPath = url.searchParams.get('path') || homedir();
@@ -25,25 +34,24 @@ export const GET: RequestHandler = async ({ url }) => {
 		}
 
 		const entries = readdirSync(targetPath, { withFileTypes: true });
-		const folders = entries
+		const dirs = entries
 			.filter((e) => {
 				if (!e.isDirectory()) return false;
 				if (!showHidden && e.name.startsWith('.')) return false;
 				return true;
 			})
-			.map((e) => ({
-				name: e.name,
-				path: join(targetPath, e.name)
-			}))
-			.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+			.map((e) => ({ name: e.name, path: join(targetPath, e.name) }))
+			.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+		const repos = await Promise.all(dirs.map((d) => isRepo(d.path)));
+		const folders = dirs.map((d, i) => ({ ...d, git: repos[i] }));
 
 		const parent = dirname(targetPath);
-		const isRoot = targetPath === '/' || targetPath === parent;
 
 		return json({
 			current: targetPath,
-			parent: isRoot ? null : parent,
-			isRoot,
+			home: homedir(),
+			parent: targetPath === '/' || targetPath === parent ? null : parent,
 			folders
 		});
 	} catch (err: unknown) {

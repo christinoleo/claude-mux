@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import { fuzzyScore } from '$lib/fuzzy';
 
 	type Kind = 'builtin' | 'command' | 'skill' | 'agent';
 	interface Cmd {
@@ -65,32 +66,6 @@
 		cwd;
 		void reload();
 	});
-
-	/**
-	 * Subsequence fuzzy score. Higher is better; null = no match.
-	 * Prefers: prefix match, matches at word boundaries, contiguous runs, shorter names.
-	 */
-	function fuzzyScore(text: string, q: string): number | null {
-		if (!q) return 0;
-		const t = text.toLowerCase();
-		const needle = q.toLowerCase();
-		// Fast path: substring
-		const idx = t.indexOf(needle);
-		if (idx !== -1) return 1000 - idx * 5 - t.length;
-		let score = 0;
-		let ti = 0;
-		let prev = -2;
-		for (let qi = 0; qi < needle.length; qi++) {
-			const ch = needle[qi];
-			const found = t.indexOf(ch, ti);
-			if (found === -1) return null;
-			score += found === prev + 1 ? 10 : 1;
-			if (found === 0 || /[^a-z0-9]/.test(t[found - 1] ?? '')) score += 5;
-			prev = found;
-			ti = found + 1;
-		}
-		return score - t.length * 0.1;
-	}
 
 	const filtered = $derived.by(() => {
 		const q = query.trim();
