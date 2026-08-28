@@ -29,6 +29,7 @@
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { useGamepad, STICK_DEADZONE } from '$lib/gamepad.svelte';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
+	import { viewModesStore } from '$lib/stores/viewModes.svelte';
 
 	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
 	const voiceEnabled = $derived(Boolean($page.data.voiceEnabled));
@@ -65,14 +66,20 @@
 
 	// Transcript view exists only for Claude sessions (the JSONL is Claude Code's own log).
 	const canTranscript = $derived(isClaudeSession && (currentSession?.agent ?? 'claude') === 'claude');
-	// Each view has its own URL: default is the transcript, `?view=terminal` the raw mirror.
-	const viewMode = $derived(
-		canTranscript && $page.url.searchParams.get('view') !== 'terminal' ? 'transcript' : 'terminal'
-	);
+	// Each view has its own URL: `?view=terminal` is the raw mirror. Without the
+	// param, the session reopens in whichever view it was last left in.
+	const viewMode = $derived.by(() => {
+		if (!canTranscript) return 'terminal';
+		const param = $page.url.searchParams.get('view');
+		if (param === 'terminal' || param === 'transcript') return param;
+		return viewModesStore.get(target);
+	});
 
 	function toggleView() {
+		const next = viewMode === 'transcript' ? 'terminal' : 'transcript';
+		viewModesStore.set(target, next);
 		const params = new URLSearchParams($page.url.searchParams);
-		if (viewMode === 'transcript') params.set('view', 'terminal');
+		if (next === 'terminal') params.set('view', 'terminal');
 		else params.delete('view');
 		const query = params.toString();
 		goto(`${$page.url.pathname}${query ? `?${query}` : ''}`, { noScroll: true, keepFocus: true });
