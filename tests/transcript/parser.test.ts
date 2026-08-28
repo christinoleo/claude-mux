@@ -26,6 +26,51 @@ describe("TranscriptBuilder", () => {
     ]);
   });
 
+  it("unwraps a slash command into its name and arguments", () => {
+    const builder = new TranscriptBuilder();
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u1",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content:
+            "<command-message>simplify</command-message>\n<command-name>/simplify</command-name>\n<command-args>e push</command-args>",
+        },
+        origin: { kind: "human" },
+      }),
+    );
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u2",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content:
+            "<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>",
+        },
+      }),
+    );
+    expect(builder.entries).toEqual([
+      {
+        kind: "user",
+        id: "u1",
+        ts: Date.parse(TS),
+        text: "/simplify e push",
+        command: { name: "/simplify", args: "e push" },
+      },
+      {
+        kind: "user",
+        id: "u2",
+        ts: Date.parse(TS),
+        text: "/clear",
+        command: { name: "/clear" },
+      },
+    ]);
+  });
+
   it("parses assistant text and thinking blocks, skipping empty thinking", () => {
     const builder = new TranscriptBuilder();
     builder.feed(

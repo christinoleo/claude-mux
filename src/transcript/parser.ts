@@ -16,7 +16,14 @@
  */
 
 export type TranscriptEntry =
-  | { kind: "user"; id: string; ts: number; text: string }
+  | {
+      kind: "user";
+      id: string;
+      ts: number;
+      text: string;
+      /** Set when the prompt was a slash command, so the UI can style it. */
+      command?: { name: string; args?: string };
+    }
   /** A prompt typed mid-turn. By the time its queued_command line reaches the
    * file it has already been seen by the agent — most never get a user line
    * of their own (the harness injects them into tool results instead), so
@@ -54,6 +61,32 @@ export interface AskQuestion {
   question: string;
   multiSelect: boolean;
   options: { label: string; description?: string }[];
+}
+
+/** The tags Claude Code wraps a slash command in; \1 pairs open with close. */
+const COMMAND_TAG = /<command-(name|message|args)>([\s\S]*?)<\/command-\1>/g;
+
+/**
+ * A slash command reaches the log as a user line whose whole content is a
+ * bundle of <command-name>/<command-message>/<command-args> tags. Read the
+ * command out of it so the transcript shows "/simplify e push" instead of the
+ * raw markup.
+ */
+function parseSlashCommand(content: string): { name: string; args?: string } | null {
+  const trimmed = content.trim();
+  // Cheap reject first: every other prompt in the file skips the regex.
+  if (!trimmed.startsWith("<command-")) return null;
+  const tags: Record<string, string> = {};
+  // Tag order varies by Claude Code version (name-first in older logs,
+  // message-first in newer ones), so collect by name rather than by position.
+  for (const match of trimmed.matchAll(COMMAND_TAG)) tags[match[1]] = match[2].trim();
+  const name = tags.name;
+  // No <command-name> means this is not a command line after all — leave the
+  // content alone rather than rendering a half-parsed guess.
+  if (!name) return null;
+  // <command-message> is the harness's own echo of the name; it adds nothing
+  // the UI can show, and empty <command-args> must not become a trailing space.
+  return { name, ...(tags.args ? { args: tags.args } : {}) };
 }
 
 function parseAskQuestions(input: Record<string, unknown>): AskQuestion[] {
@@ -338,9 +371,21 @@ export class TranscriptBuilder {
       if (originKind !== undefined && originKind !== "human") return [];
       if (originKind === undefined && /^<(task-notification|system-reminder)/.test(content.trim()))
         return [];
+      // `text` stays the human-readable form of the turn either way, so search,
+      // truncation and the queued-prompt matching below need no special case.
+      const command = parseSlashCommand(content);
+      const text = command
+        ? `${command.name}${command.args ? ` ${command.args}` : ""}`
+        : content;
       return [
         ...this.deliverQueued(content),
-        this.upsert({ kind: "user", id: uuid, ts, text: truncate(content, TEXT_CHAR_LIMIT) }),
+        this.upsert({
+          kind: "user",
+          id: uuid,
+          ts,
+          text: truncate(text, TEXT_CHAR_LIMIT),
+          ...(command ? { command } : {}),
+        }),
       ];
     }
 
