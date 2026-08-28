@@ -11,10 +11,11 @@
 import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
+import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { JsonlTailer, listSubagents, transcriptPathFor, type SubagentMeta } from '../transcript/tailer.js';
-import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption } from '../tmux/pane.js';
+import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, stripAnsi } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
@@ -185,10 +186,13 @@ const idleLookTicks = new Map<string, number>();
  */
 async function captureAndSyncSessions(): Promise<{
 	captures: Map<string, string>;
+	/** Same captures with ANSI intact, for reading the prompt box. */
+	rawCaptures: Map<string, string>;
 	sessions: Session[];
 }> {
 	const sessions = getAllSessions();
 	const captures = new Map<string, string>();
+	const rawCaptures = new Map<string, string>();
 
 	/** Persist and mirror onto the in-memory copy, so callers need no re-read. */
 	const apply = (session: Session, patch: Partial<Session>) => {
@@ -199,9 +203,14 @@ async function captureAndSyncSessions(): Promise<{
 	await Promise.all(
 		sessions.map(async (session) => {
 			if (!session.tmux_target) return;
-			const content = await capturePaneContentAsync(session.tmux_target);
-			if (!content) return;
+			// Captured with colour: the prompt box needs ANSI to tell text the
+			// user typed from Claude Code's faint ghost text. Every other check
+			// reads the stripped copy.
+			const raw = await capturePaneContentAsync(session.tmux_target, true);
+			if (!raw) return;
+			const content = stripAnsi(raw);
 			captures.set(session.tmux_target, content);
+			rawCaptures.set(session.tmux_target, raw);
 
 			if (session.state !== 'idle' && detectRecentInterruption(content)) {
 				apply(session, { state: 'idle', current_action: null, prompt_text: null });
@@ -234,15 +243,23 @@ async function captureAndSyncSessions(): Promise<{
 		}
 	}
 
-	return { captures, sessions };
+	return { captures, rawCaptures, sessions };
 }
 
 /**
  * Async version of getEnrichedSessions. Uses batched tmux calls
  * and concurrent interruption checks to avoid blocking the event loop.
  */
-export async function getEnrichedSessionsAsync(): Promise<(Session & { pane_title: string | null; pane_alive: boolean })[]> {
-	const [{ captures, sessions }, paneTitles] = await Promise.all([
+export async function getEnrichedSessionsAsync(): Promise<
+	(Session & {
+		pane_title: string | null;
+		pane_alive: boolean;
+		draft_input: string | null;
+		draft_kind: 'typed' | 'suggestion' | null;
+		pane_queue: string[];
+	})[]
+> {
+	const [{ captures, rawCaptures, sessions }, paneTitles] = await Promise.all([
 		captureAndSyncSessions(),
 		getAllPaneTitles()
 	]);
@@ -266,10 +283,25 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & { pane_titl
 
 	const enrichedSessions = sessions.map((s) => {
 		const paneTitle = s.tmux_target ? (paneTitles.get(s.tmux_target) ?? null) : null;
-		const enriched: Session & { pane_title: string | null; pane_alive: boolean } = {
+		const raw = s.tmux_target ? rawCaptures.get(s.tmux_target) : undefined;
+		// Live only: what sits in the prompt box right now, so the transcript
+		// view can show it without the terminal mirror.
+		const box = raw ? readPromptBox(raw) : null;
+		const enriched: Session & {
+			pane_title: string | null;
+			pane_alive: boolean;
+			draft_input: string | null;
+			draft_kind: 'typed' | 'suggestion' | null;
+			pane_queue: string[];
+		} = {
 			...s,
 			pane_title: paneTitle,
 			pane_alive: s.tmux_target ? paneTitles.has(s.tmux_target) : true,
+			draft_input: box?.text ?? null,
+			draft_kind: box?.kind ?? null,
+			// Messages the user typed into the pane while it was busy, waiting
+			// their turn in Claude Code's own queue.
+			pane_queue: raw ? readQueuedMessages(raw) : [],
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {
@@ -992,11 +1024,19 @@ export type TranscriptWsMessage =
 			type: 'snapshot';
 			entries: TranscriptEntry[];
 			subagents: SubagentPayload[];
+			context: ContextUsage | null;
 			available: boolean;
 			timestamp: number;
 		}
 	| { type: 'entries'; entries: TranscriptEntry[]; timestamp: number }
-	| { type: 'subagents'; subagents: SubagentPayload[]; timestamp: number };
+	| { type: 'subagents'; subagents: SubagentPayload[]; timestamp: number }
+	/**
+	 * Context-window usage, which only this channel carries: it is read off
+	 * the transcript, and transcripts are only tailed while a client watches
+	 * the session. A list-wide gauge would need the tailer hoisted out of this
+	 * manager into a registry both channels read — not a second reader.
+	 */
+	| { type: 'context'; context: ContextUsage; timestamp: number };
 
 
 interface SubagentState {
@@ -1017,6 +1057,8 @@ interface TranscriptSessionState {
 	subagents: Map<string, SubagentState>;
 	/** Ticks until the next subagents directory scan. */
 	discoverIn: number;
+	/** Serialized context usage last sent, to skip unchanged broadcasts. */
+	sentContext: string;
 }
 
 const TRANSCRIPT_POLL_MS = 500;
@@ -1055,15 +1097,8 @@ export class TranscriptWsManager {
 			state = this.startSession(sessionId);
 			this.sessions.set(sessionId, state);
 		}
-		this.sendToClient(client, {
-			type: 'snapshot',
-			entries: state.builder.entries,
-			subagents: [...state.subagents].map(([id, sub]) =>
-				subagentPayload(id, sub, state.builder.finishedAgents.has(id))
-			),
-			available: state.available,
-			timestamp: Date.now()
-		});
+		state.sentContext = JSON.stringify(state.builder.context);
+		this.sendToClient(client, this.snapshot(state));
 		return true;
 	}
 
@@ -1095,6 +1130,7 @@ export class TranscriptWsManager {
 			cwd: session?.cwd ?? null,
 			subagents: new Map(),
 			discoverIn: 0,
+			sentContext: '',
 			timer: setInterval(() => this.poll(sessionId), TRANSCRIPT_POLL_MS)
 		};
 		// Synchronous initial read so the first snapshot carries history.
@@ -1179,15 +1215,8 @@ export class TranscriptWsManager {
 			this.consume(state, result);
 			// Immediately re-read the fresh file and resend full snapshots.
 			this.consume(state, state.tailer.read());
-			this.broadcast(sessionId, {
-				type: 'snapshot',
-				entries: state.builder.entries,
-				subagents: [...state.subagents].map(([id, sub]) =>
-				subagentPayload(id, sub, state.builder.finishedAgents.has(id))
-			),
-				available: state.available,
-				timestamp: Date.now()
-			});
+			state.sentContext = JSON.stringify(state.builder.context);
+			this.broadcast(sessionId, this.snapshot(state));
 			return;
 		}
 
@@ -1208,6 +1237,31 @@ export class TranscriptWsManager {
 		if (subagents.length > 0) {
 			this.broadcast(sessionId, { type: 'subagents', subagents, timestamp: Date.now() });
 		}
+
+		const context = state.builder.context;
+		const encoded = JSON.stringify(context);
+		if (context && encoded !== state.sentContext) {
+			state.sentContext = encoded;
+			this.broadcast(sessionId, { type: 'context', context, timestamp: Date.now() });
+		}
+	}
+
+	/**
+	 * Everything a freshly attached client needs. Context rides along here so
+	 * the client starts with a gauge instead of waiting for the next response;
+	 * callers mark it sent with `sentContext`.
+	 */
+	private snapshot(state: TranscriptSessionState): TranscriptWsMessage {
+		return {
+			type: 'snapshot',
+			entries: state.builder.entries,
+			subagents: [...state.subagents].map(([id, sub]) =>
+				subagentPayload(id, sub, state.builder.finishedAgents.has(id))
+			),
+			context: state.builder.context,
+			available: state.available,
+			timestamp: Date.now()
+		};
 	}
 
 	private broadcast(sessionId: string, message: TranscriptWsMessage): void {

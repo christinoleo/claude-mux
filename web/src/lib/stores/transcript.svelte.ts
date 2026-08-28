@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { ReliableWebSocket } from './websocket-base.svelte';
+import type { ContextUsage } from '../../../../src/transcript/context.js';
 import type { TranscriptEntry } from '../../../../src/transcript/parser.js';
 import type { SubagentPayload } from '../../../../src/server/ws-handlers.js';
 
@@ -9,6 +10,7 @@ interface SnapshotMsg {
 	type: 'snapshot';
 	entries: TranscriptEntry[];
 	subagents: SubagentPayload[];
+	context: ContextUsage | null;
 	available: boolean;
 }
 interface EntriesMsg {
@@ -19,7 +21,11 @@ interface SubagentsMsg {
 	type: 'subagents';
 	subagents: SubagentPayload[];
 }
-type TranscriptMsg = SnapshotMsg | EntriesMsg | SubagentsMsg;
+interface ContextMsg {
+	type: 'context';
+	context: ContextUsage;
+}
+type TranscriptMsg = SnapshotMsg | EntriesMsg | SubagentsMsg | ContextMsg;
 
 /**
  * Transcript view model: an ordered list of entries upserted by id.
@@ -43,6 +49,8 @@ class TranscriptStore extends ReliableWebSocket {
 				.map((sub) => [sub.toolUseId as string, sub])
 		)
 	);
+	/** Context window in use as of the last API response, null before one. */
+	context = $state<ContextUsage | null>(null);
 	/** False until the session's JSONL file has been found and read. */
 	available = $state(false);
 	/** Entries appended since attach (page diffs it for the "new below" pill). */
@@ -82,12 +90,16 @@ class TranscriptStore extends ReliableWebSocket {
 			case 'subagents':
 				this.applySubagents(data.subagents);
 				break;
+			case 'context':
+				this.context = data.context;
+				break;
 		}
 	}
 
 	private applySnapshot(msg: SnapshotMsg): void {
 		this.entries = msg.entries;
 		this.available = msg.available;
+		this.context = msg.context ?? null;
 		this.indexById = new Map(msg.entries.map((entry, i) => [entry.id, i]));
 		this.subagents = {};
 		this.applySubagents(msg.subagents ?? []);
@@ -135,6 +147,7 @@ class TranscriptStore extends ReliableWebSocket {
 		}
 		this.entries = [];
 		this.subagents = {};
+		this.context = null;
 		this.available = false;
 		this.appended = 0;
 		this.indexById = new Map();

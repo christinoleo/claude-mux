@@ -31,13 +31,20 @@ export interface Session {
 	rc_url?: string | null;
 	queue_count?: number;
 	display_name?: string | null;
+	/** Text in the pane's prompt box right now (live, never persisted). */
+	draft_input?: string | null;
+	/** Whether the user typed it, or Claude Code suggested it. */
+	draft_kind?: 'typed' | 'suggestion' | null;
+	/** Messages waiting in Claude Code's own queue, oldest first. */
+	pane_queue?: string[];
 	agent?: SessionAgent;
 }
 
 /** Fields that change frequently and should trigger a session object replacement */
 const VOLATILE_KEYS: (keyof Session)[] = [
 	'state', 'current_action', 'prompt_text', 'last_update',
-	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'queue_count', 'display_name'
+	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'queue_count', 'display_name',
+	'draft_input', 'draft_kind'
 ];
 
 /** Fast shallow comparison of two sessions on volatile fields + screenshots */
@@ -45,6 +52,11 @@ function sessionChanged(a: Session, b: Session): boolean {
 	for (const key of VOLATILE_KEYS) {
 		if (a[key] !== b[key]) return true;
 	}
+	// Pane queue: a fresh array arrives every broadcast, so compare contents.
+	const aQueue = a.pane_queue;
+	const bQueue = b.pane_queue;
+	if ((aQueue?.length ?? 0) !== (bQueue?.length ?? 0)) return true;
+	if (aQueue && bQueue && aQueue.some((msg, i) => msg !== bQueue[i])) return true;
 	// Screenshots: compare by length + last timestamp (avoids deep comparison)
 	const aShots = a.screenshots;
 	const bShots = b.screenshots;

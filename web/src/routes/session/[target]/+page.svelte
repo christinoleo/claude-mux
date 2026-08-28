@@ -16,6 +16,7 @@
 	import TranscriptView from '$lib/components/TranscriptView.svelte';
 	import RunningAgentsOverlay from '$lib/components/RunningAgentsOverlay.svelte';
 	import { transcriptStore } from '$lib/stores/transcript.svelte';
+	import PaneDraftBar from '$lib/components/PaneDraftBar.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
@@ -232,6 +233,11 @@
 			(queueCount > 0 || (currentSession?.state ?? 'idle') !== 'idle')
 	);
 
+	// Clear whatever is typed in Claude's prompt: Ctrl+E (end of line) then
+	// Ctrl+U repeatedly (delete to line start; repeats walk up multiline input).
+	// Extra Ctrl+U on an empty prompt is a no-op, so over-sending is safe.
+	const CLEAR_PROMPT_KEYS = 'C-e ' + Array(12).fill('C-u').join(' ');
+
 	const moreKeys: { label: string; keys: string; icon: string }[] = [
 		{ label: 'Bksp', keys: 'BSpace', icon: 'mdi:backspace' },
 		{ label: 'Left', keys: 'Left', icon: 'mdi:arrow-left' },
@@ -245,10 +251,7 @@
 		{ label: 'PgDn', keys: 'PageDown', icon: 'mdi:chevron-double-down' },
 		{ label: 'Home', keys: 'Home', icon: 'mdi:page-first' },
 		{ label: 'End', keys: 'End', icon: 'mdi:page-last' },
-		// Clear whatever is typed in Claude's prompt: Ctrl+E (end of line) then
-		// Ctrl+U repeatedly (delete to line start; repeats walk up multiline input).
-		// Extra Ctrl+U on an empty prompt is a no-op, so over-sending is safe.
-		{ label: 'Clear', keys: 'C-e ' + Array(12).fill('C-u').join(' '), icon: 'mdi:eraser' },
+		{ label: 'Clear', keys: CLEAR_PROMPT_KEYS, icon: 'mdi:eraser' },
 	];
 
 	// Pinned commands — shown first in the command palette (Cmds button)
@@ -1280,6 +1283,7 @@
 						sessionState={currentSession?.state ?? null}
 						currentAction={currentSession?.current_action ?? null}
 						{queueCount}
+						paneQueue={currentSession?.pane_queue ?? []}
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={(keys) => void sendKeys(keys)}
 						onOpenTerminal={() => toggleView()}
@@ -1302,6 +1306,17 @@
 				</button>
 			{/if}
 		</div>
+
+		{#if viewMode === 'transcript'}
+			<PaneDraftBar
+				text={currentSession?.draft_input ?? null}
+				kind={currentSession?.draft_kind ?? null}
+				composerHasText={textInput.trim().length > 0 || readyPaths.length > 0}
+				onClear={() => void sendKeys(CLEAR_PROMPT_KEYS)}
+				onSend={() => void sendKeys('Enter')}
+				onAccept={() => void acceptSuggestion()}
+			/>
+		{/if}
 
 		<div class="toolbar">
 			{#if hasSelection}

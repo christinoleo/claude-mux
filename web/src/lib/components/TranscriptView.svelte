@@ -14,6 +14,7 @@
 		sessionState = null,
 		currentAction = null,
 		queueCount = 0,
+		paneQueue = [],
 		subagents = {},
 		onSendKeys,
 		onOpenTerminal
@@ -25,6 +26,8 @@
 		currentAction?: string | null;
 		/** Messages waiting in claude-mux's own send queue. */
 		queueCount?: number;
+		/** Messages waiting in Claude Code's own queue, typed into the terminal. */
+		paneQueue?: string[];
 		/** Sends a tmux key sequence (space-separated) to answer a question dialog. */
 		onSendKeys?: (keys: string) => void;
 		/** Switches to the terminal view (for "Other" / free-text answers). */
@@ -42,6 +45,17 @@
 		entries.findLast((e) => e.kind === 'ask' && !e.answers && !e.rejected)?.id ?? null
 	);
 	const canAnswer = $derived(sessionState === 'waiting' && onSendKeys != null);
+
+	/**
+	 * A message claude-mux queued and has already pasted into the pane appears in
+	 * both queues. The transcript entry is the richer record, so drop the echo.
+	 */
+	const pendingInPane = $derived(
+		paneQueue.filter(
+			(text) =>
+				!entries.some((e) => e.kind === 'queued' && !e.delivered && e.text.trim() === text.trim())
+		)
+	);
 
 	function askActive(entryId: string, qIndex: number): boolean {
 		return canAnswer && entryId === liveAskId && (askProgress[entryId] ?? 0) === qIndex;
@@ -175,7 +189,19 @@
 		{#if entry.kind === 'user'}
 			<div class="user-block">
 				<span class="prompt-glyph">❯</span>
-				<div class="user-text">{entry.text}</div>
+				<!-- A slash command is a different kind of turn: not prose the agent
+				     read, but an instruction to the harness. Show the command as a
+				     token so it is scannable, and its arguments as ordinary prompt
+				     text — the raw <command-*> tags never reach the reader. -->
+				{#if entry.command}
+					<div class="user-text">
+						<span class="slash-name">{entry.command.name}</span>{#if entry.command.args}<span
+								class="slash-args">{entry.command.args}</span
+							>{/if}
+					</div>
+				{:else}
+					<div class="user-text">{entry.text}</div>
+				{/if}
 				<span class="time">{formatTime(entry.ts)}</span>
 			</div>
 		{:else if entry.kind === 'queued'}
@@ -419,6 +445,17 @@
 			</span>
 		</div>
 	{/if}
+
+	{#each pendingInPane as text, i (i + text)}
+		<div class="user-block pending">
+			<span class="prompt-glyph">❯</span>
+			<div class="user-text">{text}</div>
+			<span class="time" title="waiting in the terminal's queue">
+				<iconify-icon icon="mdi:clock-outline"></iconify-icon>
+				queued
+			</span>
+		</div>
+	{/each}
 </div>
 
 <style>
@@ -477,6 +514,19 @@
 	.user-block:first-child {
 		margin-top: 6px;
 	}
+	/* Queued in the terminal: the same turn anchor, drawn as an outline because
+	   it has not happened yet. */
+	.user-block.pending {
+		background: transparent;
+		border-style: dashed;
+		border-left-style: solid;
+		border-left-color: #7c5e2a;
+		margin: 12px 0;
+	}
+	.user-block.pending .prompt-glyph,
+	.user-block.pending .user-text {
+		color: #8f8578;
+	}
 	.prompt-glyph {
 		flex-shrink: 0;
 		width: 14px;
@@ -495,6 +545,20 @@
 		word-break: break-word;
 		color: #fef3c7;
 	}
+	/* Slash command: the name reads as a token, its arguments as plain prompt
+	   text — the same distinction the terminal's own input line makes. */
+	.slash-name {
+		padding: 1px 6px;
+		border: 1px solid #6b4c1a;
+		border-radius: 5px;
+		background: #33260f;
+		color: #fbbf24;
+		font-weight: 600;
+	}
+	.slash-args {
+		margin-left: 8px;
+	}
+
 	.time {
 		flex-shrink: 0;
 		font-size: 10px;

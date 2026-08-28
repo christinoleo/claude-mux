@@ -35,6 +35,12 @@ const EnrichedSessionSchema = z.object({
 	chrome_active: z.boolean().optional(),
 	linked_to: z.string().nullable().optional(),
 	rc_url: z.string().nullable().optional(),
+	/** Text sitting in the pane's prompt box right now — live, never persisted. */
+	draft_input: z.string().nullable().optional(),
+	/** Who put it there: the user, or Claude Code's own prompt suggestion. */
+	draft_kind: z.enum(['typed', 'suggestion']).nullable().optional(),
+	/** Messages waiting in Claude Code's own queue, oldest first — live only. */
+	pane_queue: z.array(z.string()).optional(),
 	display_name: z.string().nullable().optional(),
 	pane_title: z.string().nullable(),
 	pane_alive: z.boolean(),

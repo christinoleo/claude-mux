@@ -80,6 +80,26 @@ The web server (`web/`) is built with SvelteKit and svelte-adapter-bun:
 ### 3. State Detection
 **Hooks are authoritative** for all state transitions. Pane content polling only catches one edge case: when the user presses Escape to interrupt. The `checkForInterruption()` function in `src/tmux/pane.ts` detects "Interrupted" or "User declined" messages.
 
+### 4. Reading the prompt box
+
+`readPromptBox()` in `src/tmux/pane.ts` reads whatever sits in Claude Code's
+input box — the region between the last two `─────` separators in the pane. It
+needs a capture taken with colour (`capture-pane -e`), because ANSI is the only
+thing that separates text a human typed (unstyled) from text Claude Code drew
+itself (faint, SGR 2): prompt suggestions and hints such as "Press up to edit
+queued messages". Suggestions surface as `draft_kind: 'suggestion'` and are
+accepted with Tab then Enter; hints are dropped via the `PROMPT_HINTS` patterns.
+
+`readQueuedMessages()` reads the other half of the same picture: messages the
+user typed into the pane while Claude was busy, which sit directly above the box
+indented two spaces on a painted row (`48;5;237`). A submitted message looks the
+same but starts at column 0, which is what keeps scrollback out of the result.
+
+The session poll captures with colour once per tick and hands the stripped copy
+to every other check, so adding a detector there costs no extra `tmux` calls.
+`draft_input`, `draft_kind` and `pane_queue` are live-only: they ride the
+WebSocket broadcast and are never written to the session JSON.
+
 ## Key Data Flow
 
 ```
