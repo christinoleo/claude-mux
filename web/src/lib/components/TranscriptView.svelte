@@ -175,19 +175,7 @@
 		{#if entry.kind === 'user'}
 			<div class="user-block">
 				<span class="prompt-glyph">❯</span>
-				<!-- A slash command is a different kind of turn: not prose the agent
-				     read, but an instruction to the harness. Show the command as a
-				     token so it is scannable, and its arguments as ordinary prompt
-				     text — the raw <command-*> tags never reach the reader. -->
-				{#if entry.command}
-					<div class="user-text">
-						<span class="slash-name">{entry.command.name}</span>{#if entry.command.args}<span
-								class="slash-args">{entry.command.args}</span
-							>{/if}
-					</div>
-				{:else}
-					<div class="user-text">{entry.text}</div>
-				{/if}
+				<div class="user-text">{entry.text}</div>
 				<span class="time">{formatTime(entry.ts)}</span>
 			</div>
 		{:else if entry.kind === 'queued'}
@@ -507,20 +495,6 @@
 		word-break: break-word;
 		color: #fef3c7;
 	}
-	/* Slash command: the name reads as a token, its arguments as plain prompt
-	   text — the same distinction the terminal's own input line makes. */
-	.slash-name {
-		padding: 1px 6px;
-		border: 1px solid #6b4c1a;
-		border-radius: 5px;
-		background: #33260f;
-		color: #fbbf24;
-		font-weight: 600;
-	}
-	.slash-args {
-		margin-left: 8px;
-	}
-
 	.time {
 		flex-shrink: 0;
 		font-size: 10px;

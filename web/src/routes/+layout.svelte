@@ -10,6 +10,7 @@
 	import ScreenshotsPanel from '$lib/components/ScreenshotsPanel.svelte';
 	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
 	import SystemStatsWidget from '$lib/components/SystemStatsWidget.svelte';
+	import UsageWidget from '$lib/components/UsageWidget.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
 
 	let { children } = $props();
@@ -170,6 +171,7 @@
 					</div>
 				{/if}
 			</div>
+			<UsageWidget />
 			<SystemStatsWidget />
 			<div
 				class="resize-handle"

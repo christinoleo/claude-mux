@@ -300,6 +300,7 @@
 	}
 
 	const sidebarActions: ChordAction[] = $derived([
+		{ label: 'Usage', icon: 'mdi:chart-line', run: () => void goto('/usage') },
 		{ label: 'Close Chrome', icon: 'mdi:google-chrome', run: () => void closeChrome() },
 		{ label: 'Refresh', icon: 'mdi:refresh', run: () => location.reload() },
 		{ label: 'Reset data', icon: 'mdi:database-refresh', run: () => resetLocalStorage(), danger: true },
