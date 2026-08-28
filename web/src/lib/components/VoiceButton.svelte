@@ -2,15 +2,18 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { longPress } from '$lib/actions/longPress';
+	import { formatElapsed } from '$lib/format';
 	import { clickOutside } from '$lib/actions/clickOutside';
 	import { voiceStore, type VoiceLanguage } from '$lib/stores/voice.svelte';
 	import { listAudioInputs, type AudioInputDevice } from '$lib/voice/recorder';
 
 	interface Props {
 		target: string | null;
+		/** Icon-only circle, for the transcript composer's edge. */
+		round?: boolean;
 	}
 
-	let { target }: Props = $props();
+	let { target, round = false }: Props = $props();
 
 	const supported = $derived(voiceStore.supported);
 	// Voice is a single-mic singleton owned by the page that started it; non-owner
@@ -87,12 +90,6 @@
 		void openMenu();
 	}
 
-	function formatElapsed(s: number): string {
-		const m = Math.floor(s / 60);
-		const r = s % 60;
-		return `${m}:${r.toString().padStart(2, '0')}`;
-	}
-
 	const buttonTitle = $derived.by(() => {
 		if (busyElsewhere) {
 			return `Voice ${voiceStore.status} on ${voiceStore.ownerTarget}. Switch to that session to control it.`;
@@ -137,6 +134,7 @@
 
 <div
 	class="voice-btn-wrapper"
+	class:round
 	oncontextmenu={supported ? handleContextMenu : undefined}
 	role="presentation"
 	use:longPress={{
@@ -159,6 +157,25 @@
 			<iconify-icon icon="mdi:microphone-off"></iconify-icon>
 			<span>Mic</span>
 		</Button>
+	{:else if round}
+		<button
+			type="button"
+			class="voice-round {status}"
+			disabled={!target || busyElsewhere}
+			onclick={() => void toggleVoice()}
+			title={buttonTitle}
+			aria-label={buttonTitle}
+		>
+			{#if busyElsewhere}
+				<iconify-icon icon="mdi:microphone-off"></iconify-icon>
+			{:else if status === 'transcribing'}
+				<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>
+			{:else if status === 'error'}
+				<iconify-icon icon="mdi:microphone-off"></iconify-icon>
+			{:else}
+				<iconify-icon icon="mdi:microphone"></iconify-icon>
+			{/if}
+		</button>
 	{:else}
 		<Button
 			{variant}
@@ -187,7 +204,7 @@
 		</Button>
 	{/if}
 
-	{#if isOwner && voiceStore.isActive}
+	{#if isOwner && voiceStore.isActive && !round}
 			<button
 				type="button"
 				class="voice-cancel"
@@ -200,7 +217,7 @@
 			</button>
 		{/if}
 
-		{#if status === 'recording'}
+		{#if status === 'recording' && !round}
 			{@const rms = voiceStore.level.rms}
 			{@const peak = voiceStore.level.peak}
 			{@const fillPct = Math.min(100, Math.round(rms * 220))}
@@ -301,6 +318,43 @@
 		position: relative;
 		display: flex;
 		flex: 1;
+	}
+
+	.voice-btn-wrapper.round {
+		flex: none;
+		width: 42px;
+		height: 42px;
+	}
+
+	.voice-round {
+		width: 42px;
+		height: 42px;
+		border-radius: 50%;
+		border: 1px solid #333;
+		background: #222;
+		color: #f5f5f4;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 19px;
+		cursor: pointer;
+		touch-action: none;
+		user-select: none;
+		/* punches the rail's channel out of the panel behind it */
+		box-shadow: 0 0 0 4px #111;
+	}
+	.voice-round:hover:not(:disabled) {
+		background: #333;
+	}
+	.voice-round:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.voice-round.recording,
+	.voice-round.error {
+		background: #b91c1c;
+		border-color: #b91c1c;
+		color: #fff;
 	}
 
 	:global(.voice-btn) {

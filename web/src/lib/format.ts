@@ -25,3 +25,9 @@ export function compact(value: number): string {
 		maximumFractionDigits: 1
 	}).format(value);
 }
+
+/** Recording length as m:ss — the only clock in the app that counts up. */
+export function formatElapsed(seconds: number): string {
+	const whole = Math.max(0, Math.floor(seconds));
+	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}

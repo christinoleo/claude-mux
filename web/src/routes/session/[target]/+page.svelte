@@ -16,6 +16,9 @@
 	import TranscriptView from '$lib/components/TranscriptView.svelte';
 	import RunningAgentsOverlay from '$lib/components/RunningAgentsOverlay.svelte';
 	import { transcriptStore } from '$lib/stores/transcript.svelte';
+	import ContextGauge from '$lib/components/ContextGauge.svelte';
+	import RailStats from '$lib/components/RailStats.svelte';
+	import VoiceMeter from '$lib/components/VoiceMeter.svelte';
 	import PaneDraftBar from '$lib/components/PaneDraftBar.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
@@ -94,6 +97,11 @@
 	let attachStackOpen = $state(false);
 	let ctrlCount = $state(0);
 	let altCount = $state(0);
+
+	// The transcript composer has two faces: the field (with the modifiers that
+	// act on what you type) and the controls (everything that needs no text).
+	// Desktop is wide enough to show both, so the toggle only exists on narrow.
+	let face = $state<'write' | 'keys'>('write');
 	let chordMenuOpen = $state(false);
 	let chordIndex = $state(0);
 	let chordItems = $state<ChordAction[]>([]);
@@ -209,10 +217,37 @@
 	const readyPaths = $derived(
 		attachments.filter((a) => a.status === 'ready' && a.path).map((a) => a.path!)
 	);
+	const hasDraft = $derived(textInput.trim().length > 0 || readyPaths.length > 0);
+	/** The action button names what it will do rather than always saying "send". */
+	const actionKind = $derived.by(() => {
+		if (modArmed) return 'keys' as const;
+		if (!hasDraft) {
+			return currentSession?.draft_kind === 'suggestion' ? ('accept' as const) : ('enter' as const);
+		}
+		return (currentSession?.state ?? 'idle') === 'idle' ? ('send' as const) : ('queue' as const);
+	});
+	const ACTIONS = {
+		keys: { label: 'Keys', icon: 'mdi:arrow-up-bold' },
+		accept: { label: 'Accept', icon: 'mdi:keyboard-tab' },
+		enter: { label: 'Enter', icon: 'mdi:keyboard-return' },
+		send: { label: 'Send', icon: 'mdi:arrow-up' },
+		queue: { label: 'Queue', icon: 'mdi:tray-arrow-down' }
+	} as const;
+	/** An armed modifier names the sequence it will send, not the verb. */
+	const actionLabel = $derived(
+		actionKind === 'keys'
+			? [ctrlCount > 0 ? 'Ctrl' : '', altCount > 0 ? 'Alt' : ''].filter(Boolean).join('+')
+			: ACTIONS[actionKind].label
+	);
+	const actionIcon = $derived(ACTIONS[actionKind].icon);
 	const hasAttachments = $derived(attachments.length > 0);
 	const stackThumbs = $derived(attachments.filter((a) => a.thumb).slice(-3).reverse());
 	const anyFailed = $derived(attachments.some((a) => a.status === 'failed'));
 	const anyUploading = $derived(attachments.some((a) => a.status === 'uploading'));
+	/** The pane is asking for a keypress, so the face toggle asks for attention. */
+	const wantsKeypress = $derived(
+		currentSession?.state === 'waiting' || currentSession?.state === 'permission'
+	);
 	$effect(() => {
 		if (!hasAttachments) attachStackOpen = false;
 	});
@@ -1242,6 +1277,45 @@
 
 <RenameSessionDialog sessionId={renameId} onClose={() => (renameId = null)} />
 
+{#snippet attachMenu()}
+<Popover.Content side="top" class="w-auto p-2 bg-[#1a1a1a] border-[#333]">
+				<div class="popover-grid">
+	{#if isTouchDevice}
+		<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => openPicker('camera')}>
+			<iconify-icon icon="mdi:camera"></iconify-icon>
+			<span>Camera</span>
+		</Button>
+	{/if}
+	<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => openPicker('gallery')}>
+		<iconify-icon icon="mdi:image-multiple"></iconify-icon>
+		<span>{isTouchDevice ? 'Gallery' : 'Image'}</span>
+	</Button>
+	<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => openPicker('files')}>
+		<iconify-icon icon="mdi:file-document-outline"></iconify-icon>
+		<span>Files</span>
+	</Button>
+				</div>
+			</Popover.Content>
+{/snippet}
+
+{#snippet composerField()}
+			<textarea
+			bind:this={textareaElement}
+			bind:value={textInput}
+			placeholder={modArmed ? 'Type keys, Enter to send as mod sequence…' : 'Type a message...'}
+			rows={1}
+			onkeydown={handleKeydown}
+			onkeyup={(e) => { handleKeyup(e); syncCaret(); }}
+			onbeforeinput={handleBeforeInput}
+			onblur={handleBlur}
+			oninput={() => { syncCaret(); autoResize(); }}
+			onclick={syncCaret}
+			onfocus={syncCaret}
+			onselect={syncCaret}
+			onpaste={handlePaste}
+		></textarea>
+{/snippet}
+
 <div class="session-container">
 	<header class="header">
 		<div class="title-row">
@@ -1283,7 +1357,31 @@
 
 	<div class="output-wrap">
 			<div class="output" bind:this={outputElement} onscroll={handleScroll}>
-				{#if viewMode === 'transcript'}
+					<input
+			bind:this={cameraInput}
+			type="file"
+			accept="image/*"
+			capture="environment"
+			multiple
+			class="attach-input-hidden"
+			onchange={handlePickerInput}
+		/>
+		<input
+			bind:this={galleryInput}
+			type="file"
+			accept="image/*,video/*"
+			multiple
+			class="attach-input-hidden"
+			onchange={handlePickerInput}
+		/>
+		<input
+			bind:this={filesInput}
+			type="file"
+			multiple
+			class="attach-input-hidden"
+			onchange={handlePickerInput}
+		/>
+		{#if viewMode === 'transcript'}
 					<TranscriptView
 						entries={transcriptStore.entries}
 						available={transcriptStore.available}
@@ -1325,6 +1423,168 @@
 			/>
 		{/if}
 
+		{#if viewMode === 'transcript'}
+
+			<div class="tbar" data-face={face}>
+				<ContextGauge context={transcriptStore.context}>
+					{#snippet notch()}
+						{#if voiceEnabled}<VoiceButton {target} round />{/if}
+						<VoiceMeter {target} />
+					{/snippet}
+				</ContextGauge>
+
+				{#if queueCount > 0}
+					<div class="tline tline-queue">
+						<span aria-hidden="true">&#8629;</span>
+						<span class="tline-text">{currentSession?.pane_queue?.[0] ?? `${queueCount} queued`}</span>
+						{#if queueCount > 1}<span class="tline-more">+{queueCount - 1}</span>{/if}
+					</div>
+				{/if}
+
+				{#if face === 'keys' && hasDraft}
+					<div class="tline tline-draft">
+						<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
+						<span class="tline-text">{textInput.trim() || `${readyPaths.length} attached`}</span>
+					</div>
+				{/if}
+
+				<div class="tbody">
+					<div class="tmain">
+						<div class="tfield">
+							{#if slashOpen}
+								<div class="slash-popup">
+									<CommandList
+										bind:this={slashList}
+										cwd={currentSession?.cwd}
+										pinned={pinnedCommands}
+										query={slashQuery}
+										onselect={chooseSlash}
+									/>
+								</div>
+							{/if}
+							{#if hasAttachments}
+								<button
+									type="button"
+									class="tattach"
+									onclick={() => (attachStackOpen = !attachStackOpen)}
+									title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
+								>
+									<iconify-icon icon={anyUploading ? 'mdi:loading' : 'mdi:paperclip'} class={anyUploading ? 'attach-spin' : ''}></iconify-icon>
+									<span class:attach-failed={anyFailed}>{attachments.length}</span>
+								</button>
+							{/if}
+							{@render composerField()}
+						</div>
+
+						<div class="tctl">
+							<RailStats />
+							<button
+								type="button"
+								class="tkey tface"
+								class:tface-attn={wantsKeypress}
+								onclick={() => (face = face === 'write' ? 'keys' : 'write')}
+							>
+								<iconify-icon icon={face === 'write' ? 'mdi:keyboard-outline' : 'mdi:pencil-outline'}></iconify-icon>
+								<span>{face === 'write' ? 'Controls' : 'Write'}</span>
+							</button>
+
+							<div class="tgrp tgrp-mods">
+								<button type="button" class="tkey" class:tkey-armed={ctrlCount > 0} onclick={cycleCtrl} title="Arm Ctrl — next Enter sends the line as a Ctrl sequence">
+									<iconify-icon icon="mdi:apple-keyboard-control"></iconify-icon>
+									<span>Ctrl{ctrlCount > 1 ? `×${ctrlCount}` : ''}</span>
+								</button>
+								<button type="button" class="tkey" class:tkey-armed={altCount > 0} onclick={cycleAlt} title="Arm Alt — next Enter sends the line as a Meta sequence">
+									<iconify-icon icon="mdi:apple-keyboard-option"></iconify-icon>
+									<span>Alt{altCount > 1 ? `×${altCount}` : ''}</span>
+								</button>
+								<button type="button" class="tkey" onclick={() => sendKeys('Escape')} title="Escape">
+									<iconify-icon icon="mdi:close"></iconify-icon>
+									<span>Esc</span>
+								</button>
+							</div>
+
+							<div class="tgrp tgrp-fns">
+								<button type="button" class="tkey" onclick={() => (commandsOpen = true)} title="Commands">
+									<iconify-icon icon="mdi:slash-forward"></iconify-icon>
+									<span>Cmds</span>
+								</button>
+								<Popover.Root bind:open={attachPickerOpen}>
+									<Popover.Trigger class="tkey">
+										<iconify-icon icon="mdi:paperclip"></iconify-icon>
+										<span>Attach</span>
+									</Popover.Trigger>
+									{@render attachMenu()}
+								</Popover.Root>
+								<Popover.Root bind:open={moreOpen}>
+									<Popover.Trigger class="tkey">
+										<iconify-icon icon="mdi:dots-horizontal"></iconify-icon>
+										<span>More</span>
+									</Popover.Trigger>
+									<Popover.Content side="top" class="w-auto max-w-[280px] p-2 bg-[#1a1a1a] border-[#333]">
+										<div class="popover-grid">
+											{#each moreKeys as item}
+												<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => { sendKeys(item.keys); moreOpen = false; }}>
+													<iconify-icon icon={item.icon}></iconify-icon>
+													<span>{item.label}</span>
+												</Button>
+											{/each}
+										</div>
+									</Popover.Content>
+								</Popover.Root>
+							</div>
+
+
+							<div class="tact">
+								<span class="tact-label">{actionLabel}</span>
+								<button
+									type="button"
+									class="tact-btn"
+									data-kind={actionKind}
+									disabled={!canSend}
+									aria-label={actionLabel}
+									onclick={async () => {
+										if (await finishVoiceIfRecording()) { handleResize(); return; }
+										if (modArmed) await sendModSequence();
+										else await sendFromButton();
+									}}
+									use:longPress={{ onTrigger: () => void queueText() }}
+								>
+									<iconify-icon icon={actionIcon}></iconify-icon>
+								</button>
+								{#if queueCount > 0}<span class="tact-badge">{queueCount}</span>{/if}
+							</div>
+						</div>
+					</div>
+
+				<div class="tgrp tgrp-keys">
+					<button type="button" class="tkey tk-noent" onclick={() => void sendTextRaw()} title="Send the draft without Enter">
+						<iconify-icon icon="mdi:tray-arrow-up"></iconify-icon>
+						<span>No &#8629;</span>
+					</button>
+					<button type="button" class="tkey tk-up" onclick={() => sendKeys('Up')} aria-label="Up">
+						<iconify-icon icon="mdi:arrow-up"></iconify-icon>
+					</button>
+					<button type="button" class="tkey tk-tabent" onclick={() => void acceptSuggestion()} title="Send Tab then Enter">
+						<iconify-icon icon="mdi:keyboard-tab"></iconify-icon>
+						<span>Tab &#8629;</span>
+					</button>
+					<button type="button" class="tkey tk-left" onclick={() => sendKeys('Left')} aria-label="Left">
+						<iconify-icon icon="mdi:arrow-left"></iconify-icon>
+					</button>
+					<button type="button" class="tkey tk-down" onclick={() => sendKeys('Down')} aria-label="Down">
+						<iconify-icon icon="mdi:arrow-down"></iconify-icon>
+					</button>
+					<button type="button" class="tkey tk-right" onclick={() => sendKeys('Right')} aria-label="Right">
+						<iconify-icon icon="mdi:arrow-right"></iconify-icon>
+					</button>
+					<button type="button" class="tkey tenter" onclick={() => sendKeys('Enter')} title="Enter">
+						<iconify-icon icon="mdi:keyboard-return"></iconify-icon>
+						<span>Enter</span>
+					</button>
+				</div>
+				</div>
+			</div>
+		{:else}
 		<div class="toolbar">
 			{#if hasSelection}
 				<Button variant="success" size="toolbar" class="flex-1" onclick={copySelection}>
@@ -1395,49 +1655,8 @@
 					<iconify-icon icon="mdi:paperclip" style="font-size: 18px;"></iconify-icon>
 					<span>Attach</span>
 				</Popover.Trigger>
-				<Popover.Content side="top" class="w-auto p-2 bg-[#1a1a1a] border-[#333]">
-					<div class="popover-grid">
-						{#if isTouchDevice}
-							<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => openPicker('camera')}>
-								<iconify-icon icon="mdi:camera"></iconify-icon>
-								<span>Camera</span>
-							</Button>
-						{/if}
-						<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => openPicker('gallery')}>
-							<iconify-icon icon="mdi:image-multiple"></iconify-icon>
-							<span>{isTouchDevice ? 'Gallery' : 'Image'}</span>
-						</Button>
-						<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => openPicker('files')}>
-							<iconify-icon icon="mdi:file-document-outline"></iconify-icon>
-							<span>Files</span>
-						</Button>
-					</div>
-				</Popover.Content>
+				{@render attachMenu()}
 			</Popover.Root>
-			<input
-				bind:this={cameraInput}
-				type="file"
-				accept="image/*"
-				capture="environment"
-				multiple
-				class="attach-input-hidden"
-				onchange={handlePickerInput}
-			/>
-			<input
-				bind:this={galleryInput}
-				type="file"
-				accept="image/*,video/*"
-				multiple
-				class="attach-input-hidden"
-				onchange={handlePickerInput}
-			/>
-			<input
-				bind:this={filesInput}
-				type="file"
-				multiple
-				class="attach-input-hidden"
-				onchange={handlePickerInput}
-			/>
 			{#if voiceEnabled}
 				<VoiceButton {target} />
 			{/if}
@@ -1525,21 +1744,7 @@
 					/>
 				</div>
 			{/if}
-			<textarea
-				bind:this={textareaElement}
-				bind:value={textInput}
-				placeholder={modArmed ? 'Type keys, Enter to send as mod sequence…' : 'Type a message...'}
-				rows={1}
-				onkeydown={handleKeydown}
-				onkeyup={(e) => { handleKeyup(e); syncCaret(); }}
-				onbeforeinput={handleBeforeInput}
-				onblur={handleBlur}
-				oninput={() => { syncCaret(); autoResize(); }}
-				onclick={syncCaret}
-				onfocus={syncCaret}
-				onselect={syncCaret}
-				onpaste={handlePaste}
-			></textarea>
+			{@render composerField()}
 			<div class="send-btn-wrapper"
 				oncontextmenu={handleSendContextMenu}
 				use:longPress={{ onTrigger: () => (queuePopoverOpen = true) }}
@@ -1573,6 +1778,7 @@
 				{/if}
 			</div>
 		</form>
+		{/if}
 </div>
 
 <CommandPalette bind:open={commandsOpen} cwd={currentSession?.cwd} pinned={pinnedCommands} onselect={fillInput} />
@@ -2242,4 +2448,337 @@
 		z-index: 1;
 	}
 
+
+	/* ── Transcript composer ─────────────────────────────────────────────
+	   One bar, two faces. The field keeps the modifiers that act on what you
+	   type; everything that needs no text lives on the other face. Desktop is
+	   wide enough for both at once, so the toggle disappears there. */
+	.tbar {
+		position: relative;
+		background: #111;
+		border-top: 1px solid #222;
+		padding-bottom: 8px;
+		padding-top: 4px;
+	}
+
+	.tline {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 10px 56px 0 14px;
+		font-size: 12px;
+		color: #78716c;
+		min-width: 0;
+	}
+	.tline-queue {
+		font-style: italic;
+	}
+	.tline-draft {
+		color: #a8a29e;
+	}
+	.tline-text {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.tline-more {
+		margin-left: auto;
+		font-style: normal;
+		font-size: 10px;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		flex: none;
+	}
+
+	.tbody {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		min-width: 0;
+	}
+	.tmain {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.tfield {
+		position: relative;
+		display: flex;
+		align-items: flex-end;
+		gap: 8px;
+		padding: 12px 14px 0;
+	}
+	.tfield :global(textarea) {
+		flex: 1;
+		min-width: 0;
+		height: 48px;
+		max-height: 150px;
+		background: #222;
+		color: #fff;
+		border: 1px solid #333;
+		padding: 12px 14px;
+		border-radius: 8px;
+		font-size: 14px;
+		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, monospace;
+		line-height: 1.5;
+		resize: none;
+		overflow-y: auto;
+		overflow-x: hidden;
+		scrollbar-width: none;
+	}
+	.tfield :global(textarea:focus) {
+		outline: none;
+		border-color: #27ae60;
+	}
+
+	.tattach {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		height: 48px;
+		padding: 0 10px;
+		border: 1px solid #333;
+		border-radius: 8px;
+		background: #1a1a1a;
+		color: #a8a29e;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.tattach .attach-failed {
+		color: #f87171;
+	}
+
+	.tctl {
+		display: flex;
+		align-items: flex-start;
+		flex-wrap: wrap;
+		gap: 5px;
+		padding: 10px 14px 0;
+	}
+	.tgrp {
+		display: flex;
+		gap: 6px;
+	}
+
+	.tbar :global(.tkey) {
+		flex: none;
+		min-width: 44px;
+		height: 44px;
+		border-radius: 7px;
+		border: 0;
+		background: #222;
+		color: #f5f5f4;
+		display: inline-flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1px;
+		padding: 0 6px;
+		cursor: pointer;
+		font-size: 18px;
+	}
+	.tbar :global(.tkey:hover) {
+		background: #333;
+	}
+	.tbar :global(.tkey span) {
+		font-size: 9px;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #a8a29e;
+	}
+	.tbar :global(.tkey-armed) {
+		background: #15803d;
+		color: #f0fdf4;
+	}
+	.tbar :global(.tkey-armed span) {
+		color: rgba(240, 253, 244, 0.85);
+	}
+	.tface {
+		background: transparent;
+		border: 1px solid #333;
+	}
+	.tface-attn {
+		border-color: #fbbf24;
+		color: #fbbf24;
+	}
+	.tface-attn span {
+		color: #fbbf24;
+	}
+
+	/* the keys sit as they do on a keyboard: arrows in an inverted T, Enter
+	   tall beside them, and the two send variants on Up's free shoulders */
+	.tgrp-keys {
+		display: grid;
+		grid-template-columns: repeat(4, 44px);
+		grid-template-rows: repeat(2, 44px);
+		gap: 6px;
+	}
+	.tgrp-keys :global(.tkey) {
+		min-width: 0;
+		width: 100%;
+		padding: 0 2px;
+	}
+	.tgrp-keys :global(.tkey span) {
+		font-size: 8px;
+	}
+	.tk-noent {
+		grid-area: 1 / 1;
+	}
+	.tk-up {
+		grid-area: 1 / 2;
+	}
+	.tk-tabent {
+		grid-area: 1 / 3;
+	}
+	.tk-left {
+		grid-area: 2 / 1;
+	}
+	.tk-down {
+		grid-area: 2 / 2;
+	}
+	.tk-right {
+		grid-area: 2 / 3;
+	}
+	.tgrp-keys .tenter {
+		grid-area: 1 / 4 / 3 / 5;
+		height: auto;
+	}
+
+	.tact {
+		position: relative;
+		margin-left: auto;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.tact-label {
+		font-size: 10px;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: #a8a29e;
+	}
+	.tact-btn {
+		flex: none;
+		width: 46px;
+		height: 44px;
+		border-radius: 23px;
+		border: 1px solid transparent;
+		background: #15803d;
+		color: #f0fdf4;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 20px;
+		cursor: pointer;
+		touch-action: manipulation;
+		user-select: none;
+	}
+	.tact-btn:hover:not(:disabled) {
+		background: #16a34a;
+	}
+	.tact-btn:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.tact-btn[data-kind='enter'],
+	.tact-btn[data-kind='queue'] {
+		background: #222;
+		border-color: #333;
+		color: #a8a29e;
+	}
+	.tact-btn[data-kind='accept'] {
+		background: transparent;
+		border-color: #16a34a;
+		color: #16a34a;
+	}
+	.tact-badge {
+		position: absolute;
+		top: -4px;
+		right: -4px;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 4px;
+		border-radius: 9px;
+		background: #f59e0b;
+		color: #111;
+		font-size: 10px;
+		font-weight: 600;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	/* A labelled toggle needs a little over 400px of row. Below that it drops to
+	   its icon: it is the one tile whose job the icon already tells, and the
+	   action's own label is what keeps that button honest. */
+	@media (max-width: 400px) {
+		.tfield,
+		.tctl {
+			padding-left: 10px;
+			padding-right: 10px;
+		}
+		.tctl {
+			gap: 4px;
+		}
+		.tface span {
+			display: none;
+		}
+	}
+
+	/* one face at a time while the screen is narrow */
+	@media (max-width: 899px) {
+		.tbar[data-face='write'] .tgrp-fns,
+		.tbar[data-face='write'] .tgrp-keys {
+			display: none;
+		}
+		.tbar[data-face='keys'] .tfield,
+		.tbar[data-face='keys'] .tgrp-mods,
+		.tbar[data-face='keys'] .tact {
+			display: none;
+		}
+	}
+
+	/* Wide enough for both halves at once, so the toggle goes away and the
+	   split shows as two blocks instead: what you type on the left, what needs
+	   no text on the right. The bar stops well short of the full width — a
+	   composer that runs 1400px wide is a worse composer. */
+	@media (min-width: 900px) {
+		.tbar {
+			/* auto margins alone make a flex column item shrink to its content,
+			   which leaves the field far narrower than the room it has */
+			width: 100%;
+			max-width: 62rem;
+			margin: 0 auto;
+			border: 1px solid #222;
+			border-bottom: 0;
+			border-radius: 12px 12px 0 0;
+			padding-bottom: 12px;
+		}
+		.tctl .tface {
+			display: none;
+		}
+
+		.tbody {
+			gap: 18px;
+			padding: 0 14px;
+		}
+		.tfield,
+		.tctl {
+			padding-left: 0;
+			padding-right: 0;
+		}
+		/* the cluster hangs off the field's own top line, not the row below */
+		.tgrp-keys {
+			margin-top: 12px;
+		}
+		/* three families in one row, told apart by hairlines rather than by
+		   spacing alone: what you spend, what modifies your text, what the app
+		   does for you */
+		.tgrp-fns,
+		.tgrp-mods {
+			padding-left: 10px;
+			border-left: 1px solid #222;
+		}
+	}
 </style>
