@@ -4,7 +4,9 @@
 	import { browser } from '$app/environment';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { terminalStore } from '$lib/stores/terminal.svelte';
-	import { sessionStore, stateColor, splitPaneTitle, getSessionDisplayName } from '$lib/stores/sessions.svelte';
+	import { sessionStore, getSessionDisplayName } from '$lib/stores/sessions.svelte';
+	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
+	import type { IndicatorState } from '$shared/session-state.js';
 	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -46,8 +48,9 @@
 	);
 	const paneIsDead = $derived(claudeSessionDead || targetMissing);
 	const isAlive = $derived(!paneIsDead && (isClaudeSession || isPlainPane));
-	const stateDotColor = $derived(
-		paneIsDead ? '#555' : isPlainPane ? '#888' : stateColor(currentSession?.state || 'idle')
+	// Dead panes and plain (non-Claude) panes are row states, not Claude states.
+	const indicatorState = $derived<IndicatorState>(
+		paneIsDead ? 'dead' : isPlainPane ? 'plain' : (currentSession?.state ?? 'idle')
 	);
 	// Inline status next to the title. Skip bare states (idle/busy/etc.)
 	// since the state symbol + color already convey them; only show when
@@ -57,7 +60,6 @@
 		if (isPlainPane) return tmuxPane?.command || null;
 		return currentSession?.current_action || null;
 	});
-	const parsedTitle = $derived(currentSession?.pane_title ? splitPaneTitle(currentSession.pane_title) : null);
 
 	// Transcript view exists only for Claude sessions (the JSONL is Claude Code's own log).
 	const canTranscript = $derived(isClaudeSession && (currentSession?.agent ?? 'claude') === 'claude');
@@ -1246,11 +1248,7 @@
 <div class="session-container">
 	<header class="header">
 		<div class="title-row">
-			{#if parsedTitle?.symbol}
-				<span class="state-symbol" class:braille={parsedTitle.isBraille} style="color: {stateDotColor}">{parsedTitle.symbol}</span>
-			{:else}
-				<span class="state" style="background: {stateDotColor}"></span>
-			{/if}
+			<SessionStateIndicator state={indicatorState} size="lg" />
 			<div class="title-info">
 				<button
 					type="button"
@@ -1794,24 +1792,6 @@
 		gap: 8px;
 		flex: 1;
 		min-width: 0;
-	}
-
-	.state {
-		width: 12px;
-		height: 12px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.state-symbol {
-		font-size: 18px;
-		line-height: 1;
-		flex-shrink: 0;
-		font-variant-emoji: text;
-	}
-
-	.state-symbol.braille {
-		font-size: 22px;
 	}
 
 	.title-info {

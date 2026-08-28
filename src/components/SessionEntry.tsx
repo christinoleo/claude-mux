@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Box, Text } from "ink";
-import type { Session, SessionState } from "../db/index.js";
+import type { Session } from "../db/index.js";
+import { sessionStateVisual } from "../session-state.js";
 import type { TmuxSession } from "../tmux/detect.js";
 
 const BLINK_INTERVAL = 500;
@@ -32,20 +33,6 @@ interface SessionEntryProps {
   item: DisplayItem;
   isSelected: boolean;
   width?: number;
-}
-
-function getStateColor(state: SessionState): string {
-  switch (state) {
-    case "waiting":
-    case "permission":
-      return "red";
-    case "idle":
-      return "yellow";
-    case "busy":
-      return "green";
-    default:
-      return "gray";
-  }
 }
 
 function getStateText(session: Session): string {
@@ -99,7 +86,7 @@ function ClaudeEntry({
   isSelected: boolean;
   width?: number;
 }) {
-  const stateColor = getStateColor(session.state);
+  const stateColor = sessionStateVisual(session.state).ink;
   const shouldBlink = session.state === "busy";
 
   const tmuxTarget = session.tmux_target || "—";

@@ -94,12 +94,20 @@ Claude Code events → stdin → hook script → JSON files (~/.claude-mux/sessi
 
 ## Session States
 
-| State | Color | Description |
-|-------|-------|-------------|
-| `idle` | Yellow | Ready for new task |
-| `busy` | Green | Working (thinking, tool use) |
-| `waiting` | Red | Asking user a question |
-| `permission` | Red | Needs permission to proceed |
+| State | Indicator | Description |
+|-------|-----------|-------------|
+| `idle` | Dim grey dot (#78716c) | Ready for new task |
+| `busy` | Green pulsing dot (#34d399) | Working (thinking, tool use) |
+| `waiting` | Amber `mdi:chat-question-outline` (#fbbf24) | Asking user a question |
+| `permission` | Amber `mdi:shield-alert-outline` (#fbbf24) | Needs permission to proceed |
+
+Indicators live in one place: `src/session-state.ts` maps a state to its icon,
+web color, Ink color, and whether it pulses. Every surface reads from it — the
+web sidebar, the transcript's live status row and the session header (all via
+`SessionStateIndicator.svelte`), and the Ink TUI. It also covers two states the
+hooks never report: `dead` (pane closed) and `plain` (a non-Claude tmux pane).
+Add a state there, not in a component. Amber is reserved for the states that
+want a human — idle deliberately recedes.
 
 ## Project Structure
 

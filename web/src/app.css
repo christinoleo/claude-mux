@@ -128,14 +128,9 @@
   }
 }
 
-/* One definition for the "something is running" dot, shared by the transcript's
-   live status row and the running-agents overlay — they drifted apart once. */
+/* Behaviour only — shape and colour come from SessionStateIndicator, the one
+   component that draws a session state. */
 .pulse-dot {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #34d399;
   animation: claude-mux-pulse 1.4s ease-in-out infinite;
 }
 @keyframes claude-mux-pulse {

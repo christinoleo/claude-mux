@@ -3,6 +3,8 @@
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
 	import { keysForAnswer } from '../../../../src/tmux/answer-keys';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
+	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
+	import { sessionStateVisual } from '$shared/session-state.js';
 
 	type AskEntry = Extract<TranscriptEntry, { kind: 'ask' }>;
 
@@ -396,18 +398,18 @@
 	{/if}
 	{#if sessionState === 'busy'}
 		<div class="live-row busy">
-			<span class="pulse-dot"></span>
+			<SessionStateIndicator state="busy" />
 			<span class="live-text mono">{currentAction ?? 'Working…'}</span>
 		</div>
 	{:else if sessionState === 'permission'}
-		<div class="live-row attention">
-			<iconify-icon icon="mdi:shield-alert-outline"></iconify-icon>
+		<div class="live-row attention" style="color: {sessionStateVisual('permission').color}">
+			<SessionStateIndicator state="permission" />
 			<span class="live-text">Waiting for permission — switch to terminal view to respond</span>
 		</div>
 	{:else if sessionState === 'waiting'}
 		{@const pendingAsk = entries.some((e) => e.kind === 'ask' && !e.answers && !e.rejected)}
-		<div class="live-row attention">
-			<iconify-icon icon="mdi:chat-question-outline"></iconify-icon>
+		<div class="live-row attention" style="color: {sessionStateVisual('waiting').color}">
+			<SessionStateIndicator state="waiting" />
 			<span class="live-text">
 				{#if pendingAsk}
 					Waiting for your answer — pick an option above ↑
@@ -1111,9 +1113,6 @@
 		margin: 8px 0 4px 12px;
 		font-size: 12.5px;
 		color: #a8a29e;
-	}
-	.live-row.attention {
-		color: #fbbf24;
 	}
 	.live-row.queue-note {
 		color: #78716c;

@@ -309,6 +309,12 @@
 			-webkit-backdrop-filter: blur(12px);
 		}
 
+		/* Closed drawer is off-screen but still composited — without this its
+		   busy dots keep animating behind the blur. */
+		.sidebar:not(.open) {
+			content-visibility: hidden;
+		}
+
 		.sidebar.open {
 			transform: translateX(0);
 		}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
+	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 
 	let {
 		agents,
@@ -30,7 +31,7 @@
 				onclick={() => agent.toolUseId && onReveal?.(agent.toolUseId)}
 				title={agent.toolUseId ? 'Jump to this agent' : 'Running agent'}
 			>
-				<span class="pulse-dot"></span>
+				<SessionStateIndicator state="busy" />
 				<span class="body">
 					<span class="name">{agent.description ?? agent.agentType ?? 'agent'}</span>
 					{#if doing}<span class="doing">{doing.summary}</span>{/if}

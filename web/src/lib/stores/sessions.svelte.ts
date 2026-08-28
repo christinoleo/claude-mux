@@ -195,20 +195,6 @@ class SessionStore extends ReliableWebSocket {
 export const sessionStore = new SessionStore();
 
 // Helper functions
-export function stateColor(state: string): string {
-	switch (state) {
-		case 'permission':
-		case 'waiting':
-			return '#e74c3c';
-		case 'idle':
-			return '#f39c12';
-		case 'busy':
-			return '#27ae60';
-		default:
-			return '#666';
-	}
-}
-
 export type SessionGroup =
 	| { type: 'pair'; main: Session; orchestrator: Session }
 	| { type: 'single'; session: Session };
@@ -261,16 +247,6 @@ export function getProjectColor(cwd: string): string {
 	}
 	const hue = Math.abs(hash) % 360;
 	return `hsl(${hue}, 60%, 40%)`;
-}
-
-/** Split pane title into leading symbol (✳, ⠐, etc.) and clean name */
-export function splitPaneTitle(title: string): { symbol: string | null; isBraille: boolean; name: string } {
-	const match = title.match(/^([\u2800-\u28FF\u2700-\u27BF\u2600-\u26FF\u2B50-\u2B55·•]+)\s*/);
-	if (match) {
-		const symbol = match[1];
-		return { symbol, isBraille: /^[\u2800-\u28FF]+$/.test(symbol), name: title.slice(match[0].length) };
-	}
-	return { symbol: null, isBraille: false, name: title };
 }
 
 export function getSessionDisplayName(session: Session): string {

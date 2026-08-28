@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { sessionStore, stateColor, getProjectColor, groupSessions, splitPaneTitle, getSessionDisplayName, findDeepestProject, type Session } from '$lib/stores/sessions.svelte';
+	import { sessionStore, getProjectColor, groupSessions, getSessionDisplayName, findDeepestProject, type Session } from '$lib/stores/sessions.svelte';
+	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { AGENTS, AGENT_IDS } from '$shared/agents.js';
@@ -305,7 +306,6 @@
 	{#if session.tmux_target}
 		{@const isActive = session.tmux_target === currentTarget}
 		{@const isDead = session.pane_alive === false}
-		{@const parsed = session.pane_title ? splitPaneTitle(session.pane_title) : null}
 		{@const draft = !isActive && !isDead ? draftsStore.get(session.tmux_target) : ''}
 		{@const hasDraft = draft.length > 0}
 		<a
@@ -353,10 +353,12 @@
 					>
 						<iconify-icon icon="mdi:close-circle" style="font-size: 13px;"></iconify-icon>
 					</button>
-				{:else if parsed?.symbol}
-					<span class="state-symbol" class:braille={parsed.isBraille} style="color: {stateColor(session.state)}">{parsed.symbol}</span>
 				{:else}
-					<span class="state-dot" style="background: {stateColor(session.state)}"></span>
+					<SessionStateIndicator
+						state={session.state}
+						size={compact ? 'sm' : 'md'}
+						title={session.current_action}
+					/>
 				{/if}
 				{#if !compact && !isDead}
 					<button
@@ -377,7 +379,7 @@
 				<div class="session-status">{session.current_action || session.state}</div>
 			</div>
 			<div class="session-right">
-				<span class="state-dot" style="background: {stateColor(session.state)}"></span>
+				<SessionStateIndicator state={session.state} size={compact ? 'sm' : 'md'} />
 			</div>
 		</div>
 	{/if}
@@ -751,13 +753,6 @@
 		flex-shrink: 0;
 	}
 
-	.state-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
 	.rank {
 		display: inline-block;
 		font-size: 10px;
@@ -786,17 +781,6 @@
 
 	.session.active .rank.rank-top {
 		color: #d4f0dc;
-	}
-
-	.state-symbol {
-		font-size: 14px;
-		line-height: 1;
-		flex-shrink: 0;
-		font-variant-emoji: text;
-	}
-
-	.state-symbol.braille {
-		font-size: 20px;
 	}
 
 	.kill-btn {
@@ -1017,8 +1001,4 @@
 		font-size: 10px;
 	}
 
-	.compact .state-dot {
-		width: 7px;
-		height: 7px;
-	}
 </style>
