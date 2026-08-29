@@ -1347,11 +1347,15 @@
 		altTapCandidate = false;
 	}
 
+	/** One line of the composer's own type, and the ceiling its CSS allows. */
+	const FIELD_MIN = 24;
+	const FIELD_MAX = 112;
+
 	function autoResize() {
 		if (!textareaElement) return;
 		// Reset to single row to measure actual content height
 		textareaElement.style.height = '0';
-		const newHeight = Math.max(48, Math.min(textareaElement.scrollHeight, 150));
+		const newHeight = Math.max(FIELD_MIN, Math.min(textareaElement.scrollHeight, FIELD_MAX));
 		textareaElement.style.height = newHeight + 'px';
 	}
 
@@ -1635,8 +1639,6 @@
 			/>
 		{/if}
 
-		{#if viewMode === 'transcript'}
-
 			<div class="cx" class:wide={wideComposer}>
 				<ContextGauge context={transcriptStore.context}>
 					{#snippet notch()}
@@ -1688,18 +1690,55 @@
 						</div>
 					{:else}
 						{#if hasAttachments}
-							<button
-								type="button"
-								class="tattach"
-								onclick={() => (attachStackOpen = !attachStackOpen)}
-								title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
-							>
-								<iconify-icon
-									icon={anyUploading ? 'mdi:loading' : 'mdi:paperclip'}
-									class={anyUploading ? 'attach-spin' : ''}
-								></iconify-icon>
-								<span class:attach-failed={anyFailed}>{attachments.length}</span>
-							</button>
+							<Popover.Root bind:open={attachStackOpen}>
+								<Popover.Trigger
+									class="tattach"
+									title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
+								>
+									<iconify-icon
+										icon={anyUploading ? 'mdi:loading' : 'mdi:paperclip'}
+										class={anyUploading ? 'attach-spin' : ''}
+									></iconify-icon>
+									<span class:attach-failed={anyFailed}>{attachments.length}</span>
+								</Popover.Trigger>
+								<Popover.Content
+									side="top"
+									align="start"
+									class="w-72 p-2 bg-[#1a1a1a] border-[#333]"
+								>
+									<div class="attach-list">
+										{#each attachments as att (att.localId)}
+											<div
+												class="attach-item"
+												class:attach-item-failed={att.status === 'failed'}
+												title={att.status === 'failed' ? `Upload failed: ${att.error}` : att.name}
+											>
+												{#if att.thumb}
+													<img class="attach-item-thumb" src={att.thumb} alt="" />
+												{:else}
+													<span class="attach-item-thumb attach-item-file">
+														<iconify-icon icon="mdi:file-outline"></iconify-icon>
+													</span>
+												{/if}
+												<span class="attach-item-name">{att.name}</span>
+												<button
+													type="button"
+													class="attach-item-remove"
+													aria-label={`Remove ${att.name}`}
+													onclick={() => removeAttachment(att.localId)}
+												>
+													<iconify-icon icon="mdi:close"></iconify-icon>
+												</button>
+											</div>
+										{/each}
+									</div>
+									{#if attachments.length > 1}
+										<button type="button" class="attach-clear" onclick={clearAttachments}>
+											Remove all
+										</button>
+									{/if}
+								</Popover.Content>
+							</Popover.Root>
 						{/if}
 						{@render composerField()}
 					{/if}
@@ -1707,6 +1746,14 @@
 
 				<!-- lane 2 — the footer, whose left edge never moves -->
 				<div class="foot">
+					{#if hasSelection}
+						<button type="button" class="copy-sel" onclick={copySelection}>
+							<iconify-icon
+								icon={showSelectionCopied ? 'mdi:check' : 'mdi:content-copy'}
+							></iconify-icon>
+							{showSelectionCopied ? 'Copied' : 'Copy'}
+						</button>
+					{/if}
 					{#if isBusy}
 						<button
 							type="button"
@@ -1792,202 +1839,6 @@
 					</div>
 				</div>
 			</div>
-		{:else}
-		<div class="sl-solo">{@render statusLine()}</div>
-		<div class="toolbar">
-			{#if hasSelection}
-				<Button variant="success" size="toolbar" class="flex-1" onclick={copySelection}>
-					<iconify-icon icon={showSelectionCopied ? "mdi:check" : "mdi:content-copy"}></iconify-icon>
-					<span>{showSelectionCopied ? 'Copied!' : 'Copy'}</span>
-				</Button>
-			{/if}
-			<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('Up')}>
-				<iconify-icon icon="mdi:arrow-up"></iconify-icon>
-				<span>Up</span>
-			</Button>
-			<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('Down')}>
-				<iconify-icon icon="mdi:arrow-down"></iconify-icon>
-				<span>Down</span>
-			</Button>
-
-			<!-- More keys popover -->
-			<Popover.Root bind:open={moreOpen}>
-				<Popover.Trigger class="flex-1 flex-col gap-0.5 px-2 py-1.5 min-w-11 h-auto text-[9px] uppercase tracking-wide inline-flex shrink-0 items-center justify-center rounded-md font-medium cursor-pointer bg-[#222] text-stone-100 hover:bg-[#333]">
-					<iconify-icon icon="mdi:dots-horizontal" style="font-size: 18px;"></iconify-icon>
-					<span>More</span>
-				</Popover.Trigger>
-				<Popover.Content side="top" class="w-auto max-w-[280px] p-2 bg-[#1a1a1a] border-[#333]">
-					<div class="popover-grid">
-						{#each moreKeys as item}
-							<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => { sendKeys(item.keys); moreOpen = false; }}>
-								<iconify-icon icon={item.icon}></iconify-icon>
-								<span>{item.label}</span>
-							</Button>
-						{/each}
-						<Button
-							variant={altCount > 0 ? 'success' : 'secondary'}
-							size="toolbar"
-							class="min-w-14 min-h-12"
-							onclick={() => { cycleAlt(); moreOpen = false; }}
-							title="Arm Alt — next Enter sends input as Alt-key (Meta) sequence."
-						>
-							<iconify-icon icon="mdi:apple-keyboard-option"></iconify-icon>
-							<span>Alt{altCount > 1 ? `×${altCount}` : ''}</span>
-						</Button>
-					</div>
-				</Popover.Content>
-			</Popover.Root>
-
-			<!-- Commands palette -->
-			<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => (commandsOpen = true)}>
-				<iconify-icon icon="mdi:lightning-bolt"></iconify-icon>
-				<span>Cmds</span>
-			</Button>
-
-			<Button
-				variant={ctrlCount > 0 ? 'success' : 'secondary'}
-				size="toolbar"
-				class="flex-1"
-				onclick={cycleCtrl}
-				title="Arm Ctrl — next Enter sends input as Ctrl-key sequence. Tap again for ×2, again to disarm."
-			>
-				<iconify-icon icon="mdi:apple-keyboard-control"></iconify-icon>
-				<span>Ctrl{ctrlCount > 1 ? `×${ctrlCount}` : ''}</span>
-			</Button>
-			<Button variant="secondary" size="toolbar" class="flex-1" onclick={() => sendKeys('Escape')}>
-				<iconify-icon icon="mdi:stop"></iconify-icon>
-				<span>Esc</span>
-			</Button>
-			<!-- Attach popover -->
-			<Popover.Root bind:open={attachPickerOpen}>
-				<Popover.Trigger class="flex-1 flex-col gap-0.5 px-2 py-1.5 min-w-11 h-auto text-[9px] uppercase tracking-wide inline-flex shrink-0 items-center justify-center rounded-md font-medium cursor-pointer bg-[#222] text-stone-100 hover:bg-[#333]">
-					<iconify-icon icon="mdi:paperclip" style="font-size: 18px;"></iconify-icon>
-					<span>Attach</span>
-				</Popover.Trigger>
-				{@render attachMenu()}
-			</Popover.Root>
-			{#if voiceEnabled}
-				<VoiceButton {target} />
-			{/if}
-		</div>
-
-		<form class="input-row" onsubmit={async (e) => { e.preventDefault(); if (await finishVoiceIfRecording()) { handleResize(); return; } if (modArmed) await sendModSequence(); else await sendFromButton(); handleResize(); }}>
-			{#if ctrlCount > 0}
-				<button type="button" class="mod-chip" onclick={() => (ctrlCount = 0)} title="Disarm Ctrl">
-					<iconify-icon icon="mdi:apple-keyboard-control"></iconify-icon>
-					<span>Ctrl{ctrlCount > 1 ? `×${ctrlCount}` : ''}</span>
-				</button>
-			{/if}
-			{#if altCount > 0}
-				<button type="button" class="mod-chip" onclick={() => (altCount = 0)} title="Disarm Alt">
-					<iconify-icon icon="mdi:apple-keyboard-option"></iconify-icon>
-					<span>Alt{altCount > 1 ? `×${altCount}` : ''}</span>
-				</button>
-			{/if}
-			{#if hasAttachments}
-				<Popover.Root bind:open={attachStackOpen}>
-					<Popover.Trigger
-						class="attach-stack"
-						title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
-					>
-						{#if stackThumbs.length}
-							{#each stackThumbs as t, i (t.localId)}
-								<img class="attach-stack-thumb" src={t.thumb} alt="" style="--i: {i}" />
-							{/each}
-						{:else}
-							<span class="attach-stack-thumb attach-stack-file" style="--i: 0">
-								<iconify-icon icon="mdi:file-outline"></iconify-icon>
-							</span>
-						{/if}
-						<span class="attach-stack-badge" class:attach-stack-badge-failed={anyFailed}>
-							{#if anyUploading}
-								<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
-							{:else}
-								{attachments.length}
-							{/if}
-						</span>
-					</Popover.Trigger>
-					<Popover.Content side="top" align="start" class="w-72 p-2 bg-[#1a1a1a] border-[#333]">
-						<div class="attach-list">
-							{#each attachments as att (att.localId)}
-								<div
-									class="attach-item"
-									class:attach-item-failed={att.status === 'failed'}
-									title={att.status === 'failed' ? `Upload failed: ${att.error}` : att.name}
-								>
-									{#if att.thumb}
-										<img class="attach-item-thumb" src={att.thumb} alt="" />
-									{:else}
-										<span class="attach-item-thumb attach-item-file">
-											<iconify-icon icon="mdi:file-outline"></iconify-icon>
-										</span>
-									{/if}
-									<span class="attach-item-name">{att.name}</span>
-									{#if att.status === 'uploading'}
-										<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
-									{:else if att.status === 'failed'}
-										<button type="button" class="attach-item-btn" title="Retry" onclick={() => retryAttachment(att.localId)}>
-											<iconify-icon icon="mdi:refresh"></iconify-icon>
-										</button>
-									{/if}
-									<button type="button" class="attach-item-btn" title="Remove" onclick={() => removeAttachment(att.localId)}>
-										<iconify-icon icon="mdi:close"></iconify-icon>
-									</button>
-								</div>
-							{/each}
-						</div>
-						{#if attachments.length > 1}
-							<button type="button" class="attach-clear" onclick={clearAttachments}>Remove all</button>
-						{/if}
-					</Popover.Content>
-				</Popover.Root>
-			{/if}
-			{#if slashOpen}
-				<div class="slash-popup">
-					<CommandList
-						bind:this={slashList}
-						cwd={currentSession?.cwd}
-						pinned={pinnedCommands}
-						query={slashQuery}
-						onselect={chooseSlash}
-					/>
-				</div>
-			{/if}
-			{@render composerField()}
-			<div class="send-btn-wrapper"
-				oncontextmenu={handleSendContextMenu}
-				use:longPress={{ onTrigger: () => (queuePopoverOpen = true) }}
-				use:clickOutside={{
-					enabled: queuePopoverOpen,
-					onOutside: () => (queuePopoverOpen = false)
-				}}
-			>
-				<Button type="submit" variant="success" class="min-w-[52px] min-h-[48px] text-lg touch-manipulation select-none" disabled={!canSend} title="Send · empty: tap = Enter, double-tap = accept suggestion (Tab+Enter) · long-press = queue">
-					<iconify-icon icon="mdi:send"></iconify-icon>
-				</Button>
-				{#if queueCount > 0}
-					<span class="queue-badge">{queueCount}</span>
-				{/if}
-				{#if queuePopoverOpen}
-					<div class="queue-dropdown">
-						<Button variant="secondary" size="toolbar" class="min-w-[140px] min-h-[40px] justify-start gap-2" onclick={queueText}>
-							<iconify-icon icon="mdi:tray-arrow-down"></iconify-icon>
-							<span>Queue for idle</span>
-							<kbd class="queue-kbd">Ctrl+Shift+↵</kbd>
-						</Button>
-						<Button variant="secondary" size="toolbar" class="min-w-[140px] min-h-[40px] justify-start gap-2" onclick={sendTextRaw}>
-							<iconify-icon icon="mdi:send-variant-outline"></iconify-icon>
-							<span>Send without Enter</span>
-						</Button>
-						<Button variant="secondary" size="toolbar" class="min-w-[140px] min-h-[40px] justify-start gap-2" onclick={acceptSuggestion}>
-							<iconify-icon icon="mdi:keyboard-tab"></iconify-icon>
-							<span>Accept suggestion</span>
-						</Button>
-					</div>
-				{/if}
-			</div>
-		</form>
-		{/if}
 </div>
 
 <CommandPalette bind:open={commandsOpen} cwd={currentSession?.cwd} pinned={pinnedCommands} onselect={fillInput} />
@@ -2187,12 +2038,6 @@
 		touch-action: pan-y;
 	}
 
-	/* Terminal-mode toolbar keeps tighter corners on a phone. */
-	@media (max-width: 768px) {
-		.toolbar :global(button) {
-			border-radius: 3px;
-		}
-	}
 
 	.output-wrap {
 		position: relative;
@@ -2242,23 +2087,7 @@
 		color: #fff;
 	}
 
-	.toolbar {
-		display: flex;
-		gap: 6px;
-		padding: 8px 12px;
-		background: #111;
-		border-top: 1px solid #222;
-	}
 
-	.input-row {
-		position: relative;
-		display: flex;
-		align-items: flex-end;
-		gap: 8px;
-		padding: 12px 16px;
-		background: #111;
-		border-top: 1px solid #222;
-	}
 
 	.slash-popup {
 		position: absolute;
@@ -2278,28 +2107,6 @@
 		color: #f5f5f4;
 	}
 
-	.mod-chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		height: 48px;
-		padding: 0 10px;
-		background: #1e5b3a;
-		color: #d7f5e4;
-		border: 1px solid #27ae60;
-		border-radius: 8px;
-		font-size: 12px;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-		cursor: pointer;
-		flex-shrink: 0;
-	}
-	.mod-chip iconify-icon {
-		font-size: 16px;
-	}
-	.mod-chip:hover {
-		background: #257048;
-	}
 
 	:global(.attach-stack) {
 		position: relative;
@@ -2310,46 +2117,6 @@
 		background: transparent;
 		padding: 0;
 		cursor: pointer;
-	}
-	.attach-stack-thumb {
-		position: absolute;
-		left: 0;
-		top: 0;
-		width: 40px;
-		height: 40px;
-		object-fit: cover;
-		border-radius: 6px;
-		border: 1px solid #3a6ad4;
-		background: #1f2c44;
-		transform: translate(calc(var(--i) * 4px), calc(var(--i) * 4px));
-		z-index: calc(3 - var(--i));
-	}
-	.attach-stack-file {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: #d4e3ff;
-		font-size: 22px;
-	}
-	.attach-stack-badge {
-		position: absolute;
-		right: -4px;
-		top: -4px;
-		z-index: 4;
-		min-width: 18px;
-		height: 18px;
-		padding: 0 5px;
-		border-radius: 9px;
-		background: #27ae60;
-		color: #fff;
-		font-size: 11px;
-		font-weight: 600;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.attach-stack-badge-failed {
-		background: #d44d4d;
 	}
 	.attach-list {
 		display: flex;
@@ -2393,23 +2160,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.attach-item-btn {
-		flex-shrink: 0;
-		width: 32px;
-		height: 32px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border: 0;
-		border-radius: 6px;
-		background: transparent;
-		color: inherit;
-		cursor: pointer;
-		font-size: 18px;
-	}
-	.attach-item-btn:hover {
-		background: rgba(255, 255, 255, 0.12);
 	}
 	.attach-clear {
 		margin-top: 6px;
@@ -2462,26 +2212,6 @@
 		font-size: 48px;
 	}
 
-	.input-row textarea {
-		flex: 1;
-		min-width: 0;
-		height: 48px;
-		background: #222;
-		color: #fff;
-		border: 1px solid #333;
-		padding: 12px 16px;
-		border-radius: 8px;
-		font-size: 14px;
-		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, 'Cascadia Code', monospace;
-		line-height: 1.5;
-		resize: none;
-		overflow-y: auto;
-		overflow-x: hidden;
-		max-height: 150px;
-		word-wrap: break-word;
-		box-sizing: border-box;
-		scrollbar-width: none;
-	}
 
 	.popover-grid {
 		display: grid;
@@ -2490,74 +2220,13 @@
 	}
 
 
-	.input-row textarea::-webkit-scrollbar {
-		display: none;
-	}
 
-	.input-row textarea:focus {
-		outline: none;
-		border-color: #27ae60;
-	}
 
-	.input-row textarea::placeholder {
-		color: #666;
-	}
 
-	.send-btn-wrapper {
-		position: relative;
-		display: inline-flex;
-	}
 
-	.queue-dropdown {
-		position: absolute;
-		bottom: 100%;
-		right: 0;
-		margin-bottom: 6px;
-		background: #1a1a1a;
-		border: 1px solid #333;
-		border-radius: 8px;
-		padding: 4px;
-		z-index: 10;
-		box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		max-width: calc(100vw - 16px);
-	}
 
-	.queue-dropdown :global(button) {
-		width: 100%;
-		justify-content: flex-start;
-		white-space: nowrap;
-	}
 
-	.queue-kbd {
-		font-size: 9px;
-		color: #888;
-		background: #2a2a2a;
-		padding: 1px 4px;
-		border-radius: 3px;
-		margin-left: 4px;
-		font-family: inherit;
-	}
 
-	.queue-badge {
-		position: absolute;
-		top: -4px;
-		right: -4px;
-		background: #e74c3c;
-		color: white;
-		border-radius: 50%;
-		min-width: 18px;
-		height: 18px;
-		font-size: 11px;
-		font-weight: 600;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		pointer-events: none;
-		z-index: 1;
-	}
 
 
 	/* ── Transcript composer ─────────────────────────────────────────────
@@ -2693,7 +2362,7 @@
 		color: #78716c;
 	}
 
-	.tattach {
+	.mid :global(.tattach) {
 		flex: none;
 		display: inline-flex;
 		align-items: center;
@@ -2708,7 +2377,7 @@
 		font-size: 11.5px;
 		cursor: pointer;
 	}
-	.tattach .attach-failed {
+	.mid :global(.tattach .attach-failed) {
 		color: #f87171;
 	}
 
@@ -2934,13 +2603,6 @@
 		justify-content: center;
 	}
 
-	/* Terminal mode keeps its own eight-button toolbar, but it still needs to
-	   say which session it is and offer the way back to the transcript. */
-	.sl-solo {
-		background: #151516;
-		border-top: 1px solid #2a2a2c;
-		padding-bottom: 2px;
-	}
 
 	/* The header's rare actions return to the status line once there is room
 	   across for them; a phone reaches them through the sheet instead. */
@@ -2951,6 +2613,27 @@
 		.wide-only {
 			display: inline-flex;
 		}
+	}
+
+	/* Terminal mode's one control the transcript never needed: the pane's
+	   selection, which only exists while you are looking at the pane. */
+	.copy-sel {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 32px;
+		padding: 0 11px;
+		border: 0;
+		border-radius: 8px;
+		background: #14532d;
+		color: #d6f5e0;
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+		flex: none;
+		cursor: pointer;
+	}
+	.copy-sel:hover {
+		background: #166534;
 	}
 
 	/* A composer that runs the full width is a worse composer. */
