@@ -505,18 +505,32 @@
 	let anchorNode: HTMLElement | null = null;
 	let anchorOffset = 0;
 
+	/**
+	 * The transcript rows, which are the only thing worth anchoring to: the
+	 * terminal is a single <pre> with no per-row elements, and its one insertion
+	 * from above goes through holdPlaceThrough instead.
+	 */
+	function anchorRows(): HTMLCollection | null {
+		return outputElement?.querySelector('.transcript')?.children ?? null;
+	}
+
 	function captureAnchor() {
-		if (nativeScrollAnchoring || !outputElement) return;
-		const top = outputElement.getBoundingClientRect().top;
 		anchorNode = null;
-		for (const node of outputElement.querySelectorAll<HTMLElement>('.transcript > *')) {
-			const rect = node.getBoundingClientRect();
-			if (rect.bottom > top) {
-				anchorNode = node;
-				anchorOffset = rect.top - top;
-				return;
-			}
+		const rows = nativeScrollAnchoring ? null : anchorRows();
+		if (!rows || rows.length === 0 || !outputElement) return;
+		// Rows are stacked in DOM order, so their edges are sorted: binary-search
+		// for the topmost one still on screen rather than measuring every row
+		// above the reader on every scroll event.
+		const top = outputElement.getBoundingClientRect().top;
+		let lo = 0;
+		let hi = rows.length - 1;
+		while (lo < hi) {
+			const mid = (lo + hi) >> 1;
+			if (rows[mid].getBoundingClientRect().bottom > top) hi = mid;
+			else lo = mid + 1;
 		}
+		anchorNode = rows[lo] as HTMLElement;
+		anchorOffset = anchorNode.getBoundingClientRect().top - top;
 	}
 
 	function restoreAnchor() {
@@ -584,9 +598,12 @@
 	//
 	// The observed set has to be re-synced when .output swaps its content.
 	// Switching between the transcript and the terminal — including the restore
-	// of the view this session was last in — replaces the child we were
-	// watching, and an observer left on the detached node never fires again.
+	// of the view this session was last in — replaces the child we watch, and an
+	// observer left on the detached node never fires again, so the swap point
+	// (viewMode) is a dependency: effects run after the DOM update, so the new
+	// child is in place by the time this re-observes.
 	$effect(() => {
+		viewMode;
 		const el = outputElement;
 		if (!el || typeof ResizeObserver === 'undefined') return;
 		const ro = new ResizeObserver(() => {
@@ -594,18 +611,9 @@
 			if (userScrolledUp) restoreAnchor();
 			else el.scrollTop = el.scrollHeight;
 		});
-		const observeAll = () => {
-			ro.disconnect();
-			ro.observe(el);
-			for (const child of el.children) ro.observe(child);
-		};
-		observeAll();
-		const mo = new MutationObserver(observeAll);
-		mo.observe(el, { childList: true });
-		return () => {
-			mo.disconnect();
-			ro.disconnect();
-		};
+		ro.observe(el);
+		for (const child of el.children) ro.observe(child);
+		return () => ro.disconnect();
 	});
 
 	async function sendKeys(keys: string) {
@@ -1506,9 +1514,7 @@
 					<div class="tline tline-queue">
 						<span aria-hidden="true">&#8629;</span>
 						<span class="tline-text"
-							>{queueHeadKind === 'control'
-								? `${queueHeadText} (dashboard)`
-								: (queueHeadText ?? currentSession?.pane_queue?.[0] ?? `${queueCount} queued`)}</span
+							>{queueHeadKind === 'control' ? `${queueHeadText} (dashboard)` : queueHeadText}</span
 						>
 						{#if queueCount > 1}<span class="tline-more">+{queueCount - 1}</span>{/if}
 					</div>
