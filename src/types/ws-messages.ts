@@ -22,7 +22,15 @@ const ScreenshotSchema = z.object({
 
 const PaneChoiceSchema = z.object({
 	question: z.string().nullable(),
-	options: z.array(z.object({ n: z.number(), label: z.string(), selected: z.boolean() })),
+	options: z.array(
+		z.object({
+			n: z.number(),
+			label: z.string(),
+			/** The line the dialog prints under the label, when it prints one. */
+			hint: z.string().optional(),
+			selected: z.boolean(),
+		})
+	),
 });
 
 /** The numbered options a pane dialog is offering, as they reach the browser. */

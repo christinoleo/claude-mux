@@ -1580,6 +1580,7 @@
 						{queueHeadText}
 						{queueHeadKind}
 						paneQueue={currentSession?.pane_queue ?? []}
+						choiceOffered={choice !== null}
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={(keys) => void sendKeys(keys)}
 						onOpenTerminal={() => toggleView()}
@@ -1670,7 +1671,11 @@
 											class:sel={option.selected}
 											onclick={() => void pickOption(option.n)}
 										>
-											<u>{option.n}</u>{option.label}
+											<u>{option.n}</u>
+											<span class="optlabel">
+												{option.label}
+												{#if option.hint}<em>{option.hint}</em>{/if}
+											</span>
 										</button>
 									{/each}
 								</div>
@@ -2345,12 +2350,18 @@
 		   the viewport does not know: a sidebar sits between it and this card. */
 		container-type: inline-size;
 	}
+	/* The rail is furniture, not content: it sits at the foot and keeps one
+	   size whatever the middle lane grows into — a list of options, a field
+	   four lines deep. A send button as tall as the card is not a better
+	   target, only a stranger one. */
 	.rail {
 		flex: none;
+		align-self: flex-end;
 		display: flex;
 		align-items: stretch;
 		gap: 6px;
 		padding: 8px 0 2px;
+		height: 74px;
 	}
 
 	/* ── lane 1 · the middle ────────────────────────────────────────── */
@@ -2423,7 +2434,7 @@
 	}
 	.optrow {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: 9px;
 		width: 100%;
 		min-height: 28px;
@@ -2445,6 +2456,26 @@
 		text-decoration: none;
 		width: 9px;
 		flex: none;
+		/* Sits on the label's first line, not centred on a two-line row. */
+		align-self: flex-start;
+		padding-top: 3px;
+	}
+	/* A question's options are often too terse to choose between on the label
+	   alone, so the dialog's own description comes with them. */
+	.optlabel {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		min-width: 0;
+	}
+	.optlabel em {
+		font-style: normal;
+		font-size: 11.5px;
+		line-height: 1.35;
+		color: #78716c;
+	}
+	.optrow.sel .optlabel em {
+		color: #c8a94a;
 	}
 	.optrow:hover {
 		background: #1e1e21;
@@ -2604,6 +2635,7 @@
 	   ways to submit read as one control that happens to have two homes. */
 	.act {
 		width: 46px;
+		height: 100%;
 		min-height: 56px;
 		border: 1px solid transparent;
 		border-radius: 12px;

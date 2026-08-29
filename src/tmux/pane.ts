@@ -442,6 +442,11 @@ export type PromptOption = {
   /** The number you would type to pick it. */
   n: number;
   label: string;
+  /**
+   * The line the dialog prints under the label, indented beneath it. A
+   * question's options are often too terse to choose between without it.
+   */
+  hint?: string;
   /** Claude Code's own highlight — the row carrying the `❯` marker. */
   selected: boolean;
 };
@@ -456,14 +461,41 @@ function unframe(line: string): string {
 
 const OPTION_ROW = /^(❯|>)?\s*(\d+)[.)]\s+(\S.*)$/;
 
+/** A line that only rules off one part of a dialog from another. */
+const OPTION_RULE = /^[─━╌┄┈—–-]+$/;
+
+/**
+ * A pane line's content and how far it is indented, with the frame off.
+ *
+ * The indent is what separates an option's own description from the question
+ * above it: both are prose, and only the description sits under its row.
+ */
+function bodyOf(line: string): { indent: number; text: string } {
+  const body = (line ?? "").replace(/[\s│┃|╎┆┊]+$/, "").replace(/^\s*[│┃|╎┆┊]+/, "");
+  const text = body.trimStart();
+  return { indent: body.length - text.length, text };
+}
+
+/** Keep a dialog's own words, but not a paragraph of them. */
+function clampOption(text: string): string {
+  return text.length > MAX_OPTION_CHARS ? text.slice(0, MAX_OPTION_CHARS) + "…" : text;
+}
+
 /**
  * Read the numbered options of a permission or question dialog.
  *
  * Deliberately layout-agnostic: rather than locating Claude Code's dialog
- * frame, it scans the foot of the pane for the last contiguous run of numbered
- * rows. That survives a change to the box drawing, which locating the frame
- * would not — and the run has to number 1, 2, 3… without a gap, which is what
- * keeps an ordinary numbered list in Claude's prose from matching.
+ * frame, it scans the foot of the pane for the last run of numbered rows.
+ * That survives a change to the box drawing, which locating the frame would
+ * not — and the run has to number 1, 2, 3… without a gap, which is what keeps
+ * an ordinary numbered list in Claude's prose from matching.
+ *
+ * The rows need not be adjacent. A permission dialog's are, but a question's
+ * carry a description under each label and a rule above the last row, and
+ * requiring adjacency is what used to make every question unanswerable from
+ * anywhere but the pane itself. Only three things may sit between two rows —
+ * a blank line, a rule, and a line indented past the row below it, which is
+ * how a description is told apart from the question.
  *
  * Callers must still gate on session state: the hooks are authoritative for
  * whether a dialog is actually open, and this only says what it looks like.
@@ -478,11 +510,11 @@ export function readPromptOptions(content: string): PromptChoice {
   // Only the foot of the pane is ever inspected, so the frame comes off line
   // by line inside the bounded scan rather than across the whole capture.
   const raw = content.split("\n");
-  const seen = new Map<number, string>();
-  const at = (i: number): string => {
+  const seen = new Map<number, { indent: number; text: string }>();
+  const at = (i: number): { indent: number; text: string } => {
     let line = seen.get(i);
     if (line === undefined) {
-      line = unframe(raw[i]);
+      line = bodyOf(raw[i]);
       seen.set(i, line);
     }
     return line;
@@ -490,52 +522,72 @@ export function readPromptOptions(content: string): PromptChoice {
 
   let lastContent = -1;
   for (let i = raw.length - 1; i >= 0; i--) {
-    if (at(i).length > 0) {
+    if (at(i).text.length > 0) {
       lastContent = i;
       break;
     }
   }
   if (lastContent === -1) return null;
 
-  // Walk up from the foot to find the end of the run, then its start.
+  // A dialog puts its rows at the foot, under at most a closing border and a
+  // hint line — anything further up is prose that happens to be numbered.
   let end = -1;
-  for (let i = lastContent; i >= Math.max(0, lastContent - OPTION_RUN_WINDOW); i--) {
-    if (OPTION_ROW.test(at(i))) {
+  for (let i = lastContent; i >= Math.max(0, lastContent - OPTION_RUN_TAIL); i--) {
+    if (OPTION_ROW.test(at(i).text)) {
       end = i;
       break;
     }
   }
-  if (end === -1 || lastContent - end > OPTION_RUN_TAIL) return null;
+  if (end === -1) return null;
 
-  // Floored at the cap: a longer run is rejected anyway, so there is no reason
-  // to walk it to the top of the pane and build objects that get thrown away.
-  const floor = Math.max(0, end - MAX_PROMPT_OPTIONS);
-  let start = end;
-  while (start - 1 >= floor && OPTION_ROW.test(at(start - 1))) start--;
-  if (start === floor && floor > 0 && OPTION_ROW.test(at(floor))) return null;
-
-  const options: PromptOption[] = [];
-  for (let i = start; i <= end; i++) {
-    const m = at(i).match(OPTION_ROW);
-    if (!m) return null;
-    options.push({
-      n: Number(m[2]),
-      label: m[3].length > MAX_OPTION_CHARS ? m[3].slice(0, MAX_OPTION_CHARS) + "…" : m[3],
-      selected: m[1] === "❯",
-    });
+  // Walk up counting down: n, n-1, … 1. Between two rows a dialog may print
+  // the option's own description, a rule, or nothing, so those are stepped
+  // over — but anything else ends the run, which is what stops the walk at
+  // the question and keeps a numbered list in prose from matching.
+  const floor = Math.max(0, lastContent - OPTION_RUN_WINDOW);
+  const rows: { i: number; n: number; label: string; selected: boolean; indent: number }[] = [];
+  let expected = -1;
+  for (let i = end; i >= floor; i--) {
+    const { indent, text } = at(i);
+    const m = text.match(OPTION_ROW);
+    if (m) {
+      const n = Number(m[2]);
+      if (expected !== -1 && n !== expected) break;
+      rows.push({ i, n, label: m[3], selected: m[1] === "❯", indent });
+      expected = n - 1;
+      if (n === 1) break;
+      continue;
+    }
+    if (text.length === 0 || OPTION_RULE.test(text)) continue;
+    // A description belongs to the row below it, so it is indented past it.
+    const below = rows[rows.length - 1];
+    if (below && indent > below.indent) continue;
+    break;
   }
+  rows.reverse();
 
-  // A real dialog numbers 1, 2, 3… with no gap. Anything else is prose.
-  if (options.length < 2 || options.length > MAX_PROMPT_OPTIONS) return null;
-  if (options.some((o, i) => o.n !== i + 1)) return null;
+  if (rows.length < 2 || rows.length > MAX_PROMPT_OPTIONS) return null;
+  if (rows[0].n !== 1) return null;
+
+  const options: PromptOption[] = rows.map((row, k) => {
+    const stop = k + 1 < rows.length ? rows[k + 1].i : lastContent + 1;
+    let hint: string | undefined;
+    for (let i = row.i + 1; i < stop; i++) {
+      const { indent, text } = at(i);
+      if (!text || OPTION_RULE.test(text) || indent <= row.indent) continue;
+      hint = clampOption(text);
+      break;
+    }
+    return { n: row.n, label: clampOption(row.label), hint, selected: row.selected };
+  });
 
   // The question is the nearest line above the run that isn't blank.
   let question: string | null = null;
-  for (let i = start - 1; i >= 0 && i >= start - 4; i--) {
-    const text = at(i);
+  for (let i = rows[0].i - 1; i >= 0 && i >= rows[0].i - 4; i--) {
+    const { text } = at(i);
     if (!text) continue;
     if (/^[─━╌┄┈╭╮╰╯]+$/.test(text)) break;
-    question = text.length > MAX_OPTION_CHARS ? text.slice(0, MAX_OPTION_CHARS) + "…" : text;
+    question = clampOption(text);
     break;
   }
 

@@ -16,7 +16,73 @@ const PERMISSION = [
   "╰──────────────────────────────────────────────╯",
 ].join("\n");
 
+/**
+ * A question dialog, captured from a pane. Unlike a permission prompt its rows
+ * are not adjacent: each label carries an indented description, and a rule
+ * separates the last row from the rest.
+ */
+const QUESTION = [
+  "Tabs or spaces?",
+  "",
+  "❯ 1. Tabs",
+  "     Use tab characters for indentation",
+  "  2. Spaces",
+  "     Use space characters for indentation",
+  "  3. Type something.",
+  "────────────────────────────────────────────────────────────────────────────",
+  "  4. Chat about this",
+  "",
+  "Enter to select · ↑/↓ to navigate · Esc to cancel",
+].join("\n");
+
 describe("readPromptOptions", () => {
+  it("reads a question whose rows are split by descriptions and a rule", () => {
+    const choice = readPromptOptions(QUESTION);
+    expect(choice).not.toBeNull();
+    expect(choice!.question).toBe("Tabs or spaces?");
+    expect(choice!.options.map((o) => o.n)).toEqual([1, 2, 3, 4]);
+    expect(choice!.options.map((o) => o.label)).toEqual([
+      "Tabs",
+      "Spaces",
+      "Type something.",
+      "Chat about this",
+    ]);
+    expect(choice!.options[0].selected).toBe(true);
+  });
+
+  it("carries each option's own description", () => {
+    const choice = readPromptOptions(QUESTION);
+    expect(choice!.options.map((o) => o.hint)).toEqual([
+      "Use tab characters for indentation",
+      "Use space characters for indentation",
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("does not mistake the question for the first option's description", () => {
+    const choice = readPromptOptions(
+      ["Which one?", "  1. a", "  2. b", "", "Enter to select"].join("\n")
+    );
+    expect(choice!.question).toBe("Which one?");
+    expect(choice!.options.every((o) => o.hint === undefined)).toBe(true);
+  });
+
+  it("stops at prose that is not a description, however close it sits", () => {
+    // The walk ends at the unindented line, so the run it finds starts at 2 —
+    // and a run that does not start at 1 is not a dialog.
+    expect(
+      readPromptOptions(
+        [
+          "1. install deps",
+          "That is the whole list, and this line is not indented under it.",
+          "  2. run build",
+          "  3. ship it",
+        ].join("\n")
+      )
+    ).toBeNull();
+  });
+
   it("reads a permission dialog through its frame", () => {
     const choice = readPromptOptions(PERMISSION);
     expect(choice).not.toBeNull();

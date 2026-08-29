@@ -19,6 +19,7 @@
 		queueHeadText = null,
 		queueHeadKind = null,
 		paneQueue = [],
+		choiceOffered = false,
 		subagents = {},
 		onSendKeys,
 		onOpenTerminal,
@@ -41,6 +42,12 @@
 		queueHeadKind?: QueuedMessageKind | null;
 		/** Messages waiting in Claude Code's own queue, typed into the terminal. */
 		paneQueue?: string[];
+		/**
+		 * Whether the composer is offering the dialog's own rows. When it is,
+		 * the status row must not send you to the terminal for an answer that
+		 * is already a tap away.
+		 */
+		choiceOffered?: boolean;
 		/** Sends a tmux key sequence (space-separated) to answer a question dialog. */
 		onSendKeys?: (keys: string) => void;
 		/** Switches to the terminal view (for "Other" / free-text answers). */
@@ -481,7 +488,13 @@
 	{:else if sessionState === 'permission'}
 		<div class="live-row attention" style="color: {sessionStateVisual('permission').color}">
 			<SessionStateIndicator state="permission" />
-			<span class="live-text">Waiting for permission — switch to terminal view to respond</span>
+			<span class="live-text">
+				{#if choiceOffered}
+					Waiting for permission — pick an option below ↓
+				{:else}
+					Waiting for permission — switch to terminal view to respond
+				{/if}
+			</span>
 		</div>
 	{:else if sessionState === 'waiting'}
 		{@const pendingAsk = entries.some((e) => e.kind === 'ask' && !e.answers && !e.rejected)}
@@ -490,6 +503,8 @@
 			<span class="live-text">
 				{#if pendingAsk}
 					Waiting for your answer — pick an option above ↑
+				{:else if choiceOffered}
+					Waiting for your answer — pick an option below ↓
 				{:else}
 					Question incoming… answer here when it appears, or in the terminal view
 				{/if}

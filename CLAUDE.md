@@ -98,10 +98,18 @@ same but starts at column 0, which is what keeps scrollback out of the result.
 `readPromptOptions()` reads the third thing a pane can hold: the numbered rows
 of a permission or question dialog, which `readPromptBox` recognises only in
 order to bail out of. It is deliberately layout-agnostic — rather than locating
-Claude Code's dialog frame it scans the foot of the pane for the last contiguous
-run numbered 1, 2, 3 with no gap — and the poll only calls it for a session the
+Claude Code's dialog frame it scans the foot of the pane for the last run
+numbered 1, 2, 3 with no gap — and the poll only calls it for a session the
 hooks already report as `waiting` or `permission`, because the hooks are
 authoritative for whether a dialog is open and prose can look like a list.
+
+The rows need not be adjacent. A permission prompt's are, but a question's
+carry an indented description under each label and a rule above the last row,
+so only three things may sit between two rows: a blank line, a rule, and a
+line indented past the row below it. That indent is the whole test — it is
+what tells an option's own description from the question above the run — and
+requiring adjacency is what used to leave every `AskUserQuestion` answerable
+only from the pane. The description rides along as each option's `hint`.
 
 The session poll captures with colour once per tick and hands the stripped copy
 to every other check, so adding a detector there costs no extra `tmux` calls.
