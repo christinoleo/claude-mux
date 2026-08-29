@@ -14,12 +14,12 @@ import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessi
 import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
-import { JsonlTailer, listSubagents, transcriptPathFor, type SubagentMeta } from '../transcript/tailer.js';
+import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, stripAnsi } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
-import { getQueueCounts } from './message-queue.js';
+import { getQueueSummaries } from './message-queue.js';
 import type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 
 // ============================================================================
@@ -533,13 +533,19 @@ export class SessionsWsManager {
 		}
 	}
 
-	/** Merge queue_count into each session object */
+	/**
+	 * Merge the send queue into each session object: how many messages wait, and
+	 * what the next one is, so the UI can name it instead of showing a number.
+	 */
 	private mergeQueueCounts(sessions: Session[]): void {
-		const queueCounts = getQueueCounts();
+		const summaries = getQueueSummaries();
 		for (const session of sessions) {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(session as any).queue_count =
-				(session.tmux_target ? queueCounts.get(session.tmux_target) : undefined) ?? 0;
+			const summary = session.tmux_target ? summaries.get(session.tmux_target) : undefined;
+			/* eslint-disable @typescript-eslint/no-explicit-any */
+			(session as any).queue_count = summary?.count ?? 0;
+			(session as any).queue_head_text = summary?.head.text ?? null;
+			(session as any).queue_head_kind = summary?.head.kind ?? null;
+			/* eslint-enable @typescript-eslint/no-explicit-any */
 		}
 	}
 
@@ -639,59 +645,43 @@ export class SessionsWsManager {
 		}
 	}
 
-	private sendToClient(client: WsClient, _message: SessionsWsMessage | Record<string, unknown>, data?: string): boolean {
-		try {
-			if (!client.isOpen()) return false;
-
-			// Backpressure check
-			if (client.getBufferedAmount) {
-				const buffered = client.getBufferedAmount();
-				// If buffer is building up, consider this a slow client
-				if (buffered > 64 * 1024) {
-					// 64KB threshold
-					log(
-						{
-							level: 'warn',
-							component: 'sessions',
-							message: 'Client backpressure detected',
-							data: { buffered }
-						},
-						this.config
-					);
-					return false;
-				}
-			}
-
-			client.send(data ?? JSON.stringify(_message));
-			return true;
-		} catch (err) {
-			log(
-				{
-					level: 'error',
-					component: 'sessions',
-					message: 'Failed to send to client',
-					data: { error: String(err) }
-				},
-				this.config
-			);
-			return false;
-		}
+	private sendToClient(
+		client: WsClient,
+		message: SessionsWsMessage | Record<string, unknown>,
+		data?: string
+	): boolean {
+		// The session list is a small, always-superseded payload: a client that
+		// cannot keep up is dropped rather than waited for.
+		return (
+			sendJson(client, message, this.config, {
+				component: 'sessions',
+				maxBuffered: 64 * 1024,
+				data
+			}) === 'sent'
+		);
 	}
 }
 
 /**
- * Send one JSON message to a client, dropping it when the socket is closed,
- * backed up, or throwing. Shared by every channel manager so the backpressure
- * policy has one definition.
+ * 'sent' — handed to the socket. 'backpressure' — skipped, because the client
+ * is still draining an earlier message. 'closed' — the socket is gone.
+ */
+type SendResult = 'sent' | 'backpressure' | 'closed';
+
+/**
+ * Send one JSON message to a client. Every channel manager goes through this,
+ * so the backpressure ceiling has one definition per channel and one place to
+ * read; what a channel *does* about a slow client is its own call — the
+ * session list and the terminal drop it, the transcript catches it up.
  */
 function sendJson(
 	client: WsClient,
 	message: unknown,
 	config: Required<WsConfig>,
 	opts: { component: string; maxBuffered: number; data?: string }
-): boolean {
+): SendResult {
 	try {
-		if (!client.isOpen()) return false;
+		if (!client.isOpen()) return 'closed';
 		if (client.getBufferedAmount) {
 			const buffered = client.getBufferedAmount();
 			if (buffered > opts.maxBuffered) {
@@ -704,11 +694,11 @@ function sendJson(
 					},
 					config
 				);
-				return false;
+				return 'backpressure';
 			}
 		}
 		client.send(opts.data ?? JSON.stringify(message));
-		return true;
+		return 'sent';
 	} catch (err) {
 		log(
 			{
@@ -719,7 +709,7 @@ function sendJson(
 			},
 			config
 		);
-		return false;
+		return 'closed';
 	}
 }
 
@@ -1007,11 +997,15 @@ export class TerminalWsManager {
 	}
 
 	private sendToClient(client: WsClient, message: TerminalMessage, data?: string): boolean {
-		return sendJson(client, message, this.config, {
-			component: 'terminal',
-			maxBuffered: 64 * 1024,
-			data
-		});
+		// Terminal frames are small and always superseded by the next screen,
+		// so a client that cannot keep up is dropped rather than waited for.
+		return (
+			sendJson(client, message, this.config, {
+				component: 'terminal',
+				maxBuffered: 64 * 1024,
+				data
+			}) === 'sent'
+		);
 	}
 }
 
@@ -1022,13 +1016,23 @@ export class TerminalWsManager {
 export type TranscriptWsMessage =
 	| {
 			type: 'snapshot';
+			/** The tail of the transcript — see SNAPSHOT_ENTRIES. */
 			entries: TranscriptEntry[];
+			/** Position of `entries[0]` in the whole transcript. */
+			firstIndex: number;
 			subagents: SubagentPayload[];
 			context: ContextUsage | null;
 			available: boolean;
 			timestamp: number;
 		}
-	| { type: 'entries'; entries: TranscriptEntry[]; timestamp: number }
+	/** An older slice, sent to one client that asked for it. */
+	| { type: 'history'; entries: TranscriptEntry[]; firstIndex: number; timestamp: number }
+	/**
+	 * Added or updated entries. `indices` runs parallel to `entries`: a client
+	 * holding only the tail uses it to tell a new entry from an update to one
+	 * it never received.
+	 */
+	| { type: 'entries'; entries: TranscriptEntry[]; indices: number[]; timestamp: number }
 	| { type: 'subagents'; subagents: SubagentPayload[]; timestamp: number }
 	/**
 	 * Context-window usage, which only this channel carries: it is read off
@@ -1038,32 +1042,55 @@ export type TranscriptWsMessage =
 	 */
 	| { type: 'context'; context: ContextUsage; timestamp: number };
 
-
 interface SubagentState {
 	tailer: JsonlTailer;
 	builder: TranscriptBuilder;
 	meta: SubagentMeta;
+	/** Payload as of the last sync, reused by snapshots. */
+	payload: SubagentPayload | null;
 	/** Serialized payload last sent, to skip unchanged broadcasts. */
 	lastSent: string;
 }
 
 interface TranscriptSessionState {
-	tailer: JsonlTailer;
+	/** Null until the session's JSONL has been located (see resolveIn). */
+	tailer: JsonlTailer | null;
 	builder: TranscriptBuilder;
 	timer: ReturnType<typeof setInterval>;
 	available: boolean;
-	/** Session cwd + id, for locating the subagents directory. */
-	cwd: string | null;
+	/** Ticks until the next attempt to locate a still-unfound transcript. */
+	resolveIn: number;
+	/** Ticks to wait after the next miss, doubling up to RESOLVE_TICKS_MAX. */
+	resolveBackoff: number;
 	subagents: Map<string, SubagentState>;
 	/** Ticks until the next subagents directory scan. */
 	discoverIn: number;
 	/** Serialized context usage last sent, to skip unchanged broadcasts. */
 	sentContext: string;
+	/** Clients that missed a broadcast to backpressure; each is resent a snapshot. */
+	stale: Set<WsClient>;
 }
 
 const TRANSCRIPT_POLL_MS = 500;
 /** Scan for newly spawned subagents every N polls (they appear rarely). */
 const SUBAGENT_DISCOVER_TICKS = 4;
+/**
+ * Re-attempt to locate a missing transcript after N polls, doubling up to
+ * RESOLVE_TICKS_MAX. A session that has not yet answered its first prompt has
+ * no file, and every attempt stats each project directory — worth doing
+ * promptly at first and rarely once it is clear nothing is being written.
+ */
+const RESOLVE_TICKS = 4;
+const RESOLVE_TICKS_MAX = 60;
+/**
+ * Entries in the first snapshot. A long-running session holds thousands, and
+ * shipping all of them costs megabytes on the wire and seconds of layout on a
+ * phone for history the reader has to scroll back through anyway. The client
+ * asks for older slices when the reader asks for them.
+ */
+const SNAPSHOT_ENTRIES = 300;
+/** Ceiling on one history request, so a client cannot ask for the world. */
+const MAX_HISTORY_ENTRIES = 500;
 
 export class TranscriptWsManager {
 	private clients = new Map<string, Set<WsClient>>();
@@ -1119,40 +1146,54 @@ export class TranscriptWsManager {
 	}
 
 	private startSession(sessionId: string): TranscriptSessionState {
-		const session = getSession(sessionId);
-		// An unknown session yields an unreadable path; the tailer reports
-		// `missing` and the client gets an empty snapshot.
-		const tailer = new JsonlTailer(session ? transcriptPathFor(session.cwd, sessionId) : '');
 		const state: TranscriptSessionState = {
-			tailer,
+			tailer: null,
 			builder: new TranscriptBuilder(),
 			available: false,
-			cwd: session?.cwd ?? null,
+			resolveIn: RESOLVE_TICKS,
+			resolveBackoff: RESOLVE_TICKS,
 			subagents: new Map(),
 			discoverIn: 0,
 			sentContext: '',
+			stale: new Set(),
 			timer: setInterval(() => this.poll(sessionId), TRANSCRIPT_POLL_MS)
 		};
-		// Synchronous initial read so the first snapshot carries history.
-		this.consume(state, tailer.read());
-		this.syncSubagents(sessionId, state);
+		const path = this.locate(sessionId);
+		if (path) this.attach(state, path);
 		return state;
+	}
+
+	/**
+	 * Point the state at a transcript file and read what is already in it, so
+	 * the next snapshot carries history rather than starting from empty.
+	 */
+	private attach(state: TranscriptSessionState, path: string): void {
+		state.tailer = new JsonlTailer(path);
+		this.consume(state, state.tailer.read());
+		this.syncSubagents(state);
+	}
+
+	/** Where this session's JSONL lives, or null if it is not on disk yet. */
+	private locate(sessionId: string): string | null {
+		const session = getSession(sessionId);
+		return session ? resolveTranscriptPath(session, sessionId) : null;
 	}
 
 	/**
 	 * Pick up newly spawned subagents and tail the known ones. Returns the
 	 * payloads that changed since the last call.
 	 */
-	private syncSubagents(sessionId: string, state: TranscriptSessionState): SubagentPayload[] {
-		if (!state.cwd) return [];
+	private syncSubagents(state: TranscriptSessionState): SubagentPayload[] {
+		if (!state.tailer) return [];
 
 		if (state.discoverIn <= 0) {
 			state.discoverIn = SUBAGENT_DISCOVER_TICKS;
-			for (const file of listSubagents(state.cwd, sessionId, new Set(state.subagents.keys()))) {
+			for (const file of listSubagents(state.tailer.path, new Set(state.subagents.keys()))) {
 				state.subagents.set(file.agentId, {
 					tailer: new JsonlTailer(file.path),
 					builder: new TranscriptBuilder(true),
 					meta: file.meta,
+					payload: null,
 					lastSent: ''
 				});
 			}
@@ -1169,12 +1210,32 @@ export class TranscriptWsManager {
 				for (const line of result.lines) sub.builder.feed(line);
 			}
 			const payload = subagentPayload(agentId, sub, state.builder.finishedAgents.has(agentId));
+			sub.payload = payload;
 			const encoded = JSON.stringify(payload);
 			if (encoded === sub.lastSent) continue;
 			sub.lastSent = encoded;
 			changed.push(payload);
 		}
 		return changed;
+	}
+
+	/**
+	 * Send one client the slice of `count` entries that ends just before
+	 * `before` — the index of the oldest entry it already holds.
+	 */
+	requestHistory(client: WsClient, sessionId: string, before: number, count: number): void {
+		const state = this.sessions.get(sessionId);
+		if (!state) return;
+		const end = Math.max(0, Math.min(Math.floor(before), state.builder.entries.length));
+		if (end === 0) return;
+		const n = Math.max(1, Math.min(MAX_HISTORY_ENTRIES, Math.floor(count)));
+		const start = Math.max(0, end - n);
+		this.sendToClient(client, {
+			type: 'history',
+			entries: state.builder.entries.slice(start, end),
+			firstIndex: start,
+			timestamp: Date.now()
+		});
 	}
 
 	private stopSession(sessionId: string): void {
@@ -1210,13 +1271,27 @@ export class TranscriptWsManager {
 		const clients = this.clients.get(sessionId);
 		if (!state || !clients || clients.size === 0) return;
 
+		if (!state.tailer) {
+			if (--state.resolveIn > 0) return;
+			const path = this.locate(sessionId);
+			if (!path) {
+				state.resolveBackoff = Math.min(state.resolveBackoff * 2, RESOLVE_TICKS_MAX);
+				state.resolveIn = state.resolveBackoff;
+				return;
+			}
+			this.attach(state, path);
+			this.resend(sessionId, state);
+			return;
+		}
+
+		this.recoverStale(sessionId, state);
+
 		const result = state.tailer.read();
 		if (result.status === 'reset') {
 			this.consume(state, result);
 			// Immediately re-read the fresh file and resend full snapshots.
 			this.consume(state, state.tailer.read());
-			state.sentContext = JSON.stringify(state.builder.context);
-			this.broadcast(sessionId, this.snapshot(state));
+			this.resend(sessionId, state);
 			return;
 		}
 
@@ -1224,16 +1299,20 @@ export class TranscriptWsManager {
 		if (changedIds.length > 0) {
 			const seen = new Set<string>();
 			const entries: TranscriptEntry[] = [];
+			const indices: number[] = [];
 			for (const id of changedIds) {
 				if (seen.has(id)) continue;
 				seen.add(id);
-				const entry = state.builder.getEntry(id);
-				if (entry) entries.push(entry);
+				const index = state.builder.indexOf(id);
+				if (index !== undefined) {
+					entries.push(state.builder.entries[index]);
+					indices.push(index);
+				}
 			}
-			this.broadcast(sessionId, { type: 'entries', entries, timestamp: Date.now() });
+			this.broadcast(sessionId, { type: 'entries', entries, indices, timestamp: Date.now() });
 		}
 
-		const subagents = this.syncSubagents(sessionId, state);
+		const subagents = this.syncSubagents(state);
 		if (subagents.length > 0) {
 			this.broadcast(sessionId, { type: 'subagents', subagents, timestamp: Date.now() });
 		}
@@ -1246,17 +1325,49 @@ export class TranscriptWsManager {
 		}
 	}
 
+	/** Re-broadcast the whole transcript, e.g. after a file reset or a re-attach. */
+	private resend(sessionId: string, state: TranscriptSessionState): void {
+		state.sentContext = JSON.stringify(state.builder.context);
+		this.broadcast(sessionId, this.snapshot(state));
+	}
+
+	/**
+	 * Catch up the clients that missed a delta while their socket was backed
+	 * up. A snapshot costs the whole transcript tail, so it goes only to the
+	 * client that missed something, and only once its buffer has drained.
+	 */
+	private recoverStale(sessionId: string, state: TranscriptSessionState): void {
+		if (state.stale.size === 0) return;
+		const clients = this.clients.get(sessionId);
+		const message = this.snapshot(state);
+		const data = JSON.stringify(message);
+		for (const client of [...state.stale]) {
+			if (!clients?.has(client)) {
+				state.stale.delete(client);
+				continue;
+			}
+			const result = this.sendToClient(client, message, data);
+			if (result === 'backpressure') continue; // still draining; try next tick
+			state.stale.delete(client);
+			if (result === 'closed') clients.delete(client);
+		}
+	}
+
 	/**
 	 * Everything a freshly attached client needs. Context rides along here so
 	 * the client starts with a gauge instead of waiting for the next response;
 	 * callers mark it sent with `sentContext`.
 	 */
 	private snapshot(state: TranscriptSessionState): TranscriptWsMessage {
+		const all = state.builder.entries;
+		const firstIndex = Math.max(0, all.length - SNAPSHOT_ENTRIES);
 		return {
 			type: 'snapshot',
-			entries: state.builder.entries,
-			subagents: [...state.subagents].map(([id, sub]) =>
-				subagentPayload(id, sub, state.builder.finishedAgents.has(id))
+			entries: firstIndex > 0 ? all.slice(firstIndex) : all,
+			firstIndex,
+			subagents: [...state.subagents].map(
+				([id, sub]) =>
+					sub.payload ?? subagentPayload(id, sub, state.builder.finishedAgents.has(id))
 			),
 			context: state.builder.context,
 			available: state.available,
@@ -1267,19 +1378,25 @@ export class TranscriptWsManager {
 	private broadcast(sessionId: string, message: TranscriptWsMessage): void {
 		const clients = this.clients.get(sessionId);
 		if (!clients) return;
+		const state = this.sessions.get(sessionId);
 		const data = JSON.stringify(message);
 		for (const client of [...clients]) {
-			if (!this.sendToClient(client, message, data)) {
-				clients.delete(client);
-			}
+			const result = this.sendToClient(client, message, data);
+			// A skipped delta is a hole in that client's list, and deltas are
+			// never replayed: it is sent a fresh snapshot once its socket
+			// drains. Only a closed socket costs a client its place.
+			if (result === 'backpressure') state?.stale.add(client);
+			else if (result === 'closed') clients.delete(client);
 		}
 		if (clients.size === 0) this.stopSession(sessionId);
 	}
 
-	private sendToClient(client: WsClient, message: TranscriptWsMessage, data?: string): boolean {
+	private sendToClient(client: WsClient, message: TranscriptWsMessage, data?: string): SendResult {
 		return sendJson(client, message, this.config, {
 			component: 'transcript',
-			maxBuffered: 256 * 1024,
+			// A snapshot of a long session is megabytes; the ceiling is here to
+			// catch a socket that has stopped draining, not to size a message.
+			maxBuffered: 8 * 1024 * 1024,
 			data
 		});
 	}

@@ -24,7 +24,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	// dialog, not to jump ahead of pending messages, and not to land on a prompt
 	// it has just fired at.
 	if (session.tmux_target && name) {
-		enqueue(session.tmux_target, `/rename ${name}`);
+		enqueue(session.tmux_target, `/rename ${name}`, 'control');
 	}
 
 	return json({ ok: true });

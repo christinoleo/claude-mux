@@ -30,6 +30,9 @@ export interface Session {
 	linked_to?: string | null;
 	rc_url?: string | null;
 	queue_count?: number;
+	/** Text of the next queued message, and who queued it. */
+	queue_head_text?: string | null;
+	queue_head_kind?: 'user' | 'control' | null;
 	display_name?: string | null;
 	/** Text in the pane's prompt box right now (live, never persisted). */
 	draft_input?: string | null;
@@ -43,7 +46,8 @@ export interface Session {
 /** Fields that change frequently and should trigger a session object replacement */
 const VOLATILE_KEYS: (keyof Session)[] = [
 	'state', 'current_action', 'prompt_text', 'last_update',
-	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'queue_count', 'display_name',
+	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'queue_count',
+	'queue_head_text', 'queue_head_kind', 'display_name',
 	'draft_input', 'draft_kind'
 ];
 

@@ -143,6 +143,17 @@ export abstract class ReliableWebSocket {
 		this.receivedData = false;
 	}
 
+	/**
+	 * Send one frame, or report that the socket is not up. Requests made from
+	 * the UI race the connection, so a dropped frame is normal and the caller
+	 * decides what to do about it.
+	 */
+	protected send(data: string): boolean {
+		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+		this.ws.send(data);
+		return true;
+	}
+
 	/** Force reconnection (resets backoff) */
 	protected forceReconnect(): void {
 		this.reconnectAttempts = 0;

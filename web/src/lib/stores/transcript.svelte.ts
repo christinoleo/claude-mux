@@ -9,13 +9,20 @@ export type { SubagentPayload };
 interface SnapshotMsg {
 	type: 'snapshot';
 	entries: TranscriptEntry[];
+	firstIndex: number;
 	subagents: SubagentPayload[];
 	context: ContextUsage | null;
 	available: boolean;
 }
+interface HistoryMsg {
+	type: 'history';
+	entries: TranscriptEntry[];
+	firstIndex: number;
+}
 interface EntriesMsg {
 	type: 'entries';
 	entries: TranscriptEntry[];
+	indices: number[];
 }
 interface SubagentsMsg {
 	type: 'subagents';
@@ -25,7 +32,10 @@ interface ContextMsg {
 	type: 'context';
 	context: ContextUsage;
 }
-type TranscriptMsg = SnapshotMsg | EntriesMsg | SubagentsMsg | ContextMsg;
+type TranscriptMsg = SnapshotMsg | HistoryMsg | EntriesMsg | SubagentsMsg | ContextMsg;
+
+/** Entries per "load earlier" request. */
+const HISTORY_PAGE = 200;
 
 /**
  * Transcript view model: an ordered list of entries upserted by id.
@@ -55,6 +65,16 @@ class TranscriptStore extends ReliableWebSocket {
 	available = $state(false);
 	/** Entries appended since attach (page diffs it for the "new below" pill). */
 	appended = $state(0);
+	/**
+	 * Position of `entries[0]` in the session's whole transcript: the server
+	 * sends only the tail, so this is how many older entries exist. Zero once
+	 * the reader has pulled the whole thing back.
+	 */
+	firstIndex = $state(0);
+	/** A history request is in flight (the button waits rather than stacking). */
+	loadingEarlier = $state(false);
+	/** Resolved when the slice a `loadEarlier()` caller asked for has landed. */
+	private pendingEarlier: (() => void) | null = null;
 
 	private indexById = new Map<string, number>();
 	private sessionId: string | null = null;
@@ -84,6 +104,9 @@ class TranscriptStore extends ReliableWebSocket {
 			case 'snapshot':
 				this.applySnapshot(data);
 				break;
+			case 'history':
+				this.applyHistory(data);
+				break;
 			case 'entries':
 				this.applyEntries(data);
 				break;
@@ -99,10 +122,57 @@ class TranscriptStore extends ReliableWebSocket {
 	private applySnapshot(msg: SnapshotMsg): void {
 		this.entries = msg.entries;
 		this.available = msg.available;
+		this.firstIndex = msg.firstIndex;
+		this.settleEarlier();
 		this.context = msg.context ?? null;
-		this.indexById = new Map(msg.entries.map((entry, i) => [entry.id, i]));
+		this.reindex();
 		this.subagents = {};
 		this.applySubagents(msg.subagents ?? []);
+	}
+
+	/** An older slice, prepended in front of what is already held. */
+	private applyHistory(msg: HistoryMsg): void {
+		// A snapshot may have overtaken the request; anything already held wins.
+		const older = msg.entries.filter((entry) => !this.indexById.has(entry.id));
+		if (older.length > 0) {
+			this.entries = [...older, ...this.entries];
+			this.firstIndex = msg.firstIndex;
+			this.reindex();
+		}
+		this.settleEarlier();
+	}
+
+	/** Ends the wait a `loadEarlier()` caller is in, whatever answered it. */
+	private settleEarlier(): void {
+		this.loadingEarlier = false;
+		this.pendingEarlier?.();
+		this.pendingEarlier = null;
+	}
+
+	private reindex(): void {
+		this.indexById = new Map(this.entries.map((entry, i) => [entry.id, i]));
+	}
+
+	/**
+	 * Ask the server for the slice before the oldest entry held. Resolves once
+	 * those entries are in `entries`, so a caller holding the reader's scroll
+	 * position knows when to restore it. Resolves immediately when there is
+	 * nothing older or a request is already out.
+	 */
+	loadEarlier(): Promise<void> {
+		if (this.firstIndex <= 0 || this.loadingEarlier) return Promise.resolve();
+		const sent = this.send(
+			JSON.stringify({
+				type: 'history_request',
+				before: this.firstIndex,
+				count: HISTORY_PAGE
+			})
+		);
+		if (!sent) return Promise.resolve();
+		this.loadingEarlier = true;
+		return new Promise((resolve) => {
+			this.pendingEarlier = resolve;
+		});
 	}
 
 	/** Subagents arrive whole (they are short). */
@@ -114,15 +184,18 @@ class TranscriptStore extends ReliableWebSocket {
 
 	private applyEntries(msg: EntriesMsg): void {
 		this.available = true;
-		for (const entry of msg.entries) {
+		for (const [i, entry] of msg.entries.entries()) {
 			const index = this.indexById.get(entry.id);
 			if (index !== undefined) {
 				this.entries[index] = entry;
-			} else {
-				this.indexById.set(entry.id, this.entries.length);
-				this.entries.push(entry);
-				this.appended++;
+				continue;
 			}
+			// An update to an entry older than the tail this client holds: it
+			// belongs in the gap above, and arrives with the history slice.
+			if (msg.indices[i] < this.firstIndex) continue;
+			this.indexById.set(entry.id, this.entries.length);
+			this.entries.push(entry);
+			this.appended++;
 		}
 	}
 
@@ -150,6 +223,8 @@ class TranscriptStore extends ReliableWebSocket {
 		this.context = null;
 		this.available = false;
 		this.appended = 0;
+		this.firstIndex = 0;
+		this.settleEarlier();
 		this.resetReceived();
 		this.indexById = new Map();
 		this.sessionId = next;

@@ -3,7 +3,8 @@ import {
 	handleWsMessage,
 	parseWsPath,
 	resizePane,
-	type WsClient
+	type WsClient,
+	type WsMessageHandlers
 } from '$shared/server/ws-handlers.js';
 import { sessionsWsManager, terminalWsManager, transcriptWsManager } from '$lib/server/ws-managers.js';
 
@@ -38,8 +39,15 @@ export const handle: Handle = async ({ event, resolve }) => {
 	return resolve(event);
 };
 
-// WebSocket handlers for svelte-adapter-bun
+// WebSocket handlers for svelte-adapter-bun (passed straight to Bun.serve).
 export const websocket = {
+	/**
+	 * Transcript snapshots are hundreds of kilobytes of JSON, and the phone
+	 * reading them is usually on the far side of a tailnet. The payloads are
+	 * highly repetitive, so deflate takes them down by roughly an order of
+	 * magnitude; the terminal's small frames pay a negligible amount of CPU.
+	 */
+	perMessageDeflate: true,
 	open(ws: WebSocket & { data?: { type: 'sessions' | 'terminal' | 'transcript'; target?: string } }) {
 		const data = ws.data;
 		if (!data) return;
@@ -73,17 +81,23 @@ export const websocket = {
 		const msgStr = message.toString();
 		const data = wsDataMap.get(ws);
 
-		const target = data?.type === 'terminal' ? data.target : undefined;
-		const response = handleWsMessage(
-			msgStr,
-			target
-				? {
-						resize: (cols, rows) => resizePane(target, cols, rows),
-						historyRequest: (before, count) =>
-							terminalWsManager.requestHistory(data!.client, target, before, count)
-					}
-				: undefined
-		);
+		const target = data?.target;
+		let handlers: WsMessageHandlers | undefined;
+		if (target && data?.type === 'terminal') {
+			handlers = {
+				resize: (cols: number, rows: number) => resizePane(target, cols, rows),
+				historyRequest: (before: number, count: number) =>
+					terminalWsManager.requestHistory(data.client, target, before, count)
+			};
+		} else if (target && data?.type === 'transcript') {
+			// The transcript sends only the tail of a long session; this is the
+			// reader asking for the slice above what they already have.
+			handlers = {
+				historyRequest: (before: number, count: number) =>
+					transcriptWsManager.requestHistory(data.client, target, before, count)
+			};
+		}
+		const response = handleWsMessage(msgStr, handlers);
 
 		if (response === 'pong') {
 			ws.send('pong');

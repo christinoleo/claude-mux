@@ -100,6 +100,24 @@ to every other check, so adding a detector there costs no extra `tmux` calls.
 `draft_input`, `draft_kind` and `pane_queue` are live-only: they ride the
 WebSocket broadcast and are never written to the session JSON.
 
+### 5. Finding and streaming a transcript
+
+A session's JSONL lives in `~/.claude/projects/<launch dir with / as ->/<session
+id>.jsonl`. The directory is named after the directory Claude Code was *launched*
+in, which stops matching the session's `cwd` as soon as it changes directory, so
+the path cannot be derived from `cwd` alone. The hooks record Claude Code's own
+`transcript_path` in the session JSON; `resolveTranscriptPath()` in
+`src/transcript/tailer.ts` prefers it, falls back to the cwd-derived path, and
+finally scans the project directories for `<session id>.jsonl` (which is what
+rescues sessions written by an older hook). It returns null when the session has
+not written a file yet, and `TranscriptWsManager` keeps looking every few polls.
+
+Long sessions run to thousands of entries, so the socket sends the tail
+(`SNAPSHOT_ENTRIES`) with the `firstIndex` it starts at, and the client asks for
+older slices with `history_request` — the same message the terminal uses for its
+scrollback. Delta messages carry each entry's index so a client holding only the
+tail can tell a new entry from an update to one it never received.
+
 ## Key Data Flow
 
 ```

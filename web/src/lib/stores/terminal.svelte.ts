@@ -184,8 +184,7 @@ class TerminalStore extends ReliableWebSocket {
 	}
 
 	private requestHistory(before: number, count: number): void {
-		if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-		this.ws.send(JSON.stringify({ type: 'history_request', before, count }));
+		this.send(JSON.stringify({ type: 'history_request', before, count }));
 	}
 
 	/**

@@ -61,6 +61,7 @@ interface Session {
   id: string;
   pid: number;
   cwd: string;
+  transcript_path?: string | null;
   git_root: string | null;
   tmux_target: string | null;
   state: string;
@@ -77,6 +78,8 @@ interface Session {
 interface HookInput {
   session_id: string;
   cwd: string;
+  /** JSONL Claude Code writes for this session; sent on every hook event. */
+  transcript_path?: string;
   hook_event_name?: string;
   // SessionStart payload: why the session is starting.
   // "compact"/"resume" share session_id with prior state; we must preserve user-meaningful fields.
@@ -369,6 +372,7 @@ function handleSessionStart(input: HookInput): void {
     id: input.session_id,
     pid,
     cwd: input.cwd,
+    transcript_path: input.transcript_path ?? existing?.transcript_path ?? null,
     git_root: gitRoot,
     tmux_target: tmuxTarget,
     state: keepRunState ? (existing?.state ?? "idle") : "idle",
@@ -383,7 +387,12 @@ function handleSessionStart(input: HookInput): void {
 
 function getOrCreateSession(input: HookInput): Session {
   const existing = readSession(input.session_id);
-  if (existing) return existing;
+  if (existing) {
+    // Sessions written before this field existed, and resumed sessions whose
+    // file moved, pick it up on their next event.
+    if (input.transcript_path) existing.transcript_path = input.transcript_path;
+    return existing;
+  }
 
   // Session doesn't exist (e.g., resumed session) - create it
   const tmuxTarget = getTmuxTarget();
@@ -398,6 +407,7 @@ function getOrCreateSession(input: HookInput): Session {
     id: input.session_id,
     pid: getClaudePid(),
     cwd: input.cwd,
+    transcript_path: input.transcript_path ?? null,
     git_root: gitRoot,
     tmux_target: tmuxTarget,
     state: "idle",

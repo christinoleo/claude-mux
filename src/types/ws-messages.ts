@@ -45,6 +45,10 @@ const EnrichedSessionSchema = z.object({
 	pane_title: z.string().nullable(),
 	pane_alive: z.boolean(),
 	queue_count: z.number().optional(),
+	/** The next message claude-mux will paste into the pane — live only. */
+	queue_head_text: z.string().nullable().optional(),
+	/** Whether that message is yours or one claude-mux queued for itself. */
+	queue_head_kind: z.enum(['user', 'control']).nullable().optional(),
 	agent: z.enum(AGENT_IDS).optional()
 });
 

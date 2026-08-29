@@ -249,6 +249,11 @@ export class TranscriptBuilder {
    */
   constructor(private readonly sidechain = false) {}
 
+  /** Position of an entry in `entries`, or undefined if it is not one. */
+  indexOf(id: string): number | undefined {
+    return this.indexById.get(id);
+  }
+
   feed(line: string): string[] {
     const trimmed = line.trim();
     if (trimmed.length === 0) return [];

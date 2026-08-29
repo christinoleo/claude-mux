@@ -5,6 +5,8 @@
 	interface QueuedMessage {
 		text: string;
 		queuedAt: number;
+		/** `control` is a command claude-mux queued for itself, not something you typed. */
+		kind?: 'user' | 'control';
 	}
 
 	interface Props {
@@ -90,7 +92,10 @@
 				<div class="queue-item">
 					<div class="queue-item-content">
 						<span class="queue-text">{truncate(item.text)}</span>
-						<span class="queue-time">{relativeTime(item.queuedAt)}</span>
+						<span class="queue-time">
+							{relativeTime(item.queuedAt)}
+							{#if item.kind === 'control'}<span class="queue-tag">dashboard</span>{/if}
+						</span>
 					</div>
 					<div class="queue-item-actions">
 						<button
@@ -167,6 +172,14 @@
 	.queue-time {
 		font-size: 9px;
 		color: #666;
+	}
+
+	.queue-tag {
+		margin-left: 4px;
+		padding: 0 4px;
+		border-radius: 3px;
+		background: #2a2a2a;
+		color: #888;
 	}
 
 	.queue-item-actions {

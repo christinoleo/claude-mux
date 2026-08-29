@@ -60,6 +60,8 @@ export interface Session {
   id: string;
   pid: number;
   cwd: string;
+  /** Claude Code's own JSONL path; absent on older sessions — see resolveTranscriptPath. */
+  transcript_path?: string | null;
   git_root: string | null;
   tmux_target: string | null;
   state: SessionState;
@@ -78,6 +80,7 @@ export interface SessionInput {
   id: string;
   pid: number;
   cwd: string;
+  transcript_path?: string | null;
   git_root?: string | null;
   tmux_target?: string | null;
   state?: SessionState;
@@ -148,6 +151,7 @@ export function upsertSession(input: SessionInput): Session {
     id: input.id,
     pid: input.pid,
     cwd: input.cwd,
+    transcript_path: input.transcript_path ?? existing?.transcript_path ?? null,
     git_root: input.git_root ?? existing?.git_root ?? null,
     tmux_target: input.tmux_target ?? existing?.tmux_target ?? null,
     state: input.state ?? existing?.state ?? "busy",

@@ -15,10 +15,15 @@
 		sessionState = null,
 		currentAction = null,
 		queueCount = 0,
+		queueHeadText = null,
+		queueHeadKind = null,
 		paneQueue = [],
 		subagents = {},
 		onSendKeys,
-		onOpenTerminal
+		onOpenTerminal,
+		olderCount = 0,
+		loadingEarlier = false,
+		onLoadEarlier
 	}: {
 		entries: TranscriptEntry[];
 		available: boolean;
@@ -29,6 +34,10 @@
 		currentAction?: string | null;
 		/** Messages waiting in claude-mux's own send queue. */
 		queueCount?: number;
+		/** The next queued message's text, so the row can name what it is waiting on. */
+		queueHeadText?: string | null;
+		/** Whether that message is the user's, or one claude-mux queued for itself. */
+		queueHeadKind?: 'user' | 'control' | null;
 		/** Messages waiting in Claude Code's own queue, typed into the terminal. */
 		paneQueue?: string[];
 		/** Sends a tmux key sequence (space-separated) to answer a question dialog. */
@@ -37,6 +46,15 @@
 		onOpenTerminal?: () => void;
 		/** Subagent work, keyed by the Task tool_use id that spawned it. */
 		subagents?: Record<string, SubagentPayload>;
+		/** Entries the server holds before the ones passed in `entries`. */
+		olderCount?: number;
+		/** A request for those older entries is in flight. */
+		loadingEarlier?: boolean;
+		/**
+		 * Asks for the next slice of older entries. Called before they render,
+		 * so the scroll container can note where the reader was.
+		 */
+		onLoadEarlier?: () => void;
 	} = $props();
 
 	/** Local multi-select staging + sequential-question progress per ask card. */
@@ -197,6 +215,16 @@
 			<iconify-icon icon="mdi:text-box-search-outline" style="font-size: 32px;"></iconify-icon>
 			<p>No transcript for this session yet.</p>
 			<p class="hint">It appears as soon as Claude Code writes its session log.</p>
+		</div>
+	{/if}
+	{#if olderCount > 0}
+		<div class="earlier">
+			<button type="button" disabled={loadingEarlier} onclick={() => onLoadEarlier?.()}>
+				<iconify-icon icon={loadingEarlier ? 'mdi:loading' : 'mdi:chevron-double-up'}
+				></iconify-icon>
+				{loadingEarlier ? 'Loading…' : 'Load earlier'}
+			</button>
+			<span class="earlier-count">{olderCount} older {olderCount === 1 ? 'entry' : 'entries'}</span>
 		</div>
 	{/if}
 	{#each entries as entry (entry.id)}
@@ -432,8 +460,18 @@
 	     the JSONL itself is written in batches and lags by seconds. -->
 	{#if queueCount > 0}
 		<div class="live-row queue-note">
-			<iconify-icon icon="mdi:tray-full"></iconify-icon>
-			<span class="live-text">{queueCount} message{queueCount === 1 ? '' : 's'} in the send queue</span>
+			<iconify-icon icon={queueHeadKind === 'control' ? 'mdi:cog-outline' : 'mdi:tray-full'}
+			></iconify-icon>
+			<span class="live-text">
+				{#if queueHeadKind === 'control'}
+					Dashboard command waiting for the prompt: <code>{queueHeadText}</code>
+				{:else if queueHeadText}
+					Queued for when this session is idle: {queueHeadText}
+				{:else}
+					{queueCount} message{queueCount === 1 ? '' : 's'} in the send queue
+				{/if}
+				{#if queueCount > 1}<span class="queue-more">+{queueCount - 1} more</span>{/if}
+			</span>
 		</div>
 	{/if}
 	{#if sessionState === 'busy'}
@@ -509,6 +547,43 @@
 	.empty .hint {
 		font-size: 12px;
 		color: #57534e;
+	}
+
+	/* --- The head of a windowed transcript: quiet, since the reader who wants
+	   older turns is looking for it and everyone else is reading downward. --- */
+	.earlier {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-wrap: wrap;
+		gap: 8px 12px;
+		padding: 14px 8px 18px;
+		border-bottom: 1px solid #292524;
+		margin-bottom: 8px;
+	}
+	.earlier button {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 5px 12px;
+		border: 1px solid #44403c;
+		border-radius: 999px;
+		background: #1c1917;
+		color: #d6d3d1;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.earlier button:hover {
+		border-color: #57534e;
+		color: #fafaf9;
+	}
+	.earlier button[disabled] {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.earlier-count {
+		font-size: 11px;
+		color: #78716c;
 	}
 
 	/* --- User prompt: the turn anchor, in the terminal's own voice.
@@ -1194,6 +1269,14 @@
 	}
 	.live-row.queue-note {
 		color: #78716c;
+	}
+	.live-row.queue-note code {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		color: #a8a29e;
+	}
+	.queue-more {
+		margin-left: 6px;
+		color: #57534e;
 	}
 	.live-text {
 		overflow: hidden;

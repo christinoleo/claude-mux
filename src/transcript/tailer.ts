@@ -6,21 +6,76 @@
  * a write). Written fresh — the previous jsonl-watcher was removed as buggy
  * (see docs/adr/0003).
  */
-import { closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from "fs";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+} from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 
-/**
- * Derive the transcript path for a session. `cwd` must be the session's
- * launch cwd as stored in the session JSON — the encoding is lossy, so the
- * mapping only works session -> path, never in reverse.
- */
+/** See resolveTranscriptPath: right only until the session changes directory. */
 export function transcriptPathFor(cwd: string, sessionId: string): string {
   return join(projectDirFor(cwd), `${sessionId}.jsonl`);
 }
 
+// Read at call time, not at module load: the tests point HOME at a temp dir.
+function projectsRoot(): string {
+  return join(homedir(), ".claude", "projects");
+}
+
 function projectDirFor(cwd: string): string {
-  return join(homedir(), ".claude", "projects", cwd.replace(/\//g, "-"));
+  return join(projectsRoot(), cwd.replace(/\//g, "-"));
+}
+
+/**
+ * Locate a session's JSONL. Claude Code names the project directory after the
+ * directory it was *launched* in, so a session that changes directory stops
+ * matching its own `cwd` and the path has to come from somewhere else. In
+ * order of trust:
+ *
+ * 1. `transcript_path` as reported by the hooks — always right when present.
+ * 2. The path derived from `cwd` — right only when the session never `cd`ed.
+ * 3. A scan of ~/.claude/projects for `<sessionId>.jsonl` — the fallback for
+ *    sessions last written by a hook that did not record the path yet. It
+ *    stats one path per project directory, which measures well under a
+ *    millisecond; a caller repeating it should still back off (see
+ *    RESOLVE_TICKS), since a session with no file yet never resolves.
+ *
+ * Returns null when no file exists at any of them; callers should retry, since
+ * a session that has not answered its first prompt has no transcript yet.
+ */
+export function resolveTranscriptPath(
+  session: { cwd: string; transcript_path?: string | null },
+  sessionId: string
+): string | null {
+  const recorded = session.transcript_path;
+  if (recorded && existsSync(recorded)) return recorded;
+
+  const derived = transcriptPathFor(session.cwd, sessionId);
+  if (existsSync(derived)) return derived;
+
+  return findTranscriptById(sessionId);
+}
+
+/** Scan every project directory for `<sessionId>.jsonl`. */
+function findTranscriptById(sessionId: string): string | null {
+  const root = projectsRoot();
+  let dirs: string[];
+  try {
+    dirs = readdirSync(root);
+  } catch {
+    return null;
+  }
+  for (const dir of dirs) {
+    const candidate = join(root, dir, `${sessionId}.jsonl`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 export interface SubagentFile {
@@ -44,12 +99,12 @@ export interface SubagentMeta {
  * a `.meta.json` beside it linking back to the Task tool call.
  */
 export function listSubagents(
-  cwd: string,
-  sessionId: string,
+  /** The session's own transcript path; the subagents sit beside it. */
+  transcriptPath: string,
   /** Agent ids already tracked; their meta is not re-read. */
-  known?: ReadonlySet<string>,
+  known?: ReadonlySet<string>
 ): SubagentFile[] {
-  const dir = join(projectDirFor(cwd), sessionId, "subagents");
+  const dir = join(dirname(transcriptPath), basename(transcriptPath, ".jsonl"), "subagents");
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -63,7 +118,9 @@ export function listSubagents(
     if (known?.has(agentId)) continue;
     let meta: SubagentMeta = {};
     try {
-      const parsed: unknown = JSON.parse(readFileSync(join(dir, `agent-${agentId}.meta.json`), "utf8"));
+      const parsed: unknown = JSON.parse(
+        readFileSync(join(dir, `agent-${agentId}.meta.json`), "utf8")
+      );
       if (parsed && typeof parsed === "object") meta = parsed as SubagentMeta;
     } catch {
       // Meta may not be written yet; the transcript still streams.
@@ -85,7 +142,7 @@ export class JsonlTailer {
   private partial: Buffer = Buffer.alloc(0);
   private lastMtimeMs: number | null = null;
 
-  constructor(private readonly path: string) {}
+  constructor(readonly path: string) {}
 
   /** Last write seen by the most recent read(), or null before the first one. */
   mtimeMs(): number | null {

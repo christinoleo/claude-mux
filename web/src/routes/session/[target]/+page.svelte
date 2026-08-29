@@ -255,6 +255,8 @@
 	let ctrlTapCandidate = false;
 	let altTapCandidate = false;
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
+	const queueHeadText = $derived(currentSession?.queue_head_text ?? null);
+	const queueHeadKind = $derived(currentSession?.queue_head_kind ?? null);
 	/** Shown only in the transcript, which is the view that streams them. */
 	const runningAgents = $derived(viewMode === 'transcript' ? transcriptStore.running : []);
 
@@ -478,23 +480,67 @@
 			seenAppended = appendedNow;
 			if (!nextScrolledUp) terminalStore.trimToBottom();
 		}
+		// Whatever the reader stopped on is what we hold them to if the content
+		// above them grows while they read.
+		if (nextScrolledUp) captureAnchor();
 
 		// Near the top: fetch an older chunk and keep the viewport anchored on the
 		// same content (history only ever grows at the ends, so the distance from
 		// the bottom is a stable anchor).
 		if (scrollTop < 200 && !hasSelection && !terminalStore.historyAtStart) {
-			const anchor = scrollHeight - scrollTop;
 			const pending = terminalStore.requestMoreHistory();
-			if (pending) {
-				pending.then(() => {
-					if (!outputElement) return;
-					// rAF lets DOM lay out the larger <pre> before we re-anchor.
-					requestAnimationFrame(() => {
-						if (outputElement) outputElement.scrollTop = outputElement.scrollHeight - anchor;
-					});
-				});
+			if (pending) holdPlaceThrough(pending);
+		}
+	}
+
+	/**
+	 * Chrome and Firefox hold the reader's place natively (CSS scroll anchoring)
+	 * when something above the viewport changes height — a tool result filling
+	 * into a card the reader has already scrolled past. Safari, and therefore
+	 * every browser on iOS, does not implement it, so there we keep the anchor
+	 * ourselves: the topmost row still on screen, and how far below the top of
+	 * the viewport it sat.
+	 */
+	const nativeScrollAnchoring = !browser || CSS.supports('overflow-anchor: auto');
+	let anchorNode: HTMLElement | null = null;
+	let anchorOffset = 0;
+
+	function captureAnchor() {
+		if (nativeScrollAnchoring || !outputElement) return;
+		const top = outputElement.getBoundingClientRect().top;
+		anchorNode = null;
+		for (const node of outputElement.querySelectorAll<HTMLElement>('.transcript > *')) {
+			const rect = node.getBoundingClientRect();
+			if (rect.bottom > top) {
+				anchorNode = node;
+				anchorOffset = rect.top - top;
+				return;
 			}
 		}
+	}
+
+	function restoreAnchor() {
+		if (nativeScrollAnchoring || !outputElement || !anchorNode?.isConnected) return;
+		const top = outputElement.getBoundingClientRect().top;
+		const drift = anchorNode.getBoundingClientRect().top - top - anchorOffset;
+		if (Math.abs(drift) >= 1) outputElement.scrollTop += drift;
+	}
+
+	/**
+	 * Hold the reader's place across an insertion *above* them — older terminal
+	 * history, or the transcript's "load earlier". Both only ever grow at the
+	 * ends, so the distance to the bottom is a stable anchor; `pending` says
+	 * when the new content has arrived, and rAF lets it lay out first.
+	 */
+	function holdPlaceThrough(pending: Promise<unknown>) {
+		const el = outputElement;
+		if (!el) return;
+		const fromBottom = el.scrollHeight - el.scrollTop;
+		pending.then(() =>
+			requestAnimationFrame(() => {
+				if (outputElement) outputElement.scrollTop = outputElement.scrollHeight - fromBottom;
+			})
+		);
 	}
 
 	function scrollToBottom() {
@@ -533,16 +579,33 @@
 	});
 
 	// Layout can change without any store update (toolbar/attachment rows,
-	// keyboard on mobile, fonts loading): keep the view pinned through those too.
+	// keyboard on mobile, fonts loading, a tool result filling in a card that is
+	// already on screen): keep the view pinned through those too.
+	//
+	// The observed set has to be re-synced when .output swaps its content.
+	// Switching between the transcript and the terminal — including the restore
+	// of the view this session was last in — replaces the child we were
+	// watching, and an observer left on the detached node never fires again.
 	$effect(() => {
 		const el = outputElement;
 		if (!el || typeof ResizeObserver === 'undefined') return;
 		const ro = new ResizeObserver(() => {
-			if (!userScrolledUp && !hasSelection) el.scrollTop = el.scrollHeight;
+			if (hasSelection) return;
+			if (userScrolledUp) restoreAnchor();
+			else el.scrollTop = el.scrollHeight;
 		});
-		ro.observe(el);
-		for (const child of el.children) ro.observe(child);
-		return () => ro.disconnect();
+		const observeAll = () => {
+			ro.disconnect();
+			ro.observe(el);
+			for (const child of el.children) ro.observe(child);
+		};
+		observeAll();
+		const mo = new MutationObserver(observeAll);
+		mo.observe(el, { childList: true });
+		return () => {
+			mo.disconnect();
+			ro.disconnect();
+		};
 	});
 
 	async function sendKeys(keys: string) {
@@ -1389,10 +1452,15 @@
 						sessionState={currentSession?.state ?? null}
 						currentAction={currentSession?.current_action ?? null}
 						{queueCount}
+						{queueHeadText}
+						{queueHeadKind}
 						paneQueue={currentSession?.pane_queue ?? []}
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={(keys) => void sendKeys(keys)}
 						onOpenTerminal={() => toggleView()}
+						olderCount={transcriptStore.firstIndex}
+						loadingEarlier={transcriptStore.loadingEarlier}
+						onLoadEarlier={() => holdPlaceThrough(transcriptStore.loadEarlier())}
 					/>
 				{:else}
 					<TerminalView
@@ -1437,7 +1505,11 @@
 				{#if queueCount > 0}
 					<div class="tline tline-queue">
 						<span aria-hidden="true">&#8629;</span>
-						<span class="tline-text">{currentSession?.pane_queue?.[0] ?? `${queueCount} queued`}</span>
+						<span class="tline-text"
+							>{queueHeadKind === 'control'
+								? `${queueHeadText} (dashboard)`
+								: (queueHeadText ?? currentSession?.pane_queue?.[0] ?? `${queueCount} queued`)}</span
+						>
 						{#if queueCount > 1}<span class="tline-more">+{queueCount - 1}</span>{/if}
 					</div>
 				{/if}

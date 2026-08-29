@@ -112,7 +112,10 @@ function devWebSocket() {
 					wsTargets.set(ws, target);
 
 					ws.on('message', (data) => {
-						const response = handleWsMessage(data.toString());
+						const response = handleWsMessage(data.toString(), {
+							historyRequest: (before, count) =>
+								transcriptWsManager.requestHistory(client, target, before, count)
+						});
 						if (response === 'pong') ws.send('pong');
 					});
 
