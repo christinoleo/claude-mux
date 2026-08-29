@@ -343,6 +343,14 @@
 		.chords {
 			display: flex;
 		}
+		/* Wide enough for the chords column, and the tray is taller than the
+		   keys that fill it. A thumb is not reaching across a desktop for
+		   Enter, so it stops at the height of the key grid — three rows and
+		   their gaps — and sits on the grid's own last row. */
+		.tray .k-ent {
+			align-self: flex-end;
+			height: 98px;
+		}
 	}
 
 	.extras .k,
