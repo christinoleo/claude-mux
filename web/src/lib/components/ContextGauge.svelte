@@ -60,7 +60,12 @@
 				: ` L${width.toFixed(1)} ${base}`;
 
 		path = d;
-		svgEl.setAttribute('viewBox', `0 0 ${width.toFixed(1)} ${Math.max(13, radius + base)}`);
+		// The rail turns the card's corner, so it needs as much height as that
+		// corner is deep. Fixing it at 13px only ever suited a 12px radius —
+		// anything rounder got the arc squashed into the strip.
+		const depth = Math.max(13, radius + base);
+		svgEl.setAttribute('viewBox', `0 0 ${width.toFixed(1)} ${depth}`);
+		svgEl.style.height = `${depth}px`;
 		// Measured off a throwaway path so the reading never depends on when the
 		// bound path element last rendered.
 		const probe = document.createElementNS('http://www.w3.org/2000/svg', 'path');

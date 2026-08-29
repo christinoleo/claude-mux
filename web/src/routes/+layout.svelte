@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
 	import { onMount, onDestroy } from 'svelte';
+	import { drawer } from '$lib/stores/drawer.svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { acquireWakeLock, releaseWakeLock } from '$lib/wakeLock.svelte';
@@ -14,7 +15,8 @@
 
 	let { children } = $props();
 
-	let drawerOpen = $state(false);
+	/** Driven from the session composer's status line, which carries the toggle. */
+	const drawerOpen = $derived(drawer.open);
 	let sidebarElement: HTMLElement | null = $state(null);
 	let touchStartX = 0;
 	let touchCurrentX = 0;
@@ -106,7 +108,7 @@
 	}
 
 	function closeDrawer() {
-		drawerOpen = false;
+		drawer.close();
 	}
 
 	function handleTouchStart(e: TouchEvent) {
@@ -180,9 +182,6 @@
 		</aside>
 
 		<main class="content">
-			<button class="hamburger" onclick={() => (drawerOpen = !drawerOpen)} aria-label="Toggle menu">
-				<iconify-icon icon="mdi:menu"></iconify-icon>
-			</button>
 			{@render children()}
 		</main>
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { keysForAnswer } from "../../src/tmux/answer-keys.js";
+import { keysForAnswer, keysForOptionPick } from "../../src/tmux/answer-keys.js";
 
 describe("keysForAnswer", () => {
   it("walks down to a single-select option and submits", () => {
@@ -21,5 +21,29 @@ describe("keysForAnswer", () => {
     expect(keysForAnswer([], { multiSelect: true })).toBeNull();
     expect(keysForAnswer([0, 1], { multiSelect: false })).toBeNull();
     expect(keysForAnswer([-1], { multiSelect: true })).toBeNull();
+  });
+});
+
+describe("keysForOptionPick", () => {
+  it("submits in place when the row is already highlighted", () => {
+    expect(keysForOptionPick(0, 0, 3)).toBe("Enter");
+    expect(keysForOptionPick(2, 2, 3)).toBe("Enter");
+  });
+
+  it("walks down to a row below the highlight", () => {
+    expect(keysForOptionPick(0, 2, 3)).toBe("Down Down Enter");
+  });
+
+  it("walks up to a row above the highlight", () => {
+    expect(keysForOptionPick(2, 0, 3)).toBe("Up Up Enter");
+  });
+
+  it("assumes the first row when the pane marks none", () => {
+    expect(keysForOptionPick(-1, 1, 3)).toBe("Down Enter");
+  });
+
+  it("refuses a row the dialog does not have", () => {
+    expect(keysForOptionPick(0, 3, 3)).toBeNull();
+    expect(keysForOptionPick(0, -1, 3)).toBeNull();
   });
 });

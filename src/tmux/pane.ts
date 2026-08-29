@@ -421,3 +421,106 @@ export function checkForInterruption(tmuxTarget: string): { state: 'idle'; curre
   }
   return null;
 }
+
+/** Max options carried to the UI; a longer list is truncated. */
+const MAX_PROMPT_OPTIONS = 10;
+
+/** Max characters kept per option label. */
+const MAX_OPTION_CHARS = 120;
+
+/** How far up from the last content line an option run may start. */
+const OPTION_RUN_WINDOW = 24;
+
+/**
+ * How far above the last content line the run may end. A dialog puts its
+ * options at the foot, under at most a closing border and a hint.
+ */
+const OPTION_RUN_TAIL = 3;
+
+/** One numbered choice Claude Code is offering in the pane. */
+export type PromptOption = {
+  /** The number you would type to pick it. */
+  n: number;
+  label: string;
+  /** Claude Code's own highlight — the row carrying the `❯` marker. */
+  selected: boolean;
+};
+
+/** A numbered question waiting in the pane. */
+export type PromptChoice = { question: string | null; options: PromptOption[] } | null;
+
+/** Drop a box-drawing frame and padding from both ends of a pane line. */
+function unframe(line: string): string {
+  return line.replace(/^[\s│┃|╎┆┊]+/, "").replace(/[\s│┃|╎┆┊]+$/, "");
+}
+
+const OPTION_ROW = /^(❯|>)?\s*(\d+)[.)]\s+(\S.*)$/;
+
+/**
+ * Read the numbered options of a permission or question dialog.
+ *
+ * Deliberately layout-agnostic: rather than locating Claude Code's dialog
+ * frame, it scans the foot of the pane for the last contiguous run of numbered
+ * rows. That survives a change to the box drawing, which locating the frame
+ * would not — and the run has to number 1, 2, 3… without a gap, which is what
+ * keeps an ordinary numbered list in Claude's prose from matching.
+ *
+ * Callers must still gate on session state: the hooks are authoritative for
+ * whether a dialog is actually open, and this only says what it looks like.
+ *
+ * @returns null when no run qualifies.
+ */
+export function readPromptOptions(content: string): PromptChoice {
+  if (!content) return null;
+
+  const lines = stripAnsi(content).split("\n").map(unframe);
+
+  let lastContent = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].length > 0) {
+      lastContent = i;
+      break;
+    }
+  }
+  if (lastContent === -1) return null;
+
+  // Walk up from the foot to find the end of the run, then its start.
+  let end = -1;
+  for (let i = lastContent; i >= Math.max(0, lastContent - OPTION_RUN_WINDOW); i--) {
+    if (OPTION_ROW.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  if (end === -1 || lastContent - end > OPTION_RUN_TAIL) return null;
+
+  let start = end;
+  while (start - 1 >= 0 && OPTION_ROW.test(lines[start - 1])) start--;
+
+  const options: PromptOption[] = [];
+  for (let i = start; i <= end; i++) {
+    const m = lines[i].match(OPTION_ROW);
+    if (!m) return null;
+    options.push({
+      n: Number(m[2]),
+      label: m[3].length > MAX_OPTION_CHARS ? m[3].slice(0, MAX_OPTION_CHARS) + "…" : m[3],
+      selected: m[1] === "❯",
+    });
+  }
+
+  // A real dialog numbers 1, 2, 3… with no gap. Anything else is prose.
+  if (options.length < 2 || options.length > MAX_PROMPT_OPTIONS) return null;
+  if (options.some((o, i) => o.n !== i + 1)) return null;
+
+  // The question is the nearest line above the run that isn't blank.
+  let question: string | null = null;
+  for (let i = start - 1; i >= 0 && i >= start - 4; i--) {
+    const text = lines[i];
+    if (!text) continue;
+    if (/^[─━╌┄┈╭╮╰╯]+$/.test(text)) break;
+    question = text.length > MAX_OPTION_CHARS ? text.slice(0, MAX_OPTION_CHARS) + "…" : text;
+    break;
+  }
+
+  return { question, options };
+}

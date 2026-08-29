@@ -1,6 +1,10 @@
 import { ReliableWebSocket } from './websocket-base.svelte';
 import { createPersisted } from './persisted';
-import { SessionsWsMessageSchema, type SystemStatsMessage } from '$shared/types/ws-messages.js';
+import {
+	SessionsWsMessageSchema,
+	type SystemStatsMessage,
+	type PaneChoice
+} from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
 import type { QueuedMessageKind } from '$shared/server/message-queue.js';
 
@@ -41,6 +45,8 @@ export interface Session {
 	draft_kind?: 'typed' | 'suggestion' | null;
 	/** Messages waiting in Claude Code's own queue, oldest first. */
 	pane_queue?: string[];
+	/** Numbered options a dialog is offering in the pane. Gate on `state`. */
+	pane_choice?: PaneChoice | null;
 	agent?: SessionAgent;
 }
 
@@ -62,6 +68,18 @@ function sessionChanged(a: Session, b: Session): boolean {
 	const bQueue = b.pane_queue;
 	if ((aQueue?.length ?? 0) !== (bQueue?.length ?? 0)) return true;
 	if (aQueue && bQueue && aQueue.some((msg, i) => msg !== bQueue[i])) return true;
+	// Pane choice: likewise a fresh object each tick, and it only changes when
+	// the dialog does — compare the numbers, labels and which row is highlighted.
+	const aOpts = a.pane_choice?.options;
+	const bOpts = b.pane_choice?.options;
+	if ((aOpts?.length ?? 0) !== (bOpts?.length ?? 0)) return true;
+	if (a.pane_choice?.question !== b.pane_choice?.question) return true;
+	if (
+		aOpts &&
+		bOpts &&
+		aOpts.some((o, i) => o.label !== bOpts[i].label || o.selected !== bOpts[i].selected)
+	)
+		return true;
 	// Screenshots: compare by length + last timestamp (avoids deep comparison)
 	const aShots = a.screenshots;
 	const bShots = b.screenshots;

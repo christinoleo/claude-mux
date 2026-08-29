@@ -21,6 +21,10 @@
 	import VoiceMeter from '$lib/components/VoiceMeter.svelte';
 	import PaneDraftBar from '$lib/components/PaneDraftBar.svelte';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
+	import KeyTray from '$lib/components/KeyTray.svelte';
+	import SessionSheet from '$lib/components/SessionSheet.svelte';
+	import { drawer } from '$lib/stores/drawer.svelte';
+	import { keysForOptionPick } from '$shared/tmux/answer-keys.js';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
 	import RenameSessionDialog from '$lib/components/RenameSessionDialog.svelte';
@@ -98,10 +102,11 @@
 	let ctrlCount = $state(0);
 	let altCount = $state(0);
 
-	// The transcript composer has two faces: the field (with the modifiers that
-	// act on what you type) and the controls (everything that needs no text).
-	// Desktop is wide enough to show both, so the toggle only exists on narrow.
-	let face = $state<'write' | 'keys'>('write');
+	/** The key tray, and the sheet that replaced the page header. */
+	let trayOpen = $state(false);
+	let sheetOpen = $state(false);
+	/** Wide enough for the tray's chords column beside the cluster. */
+	let wideComposer = $state(false);
 	let chordMenuOpen = $state(false);
 	let chordIndex = $state(0);
 	let chordItems = $state<ChordAction[]>([]);
@@ -251,6 +256,73 @@
 	$effect(() => {
 		if (!hasAttachments) attachStackOpen = false;
 	});
+
+	/** The tray's chords column needs room beside the cluster. */
+	$effect(() => {
+		const mq = window.matchMedia('(min-width: 760px)');
+		const sync = () => (wideComposer = mq.matches);
+		sync();
+		mq.addEventListener('change', sync);
+		return () => mq.removeEventListener('change', sync);
+	});
+
+	/**
+	 * Blink hides its key bar when a physical keyboard is attached; the same
+	 * reasoning applies here, so the tray starts closed where there is one.
+	 */
+	$effect(() => {
+		if (isTouchDevice) trayOpen = true;
+	});
+
+	const isBusy = $derived((currentSession?.state ?? 'idle') === 'busy');
+
+	/**
+	 * The numbered options the pane is offering.
+	 *
+	 * Gated on state because `pane_choice` is read off the screen and the hooks
+	 * are authoritative for whether a dialog is actually open — a numbered list
+	 * in Claude's prose must never turn the composer into a chooser.
+	 */
+	const choice = $derived(
+		wantsKeypress && !hasDraft ? (currentSession?.pane_choice ?? null) : null
+	);
+
+	/**
+	 * Move Claude Code's own highlight to the row you tapped, then submit.
+	 *
+	 * Walks with arrows from the row the pane says is selected rather than
+	 * typing the number, so it works whether or not the dialog takes digits.
+	 */
+	async function pickOption(n: number) {
+		const options = choice?.options ?? [];
+		const keys = keysForOptionPick(
+			options.findIndex((o) => o.selected),
+			options.findIndex((o) => o.n === n),
+			options.length
+		);
+		if (keys) await sendKeys(keys);
+	}
+
+
+	/** The rare half of the old page header, folded into the session sheet. */
+	const sheetActions = $derived([
+		...(isClaudeSession
+			? [
+					{
+						label: 'Rename',
+						icon: 'mdi:pencil',
+						run: () => (renameId = currentSession?.id ?? null)
+					}
+				]
+			: []),
+		...(isAlive
+			? [
+					{ label: 'Copy tmux command', icon: showCopied ? 'mdi:check' : 'mdi:content-copy', run: () => copyTmuxCmd() },
+					{ label: 'Fit screen', icon: 'mdi:fit-to-screen', run: () => handleResize() },
+					{ label: 'Refresh', icon: 'mdi:refresh', run: () => location.reload() }
+				]
+			: [])
+	]);
 	// Tap candidate: modifier keydown with no intervening key → arm on keyup
 	let ctrlTapCandidate = false;
 	let altTapCandidate = false;
@@ -912,6 +984,26 @@
 	}
 	const modArmed = $derived(ctrlCount > 0 || altCount > 0);
 
+	/** One line, and it never doubles: the most important thing right now. */
+	const statusSay = $derived.by(() => {
+		if (modArmed) {
+			const mods = [
+				ctrlCount > 0 ? `ctrl${ctrlCount > 1 ? ` ×${ctrlCount}` : ''}` : '',
+				altCount > 0 ? `alt${altCount > 1 ? ` ×${altCount}` : ''}` : ''
+			].filter(Boolean);
+			return `${mods.join(' + ')} armed`;
+		}
+		const state = currentSession?.state ?? 'idle';
+		if (state === 'permission') return 'needs permission';
+		if (state === 'waiting') return choice?.question ?? 'asked you something';
+		const parts: string[] = [];
+		if (state === 'busy') parts.push(currentSession?.current_action || 'working');
+		else parts.push(statusText || state);
+		if (queueCount > 0) parts.push(`${queueCount} queued`);
+		return parts.filter(Boolean).join(' · ');
+	});
+	const statusWants = $derived(modArmed || wantsKeypress);
+
 	// Inline slash popup: when the word under the caret starts with "/" (anywhere
 	// in the input), open the same command list as the Cmds button above the
 	// input, filtered by the rest of that word. Picking an entry replaces just
@@ -1388,43 +1480,6 @@
 {/snippet}
 
 <div class="session-container">
-	<header class="header">
-		<div class="title-row">
-			<SessionStateIndicator state={indicatorState} size="lg" />
-			<div class="title-info">
-				<button
-					type="button"
-					class="target-btn"
-					onclick={() => (renameId = currentSession?.id ?? null)}
-					disabled={!isClaudeSession}
-					title={isClaudeSession ? 'Tap to rename' : undefined}
-				>
-					<span class="name-text">{currentSession ? getSessionDisplayName(currentSession) : target}</span>
-					{#if isClaudeSession}
-						<iconify-icon icon="mdi:pencil"></iconify-icon>
-					{/if}
-				</button>
-				{#if statusText}<span class="status">· {statusText}</span>{/if}
-			</div>
-		</div>
-		<div class="header-actions">
-			{#each headerActions as action (action.label)}
-				<Button
-					variant="secondary"
-					size="icon-sm"
-					onclick={action.run}
-					title={action.label}
-					class={action.flashing
-						? 'bg-emerald-900 text-emerald-300 hover:bg-emerald-900'
-						: action.danger
-							? 'text-red-400 hover:bg-red-950/40 hover:text-red-300'
-							: ''}
-				>
-					<iconify-icon icon={action.icon} style="font-size: 18px;"></iconify-icon>
-				</Button>
-			{/each}
-		</div>
-	</header>
 
 	<div class="output-wrap">
 			<div class="output" bind:this={outputElement} onscroll={handleScroll}>
@@ -1502,165 +1557,174 @@
 
 		{#if viewMode === 'transcript'}
 
-			<div class="tbar" data-face={face}>
+			<div class="cx" class:wide={wideComposer}>
 				<ContextGauge context={transcriptStore.context}>
 					{#snippet notch()}
-						{#if voiceEnabled}<VoiceButton {target} round />{/if}
 						<VoiceMeter {target} />
 					{/snippet}
 				</ContextGauge>
 
-				{#if queueCount > 0}
-					<div class="tline tline-queue">
-						<span aria-hidden="true">&#8629;</span>
-						<span class="tline-text"
-							>{queueHeadKind === 'control' ? `${queueHeadText} (dashboard)` : queueHeadText}</span
+				<KeyTray
+					open={trayOpen}
+					{ctrlCount}
+					{altCount}
+					wide={wideComposer}
+					onKeys={(keys) => void sendKeys(keys)}
+					onCycleCtrl={cycleCtrl}
+					onCycleAlt={cycleAlt}
+					onPutInPrompt={() => void sendTextRaw()}
+					onAcceptSuggestion={() => void acceptSuggestion()}
+					onClearPrompt={() => void sendKeys(CLEAR_PROMPT_KEYS)}
+				/>
+
+				<!-- lane 0 — identity, which used to be the page header -->
+				<div class="sl">
+					<SessionSheet
+						open={sheetOpen}
+						currentTarget={target}
+						actions={sheetActions}
+						onKill={() => (showConfirmKill = true)}
+						onClose={() => (sheetOpen = false)}
+					/>
+					<SessionStateIndicator state={indicatorState} size="sm" />
+					<button type="button" class="nm" onclick={() => (sheetOpen = !sheetOpen)}>
+						<b>{currentSession ? getSessionDisplayName(currentSession) : target}</b>
+						<iconify-icon icon="mdi:chevron-down"></iconify-icon>
+					</button>
+					{#if statusSay}
+						<span class="sep">·</span>
+						<span class="say" class:amber={statusWants}>{statusSay}</span>
+					{/if}
+					<span class="sl-sp"></span>
+					<button
+						type="button"
+						class="mini menu-only"
+						onclick={() => drawer.toggle()}
+						aria-label="Sessions and panels"
+					>
+						<iconify-icon icon="mdi:menu"></iconify-icon>
+					</button>
+					{#if isAlive && canTranscript}
+						<button
+							type="button"
+							class="mini"
+							onclick={() => toggleView()}
+							aria-label="Terminal view"
 						>
-						{#if queueCount > 1}<span class="tline-more">+{queueCount - 1}</span>{/if}
-					</div>
-				{/if}
+							<iconify-icon icon="mdi:console"></iconify-icon>
+						</button>
+					{/if}
+				</div>
 
-				{#if face === 'keys' && hasDraft}
-					<div class="tline tline-draft">
-						<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
-						<span class="tline-text">{textInput.trim() || `${readyPaths.length} attached`}</span>
-					</div>
-				{/if}
-
-				<div class="tbody">
-					<div class="tmain">
-						<div class="tfield">
-							{#if slashOpen}
-								<div class="slash-popup">
-									<CommandList
-										bind:this={slashList}
-										cwd={currentSession?.cwd}
-										pinned={pinnedCommands}
-										query={slashQuery}
-										onselect={chooseSlash}
-									/>
-								</div>
-							{/if}
-							{#if hasAttachments}
+				<!-- lane 1 — the middle: the field, or what replaces it -->
+				<div class="mid">
+					{#if slashOpen}
+						<div class="slash-popup">
+							<CommandList
+								bind:this={slashList}
+								cwd={currentSession?.cwd}
+								pinned={pinnedCommands}
+								query={slashQuery}
+								onselect={chooseSlash}
+							/>
+						</div>
+					{/if}
+					{#if choice}
+						<div class="optlist">
+							{#if choice.question}<p class="question">{choice.question}</p>{/if}
+							{#each choice.options as option (option.n)}
 								<button
 									type="button"
-									class="tattach"
-									onclick={() => (attachStackOpen = !attachStackOpen)}
-									title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
+									class="optrow"
+									class:sel={option.selected}
+									onclick={() => void pickOption(option.n)}
 								>
-									<iconify-icon icon={anyUploading ? 'mdi:loading' : 'mdi:paperclip'} class={anyUploading ? 'attach-spin' : ''}></iconify-icon>
-									<span class:attach-failed={anyFailed}>{attachments.length}</span>
+									<u>{option.n}</u>{option.label}
 								</button>
-							{/if}
-							{@render composerField()}
+							{/each}
 						</div>
-
-						<div class="tctl">
-							<RailStats />
+					{:else}
+						{#if hasAttachments}
 							<button
 								type="button"
-								class="tkey tface"
-								class:tface-attn={wantsKeypress}
-								onclick={() => (face = face === 'write' ? 'keys' : 'write')}
+								class="tattach"
+								onclick={() => (attachStackOpen = !attachStackOpen)}
+								title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
 							>
-								<iconify-icon icon={face === 'write' ? 'mdi:keyboard-outline' : 'mdi:pencil-outline'}></iconify-icon>
-								<span>{face === 'write' ? 'Controls' : 'Write'}</span>
+								<iconify-icon
+									icon={anyUploading ? 'mdi:loading' : 'mdi:paperclip'}
+									class={anyUploading ? 'attach-spin' : ''}
+								></iconify-icon>
+								<span class:attach-failed={anyFailed}>{attachments.length}</span>
 							</button>
-
-							<div class="tgrp tgrp-mods">
-								<button type="button" class="tkey" class:tkey-armed={ctrlCount > 0} onclick={cycleCtrl} title="Arm Ctrl — next Enter sends the line as a Ctrl sequence">
-									<iconify-icon icon="mdi:apple-keyboard-control"></iconify-icon>
-									<span>Ctrl{ctrlCount > 1 ? `×${ctrlCount}` : ''}</span>
-								</button>
-								<button type="button" class="tkey" class:tkey-armed={altCount > 0} onclick={cycleAlt} title="Arm Alt — next Enter sends the line as a Meta sequence">
-									<iconify-icon icon="mdi:apple-keyboard-option"></iconify-icon>
-									<span>Alt{altCount > 1 ? `×${altCount}` : ''}</span>
-								</button>
-								<button type="button" class="tkey" onclick={() => sendKeys('Escape')} title="Escape">
-									<iconify-icon icon="mdi:close"></iconify-icon>
-									<span>Esc</span>
-								</button>
-							</div>
-
-							<div class="tgrp tgrp-fns">
-								<button type="button" class="tkey" onclick={() => (commandsOpen = true)} title="Commands">
-									<iconify-icon icon="mdi:slash-forward"></iconify-icon>
-									<span>Cmds</span>
-								</button>
-								<Popover.Root bind:open={attachPickerOpen}>
-									<Popover.Trigger class="tkey">
-										<iconify-icon icon="mdi:paperclip"></iconify-icon>
-										<span>Attach</span>
-									</Popover.Trigger>
-									{@render attachMenu()}
-								</Popover.Root>
-								<Popover.Root bind:open={moreOpen}>
-									<Popover.Trigger class="tkey">
-										<iconify-icon icon="mdi:dots-horizontal"></iconify-icon>
-										<span>More</span>
-									</Popover.Trigger>
-									<Popover.Content side="top" class="w-auto max-w-[280px] p-2 bg-[#1a1a1a] border-[#333]">
-										<div class="popover-grid">
-											{#each moreKeys as item}
-												<Button variant="secondary" size="toolbar" class="min-w-14 min-h-12" onclick={() => { sendKeys(item.keys); moreOpen = false; }}>
-													<iconify-icon icon={item.icon}></iconify-icon>
-													<span>{item.label}</span>
-												</Button>
-											{/each}
-										</div>
-									</Popover.Content>
-								</Popover.Root>
-							</div>
-
-
-							<div class="tact">
-								<span class="tact-label">{actionLabel}</span>
-								<button
-									type="button"
-									class="tact-btn"
-									data-kind={actionKind}
-									disabled={!canSend}
-									aria-label={actionLabel}
-									onclick={async () => {
-										if (await finishVoiceIfRecording()) { handleResize(); return; }
-										if (modArmed) await sendModSequence();
-										else await sendFromButton();
-									}}
-									use:longPress={{ onTrigger: () => void queueText() }}
-								>
-									<iconify-icon icon={actionIcon}></iconify-icon>
-								</button>
-								{#if queueCount > 0}<span class="tact-badge">{queueCount}</span>{/if}
-							</div>
-						</div>
-					</div>
-
-				<div class="tgrp tgrp-keys">
-					<button type="button" class="tkey tk-noent" onclick={() => void sendTextRaw()} title="Send the draft without Enter">
-						<iconify-icon icon="mdi:tray-arrow-up"></iconify-icon>
-						<span>No &#8629;</span>
-					</button>
-					<button type="button" class="tkey tk-up" onclick={() => sendKeys('Up')} aria-label="Up">
-						<iconify-icon icon="mdi:arrow-up"></iconify-icon>
-					</button>
-					<button type="button" class="tkey tk-tabent" onclick={() => void acceptSuggestion()} title="Send Tab then Enter">
-						<iconify-icon icon="mdi:keyboard-tab"></iconify-icon>
-						<span>Tab &#8629;</span>
-					</button>
-					<button type="button" class="tkey tk-left" onclick={() => sendKeys('Left')} aria-label="Left">
-						<iconify-icon icon="mdi:arrow-left"></iconify-icon>
-					</button>
-					<button type="button" class="tkey tk-down" onclick={() => sendKeys('Down')} aria-label="Down">
-						<iconify-icon icon="mdi:arrow-down"></iconify-icon>
-					</button>
-					<button type="button" class="tkey tk-right" onclick={() => sendKeys('Right')} aria-label="Right">
-						<iconify-icon icon="mdi:arrow-right"></iconify-icon>
-					</button>
-					<button type="button" class="tkey tenter" onclick={() => sendKeys('Enter')} title="Enter">
-						<iconify-icon icon="mdi:keyboard-return"></iconify-icon>
-						<span>Enter</span>
-					</button>
+						{/if}
+						{@render composerField()}
+					{/if}
 				</div>
+
+				<!-- lane 2 — the footer, whose left edge never moves -->
+				<div class="foot">
+					{#if isBusy}
+						<button
+							type="button"
+							class="interrupt"
+							onclick={() => void sendKeys('Escape')}
+							title="Interrupt what Claude is doing"
+						>
+							<iconify-icon icon="mdi:stop"></iconify-icon>interrupt
+						</button>
+					{/if}
+					<Popover.Root bind:open={attachPickerOpen}>
+						<Popover.Trigger class="cx-g" aria-label="Attach">
+							<iconify-icon icon="mdi:paperclip"></iconify-icon>
+						</Popover.Trigger>
+						{@render attachMenu()}
+					</Popover.Root>
+					<button
+						type="button"
+						class="cx-g"
+						onclick={() => (commandsOpen = true)}
+						aria-label="Commands"
+					>
+						<iconify-icon icon="mdi:slash-forward"></iconify-icon>
+					</button>
+					<button
+						type="button"
+						class="cx-g"
+						class:lit={trayOpen}
+						class:warn={wantsKeypress || modArmed}
+						onclick={() => (trayOpen = !trayOpen)}
+						aria-label="Keys"
+					>
+						<iconify-icon icon="mdi:keyboard-outline"></iconify-icon>
+					</button>
+
+					<span class="foot-sp"></span>
+
+					<RailStats />
+					{#if voiceEnabled}<VoiceButton {target} round />{/if}
+					<div class="act-wrap">
+						<button
+							type="button"
+							class="act"
+							data-kind={actionKind}
+							disabled={!canSend}
+							aria-label={actionLabel}
+							title={actionLabel}
+							onclick={async () => {
+								if (await finishVoiceIfRecording()) {
+									handleResize();
+									return;
+								}
+								if (modArmed) await sendModSequence();
+								else await sendFromButton();
+							}}
+							use:longPress={{ onTrigger: () => void queueText() }}
+						>
+							<iconify-icon icon={actionIcon}></iconify-icon>
+						</button>
+						{#if queueCount > 0}<span class="act-badge">{queueCount}</span>{/if}
+					</div>
 				</div>
 			</div>
 		{:else}
@@ -2056,110 +2120,11 @@
 		touch-action: pan-y;
 	}
 
-	.header {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		padding: 12px 16px;
-		background: #111;
-		border-bottom: 1px solid #222;
-	}
-
-	/* Sidebar-toggle hamburger overlaps the header on narrow viewports */
+	/* Terminal-mode toolbar keeps tighter corners on a phone. */
 	@media (max-width: 768px) {
-		.header {
-			min-height: 40px;
-			padding: 4px 6px 4px 44px;
-			gap: 6px;
-		}
-		.header-actions {
-			gap: 4px;
-		}
 		.toolbar :global(button) {
 			border-radius: 3px;
 		}
-	}
-
-	.title-row {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		flex: 1;
-		min-width: 0;
-	}
-
-	.title-info {
-		display: flex;
-		flex-direction: row;
-		align-items: baseline;
-		gap: 6px;
-		min-width: 0;
-		flex: 1;
-		overflow: hidden;
-	}
-
-	.target-btn {
-		background: none;
-		border: none;
-		color: inherit;
-		font: inherit;
-		font-weight: 600;
-		font-size: 16px;
-		padding: 4px 6px;
-		margin: -4px -6px;
-		cursor: pointer;
-		border-radius: 6px;
-		text-align: left;
-		display: inline-flex;
-		align-items: center;
-		max-width: 100%;
-		min-width: 0;
-		overflow: hidden;
-	}
-
-	.target-btn .name-text {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		min-width: 0;
-	}
-
-	.target-btn iconify-icon {
-		font-size: 14px;
-		opacity: 0.5;
-		margin-left: 6px;
-		vertical-align: middle;
-		flex-shrink: 0;
-	}
-
-	.target-btn:hover,
-	.target-btn:focus-visible {
-		background: rgba(255, 255, 255, 0.06);
-	}
-
-	.target-btn:disabled {
-		cursor: default;
-	}
-
-	.target-btn:disabled:hover,
-	.target-btn:disabled:focus-visible {
-		background: none;
-	}
-
-	.status {
-		font-size: 13px;
-		color: #888;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		min-width: 0;
-		flex-shrink: 1;
-	}
-
-	.header-actions {
-		display: flex;
-		gap: 6px;
-		flex-shrink: 0;
 	}
 
 	.output-wrap {
@@ -2529,85 +2494,134 @@
 
 
 	/* ── Transcript composer ─────────────────────────────────────────────
-	   One bar, two faces. The field keeps the modifiers that act on what you
-	   type; everything that needs no text lives on the other face. Desktop is
-	   wide enough for both at once, so the toggle disappears there. */
-	.tbar {
+	   Three lanes. The status line and the footer are fixed furniture — the
+	   footer's left edge in particular never moves, so a thumb already
+	   travelling toward a control never has it swapped underneath. Only the
+	   middle lane changes what it contains. */
+	.cx {
 		position: relative;
-		background: #111;
-		border-top: 1px solid #222;
+		background: #151516;
+		border: 1px solid #2a2a2c;
+		border-bottom: 0;
+		border-radius: 16px 16px 0 0;
+		display: flex;
+		flex-direction: column;
 		padding-bottom: 8px;
-		padding-top: 4px;
 	}
 
-	.tline {
+	/* ── lane 0 · the status line ───────────────────────────────────── */
+	.sl {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		padding: 10px 56px 0 14px;
-		font-size: 12px;
+		gap: 7px;
+		height: 22px;
+		padding: 4px 8px 0 12px;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		letter-spacing: 0.04em;
 		color: #78716c;
 		min-width: 0;
 	}
-	.tline-queue {
-		font-style: italic;
+	.nm {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		border: 0;
+		background: none;
+		padding: 0;
+		color: #f5f5f4;
+		font: inherit;
+		cursor: pointer;
+		min-width: 0;
+		max-width: 52%;
 	}
-	.tline-draft {
-		color: #a8a29e;
-	}
-	.tline-text {
+	.nm b {
+		font-weight: 400;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
-	.tline-more {
-		margin-left: auto;
-		font-style: normal;
-		font-size: 10px;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
+	.nm iconify-icon {
+		font-size: 12px;
+		opacity: 0.45;
 		flex: none;
 	}
-
-	.tbody {
-		display: flex;
-		align-items: flex-start;
-		gap: 8px;
+	.nm:hover iconify-icon {
+		opacity: 0.9;
+	}
+	.sep {
+		color: #3f3c39;
+		flex: none;
+	}
+	.say {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		min-width: 0;
 	}
-	.tmain {
+	.say.amber {
+		color: #fbbf24;
+	}
+	.sl-sp {
 		flex: 1;
-		min-width: 0;
+		min-width: 8px;
+	}
+	.sl .mini {
+		width: 24px;
+		height: 22px;
+		border: 0;
+		border-radius: 6px;
+		background: none;
+		color: #78716c;
+		font-size: 15px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		cursor: pointer;
+	}
+	.sl .mini:hover {
+		background: #202022;
+		color: #f5f5f4;
+	}
+	/* The sidebar is always on screen once there is room for it. */
+	@media (min-width: 769px) {
+		/* `.sl .mini` sets display, so this has to match its specificity. */
+		.sl .menu-only {
+			display: none;
+		}
 	}
 
-	.tfield {
+	/* ── lane 1 · the middle ────────────────────────────────────────── */
+	.mid {
 		position: relative;
+		padding: 8px 13px 0;
 		display: flex;
-		align-items: flex-end;
-		gap: 8px;
-		padding: 12px 14px 0;
+		gap: 9px;
+		align-items: flex-start;
 	}
-	.tfield :global(textarea) {
+	.mid :global(textarea) {
 		flex: 1;
 		min-width: 0;
-		height: 48px;
-		max-height: 150px;
-		background: #222;
-		color: #fff;
-		border: 1px solid #333;
-		padding: 12px 14px;
-		border-radius: 8px;
-		font-size: 14px;
-		font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, monospace;
-		line-height: 1.5;
+		height: 24px;
+		max-height: 112px;
+		background: none;
+		border: 0;
+		padding: 0;
+		color: #f5f5f4;
+		font-size: 15.5px;
+		font-family: inherit;
+		line-height: 1.48;
 		resize: none;
 		overflow-y: auto;
 		overflow-x: hidden;
 		scrollbar-width: none;
 	}
-	.tfield :global(textarea:focus) {
+	.mid :global(textarea:focus) {
 		outline: none;
-		border-color: #27ae60;
+	}
+	.mid :global(textarea::placeholder) {
+		color: #78716c;
 	}
 
 	.tattach {
@@ -2615,249 +2629,243 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
-		height: 48px;
-		padding: 0 10px;
-		border: 1px solid #333;
-		border-radius: 8px;
-		background: #1a1a1a;
+		height: 26px;
+		padding: 0 9px;
+		border: 0;
+		border-radius: 13px;
+		background: #202022;
 		color: #a8a29e;
-		font-size: 12px;
+		font-family: var(--font-mono);
+		font-size: 11.5px;
 		cursor: pointer;
 	}
 	.tattach .attach-failed {
 		color: #f87171;
 	}
 
-	.tctl {
-		display: flex;
-		align-items: flex-start;
-		flex-wrap: wrap;
-		gap: 5px;
-		padding: 10px 14px 0;
-	}
-	.tgrp {
-		display: flex;
-		gap: 6px;
-	}
-
-	.tbar :global(.tkey) {
-		flex: none;
-		min-width: 44px;
-		height: 44px;
-		border-radius: 7px;
-		border: 0;
-		background: #222;
-		color: #f5f5f4;
-		display: inline-flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 1px;
-		padding: 0 6px;
-		cursor: pointer;
-		font-size: 18px;
-	}
-	.tbar :global(.tkey:hover) {
-		background: #333;
-	}
-	.tbar :global(.tkey span) {
-		font-size: 9px;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: #a8a29e;
-	}
-	.tbar :global(.tkey-armed) {
-		background: #15803d;
-		color: #f0fdf4;
-	}
-	.tbar :global(.tkey-armed span) {
-		color: rgba(240, 253, 244, 0.85);
-	}
-	.tface {
-		background: transparent;
-		border: 1px solid #333;
-	}
-	.tface-attn {
-		border-color: #fbbf24;
-		color: #fbbf24;
-	}
-	.tface-attn span {
-		color: #fbbf24;
-	}
-
-	/* the keys sit as they do on a keyboard: arrows in an inverted T, Enter
-	   tall beside them, and the two send variants on Up's free shoulders */
-	.tgrp-keys {
-		display: grid;
-		grid-template-columns: repeat(4, 44px);
-		grid-template-rows: repeat(2, 44px);
-		gap: 6px;
-	}
-	.tgrp-keys :global(.tkey) {
+	/* The pane's own numbered rows, lifted out and made tappable. Compact
+	   rows rather than full-width buttons: the options are not peers, and
+	   "Yes" and a sentence cannot share a width. */
+	.optlist {
+		flex: 1;
 		min-width: 0;
-		width: 100%;
-		padding: 0 2px;
-	}
-	.tgrp-keys :global(.tkey span) {
-		font-size: 8px;
-	}
-	.tk-noent {
-		grid-area: 1 / 1;
-	}
-	.tk-up {
-		grid-area: 1 / 2;
-	}
-	.tk-tabent {
-		grid-area: 1 / 3;
-	}
-	.tk-left {
-		grid-area: 2 / 1;
-	}
-	.tk-down {
-		grid-area: 2 / 2;
-	}
-	.tk-right {
-		grid-area: 2 / 3;
-	}
-	.tgrp-keys .tenter {
-		grid-area: 1 / 4 / 3 / 5;
-		height: auto;
-	}
-
-	.tact {
-		position: relative;
-		margin-left: auto;
 		display: flex;
-		align-items: center;
-		gap: 8px;
+		flex-direction: column;
+		gap: 1px;
 	}
-	.tact-label {
-		font-size: 10px;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
+	.question {
+		margin: 0 0 4px;
+		padding: 0 9px;
+		font-size: 13px;
+		line-height: 1.4;
 		color: #a8a29e;
 	}
-	.tact-btn {
+	.optrow {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		width: 100%;
+		min-height: 28px;
+		padding: 4px 9px;
+		border: 0;
+		border-radius: 7px;
+		background: none;
+		color: #a8a29e;
+		font-size: 13px;
+		line-height: 1.35;
+		text-align: left;
+		justify-content: flex-start;
+		cursor: pointer;
+	}
+	.optrow u {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: #57534e;
+		text-decoration: none;
+		width: 9px;
 		flex: none;
-		width: 46px;
-		height: 44px;
-		border-radius: 23px;
+	}
+	.optrow:hover {
+		background: #1e1e21;
+		color: #f5f5f4;
+	}
+	.optrow.sel {
+		background: #3a2d0d;
+		color: #fde68a;
+	}
+	.optrow.sel u {
+		color: #fbbf24;
+	}
+
+	/* ── lane 2 · the footer ────────────────────────────────────────── */
+	.foot {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		min-height: 42px;
+		padding: 2px 9px 0 11px;
+	}
+	.foot-sp {
+		flex: 1;
+	}
+	/* Controls are bare glyphs that earn a fill only on hover or when lit,
+	   so exactly one thing on the composer is filled: the action. */
+	.cx :global(.cx-g) {
+		min-width: 32px;
+		height: 32px;
+		border: 0;
+		border-radius: 8px;
+		background: none;
+		color: #78716c;
+		font-size: 18px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		cursor: pointer;
+		transition:
+			background 0.12s,
+			color 0.12s;
+	}
+	.cx :global(.cx-g:hover) {
+		background: #202022;
+		color: #f5f5f4;
+	}
+	.cx :global(.cx-g.lit) {
+		background: #202022;
+		color: #f5f5f4;
+	}
+	.cx :global(.cx-g.warn) {
+		color: #fbbf24;
+	}
+
+	/* While Claude works, Escape is the only key that matters, so it stops
+	   being the third tile in a row and says what it does. */
+	.interrupt {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 32px;
+		padding: 0 11px;
+		border: 0;
+		border-radius: 8px;
+		background: #3a2d0d;
+		color: #fbbf24;
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+		flex: none;
+		cursor: pointer;
+	}
+	.interrupt:hover {
+		background: #4a3a12;
+	}
+
+	/* Spend is information, not an action, so it reads as text on the footer's
+	   own baseline rather than as another key. */
+	.cx :global(.usage) {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 32px;
+		padding: 0 5px;
+		border-radius: 8px;
+		background: none;
+		color: #78716c;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		text-decoration: none;
+		flex: none;
+	}
+	.cx :global(.usage:hover) {
+		background: #202022;
+		color: #a8a29e;
+	}
+	.cx :global(.usage .bars) {
+		width: 20px;
+	}
+
+	/* The round mic was drawn to sit on the context rail, where it punches a
+	   channel out of the panel behind it. In the footer it is a glyph among
+	   glyphs, so it drops the ring and matches their size. */
+	.foot :global(.voice-btn-wrapper.round),
+	.foot :global(.voice-round) {
+		width: 32px;
+		height: 32px;
+	}
+	.foot :global(.voice-round) {
+		border: 0;
+		background: none;
+		color: #78716c;
+		font-size: 18px;
+		box-shadow: none;
+	}
+	.foot :global(.voice-round:hover:not(:disabled)) {
+		background: #202022;
+		color: #f5f5f4;
+	}
+
+	.act-wrap {
+		position: relative;
+		display: flex;
+		align-items: center;
+		flex: none;
+	}
+	.act {
+		width: 36px;
+		height: 36px;
 		border: 1px solid transparent;
+		border-radius: 18px;
 		background: #15803d;
 		color: #f0fdf4;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 20px;
+		font-size: 18px;
 		cursor: pointer;
 		touch-action: manipulation;
 		user-select: none;
+		transition: background 0.12s;
 	}
-	.tact-btn:hover:not(:disabled) {
+	.act:hover:not(:disabled) {
 		background: #16a34a;
 	}
-	.tact-btn:disabled {
+	.act:disabled {
 		opacity: 0.5;
 		cursor: default;
 	}
-	.tact-btn[data-kind='enter'],
-	.tact-btn[data-kind='queue'] {
-		background: #222;
-		border-color: #333;
+	.act[data-kind='enter'],
+	.act[data-kind='queue'] {
+		background: #242426;
 		color: #a8a29e;
 	}
-	.tact-btn[data-kind='accept'] {
+	.act[data-kind='accept'] {
 		background: transparent;
 		border-color: #16a34a;
 		color: #16a34a;
 	}
-	.tact-badge {
+	.act-badge {
 		position: absolute;
 		top: -4px;
 		right: -4px;
-		min-width: 18px;
-		height: 18px;
+		min-width: 16px;
+		height: 16px;
 		padding: 0 4px;
-		border-radius: 9px;
+		border-radius: 8px;
 		background: #f59e0b;
 		color: #111;
-		font-size: 10px;
-		font-weight: 600;
+		font-family: var(--font-mono);
+		font-size: 9.5px;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 	}
 
-	/* A labelled toggle needs a little over 400px of row. Below that it drops to
-	   its icon: it is the one tile whose job the icon already tells, and the
-	   action's own label is what keeps that button honest. */
-	@media (max-width: 400px) {
-		.tfield,
-		.tctl {
-			padding-left: 10px;
-			padding-right: 10px;
-		}
-		.tctl {
-			gap: 4px;
-		}
-		.tface span {
-			display: none;
-		}
-	}
-
-	/* one face at a time while the screen is narrow */
-	@media (max-width: 899px) {
-		.tbar[data-face='write'] .tgrp-fns,
-		.tbar[data-face='write'] .tgrp-keys {
-			display: none;
-		}
-		.tbar[data-face='keys'] .tfield,
-		.tbar[data-face='keys'] .tgrp-mods,
-		.tbar[data-face='keys'] .tact {
-			display: none;
-		}
-	}
-
-	/* Wide enough for both halves at once, so the toggle goes away and the
-	   split shows as two blocks instead: what you type on the left, what needs
-	   no text on the right. The bar stops well short of the full width — a
-	   composer that runs 1400px wide is a worse composer. */
+	/* A composer that runs the full width is a worse composer. */
 	@media (min-width: 900px) {
-		.tbar {
-			/* auto margins alone make a flex column item shrink to its content,
-			   which leaves the field far narrower than the room it has */
+		.cx {
 			width: 100%;
 			max-width: 62rem;
 			margin: 0 auto;
-			border: 1px solid #222;
-			border-bottom: 0;
-			border-radius: 12px 12px 0 0;
-			padding-bottom: 12px;
-		}
-		.tctl .tface {
-			display: none;
-		}
-
-		.tbody {
-			gap: 18px;
-			padding: 0 14px;
-		}
-		.tfield,
-		.tctl {
-			padding-left: 0;
-			padding-right: 0;
-		}
-		/* the cluster hangs off the field's own top line, not the row below */
-		.tgrp-keys {
-			margin-top: 12px;
-		}
-		/* three families in one row, told apart by hairlines rather than by
-		   spacing alone: what you spend, what modifies your text, what the app
-		   does for you */
-		.tgrp-fns,
-		.tgrp-mods {
-			padding-left: 10px;
-			border-left: 1px solid #222;
 		}
 	}
 </style>

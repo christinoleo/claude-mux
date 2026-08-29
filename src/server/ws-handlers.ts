@@ -15,7 +15,8 @@ import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
-import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, stripAnsi } from '../tmux/pane.js';
+import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, stripAnsi } from '../tmux/pane.js';
+import type { PromptChoice } from '../tmux/pane.js';
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
@@ -257,6 +258,7 @@ export async function getEnrichedSessionsAsync(): Promise<
 		draft_input: string | null;
 		draft_kind: 'typed' | 'suggestion' | null;
 		pane_queue: string[];
+		pane_choice: PromptChoice;
 	})[]
 > {
 	const [{ captures, rawCaptures, sessions }, paneTitles] = await Promise.all([
@@ -293,6 +295,7 @@ export async function getEnrichedSessionsAsync(): Promise<
 			draft_input: string | null;
 			draft_kind: 'typed' | 'suggestion' | null;
 			pane_queue: string[];
+			pane_choice: PromptChoice;
 		} = {
 			...s,
 			pane_title: paneTitle,
@@ -302,6 +305,9 @@ export async function getEnrichedSessionsAsync(): Promise<
 			// Messages the user typed into the pane while it was busy, waiting
 			// their turn in Claude Code's own queue.
 			pane_queue: raw ? readQueuedMessages(raw) : [],
+			// The dialog's own numbered rows, so the composer can offer them as
+			// answers instead of making you drive arrows at a screen you can't see.
+			pane_choice: raw ? readPromptOptions(raw) : null,
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {

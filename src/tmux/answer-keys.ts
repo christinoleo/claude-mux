@@ -33,3 +33,24 @@ export function keysForAnswer(
   keys.push("Enter");
   return keys.join(" ");
 }
+
+/**
+ * Keys that move Claude Code's own highlight from the row it is on to the row
+ * the user tapped, then submit.
+ *
+ * Walks with arrows from where the pane says the highlight already is, rather
+ * than typing the option's number — a dialog that does not take digits still
+ * answers correctly, and a dialog whose highlight has moved since the last
+ * capture lands on the row the user could see.
+ *
+ * @param from Index of the highlighted row, or -1 when none is marked.
+ * @param to Index of the row to pick.
+ * @returns The key sequence, or null when `to` is not a real row.
+ */
+export function keysForOptionPick(from: number, to: number, count: number): string | null {
+  if (!Number.isInteger(to) || to < 0 || to >= count) return null;
+  const start = from < 0 || from >= count ? 0 : from;
+  const steps = to - start;
+  const move = Array(Math.abs(steps)).fill(steps > 0 ? "Down" : "Up");
+  return [...move, "Enter"].join(" ");
+}

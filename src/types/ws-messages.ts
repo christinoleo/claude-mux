@@ -20,6 +20,14 @@ const ScreenshotSchema = z.object({
 	timestamp: z.number()
 });
 
+const PaneChoiceSchema = z.object({
+	question: z.string().nullable(),
+	options: z.array(z.object({ n: z.number(), label: z.string(), selected: z.boolean() })),
+});
+
+/** The numbered options a pane dialog is offering, as they reach the browser. */
+export type PaneChoice = z.infer<typeof PaneChoiceSchema>;
+
 const EnrichedSessionSchema = z.object({
 	v: z.number(),
 	id: z.string(),
@@ -41,6 +49,12 @@ const EnrichedSessionSchema = z.object({
 	draft_kind: z.enum(['typed', 'suggestion']).nullable().optional(),
 	/** Messages waiting in Claude Code's own queue, oldest first — live only. */
 	pane_queue: z.array(z.string()).optional(),
+	/**
+	 * The numbered options a permission or question dialog is offering in the
+	 * pane right now — live only. Read off the pane, so the UI must still gate
+	 * on `state`: the hooks are authoritative for whether a dialog is open.
+	 */
+	pane_choice: PaneChoiceSchema.nullable().optional(),
 	display_name: z.string().nullable().optional(),
 	pane_title: z.string().nullable(),
 	pane_alive: z.boolean(),
