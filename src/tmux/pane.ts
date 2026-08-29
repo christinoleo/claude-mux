@@ -468,16 +468,29 @@ const OPTION_ROW = /^(❯|>)?\s*(\d+)[.)]\s+(\S.*)$/;
  * Callers must still gate on session state: the hooks are authoritative for
  * whether a dialog is actually open, and this only says what it looks like.
  *
+ * @param content Pane text with the ANSI already stripped — the session poll
+ *                strips once per tick and hands that copy to every check.
  * @returns null when no run qualifies.
  */
 export function readPromptOptions(content: string): PromptChoice {
   if (!content) return null;
 
-  const lines = stripAnsi(content).split("\n").map(unframe);
+  // Only the foot of the pane is ever inspected, so the frame comes off line
+  // by line inside the bounded scan rather than across the whole capture.
+  const raw = content.split("\n");
+  const seen = new Map<number, string>();
+  const at = (i: number): string => {
+    let line = seen.get(i);
+    if (line === undefined) {
+      line = unframe(raw[i]);
+      seen.set(i, line);
+    }
+    return line;
+  };
 
   let lastContent = -1;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].length > 0) {
+  for (let i = raw.length - 1; i >= 0; i--) {
+    if (at(i).length > 0) {
       lastContent = i;
       break;
     }
@@ -487,19 +500,23 @@ export function readPromptOptions(content: string): PromptChoice {
   // Walk up from the foot to find the end of the run, then its start.
   let end = -1;
   for (let i = lastContent; i >= Math.max(0, lastContent - OPTION_RUN_WINDOW); i--) {
-    if (OPTION_ROW.test(lines[i])) {
+    if (OPTION_ROW.test(at(i))) {
       end = i;
       break;
     }
   }
   if (end === -1 || lastContent - end > OPTION_RUN_TAIL) return null;
 
+  // Floored at the cap: a longer run is rejected anyway, so there is no reason
+  // to walk it to the top of the pane and build objects that get thrown away.
+  const floor = Math.max(0, end - MAX_PROMPT_OPTIONS);
   let start = end;
-  while (start - 1 >= 0 && OPTION_ROW.test(lines[start - 1])) start--;
+  while (start - 1 >= floor && OPTION_ROW.test(at(start - 1))) start--;
+  if (start === floor && floor > 0 && OPTION_ROW.test(at(floor))) return null;
 
   const options: PromptOption[] = [];
   for (let i = start; i <= end; i++) {
-    const m = lines[i].match(OPTION_ROW);
+    const m = at(i).match(OPTION_ROW);
     if (!m) return null;
     options.push({
       n: Number(m[2]),
@@ -515,7 +532,7 @@ export function readPromptOptions(content: string): PromptChoice {
   // The question is the nearest line above the run that isn't blank.
   let question: string | null = null;
   for (let i = start - 1; i >= 0 && i >= start - 4; i--) {
-    const text = lines[i];
+    const text = at(i);
     if (!text) continue;
     if (/^[─━╌┄┈╭╮╰╯]+$/.test(text)) break;
     question = text.length > MAX_OPTION_CHARS ? text.slice(0, MAX_OPTION_CHARS) + "…" : text;

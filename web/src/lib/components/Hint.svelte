@@ -16,11 +16,10 @@
 		/** The keys that do the same thing, e.g. `Ctrl K`. Omit when there are none. */
 		keys?: string | null;
 		class?: string;
-		disabled?: boolean;
 		onclick: () => void;
 	}
 
-	let { icon, label, keys = null, class: klass = '', disabled = false, onclick }: Props = $props();
+	let { icon, label, keys = null, class: klass = '', onclick }: Props = $props();
 </script>
 
 <Tooltip.Root>
@@ -30,7 +29,6 @@
 				{...props}
 				type="button"
 				class={klass}
-				{disabled}
 				aria-label={keys ? `${label} (${keys})` : label}
 				{onclick}
 			>

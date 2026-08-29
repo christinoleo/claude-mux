@@ -20,7 +20,8 @@ export function keysForAnswer(
   if (sorted.length === 0) return null;
   if (!options.multiSelect) {
     if (sorted.length > 1) return null;
-    return [...Array(sorted[0]).fill("Down"), "Enter"].join(" ");
+    // Same arrow walk as a pane dialog, from a cursor that always starts at 0.
+    return keysForOptionPick(0, sorted[0], sorted[0] + 1);
   }
 
   const keys: string[] = [];

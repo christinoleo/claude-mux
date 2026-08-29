@@ -6,7 +6,7 @@
 	import { terminalStore } from '$lib/stores/terminal.svelte';
 	import { sessionStore, getSessionDisplayName } from '$lib/stores/sessions.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
-	import type { IndicatorState } from '$shared/session-state.js';
+	import { sessionStateVisual, type IndicatorState } from '$shared/session-state.js';
 	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -34,7 +34,6 @@
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { untrack } from 'svelte';
 	import { longPress } from '$lib/actions/longPress';
-	import { clickOutside } from '$lib/actions/clickOutside';
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { useGamepad, STICK_DEADZONE } from '$lib/gamepad.svelte';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
@@ -98,7 +97,6 @@
 	let showConfirmKill = $state(false);
 	let moreOpen = $state(false);
 	let commandsOpen = $state(false);
-	let queuePopoverOpen = $state(false);
 	let attachPickerOpen = $state(false);
 	let attachStackOpen = $state(false);
 	let ctrlCount = $state(0);
@@ -107,8 +105,6 @@
 	/** The key tray, and the sheet that replaced the page header. */
 	let trayOpen = $state(false);
 	let sheetOpen = $state(false);
-	/** Wide enough for the tray's chords column beside the cluster. */
-	let wideComposer = $state(false);
 	let chordMenuOpen = $state(false);
 	let chordIndex = $state(0);
 	let chordItems = $state<ChordAction[]>([]);
@@ -248,7 +244,6 @@
 	);
 	const actionIcon = $derived(ACTIONS[actionKind].icon);
 	const hasAttachments = $derived(attachments.length > 0);
-	const stackThumbs = $derived(attachments.filter((a) => a.thumb).slice(-3).reverse());
 	const anyFailed = $derived(attachments.some((a) => a.status === 'failed'));
 	const anyUploading = $derived(attachments.some((a) => a.status === 'uploading'));
 	/** The pane is asking for a keypress, so the face toggle asks for attention. */
@@ -259,22 +254,7 @@
 		if (!hasAttachments) attachStackOpen = false;
 	});
 
-	/** The tray's chords column needs room beside the cluster. */
-	$effect(() => {
-		const mq = window.matchMedia('(min-width: 760px)');
-		const sync = () => (wideComposer = mq.matches);
-		sync();
-		mq.addEventListener('change', sync);
-		return () => mq.removeEventListener('change', sync);
-	});
 
-	/**
-	 * Blink hides its key bar when a physical keyboard is attached; the same
-	 * reasoning applies here, so the tray starts closed where there is one.
-	 */
-	$effect(() => {
-		if (isTouchDevice) trayOpen = true;
-	});
 
 	const isBusy = $derived((currentSession?.state ?? 'idle') === 'busy');
 
@@ -331,7 +311,13 @@
 	}
 
 
-	/** The rare half of the old page header, folded into the session sheet. */
+	/**
+	 * The rare half of the old page header, folded into the session sheet.
+	 *
+	 * Derived from `headerActions` rather than restated, so the sheet and the
+	 * gamepad chord menu can never drift apart. The composer draws the view
+	 * toggle and the kill as controls of their own, so those two come out.
+	 */
 	const sheetActions = $derived([
 		...(isClaudeSession
 			? [
@@ -342,13 +328,9 @@
 					}
 				]
 			: []),
-		...(isAlive
-			? [
-					{ label: 'Copy tmux command', icon: showCopied ? 'mdi:check' : 'mdi:content-copy', run: () => copyTmuxCmd() },
-					{ label: 'Fit screen', icon: 'mdi:fit-to-screen', run: () => handleResize() },
-					{ label: 'Refresh', icon: 'mdi:refresh', run: () => location.reload() }
-				]
-			: [])
+		...headerActions.filter(
+			(a) => !a.danger && a.label !== 'Terminal view' && a.label !== 'Transcript view'
+		)
 	]);
 	// Tap candidate: modifier keydown with no intervening key → arm on keyup
 	let ctrlTapCandidate = false;
@@ -785,7 +767,6 @@
 	}
 
 	async function acceptSuggestion() {
-		queuePopoverOpen = false;
 		await sendKeys('Tab Enter');
 	}
 
@@ -799,16 +780,11 @@
 		});
 		textInput = '';
 		clearAttachments();
-		queuePopoverOpen = false;
 		if (textareaElement) {
 			textareaElement.style.height = 'auto';
 		}
 	}
 
-	function handleSendContextMenu(e: MouseEvent) {
-		e.preventDefault();
-		queuePopoverOpen = true;
-	}
 
 	// ─── Attachments ────────────────────────────────────────────────────────
 
@@ -1011,6 +987,7 @@
 	}
 	const modArmed = $derived(ctrlCount > 0 || altCount > 0);
 
+
 	/** One line, and it never doubles: the most important thing right now. */
 	const statusSay = $derived.by(() => {
 		if (modArmed) {
@@ -1021,11 +998,12 @@
 			return `${mods.join(' + ')} armed`;
 		}
 		const state = currentSession?.state ?? 'idle';
-		if (state === 'permission') return 'needs permission';
-		if (state === 'waiting') return choice?.question ?? 'asked you something';
+		const label = sessionStateVisual(state).label.toLowerCase();
+		if (state === 'permission') return label;
+		if (state === 'waiting') return choice?.question ?? label;
 		const parts: string[] = [];
-		if (state === 'busy') parts.push(currentSession?.current_action || 'working');
-		else parts.push(statusText || state);
+		if (state === 'busy') parts.push(currentSession?.current_action || label);
+		else parts.push(statusText || label);
 		if (queueCount > 0) parts.push(`${queueCount} queued`);
 		return parts.filter(Boolean).join(' · ');
 	});
@@ -1639,7 +1617,7 @@
 			/>
 		{/if}
 
-			<div class="cx" class:wide={wideComposer}>
+			<div class="cx">
 				<ContextGauge context={transcriptStore.context}>
 					{#snippet notch()}
 						<VoiceMeter {target} />
@@ -1650,7 +1628,6 @@
 					open={trayOpen}
 					{ctrlCount}
 					{altCount}
-					wide={wideComposer}
 					onKeys={(keys) => void sendKeys(keys)}
 					onCycleCtrl={cycleCtrl}
 					onCycleAlt={cycleAlt}
@@ -1721,9 +1698,23 @@
 													</span>
 												{/if}
 												<span class="attach-item-name">{att.name}</span>
+												{#if att.status === 'uploading'}
+													<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
+												{:else if att.status === 'failed'}
+													<button
+														type="button"
+														class="attach-item-remove"
+														title="Retry"
+														aria-label={`Retry ${att.name}`}
+														onclick={() => retryAttachment(att.localId)}
+													>
+														<iconify-icon icon="mdi:refresh"></iconify-icon>
+													</button>
+												{/if}
 												<button
 													type="button"
 													class="attach-item-remove"
+													title="Remove"
 													aria-label={`Remove ${att.name}`}
 													onclick={() => removeAttachment(att.localId)}
 												>
@@ -2108,16 +2099,6 @@
 	}
 
 
-	:global(.attach-stack) {
-		position: relative;
-		flex-shrink: 0;
-		width: 48px;
-		height: 48px;
-		border: 0;
-		background: transparent;
-		padding: 0;
-		cursor: pointer;
-	}
 	.attach-list {
 		display: flex;
 		flex-direction: column;

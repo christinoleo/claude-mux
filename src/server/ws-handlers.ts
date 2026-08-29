@@ -17,6 +17,23 @@ import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js
 import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, stripAnsi } from '../tmux/pane.js';
 import type { PromptChoice } from '../tmux/pane.js';
+
+/**
+ * What the session poll reads off the pane itself and rides the broadcast —
+ * never written to the session JSON.
+ *
+ * Every field here also needs a line in `EnrichedSessionSchema`
+ * (`src/types/ws-messages.ts`), or Zod strips it on the way into the browser
+ * and the UI silently never sees it.
+ */
+type LivePaneFields = {
+	pane_title: string | null;
+	pane_alive: boolean;
+	draft_input: string | null;
+	draft_kind: 'typed' | 'suggestion' | null;
+	pane_queue: string[];
+	pane_choice: PromptChoice;
+};
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
@@ -251,16 +268,7 @@ async function captureAndSyncSessions(): Promise<{
  * Async version of getEnrichedSessions. Uses batched tmux calls
  * and concurrent interruption checks to avoid blocking the event loop.
  */
-export async function getEnrichedSessionsAsync(): Promise<
-	(Session & {
-		pane_title: string | null;
-		pane_alive: boolean;
-		draft_input: string | null;
-		draft_kind: 'typed' | 'suggestion' | null;
-		pane_queue: string[];
-		pane_choice: PromptChoice;
-	})[]
-> {
+export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFields)[]> {
 	const [{ captures, rawCaptures, sessions }, paneTitles] = await Promise.all([
 		captureAndSyncSessions(),
 		getAllPaneTitles()
@@ -286,17 +294,12 @@ export async function getEnrichedSessionsAsync(): Promise<
 	const enrichedSessions = sessions.map((s) => {
 		const paneTitle = s.tmux_target ? (paneTitles.get(s.tmux_target) ?? null) : null;
 		const raw = s.tmux_target ? rawCaptures.get(s.tmux_target) : undefined;
+		// Stripped once per tick by the caller; the option reader needs no colour.
+		const stripped = s.tmux_target ? captures.get(s.tmux_target) : undefined;
 		// Live only: what sits in the prompt box right now, so the transcript
 		// view can show it without the terminal mirror.
 		const box = raw ? readPromptBox(raw) : null;
-		const enriched: Session & {
-			pane_title: string | null;
-			pane_alive: boolean;
-			draft_input: string | null;
-			draft_kind: 'typed' | 'suggestion' | null;
-			pane_queue: string[];
-			pane_choice: PromptChoice;
-		} = {
+		const enriched: Session & LivePaneFields = {
 			...s,
 			pane_title: paneTitle,
 			pane_alive: s.tmux_target ? paneTitles.has(s.tmux_target) : true,
@@ -307,7 +310,12 @@ export async function getEnrichedSessionsAsync(): Promise<
 			pane_queue: raw ? readQueuedMessages(raw) : [],
 			// The dialog's own numbered rows, so the composer can offer them as
 			// answers instead of making you drive arrows at a screen you can't see.
-			pane_choice: raw ? readPromptOptions(raw) : null,
+			// Gated on the state the hooks report, which is the same gate the UI
+			// applies — parsing it for an idle pane is work nothing can read.
+			pane_choice:
+				stripped && (s.state === 'waiting' || s.state === 'permission')
+					? readPromptOptions(stripped)
+					: null,
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {

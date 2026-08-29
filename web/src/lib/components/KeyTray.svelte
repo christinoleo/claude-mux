@@ -15,8 +15,6 @@
 		open: boolean;
 		ctrlCount: number;
 		altCount: number;
-		/** Wide enough for the chords column beside the cluster. */
-		wide?: boolean;
 		onKeys: (keys: string) => void;
 		onCycleCtrl: () => void;
 		onCycleAlt: () => void;
@@ -32,7 +30,6 @@
 		open,
 		ctrlCount,
 		altCount,
-		wide = false,
 		onKeys,
 		onCycleCtrl,
 		onCycleAlt,
@@ -62,6 +59,19 @@
 		holdTimer = null;
 		repeatTimer = null;
 	}
+
+	// Pointer capture can end without an up or a leave — and the tray itself is
+	// removed by Ctrl+. or by leaving the session — so the timers need a
+	// teardown that does not depend on the pointer reaching a handler.
+	$effect(() => stopRepeat);
+
+	/** The cluster, in the order a keyboard draws it. */
+	const ARROWS: { keys: string; cls: string; icon: string; label: string }[] = [
+		{ keys: 'Up', cls: 'k-up', icon: 'mdi:arrow-up', label: 'Up' },
+		{ keys: 'Left', cls: 'k-left', icon: 'mdi:arrow-left', label: 'Left' },
+		{ keys: 'Down', cls: 'k-down', icon: 'mdi:arrow-down', label: 'Down' },
+		{ keys: 'Right', cls: 'k-right', icon: 'mdi:arrow-right', label: 'Right' }
+	];
 
 	const CHORDS = ['C-c', 'C-l', 'C-r', 'C-u', 'C-w'];
 
@@ -100,50 +110,20 @@
 			<button type="button" class="k k-pgup" onclick={() => onKeys('PageUp')}>pgup</button>
 			<button type="button" class="k k-pgdn" onclick={() => onKeys('PageDown')}>pgdn</button>
 
-			<button
-				type="button"
-				class="k k-up"
-				aria-label="Up"
-				onclick={() => onKeys('Up')}
-				onpointerdown={() => startRepeat('Up')}
-				onpointerup={stopRepeat}
-				onpointerleave={stopRepeat}
-			>
-				<iconify-icon icon="mdi:arrow-up"></iconify-icon>
-			</button>
-			<button
-				type="button"
-				class="k k-left"
-				aria-label="Left"
-				onclick={() => onKeys('Left')}
-				onpointerdown={() => startRepeat('Left')}
-				onpointerup={stopRepeat}
-				onpointerleave={stopRepeat}
-			>
-				<iconify-icon icon="mdi:arrow-left"></iconify-icon>
-			</button>
-			<button
-				type="button"
-				class="k k-down"
-				aria-label="Down"
-				onclick={() => onKeys('Down')}
-				onpointerdown={() => startRepeat('Down')}
-				onpointerup={stopRepeat}
-				onpointerleave={stopRepeat}
-			>
-				<iconify-icon icon="mdi:arrow-down"></iconify-icon>
-			</button>
-			<button
-				type="button"
-				class="k k-right"
-				aria-label="Right"
-				onclick={() => onKeys('Right')}
-				onpointerdown={() => startRepeat('Right')}
-				onpointerup={stopRepeat}
-				onpointerleave={stopRepeat}
-			>
-				<iconify-icon icon="mdi:arrow-right"></iconify-icon>
-			</button>
+			{#each ARROWS as arrow (arrow.keys)}
+				<button
+					type="button"
+					class="k {arrow.cls}"
+					aria-label={arrow.label}
+					onclick={() => onKeys(arrow.keys)}
+					onpointerdown={() => startRepeat(arrow.keys)}
+					onpointerup={stopRepeat}
+					onpointerleave={stopRepeat}
+					onpointercancel={stopRepeat}
+				>
+					<iconify-icon icon={arrow.icon}></iconify-icon>
+				</button>
+			{/each}
 
 			<button type="button" class="k wide k-a" onclick={onPutInPrompt}>
 				<iconify-icon icon="mdi:tray-arrow-up"></iconify-icon>Put in prompt
@@ -164,7 +144,6 @@
 				<button type="button" class="k" onclick={onClearPrompt}>clear</button>
 			</div>
 
-			{#if wide}
 			<div class="chords">
 				<span class="cap">chords</span>
 				<div class="crow">
@@ -178,7 +157,6 @@
 					<button type="button" class="k" onclick={() => onKeys('End')}>end</button>
 				</div>
 			</div>
-			{/if}
 		</div>
 	</div>
 {/if}
@@ -188,6 +166,10 @@
 	   the only lit things in it. */
 	.tray {
 		position: relative;
+		/* The chords column answers to how wide the tray actually is. The
+		   viewport is the wrong question: a resizable sidebar sits between the
+		   window's edge and this card. */
+		container-type: inline-size;
 		background: #08080a;
 		border-radius: 15px 15px 0 0;
 		border-bottom: 1px solid #202023;
@@ -309,13 +291,9 @@
 		gap: 4px;
 		flex-wrap: wrap;
 	}
-	.extras .k {
-		width: auto;
-		height: 30px;
-		min-width: 44px;
-	}
+
 	.chords {
-		display: flex;
+		display: none;
 		flex-direction: column;
 		gap: 5px;
 		padding-top: 3px;
@@ -336,6 +314,14 @@
 		gap: 4px;
 		flex-wrap: wrap;
 	}
+	/* 364px of key grid, a 14px gap and the side column's 220px floor. */
+	@container (min-width: 620px) {
+		.chords {
+			display: flex;
+		}
+	}
+
+	.extras .k,
 	.chords .k {
 		width: auto;
 		height: 30px;

@@ -32,7 +32,7 @@ export const SEVERITY: Record<Severity, SeverityStyle> = {
  */
 export type SeverityScale = 'panel' | 'edge';
 
-const THRESHOLDS: Record<SeverityScale, { warning: number; critical: number }> = {
+export const THRESHOLDS: Record<SeverityScale, { warning: number; critical: number }> = {
 	panel: { warning: 70, critical: 90 },
 	edge: { warning: 80, critical: 95 }
 };

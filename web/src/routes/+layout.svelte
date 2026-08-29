@@ -291,9 +291,6 @@
 		position: relative;
 	}
 
-	.hamburger {
-		display: none;
-	}
 
 	.backdrop {
 		display: none;
@@ -332,28 +329,7 @@
 			display: none;
 		}
 
-		.hamburger {
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			position: absolute;
-			top: 4px;
-			left: 6px;
-			z-index: 50;
-			width: 32px;
-			height: 32px;
-			padding: 0;
-			background: hsl(var(--secondary));
-			border: none;
-			border-radius: 6px;
-			color: hsl(var(--foreground));
-			cursor: pointer;
-			font-size: 20px;
-		}
 
-		.hamburger:hover {
-			background: hsl(var(--accent));
-		}
 
 		.backdrop {
 			display: block;

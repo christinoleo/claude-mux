@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { clickOutside } from '$lib/actions/clickOutside';
 	import { compact } from '$lib/format';
-	import { edgeColor } from '$lib/severity';
+	import { edgeColor, THRESHOLDS } from '$lib/severity';
 	import { contextPercent, type ContextUsage } from '../../../../src/transcript/context.js';
 
 	interface Props {
@@ -24,8 +24,12 @@
 	const left100 = $derived(used === null ? null : Math.max(0, 100 - used));
 	const color = $derived(edgeColor(used ?? 0));
 
-	/** Where the rail turns amber, and roughly where Claude starts compacting. */
-	const COMPACT_AT = 80;
+	/**
+	 * Where the rail turns amber, and roughly where Claude starts compacting.
+	 * Read from the edge scale so the mark, the note and the rail's own colour
+	 * can never disagree about the number.
+	 */
+	const COMPACT_AT = THRESHOLDS.edge.warning;
 
 	/**
 	 * The rail is one path: it turns the card's top corners and arcs over the
@@ -132,11 +136,9 @@
 			{#if context && context.window && used !== null}
 				<!-- the rail, unrolled: the popover shows the proportion it was
 				     opened to explain, rather than restating it as a word -->
-				<div class="meter-wrap">
-					<div class="meter">
-						<div class="meter-fill" style="width: {Math.min(100, used)}%; background: {color}"></div>
-						<div class="meter-mark" style="left: {COMPACT_AT}%"></div>
-					</div>
+				<div class="meter">
+					<div class="meter-fill" style="width: {Math.min(100, used)}%; background: {color}"></div>
+					<div class="meter-mark" style="left: {COMPACT_AT}%"></div>
 				</div>
 				<div class="ends">
 					<span>{compact(context.tokens)} used</span>
@@ -314,9 +316,6 @@
 
 	/* Figures sit under the end of the bar they describe, so the bar reads as
 	   the sentence and these are only its endpoints. */
-	.meter-wrap {
-		position: relative;
-	}
 	.ends {
 		display: flex;
 		justify-content: space-between;

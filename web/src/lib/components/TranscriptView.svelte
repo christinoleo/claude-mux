@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Marked } from 'marked';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
-	import { keysForAnswer } from '../../../../src/tmux/answer-keys';
+	import { keysForAnswer } from '$shared/tmux/answer-keys.js';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';

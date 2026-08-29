@@ -11,6 +11,8 @@
 	 */
 	import { clickOutside } from '$lib/actions/clickOutside';
 	import SessionStateIndicator from './SessionStateIndicator.svelte';
+	import { sessionStateVisual } from '$shared/session-state.js';
+	import type { ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import {
 		sessionStore,
 		getSessionDisplayName,
@@ -18,17 +20,11 @@
 	} from '$lib/stores/sessions.svelte';
 	import { goto } from '$app/navigation';
 
-	interface Action {
-		label: string;
-		icon: string;
-		run: () => void;
-	}
-
 	interface Props {
 		open: boolean;
 		/** The session this composer belongs to, so it can mark itself current. */
 		currentTarget: string | null;
-		actions: Action[];
+		actions: ChordAction[];
 		onKill: () => void;
 		onClose: () => void;
 	}
@@ -39,7 +35,6 @@
 	const siblings = $derived(
 		sessionStore.sessions
 			.filter((s: Session) => s.pane_alive !== false && s.tmux_target)
-			.slice()
 			.sort((a: Session, b: Session) =>
 				a.tmux_target === currentTarget ? -1 : b.tmux_target === currentTarget ? 1 : 0
 			)
@@ -69,7 +64,7 @@
 			>
 				<SessionStateIndicator state={session.state} size="sm" />
 				<span class="name">{getSessionDisplayName(session)}</span>
-				<span class="sub">{session.state}</span>
+				<span class="sub">{sessionStateVisual(session.state).label}</span>
 			</button>
 		{/each}
 
