@@ -71,6 +71,13 @@
 
 	/** Only the newest unanswered dialog can be driven — older cards are history. */
 	const canAnswer = $derived(sessionState === 'waiting' && onSendKeys != null);
+
+	/**
+	 * A message queued in the pane only waits on the turn in flight, so the row
+	 * offers the one key that ends it. Busy only: with nothing running, Escape
+	 * would clear the pane's input rather than hand the message over.
+	 */
+	const canInterrupt = $derived(sessionState === 'busy' && onSendKeys != null);
 	const liveAskId = $derived(
 		canAnswer
 			? (entries.findLast((e) => e.kind === 'ask' && !e.answers && !e.rejected)?.id ?? null)
@@ -520,6 +527,16 @@
 				<iconify-icon icon="mdi:clock-outline"></iconify-icon>
 				queued
 			</span>
+			{#if canInterrupt}
+				<button
+					class="jump-queue"
+					onclick={() => onSendKeys?.('Escape')}
+					title="Interrupt the current turn so Claude picks this up now"
+				>
+					<iconify-icon icon="mdi:debug-step-over"></iconify-icon>
+					now
+				</button>
+			{/if}
 		</div>
 	{/each}
 </div>
@@ -672,6 +689,32 @@
 	.time iconify-icon {
 		font-size: 12px;
 		vertical-align: -2px;
+	}
+
+	/* Hands the queued message to Claude by ending the turn it is waiting on. */
+	.jump-queue {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 2px 7px;
+		border: 1px solid #46351c;
+		border-radius: 5px;
+		background: transparent;
+		color: #8a7a55;
+		font-family: var(--mono);
+		font-size: 10px;
+		cursor: pointer;
+	}
+
+	.jump-queue:hover {
+		border-color: #7c5e2a;
+		background: #241d12;
+		color: #fbbf24;
+	}
+
+	.jump-queue iconify-icon {
+		font-size: 12px;
 	}
 
 	/* Cross-session (A2A) message: same anchor shape as a human turn, cool

@@ -20,17 +20,20 @@ export interface SessionStateVisual {
   color: string;
   /** Ink colour name for the TUI, which has no truecolor guarantee. */
   ink: string;
+  /** Browser-tab prefix: the state has to survive being one glyph wide. */
+  emoji: string;
   /** Dots only: animate to say "something is happening right now". */
   pulse: boolean;
   label: string;
 }
 
 export const SESSION_STATE_VISUALS: Record<IndicatorState, SessionStateVisual> = {
-  busy: { icon: null, color: "#34d399", ink: "green", pulse: true, label: "Working" },
+  busy: { icon: null, color: "#34d399", ink: "green", emoji: "🟢", pulse: true, label: "Working" },
   permission: {
     icon: "mdi:shield-alert-outline",
     color: "#fbbf24",
     ink: "yellow",
+    emoji: "🛡️",
     pulse: false,
     label: "Needs permission",
   },
@@ -38,13 +41,14 @@ export const SESSION_STATE_VISUALS: Record<IndicatorState, SessionStateVisual> =
     icon: "mdi:chat-question-outline",
     color: "#fbbf24",
     ink: "yellow",
+    emoji: "❓",
     pulse: false,
     label: "Waiting for you",
   },
   // Idle recedes on purpose: amber is reserved for the states that want a human.
-  idle: { icon: null, color: "#78716c", ink: "gray", pulse: false, label: "Idle" },
-  dead: { icon: null, color: "#555", ink: "gray", pulse: false, label: "Pane closed" },
-  plain: { icon: null, color: "#888", ink: "gray", pulse: false, label: "Terminal pane" },
+  idle: { icon: null, color: "#78716c", ink: "gray", emoji: "💤", pulse: false, label: "Idle" },
+  dead: { icon: null, color: "#555", ink: "gray", emoji: "⚫", pulse: false, label: "Pane closed" },
+  plain: { icon: null, color: "#888", ink: "gray", emoji: "🖥️", pulse: false, label: "Terminal pane" },
 };
 
 export function sessionStateVisual(state: IndicatorState): SessionStateVisual {

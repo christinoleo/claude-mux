@@ -63,6 +63,13 @@
 	const indicatorState = $derived<IndicatorState>(
 		paneIsDead ? 'dead' : isPlainPane ? 'plain' : (currentSession?.state ?? 'idle')
 	);
+	// Browser tab: the state emoji rides in front of the name, so a background
+	// tab says whether the session wants a human without being opened.
+	const pageTitle = $derived(
+		`${sessionStateVisual(indicatorState).emoji} ${
+			currentSession ? getSessionDisplayName(currentSession) : (target || 'Session')
+		}`
+	);
 	// Inline status next to the title. Skip bare states (idle/busy/etc.)
 	// since the state symbol + color already convey them; only show when
 	// there's information the symbol can't carry.
@@ -269,6 +276,7 @@
 	 * will not hand back however hard the page asks.
 	 */
 	function handleGlobalKeys(e: KeyboardEvent) {
+		if (handleChooserKeys(e)) return;
 		if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
 		const key = e.key.toLowerCase();
 		if (key === 'k') {
@@ -293,6 +301,33 @@
 	const choice = $derived(
 		wantsKeypress && !hasDraft ? (currentSession?.pane_choice ?? null) : null
 	);
+
+	/**
+	 * Answer the dialog from the keyboard while the chooser stands in for the
+	 * composer.
+	 *
+	 * The field is not rendered then, so nothing else is listening: Enter takes
+	 * the row the pane has highlighted, Escape declines, and the arrows walk the
+	 * highlight — the same four keys the dialog answers to in the terminal.
+	 * Returns whether the key was spent here.
+	 */
+	function handleChooserKeys(e: KeyboardEvent): boolean {
+		if (!choice || commandsOpen || trayOpen) return false;
+		if (e.ctrlKey || e.metaKey || e.altKey) return false;
+		const el = e.target as HTMLElement | null;
+		if (el?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el?.tagName ?? '')) return false;
+		const keys: Record<string, string> = {
+			Enter: 'Enter',
+			Escape: 'Escape',
+			ArrowUp: 'Up',
+			ArrowDown: 'Down'
+		};
+		const key = keys[e.key];
+		if (!key) return false;
+		e.preventDefault();
+		void sendKeys(key);
+		return true;
+	}
 
 	/**
 	 * Move Claude Code's own highlight to the row you tapped, then submit.
@@ -1402,7 +1437,7 @@
 <svelte:window onkeydown={handleGlobalKeys} />
 
 <svelte:head>
-	<title>{currentSession ? getSessionDisplayName(currentSession) : (target || 'Session')}</title>
+	<title>{pageTitle}</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 	<link rel="preconnect" href="https://fonts.googleapis.com" />
 	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
@@ -1699,6 +1734,7 @@
 											<iconify-icon icon="mdi:check-all"></iconify-icon>Done — review and submit
 										</button>
 									{/if}
+									<p class="optkeys">↑↓ move · Enter confirm · Esc cancel</p>
 								</div>
 							{:else}
 								{#if hasAttachments}
@@ -1829,11 +1865,19 @@
 									</div>
 								</Popover.Content>
 							</Popover.Root>
+							{#if !isBusy}
+								<Hint
+									icon="mdi:keyboard-esc"
+									label="Escape"
+									class="cx-g esc-key"
+									onclick={() => void sendKeys('Escape')}
+								/>
+							{/if}
 							<Hint
 								icon="mdi:keyboard-outline"
 								label={trayOpen ? 'Hide keys' : 'Show keys'}
 								keys={MOD_LABEL + ' .'}
-								class="cx-g{trayOpen ? ' lit' : ''}{wantsKeypress || modArmed ? ' warn' : ''}"
+								class="cx-g kb-toggle{trayOpen ? ' lit' : ''}{wantsKeypress || modArmed ? ' warn' : ''}"
 								onclick={() => (trayOpen = !trayOpen)}
 							/>
 
@@ -2273,7 +2317,10 @@
 		display: flex;
 		align-items: center;
 		gap: 7px;
-		height: 22px;
+		/* The row is as tall as its tallest control, not as tall as its text:
+		   the buttons on the right are what a person aims at, and a 22px row
+		   caps them below the size a pointer can reliably land on. */
+		min-height: 28px;
 		/* clears the context rail's 10px hit band, so the two rows never
 		   compete for the same click */
 		padding: 9px 8px 0 12px;
@@ -2327,9 +2374,12 @@
 		flex: 1;
 		min-width: 8px;
 	}
+	/* 24×22 with the context rail's own hit band directly above is a target you
+	   aim at rather than one you hit — a miss high lands on the gauge. The
+	   glyph keeps its size; the button grows around it. */
 	.sl :global(.mini) {
-		width: 24px;
-		height: 22px;
+		width: 30px;
+		height: 28px;
 		border: 0;
 		border-radius: 6px;
 		background: none;
@@ -2345,6 +2395,24 @@
 		background: #202022;
 		color: #f5f5f4;
 	}
+	/* A finger is not a cursor: it has no point to aim with and it covers the
+	   thing it is pressing. Where the pointer is coarse the row gives these
+	   controls the size a thumb actually lands on. */
+	@media (pointer: coarse) {
+		.sl {
+			min-height: 40px;
+			gap: 4px;
+		}
+		.sl :global(.mini) {
+			width: 40px;
+			height: 40px;
+		}
+		.cx :global(.cx-g) {
+			min-width: 40px;
+			height: 40px;
+		}
+	}
+
 	/* The sidebar is always on screen once there is room for it. */
 	@media (min-width: 769px) {
 		/* `.sl .mini` sets display, so this has to match its specificity. */
@@ -2529,6 +2597,14 @@
 	.optdone:hover {
 		background: #244433;
 	}
+	/* The chooser replaces the field, so the keys it answers to are named where
+	   the field's own hints would sit. */
+	.optkeys {
+		margin: 4px 0 0;
+		color: #6b6b70;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+	}
 	.optrow:hover {
 		background: #1e1e21;
 		color: #f5f5f4;
@@ -2585,6 +2661,29 @@
 	}
 	.cx :global(.cx-g.warn) {
 		color: #fbbf24;
+	}
+
+	/* A desktop keyboard has Escape, but the field it is typed into keeps it,
+	   so the row carries the key itself. Only there: a phone reaches Escape
+	   through the keys tray, and the row has no width to spare for it. */
+	.cx :global(.esc-key) {
+		display: none;
+	}
+	@media (min-width: 769px) {
+		.cx :global(.esc-key) {
+			display: inline-flex;
+		}
+		/* The keys toggle belongs with the usage bars on a wide row — the left
+		   of the row is where the things you reach for while typing live. */
+		.foot-sp {
+			order: 1;
+		}
+		.cx :global(.kb-toggle) {
+			order: 2;
+		}
+		.foot :global(.usage) {
+			order: 3;
+		}
 	}
 
 	/* While Claude works, Escape is the only key that matters, so it stops
