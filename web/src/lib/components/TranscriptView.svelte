@@ -11,6 +11,7 @@
 	let {
 		entries,
 		available,
+		loaded,
 		sessionState = null,
 		currentAction = null,
 		queueCount = 0,
@@ -21,6 +22,8 @@
 	}: {
 		entries: TranscriptEntry[];
 		available: boolean;
+		/** False while the first snapshot is still in flight. */
+		loaded: boolean;
 		/** Live session state from the hooks (real-time, unlike the JSONL which lags). */
 		sessionState?: 'busy' | 'idle' | 'waiting' | 'permission' | null;
 		currentAction?: string | null;
@@ -41,20 +44,26 @@
 	let askProgress = $state<Record<string, number>>({});
 
 	/** Only the newest unanswered dialog can be driven — older cards are history. */
-	const liveAskId = $derived(
-		entries.findLast((e) => e.kind === 'ask' && !e.answers && !e.rejected)?.id ?? null
-	);
 	const canAnswer = $derived(sessionState === 'waiting' && onSendKeys != null);
+	const liveAskId = $derived(
+		canAnswer
+			? (entries.findLast((e) => e.kind === 'ask' && !e.answers && !e.rejected)?.id ?? null)
+			: null
+	);
 
 	/**
 	 * A message claude-mux queued and has already pasted into the pane appears in
 	 * both queues. The transcript entry is the richer record, so drop the echo.
 	 */
 	const pendingInPane = $derived(
-		paneQueue.filter(
-			(text) =>
-				!entries.some((e) => e.kind === 'queued' && !e.delivered && e.text.trim() === text.trim())
-		)
+		paneQueue.length === 0
+			? []
+			: paneQueue.filter(
+					(text) =>
+						!entries.some(
+							(e) => e.kind === 'queued' && !e.delivered && e.text.trim() === text.trim()
+						)
+				)
 	);
 
 	function askActive(entryId: string, qIndex: number): boolean {
@@ -178,7 +187,12 @@
 </script>
 
 <div class="transcript">
-	{#if !available && entries.length === 0}
+	{#if !loaded}
+		<div class="empty">
+			<iconify-icon class="spin" icon="mdi:loading" style="font-size: 32px;"></iconify-icon>
+			<p>Loading transcript…</p>
+		</div>
+	{:else if !available}
 		<div class="empty">
 			<iconify-icon icon="mdi:text-box-search-outline" style="font-size: 32px;"></iconify-icon>
 			<p>No transcript for this session yet.</p>

@@ -1385,6 +1385,7 @@
 					<TranscriptView
 						entries={transcriptStore.entries}
 						available={transcriptStore.available}
+						loaded={transcriptStore.receivedData}
 						sessionState={currentSession?.state ?? null}
 						currentAction={currentSession?.current_action ?? null}
 						{queueCount}

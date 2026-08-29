@@ -30,6 +30,14 @@ const DEFAULT_CONFIG: Required<WebSocketConfig> = {
  */
 export abstract class ReliableWebSocket {
 	connected = $state(false);
+	/**
+	 * True once any data message has arrived on the current subscription — the
+	 * difference between "nothing yet, still asking" and "asked, and the answer
+	 * is empty". Stays true across a reconnect (the server re-sends its
+	 * snapshot) so views don't flash a loading state on every network blip;
+	 * subclasses that switch targets clear it with `resetReceived()`.
+	 */
+	receivedData = $state(false);
 
 	protected ws: WebSocket | null = null;
 	private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -88,6 +96,7 @@ export abstract class ReliableWebSocket {
 				this.lastPong = Date.now();
 				return;
 			}
+			this.receivedData = true;
 			this.handleMessage(event);
 		};
 
@@ -127,6 +136,11 @@ export abstract class ReliableWebSocket {
 			}
 			this.ws = null;
 		}
+	}
+
+	/** Clears `receivedData` — call when switching to a different target. */
+	protected resetReceived(): void {
+		this.receivedData = false;
 	}
 
 	/** Force reconnection (resets backoff) */

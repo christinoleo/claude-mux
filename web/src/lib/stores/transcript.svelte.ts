@@ -150,6 +150,7 @@ class TranscriptStore extends ReliableWebSocket {
 		this.context = null;
 		this.available = false;
 		this.appended = 0;
+		this.resetReceived();
 		this.indexById = new Map();
 		this.sessionId = next;
 
