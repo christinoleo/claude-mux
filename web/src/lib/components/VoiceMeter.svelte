@@ -4,9 +4,16 @@
 
 	interface Props {
 		target: string | null;
+		/**
+		 * Stop the take and submit what it transcribes. The composer's action
+		 * button already does this, but the panel is where the eye is during a
+		 * recording, so it carries the same verb rather than sending the thumb
+		 * back down for it.
+		 */
+		onConfirm?: () => void;
 	}
 
-	let { target }: Props = $props();
+	let { target, onConfirm }: Props = $props();
 
 	const BARS = 12;
 
@@ -55,13 +62,24 @@
 		</span>
 		<button
 			type="button"
-			class="drop"
+			class="btn drop"
 			aria-label="Discard recording"
 			title="Discard recording / transcription"
 			onclick={() => void voiceStore.cancel()}
 		>
 			<iconify-icon icon="mdi:close"></iconify-icon>
 		</button>
+		{#if status === 'recording' && onConfirm}
+			<button
+				type="button"
+				class="btn keep"
+				aria-label="Stop and send"
+				title="Stop recording and send the transcript"
+				onclick={onConfirm}
+			>
+				<iconify-icon icon="mdi:check"></iconify-icon>
+			</button>
+		{/if}
 	</div>
 {/if}
 
@@ -73,11 +91,11 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		height: 32px;
-		padding: 0 4px 0 10px;
+		height: 44px;
+		padding: 0 5px 0 12px;
 		background: #1a1a1a;
 		border: 1px solid #333;
-		border-radius: 16px;
+		border-radius: 22px;
 		white-space: nowrap;
 		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
 	}
@@ -114,20 +132,31 @@
 		color: #a8a29e;
 	}
 
-	.drop {
+	/* Both verbs are the same key, sized for a thumb rather than a cursor —
+	   the panel is read at arm's length on a phone, mid-sentence. */
+	.btn {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 24px;
-		height: 24px;
+		width: 34px;
+		height: 34px;
 		border-radius: 50%;
 		border: 0;
 		background: transparent;
-		color: #fca5a5;
-		font-size: 15px;
+		font-size: 20px;
 		cursor: pointer;
+		touch-action: manipulation;
+	}
+	.drop {
+		color: #fca5a5;
 	}
 	.drop:hover {
 		background: rgba(220, 38, 38, 0.18);
+	}
+	.keep {
+		color: #34d399;
+	}
+	.keep:hover {
+		background: rgba(22, 163, 74, 0.2);
 	}
 </style>

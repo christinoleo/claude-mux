@@ -86,78 +86,81 @@
 
 {#if open}
 	<div class="tray" class:armed>
-		<div class="keys">
-			<button
-				type="button"
-				class="k"
-				class:on={ctrlCount > 0}
-				onclick={onCycleCtrl}
-				title="Arm Ctrl — the next Enter sends your line as a Ctrl sequence"
-			>
-				ctrl
-			</button>
-			<button
-				type="button"
-				class="k"
-				class:on={altCount > 0}
-				onclick={onCycleAlt}
-				title="Arm Alt — the next Enter sends your line as a Meta sequence"
-			>
-				alt
-			</button>
-			<button type="button" class="k" onclick={() => onKeys('Escape')}>esc</button>
-			<button type="button" class="k" onclick={() => onKeys('Tab')}>tab</button>
-			<button type="button" class="k k-pgup" onclick={() => onKeys('PageUp')}>pgup</button>
-			<button type="button" class="k k-pgdn" onclick={() => onKeys('PageDown')}>pgdn</button>
-
-			{#each ARROWS as arrow (arrow.keys)}
+		<div class="tray-body">
+			<div class="keys">
 				<button
 					type="button"
-					class="k {arrow.cls}"
-					aria-label={arrow.label}
-					onclick={() => onKeys(arrow.keys)}
-					onpointerdown={() => startRepeat(arrow.keys)}
-					onpointerup={stopRepeat}
-					onpointerleave={stopRepeat}
-					onpointercancel={stopRepeat}
+					class="k"
+					class:on={ctrlCount > 0}
+					onclick={onCycleCtrl}
+					title="Arm Ctrl — the next Enter sends your line as a Ctrl sequence"
 				>
-					<iconify-icon icon={arrow.icon}></iconify-icon>
+					ctrl
 				</button>
-			{/each}
+				<button
+					type="button"
+					class="k"
+					class:on={altCount > 0}
+					onclick={onCycleAlt}
+					title="Arm Alt — the next Enter sends your line as a Meta sequence"
+				>
+					alt
+				</button>
+				<button type="button" class="k" onclick={() => onKeys('Escape')}>esc</button>
+				<button type="button" class="k" onclick={() => onKeys('Tab')}>tab</button>
+				<button type="button" class="k k-pgup" onclick={() => onKeys('PageUp')}>pgup</button>
+				<button type="button" class="k k-pgdn" onclick={() => onKeys('PageDown')}>pgdn</button>
 
-			<button type="button" class="k wide k-a" onclick={onPutInPrompt}>
-				<iconify-icon icon="mdi:tray-arrow-up"></iconify-icon>Put in prompt
-			</button>
-			<button type="button" class="k wide k-b" onclick={onAcceptSuggestion}>
-				<iconify-icon icon="mdi:star-four-points-outline"></iconify-icon>Accept suggestion
-			</button>
-			<button type="button" class="k k-ent" aria-label="Enter" onclick={() => onKeys('Enter')}>
-				<iconify-icon icon="mdi:keyboard-return"></iconify-icon>
-			</button>
-		</div>
-
-		<div class="side">
-			<div class="extras">
-				{#each EXTRAS as extra (extra.label)}
-					<button type="button" class="k" onclick={() => onKeys(extra.keys)}>{extra.label}</button>
+				{#each ARROWS as arrow (arrow.keys)}
+					<button
+						type="button"
+						class="k {arrow.cls}"
+						aria-label={arrow.label}
+						onclick={() => onKeys(arrow.keys)}
+						onpointerdown={() => startRepeat(arrow.keys)}
+						onpointerup={stopRepeat}
+						onpointerleave={stopRepeat}
+						onpointercancel={stopRepeat}
+					>
+						<iconify-icon icon={arrow.icon}></iconify-icon>
+					</button>
 				{/each}
-				<button type="button" class="k" onclick={onClearPrompt}>clear</button>
+
+				<button type="button" class="k wide k-a" onclick={onPutInPrompt}>
+					<iconify-icon icon="mdi:tray-arrow-up"></iconify-icon>Put in prompt
+				</button>
+				<button type="button" class="k wide k-b" onclick={onAcceptSuggestion}>
+					<iconify-icon icon="mdi:star-four-points-outline"></iconify-icon>Accept suggestion
+				</button>
 			</div>
 
-			<div class="chords">
-				<span class="cap">chords</span>
-				<div class="crow">
-					{#each CHORDS as chord (chord)}
-						<button type="button" class="k" onclick={() => onKeys(chord)}>{chord}</button>
+			<div class="side">
+				<div class="extras">
+					{#each EXTRAS as extra (extra.label)}
+						<button type="button" class="k" onclick={() => onKeys(extra.keys)}>{extra.label}</button>
 					{/each}
+					<button type="button" class="k" onclick={onClearPrompt}>clear</button>
 				</div>
-				<span class="cap cap-gap">jump</span>
-				<div class="crow">
-					<button type="button" class="k" onclick={() => onKeys('Home')}>home</button>
-					<button type="button" class="k" onclick={() => onKeys('End')}>end</button>
+
+				<div class="chords">
+					<span class="cap">chords</span>
+					<div class="crow">
+						{#each CHORDS as chord (chord)}
+							<button type="button" class="k" onclick={() => onKeys(chord)}>{chord}</button>
+						{/each}
+					</div>
+					<span class="cap cap-gap">jump</span>
+					<div class="crow">
+						<button type="button" class="k" onclick={() => onKeys('Home')}>home</button>
+						<button type="button" class="k" onclick={() => onKeys('End')}>end</button>
+					</div>
 				</div>
 			</div>
 		</div>
+
+		<button type="button" class="k k-ent" aria-label="Enter" onclick={() => onKeys('Enter')}>
+			<iconify-icon icon="mdi:keyboard-return"></iconify-icon>
+		</button>
 	</div>
 {/if}
 
@@ -176,6 +179,14 @@
 		box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.6);
 		padding: 12px 10px;
 		display: flex;
+		gap: 12px;
+		align-items: stretch;
+	}
+	/* Everything except Enter, which the tray keeps on its own right edge. */
+	.tray-body {
+		flex: 1;
+		min-width: 0;
+		display: flex;
 		flex-wrap: wrap;
 		gap: 12px 14px;
 		align-items: flex-start;
@@ -193,12 +204,15 @@
 		opacity: 0.65;
 	}
 
+	/* The grid holds its 42px unit wherever there is room for it, and gives the
+	   unit up rather than the layout on a phone too narrow for eight of them. */
 	.keys {
 		display: grid;
-		grid-template-columns: repeat(8, 42px);
+		grid-template-columns: repeat(8, minmax(0, 42px));
 		grid-auto-rows: 30px;
 		gap: 4px;
-		flex: none;
+		flex: 1 1 300px;
+		max-width: 364px;
 	}
 
 	.tray .k {
@@ -258,20 +272,30 @@
 		grid-area: 3 / 3;
 	}
 	.k-a {
-		grid-area: 2 / 4 / 3 / 8;
+		grid-area: 2 / 4 / 3 / 9;
 	}
 	.k-b {
-		grid-area: 3 / 4 / 4 / 8;
+		grid-area: 3 / 4 / 4 / 9;
 	}
-	/* Enter is marked by being twice as tall, the way a keyboard marks it —
-	   filling it would give the composer a second green thing. */
-	.k-ent {
-		grid-area: 2 / 8 / 4 / 9;
-		background: #2c2c31;
-		font-size: 16px;
+	/* Enter leaves the grid for the tray's own right edge, full height, in the
+	   green the composer already uses for submitting — so a thumb reaching for
+	   it aims at a corner rather than at one cell among forty, and finds the
+	   same green in the same corner whether the tray is open or shut. */
+	.tray .k-ent {
+		flex: none;
+		width: 54px;
+		height: auto;
+		align-self: stretch;
+		border-radius: 12px;
+		background: #15803d;
+		color: #f0fdf4;
 	}
 	.tray .k-ent:hover {
-		background: #37373d;
+		background: #16a34a;
+		color: #f0fdf4;
+	}
+	.tray .k-ent :global(iconify-icon) {
+		font-size: 22px;
 	}
 
 	/* Width goes to the keys the More popover used to hide, not to stretching

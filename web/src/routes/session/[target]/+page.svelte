@@ -1620,7 +1620,12 @@
 			<div class="cx">
 				<ContextGauge context={transcriptStore.context}>
 					{#snippet notch()}
-						<VoiceMeter {target} />
+						<VoiceMeter
+							{target}
+							onConfirm={async () => {
+								if (await finishVoiceIfRecording()) handleResize();
+							}}
+						/>
 					{/snippet}
 				</ContextGauge>
 
@@ -1638,195 +1643,205 @@
 
 				{@render statusLine()}
 
-				<!-- lane 1 — the middle: the field, or what replaces it -->
-				<div class="mid">
-					{#if slashOpen}
-						<div class="slash-popup">
-							<CommandList
-								bind:this={slashList}
-								cwd={currentSession?.cwd}
-								pinned={pinnedCommands}
-								query={slashQuery}
-								onselect={chooseSlash}
-							/>
+				<!-- The field and the footer share the width the rail leaves them. -->
+				<div class="body">
+					<div class="lanes">
+
+						<!-- lane 1 — the middle: the field, or what replaces it -->
+						<div class="mid">
+							{#if slashOpen}
+								<div class="slash-popup">
+									<CommandList
+										bind:this={slashList}
+										cwd={currentSession?.cwd}
+										pinned={pinnedCommands}
+										query={slashQuery}
+										onselect={chooseSlash}
+									/>
+								</div>
+							{/if}
+							{#if choice}
+								<div class="optlist">
+									{#if choice.question}<p class="question">{choice.question}</p>{/if}
+									{#each choice.options as option (option.n)}
+										<button
+											type="button"
+											class="optrow"
+											class:sel={option.selected}
+											onclick={() => void pickOption(option.n)}
+										>
+											<u>{option.n}</u>{option.label}
+										</button>
+									{/each}
+								</div>
+							{:else}
+								{#if hasAttachments}
+									<Popover.Root bind:open={attachStackOpen}>
+										<Popover.Trigger
+											class="tattach"
+											title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
+										>
+											<iconify-icon
+												icon={anyUploading ? 'mdi:loading' : 'mdi:paperclip'}
+												class={anyUploading ? 'attach-spin' : ''}
+											></iconify-icon>
+											<span class:attach-failed={anyFailed}>{attachments.length}</span>
+										</Popover.Trigger>
+										<Popover.Content
+											side="top"
+											align="start"
+											class="w-72 p-2 bg-[#1a1a1a] border-[#333]"
+										>
+											<div class="attach-list">
+												{#each attachments as att (att.localId)}
+													<div
+														class="attach-item"
+														class:attach-item-failed={att.status === 'failed'}
+														title={att.status === 'failed' ? `Upload failed: ${att.error}` : att.name}
+													>
+														{#if att.thumb}
+															<img class="attach-item-thumb" src={att.thumb} alt="" />
+														{:else}
+															<span class="attach-item-thumb attach-item-file">
+																<iconify-icon icon="mdi:file-outline"></iconify-icon>
+															</span>
+														{/if}
+														<span class="attach-item-name">{att.name}</span>
+														{#if att.status === 'uploading'}
+															<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
+														{:else if att.status === 'failed'}
+															<button
+																type="button"
+																class="attach-item-remove"
+																title="Retry"
+																aria-label={`Retry ${att.name}`}
+																onclick={() => retryAttachment(att.localId)}
+															>
+																<iconify-icon icon="mdi:refresh"></iconify-icon>
+															</button>
+														{/if}
+														<button
+															type="button"
+															class="attach-item-remove"
+															title="Remove"
+															aria-label={`Remove ${att.name}`}
+															onclick={() => removeAttachment(att.localId)}
+														>
+															<iconify-icon icon="mdi:close"></iconify-icon>
+														</button>
+													</div>
+												{/each}
+											</div>
+											{#if attachments.length > 1}
+												<button type="button" class="attach-clear" onclick={clearAttachments}>
+													Remove all
+												</button>
+											{/if}
+										</Popover.Content>
+									</Popover.Root>
+								{/if}
+								{@render composerField()}
+							{/if}
 						</div>
-					{/if}
-					{#if choice}
-						<div class="optlist">
-							{#if choice.question}<p class="question">{choice.question}</p>{/if}
-							{#each choice.options as option (option.n)}
+
+						<!-- lane 2 — the footer, whose left edge never moves -->
+						<div class="foot">
+							{#if hasSelection}
+								<button type="button" class="copy-sel" onclick={copySelection}>
+									<iconify-icon
+										icon={showSelectionCopied ? 'mdi:check' : 'mdi:content-copy'}
+									></iconify-icon>
+									{showSelectionCopied ? 'Copied' : 'Copy'}
+								</button>
+							{/if}
+							{#if isBusy}
 								<button
 									type="button"
-									class="optrow"
-									class:sel={option.selected}
-									onclick={() => void pickOption(option.n)}
+									class="interrupt"
+									onclick={() => void sendKeys('Escape')}
+									title="Interrupt what Claude is doing"
 								>
-									<u>{option.n}</u>{option.label}
+									<iconify-icon icon="mdi:stop"></iconify-icon>interrupt
 								</button>
-							{/each}
-						</div>
-					{:else}
-						{#if hasAttachments}
-							<Popover.Root bind:open={attachStackOpen}>
-								<Popover.Trigger
-									class="tattach"
-									title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
-								>
-									<iconify-icon
-										icon={anyUploading ? 'mdi:loading' : 'mdi:paperclip'}
-										class={anyUploading ? 'attach-spin' : ''}
-									></iconify-icon>
-									<span class:attach-failed={anyFailed}>{attachments.length}</span>
+							{/if}
+							<Popover.Root bind:open={attachPickerOpen}>
+								<Popover.Trigger class="cx-g" aria-label="Attach">
+									<iconify-icon icon="mdi:paperclip"></iconify-icon>
+								</Popover.Trigger>
+								{@render attachMenu()}
+							</Popover.Root>
+							<Hint
+								icon="mdi:slash-forward"
+								label="Commands"
+								keys={MOD_LABEL + ' K'}
+								class="cx-g"
+								onclick={() => (commandsOpen = true)}
+							/>
+							<Popover.Root bind:open={moreOpen}>
+								<Popover.Trigger class="cx-g" title="More keys">
+									<iconify-icon icon="mdi:dots-horizontal"></iconify-icon>
 								</Popover.Trigger>
 								<Popover.Content
 									side="top"
-									align="start"
-									class="w-72 p-2 bg-[#1a1a1a] border-[#333]"
+									class="w-auto max-w-[280px] p-2 bg-[#1a1a1a] border-[#333]"
 								>
-									<div class="attach-list">
-										{#each attachments as att (att.localId)}
-											<div
-												class="attach-item"
-												class:attach-item-failed={att.status === 'failed'}
-												title={att.status === 'failed' ? `Upload failed: ${att.error}` : att.name}
+									<div class="popover-grid">
+										{#each moreKeys as item (item.label)}
+											<Button
+												variant="secondary"
+												size="toolbar"
+												class="min-w-14 min-h-12"
+												onclick={() => {
+													sendKeys(item.keys);
+													moreOpen = false;
+												}}
 											>
-												{#if att.thumb}
-													<img class="attach-item-thumb" src={att.thumb} alt="" />
-												{:else}
-													<span class="attach-item-thumb attach-item-file">
-														<iconify-icon icon="mdi:file-outline"></iconify-icon>
-													</span>
-												{/if}
-												<span class="attach-item-name">{att.name}</span>
-												{#if att.status === 'uploading'}
-													<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
-												{:else if att.status === 'failed'}
-													<button
-														type="button"
-														class="attach-item-remove"
-														title="Retry"
-														aria-label={`Retry ${att.name}`}
-														onclick={() => retryAttachment(att.localId)}
-													>
-														<iconify-icon icon="mdi:refresh"></iconify-icon>
-													</button>
-												{/if}
-												<button
-													type="button"
-													class="attach-item-remove"
-													title="Remove"
-													aria-label={`Remove ${att.name}`}
-													onclick={() => removeAttachment(att.localId)}
-												>
-													<iconify-icon icon="mdi:close"></iconify-icon>
-												</button>
-											</div>
+												<iconify-icon icon={item.icon}></iconify-icon>
+												<span>{item.label}</span>
+											</Button>
 										{/each}
 									</div>
-									{#if attachments.length > 1}
-										<button type="button" class="attach-clear" onclick={clearAttachments}>
-											Remove all
-										</button>
-									{/if}
 								</Popover.Content>
 							</Popover.Root>
-						{/if}
-						{@render composerField()}
-					{/if}
-				</div>
+							<Hint
+								icon="mdi:keyboard-outline"
+								label={trayOpen ? 'Hide keys' : 'Show keys'}
+								keys={MOD_LABEL + ' .'}
+								class="cx-g{trayOpen ? ' lit' : ''}{wantsKeypress || modArmed ? ' warn' : ''}"
+								onclick={() => (trayOpen = !trayOpen)}
+							/>
 
-				<!-- lane 2 — the footer, whose left edge never moves -->
-				<div class="foot">
-					{#if hasSelection}
-						<button type="button" class="copy-sel" onclick={copySelection}>
-							<iconify-icon
-								icon={showSelectionCopied ? 'mdi:check' : 'mdi:content-copy'}
-							></iconify-icon>
-							{showSelectionCopied ? 'Copied' : 'Copy'}
-						</button>
-					{/if}
-					{#if isBusy}
-						<button
-							type="button"
-							class="interrupt"
-							onclick={() => void sendKeys('Escape')}
-							title="Interrupt what Claude is doing"
-						>
-							<iconify-icon icon="mdi:stop"></iconify-icon>interrupt
-						</button>
-					{/if}
-					<Popover.Root bind:open={attachPickerOpen}>
-						<Popover.Trigger class="cx-g" aria-label="Attach">
-							<iconify-icon icon="mdi:paperclip"></iconify-icon>
-						</Popover.Trigger>
-						{@render attachMenu()}
-					</Popover.Root>
-					<Hint
-						icon="mdi:slash-forward"
-						label="Commands"
-						keys={MOD_LABEL + ' K'}
-						class="cx-g"
-						onclick={() => (commandsOpen = true)}
-					/>
-					<Popover.Root bind:open={moreOpen}>
-						<Popover.Trigger class="cx-g" title="More keys">
-							<iconify-icon icon="mdi:dots-horizontal"></iconify-icon>
-						</Popover.Trigger>
-						<Popover.Content
-							side="top"
-							class="w-auto max-w-[280px] p-2 bg-[#1a1a1a] border-[#333]"
-						>
-							<div class="popover-grid">
-								{#each moreKeys as item (item.label)}
-									<Button
-										variant="secondary"
-										size="toolbar"
-										class="min-w-14 min-h-12"
-										onclick={() => {
-											sendKeys(item.keys);
-											moreOpen = false;
-										}}
-									>
-										<iconify-icon icon={item.icon}></iconify-icon>
-										<span>{item.label}</span>
-									</Button>
-								{/each}
-							</div>
-						</Popover.Content>
-					</Popover.Root>
-					<Hint
-						icon="mdi:keyboard-outline"
-						label={trayOpen ? 'Hide keys' : 'Show keys'}
-						keys={MOD_LABEL + ' .'}
-						class="cx-g{trayOpen ? ' lit' : ''}{wantsKeypress || modArmed ? ' warn' : ''}"
-						onclick={() => (trayOpen = !trayOpen)}
-					/>
+							<span class="foot-sp"></span>
 
-					<span class="foot-sp"></span>
+							<RailStats />
+						</div>
+					</div>
 
-					<RailStats />
-					{#if voiceEnabled}<VoiceButton {target} round />{/if}
-					<div class="act-wrap">
-						<button
-							type="button"
-							class="act"
-							data-kind={actionKind}
-							disabled={!canSend}
-							aria-label={actionLabel}
-							title={actionLabel}
-							onclick={async () => {
-								if (await finishVoiceIfRecording()) {
-									handleResize();
-									return;
-								}
-								if (modArmed) await sendModSequence();
-								else await sendFromButton();
-							}}
-							use:longPress={{ onTrigger: () => void queueText() }}
-						>
-							<iconify-icon icon={actionIcon}></iconify-icon>
-						</button>
-						{#if queueCount > 0}<span class="act-badge">{queueCount}</span>{/if}
+					<!-- the rail — the two controls a thumb reaches for, given the
+					     height of both lanes rather than the footer's alone -->
+					<div class="rail">
+						{#if voiceEnabled}<VoiceButton {target} round />{/if}
+						<div class="act-wrap">
+							<button
+								type="button"
+								class="act"
+								disabled={!canSend}
+								aria-label={actionLabel}
+								title={actionLabel}
+								onclick={async () => {
+									if (await finishVoiceIfRecording()) {
+										handleResize();
+										return;
+									}
+									if (modArmed) await sendModSequence();
+									else await sendFromButton();
+								}}
+								use:longPress={{ onTrigger: () => void queueText() }}
+							>
+								<iconify-icon icon={actionIcon}></iconify-icon>
+							</button>
+							{#if queueCount > 0}<span class="act-badge">{queueCount}</span>{/if}
+						</div>
 					</div>
 				</div>
 			</div>
@@ -2211,10 +2226,11 @@
 
 
 	/* ── Transcript composer ─────────────────────────────────────────────
-	   Three lanes. The status line and the footer are fixed furniture — the
-	   footer's left edge in particular never moves, so a thumb already
-	   travelling toward a control never has it swapped underneath. Only the
-	   middle lane changes what it contains. */
+	   Three lanes and a rail. The status line and the footer are fixed
+	   furniture — the footer's left edge in particular never moves, so a thumb
+	   already travelling toward a control never has it swapped underneath.
+	   Only the middle lane changes what it contains, and the rail down the
+	   right holds the two controls that are worth a thumb's whole reach. */
 	.cx {
 		position: relative;
 		background: #151516;
@@ -2311,10 +2327,33 @@
 		}
 	}
 
+	/* The rail stands beside both lanes, so the field and the footer share a
+	   narrower column than the card. That width is what buys the mic and the
+	   action a thumb-sized target without the footer growing a second row. */
+	.body {
+		display: flex;
+		align-items: stretch;
+		gap: 8px;
+		padding-right: 9px;
+	}
+	.lanes {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	.rail {
+		flex: none;
+		display: flex;
+		align-items: stretch;
+		gap: 6px;
+		padding: 8px 0 2px;
+	}
+
 	/* ── lane 1 · the middle ────────────────────────────────────────── */
 	.mid {
 		position: relative;
-		padding: 8px 13px 0;
+		padding: 8px 4px 0 13px;
 		display: flex;
 		gap: 9px;
 		align-items: flex-start;
@@ -2422,7 +2461,7 @@
 		align-items: center;
 		gap: 4px;
 		min-height: 42px;
-		padding: 2px 9px 0 11px;
+		padding: 2px 2px 0 11px;
 	}
 	.foot-sp {
 		flex: 1;
@@ -2504,47 +2543,52 @@
 	}
 
 	/* The round mic was drawn to sit on the context rail, where it punches a
-	   channel out of the panel behind it. In the footer it is a glyph among
-	   glyphs, so it drops the ring and matches their size. */
-	.foot :global(.voice-btn-wrapper.round),
-	.foot :global(.voice-round) {
-		width: 32px;
-		height: 32px;
+	   channel out of the panel behind it. On this rail it is one of two keys a
+	   thumb aims at, so it drops the ring and takes the rail's full height —
+	   a mic that is hard to hit is a mic that loses the sentence. */
+	.rail :global(.voice-btn-wrapper.round),
+	.rail :global(.voice-round) {
+		width: 46px;
+		height: auto;
+		align-self: stretch;
 	}
 	/* Record is its own verb, so the mic is filled like the action button is —
 	   red for record, green for send, and nothing else on the bar is filled. */
-	.foot :global(.voice-round) {
+	.rail :global(.voice-round) {
 		border: 0;
+		border-radius: 12px;
 		background: #b91c1c;
 		color: #fff;
-		font-size: 17px;
+		font-size: 21px;
 		box-shadow: none;
 	}
-	.foot :global(.voice-round:hover:not(:disabled)) {
+	.rail :global(.voice-round:hover:not(:disabled)) {
 		background: #dc2626;
 	}
-	.foot :global(.voice-round.recording),
-	.foot :global(.voice-round.error) {
+	.rail :global(.voice-round.recording),
+	.rail :global(.voice-round.error) {
 		background: #ef4444;
 	}
 
 	.act-wrap {
 		position: relative;
 		display: flex;
-		align-items: center;
+		align-items: stretch;
 		flex: none;
 	}
+	/* The same rectangle in the same green as the tray's Enter, so the two
+	   ways to submit read as one control that happens to have two homes. */
 	.act {
-		width: 36px;
-		height: 36px;
+		width: 46px;
+		min-height: 56px;
 		border: 1px solid transparent;
-		border-radius: 18px;
+		border-radius: 12px;
 		background: #15803d;
 		color: #f0fdf4;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 18px;
+		font-size: 22px;
 		cursor: pointer;
 		touch-action: manipulation;
 		user-select: none;
@@ -2556,16 +2600,6 @@
 	.act:disabled {
 		opacity: 0.5;
 		cursor: default;
-	}
-	.act[data-kind='enter'],
-	.act[data-kind='queue'] {
-		background: #242426;
-		color: #a8a29e;
-	}
-	.act[data-kind='accept'] {
-		background: transparent;
-		border-color: #16a34a;
-		color: #16a34a;
 	}
 	.act-badge {
 		position: absolute;
