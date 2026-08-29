@@ -1,6 +1,6 @@
 {
   "name": "claude-mux",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "Real-time web dashboard for monitoring and controlling multiple Claude Code sessions",
   "type": "module",
   "main": "dist/cli.js",
