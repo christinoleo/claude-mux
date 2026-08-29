@@ -2582,7 +2582,9 @@
 		align-items: center;
 		gap: 7px;
 		height: 22px;
-		padding: 4px 8px 0 12px;
+		/* clears the context rail's 10px hit band, so the two rows never
+		   compete for the same click */
+		padding: 9px 8px 0 12px;
 		font-family: var(--font-mono);
 		font-size: 10.5px;
 		letter-spacing: 0.04em;

@@ -184,7 +184,11 @@
 	.line {
 		display: block;
 		position: absolute;
-		inset: 0;
+		/* Only the rail takes the click. The strip is taller than the line so
+		   the corner arc can draw, and anything below it belongs to the row
+		   underneath — which is the status line, whose buttons must win. */
+		inset: 0 0 auto 0;
+		height: 10px;
 		width: 100%;
 		padding: 0;
 		border: 0;
@@ -202,6 +206,9 @@
 		width: 100%;
 		height: 13px;
 		overflow: visible;
+		/* Drawn as tall as the corner it turns, which overflows the button's
+		   hit band — decoration must not swallow the row below's clicks. */
+		pointer-events: none;
 	}
 	path {
 		fill: none;
