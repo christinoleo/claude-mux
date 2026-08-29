@@ -73,9 +73,9 @@
 	const canAnswer = $derived(sessionState === 'waiting' && onSendKeys != null);
 
 	/**
-	 * A message queued in the pane only waits on the turn in flight, so the row
-	 * offers the one key that ends it. Busy only: with nothing running, Escape
-	 * would clear the pane's input rather than hand the message over.
+	 * A message queued in the pane only waits on the turn in flight, so the
+	 * queue offers the one key that ends it. Busy only: with nothing running,
+	 * Escape would clear the pane's input rather than hand the message over.
 	 */
 	const canInterrupt = $derived(sessionState === 'busy' && onSendKeys != null);
 	const liveAskId = $derived(
@@ -527,18 +527,16 @@
 				<iconify-icon icon="mdi:clock-outline"></iconify-icon>
 				queued
 			</span>
-			{#if canInterrupt}
-				<button
-					class="jump-queue"
-					onclick={() => onSendKeys?.('Escape')}
-					title="Interrupt the current turn so Claude picks this up now"
-				>
-					<iconify-icon icon="mdi:debug-step-over"></iconify-icon>
-					now
-				</button>
-			{/if}
 		</div>
 	{/each}
+	{#if canInterrupt && pendingInPane.length > 0}
+		<!-- One control for the whole queue: ending the turn is what hands the
+		     messages over, and there is only ever one turn to end. -->
+		<button class="jump-queue" onclick={() => onSendKeys?.('Escape')}>
+			<iconify-icon icon="mdi:debug-step-over"></iconify-icon>
+			Interrupt so Claude reads {pendingInPane.length > 1 ? 'these' : 'this'} now
+		</button>
+	{/if}
 </div>
 
 <style>
@@ -691,10 +689,10 @@
 		vertical-align: -2px;
 	}
 
-	/* Hands the queued message to Claude by ending the turn it is waiting on. */
+	/* Hands the queued messages to Claude by ending the turn they wait on. */
 	.jump-queue {
-		flex-shrink: 0;
 		display: inline-flex;
+		margin: 2px 0 0 24px;
 		align-items: center;
 		gap: 3px;
 		padding: 2px 7px;

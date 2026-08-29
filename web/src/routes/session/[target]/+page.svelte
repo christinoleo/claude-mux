@@ -34,6 +34,7 @@
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { untrack } from 'svelte';
 	import { longPress } from '$lib/actions/longPress';
+	import { swipe } from '$lib/actions/swipe';
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { useGamepad, STICK_DEADZONE } from '$lib/gamepad.svelte';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
@@ -265,6 +266,14 @@
 
 	const isBusy = $derived((currentSession?.state ?? 'idle') === 'busy');
 
+	/** What tmux calls the arrows the browser reports. */
+	const ARROW_KEYS: Record<string, string> = {
+		ArrowUp: 'Up',
+		ArrowDown: 'Down',
+		ArrowLeft: 'Left',
+		ArrowRight: 'Right'
+	};
+
 	/** Apple keyboards say ⌘ where everyone else says Ctrl. */
 	const MOD_LABEL =
 		typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '\u2318' : 'Ctrl';
@@ -302,27 +311,30 @@
 		wantsKeypress && !hasDraft ? (currentSession?.pane_choice ?? null) : null
 	);
 
+	/** Anything drawn over the page that answers to the keyboard itself. */
+	const overlayOpen = $derived(
+		commandsOpen || moreOpen || trayOpen || sheetOpen || chordMenuOpen || attachPickerOpen ||
+			attachStackOpen
+	);
+
+	/** Element types that keep their own keystrokes. */
+	const TYPING_TAGS = /^(INPUT|TEXTAREA|SELECT)$/;
+
 	/**
 	 * Answer the dialog from the keyboard while the chooser stands in for the
 	 * composer.
 	 *
 	 * The field is not rendered then, so nothing else is listening: Enter takes
-	 * the row the pane has highlighted, Escape declines, and the arrows walk the
-	 * highlight — the same four keys the dialog answers to in the terminal.
-	 * Returns whether the key was spent here.
+	 * the row the pane has highlighted, Escape declines, and the arrows walk it
+	 * — the same keys the dialog answers to in the terminal. Returns whether the
+	 * key was spent here.
 	 */
 	function handleChooserKeys(e: KeyboardEvent): boolean {
-		if (!choice || commandsOpen || trayOpen) return false;
+		if (!choice || overlayOpen) return false;
 		if (e.ctrlKey || e.metaKey || e.altKey) return false;
 		const el = e.target as HTMLElement | null;
-		if (el?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el?.tagName ?? '')) return false;
-		const keys: Record<string, string> = {
-			Enter: 'Enter',
-			Escape: 'Escape',
-			ArrowUp: 'Up',
-			ArrowDown: 'Down'
-		};
-		const key = keys[e.key];
+		if (el?.isContentEditable || TYPING_TAGS.test(el?.tagName ?? '')) return false;
+		const key = e.key === 'Enter' || e.key === 'Escape' ? e.key : ARROW_KEYS[e.key];
 		if (!key) return false;
 		e.preventDefault();
 		void sendKeys(key);
@@ -1301,15 +1313,9 @@
 			sendKeys('BSpace');
 			return;
 		}
-		const arrowKeys: Record<string, string> = {
-			ArrowUp: 'Up',
-			ArrowDown: 'Down',
-			ArrowLeft: 'Left',
-			ArrowRight: 'Right',
-		};
-		if (arrowKeys[e.key] && textInput === '' && !modArmed) {
+		if (ARROW_KEYS[e.key] && textInput === '' && !modArmed) {
 			e.preventDefault();
-			sendKeys(arrowKeys[e.key]);
+			sendKeys(ARROW_KEYS[e.key]);
 			return;
 		}
 		if (e.key === 'Tab' && textInput === '' && !modArmed && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -1579,7 +1585,17 @@
 <div class="session-container">
 
 	<div class="output-wrap">
-			<div class="output" bind:this={outputElement} onscroll={handleScroll}>
+			<div
+				class="output"
+				bind:this={outputElement}
+				onscroll={handleScroll}
+				use:swipe={{
+					enabled: () => isTouchDevice,
+					threshold: 64,
+					onRight: () => drawer.toggle(),
+					onLeft: () => { if (canTranscript) toggleView(); }
+				}}
+			>
 					<input
 			bind:this={cameraInput}
 			type="file"
@@ -1653,7 +1669,14 @@
 			/>
 		{/if}
 
-			<div class="cx">
+			<div
+				class="cx"
+				use:swipe={{
+					enabled: () => isTouchDevice,
+					onUp: () => (trayOpen = true),
+					onDown: () => (trayOpen = false)
+				}}
+			>
 				<ContextGauge context={transcriptStore.context}>
 					{#snippet notch()}
 						<VoiceMeter
@@ -2407,10 +2430,6 @@
 			width: 40px;
 			height: 40px;
 		}
-		.cx :global(.cx-g) {
-			min-width: 40px;
-			height: 40px;
-		}
 	}
 
 	/* The sidebar is always on screen once there is room for it. */
@@ -2662,6 +2681,14 @@
 	.cx :global(.cx-g.warn) {
 		color: #fbbf24;
 	}
+	/* Thumb-sized where the pointer is coarse. It has to follow the base rule:
+	   a media query carries no extra specificity, so written above it, it loses. */
+	@media (pointer: coarse) {
+		.cx :global(.cx-g) {
+			min-width: 40px;
+			height: 40px;
+		}
+	}
 
 	/* A desktop keyboard has Escape, but the field it is typed into keeps it,
 	   so the row carries the key itself. Only there: a phone reaches Escape
@@ -2674,15 +2701,13 @@
 			display: inline-flex;
 		}
 		/* The keys toggle belongs with the usage bars on a wide row — the left
-		   of the row is where the things you reach for while typing live. */
-		.foot-sp {
+		   of the row is where the things you reach for while typing live. The
+		   spacer keeps order 0 and stays where it sits in the markup. */
+		.cx :global(.kb-toggle) {
 			order: 1;
 		}
-		.cx :global(.kb-toggle) {
-			order: 2;
-		}
 		.foot :global(.usage) {
-			order: 3;
+			order: 2;
 		}
 	}
 
