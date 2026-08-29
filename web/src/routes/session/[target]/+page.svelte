@@ -24,6 +24,8 @@
 	import KeyTray from '$lib/components/KeyTray.svelte';
 	import SessionSheet from '$lib/components/SessionSheet.svelte';
 	import { drawer } from '$lib/stores/drawer.svelte';
+	import Hint from '$lib/components/Hint.svelte';
+	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { keysForOptionPick } from '$shared/tmux/answer-keys.js';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
@@ -275,6 +277,31 @@
 	});
 
 	const isBusy = $derived((currentSession?.state ?? 'idle') === 'busy');
+
+	/** Apple keyboards say ⌘ where everyone else says Ctrl. */
+	const MOD_LABEL =
+		typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '\u2318' : 'Ctrl';
+
+	/**
+	 * Shortcuts for the controls that have no caption to name them.
+	 *
+	 * Deliberately avoids Ctrl+J and Ctrl+W, which Chrome keeps for itself and
+	 * will not hand back however hard the page asks.
+	 */
+	function handleGlobalKeys(e: KeyboardEvent) {
+		if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+		const key = e.key.toLowerCase();
+		if (key === 'k') {
+			e.preventDefault();
+			commandsOpen = !commandsOpen;
+		} else if (key === '.') {
+			e.preventDefault();
+			trayOpen = !trayOpen;
+		} else if (key === 'e' && isAlive && canTranscript) {
+			e.preventDefault();
+			toggleView();
+		}
+	}
 
 	/**
 	 * The numbered options the pane is offering.
@@ -1390,6 +1417,8 @@
 
 	</script>
 
+<svelte:window onkeydown={handleGlobalKeys} />
+
 <svelte:head>
 	<title>{currentSession ? getSessionDisplayName(currentSession) : (target || 'Session')}</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
@@ -1461,6 +1490,56 @@
 			</Popover.Content>
 {/snippet}
 
+{#snippet statusLine()}
+	<div class="sl">
+		<SessionSheet
+			open={sheetOpen}
+			currentTarget={target}
+			actions={sheetActions}
+			onKill={() => (showConfirmKill = true)}
+			onClose={() => (sheetOpen = false)}
+		/>
+		<SessionStateIndicator state={indicatorState} size="sm" />
+		<button
+			type="button"
+			class="nm"
+			onclick={() => (sheetOpen = !sheetOpen)}
+			title="Sessions, rename, and pane actions"
+		>
+			<b>{currentSession ? getSessionDisplayName(currentSession) : target}</b>
+			<iconify-icon icon="mdi:chevron-down"></iconify-icon>
+		</button>
+		{#if statusSay}
+			<span class="sep">·</span>
+			<span class="say" class:amber={statusWants}>{statusSay}</span>
+		{/if}
+		<span class="sl-sp"></span>
+		<!-- The old header's rare actions, back where they were, once there is
+		     room across for them. On a phone they stay in the sheet. -->
+		{#each sheetActions as action (action.label)}
+			<span class="wide-only">
+				<Hint icon={action.icon} label={action.label} class="mini" onclick={action.run} />
+			</span>
+		{/each}
+		<Hint
+			icon="mdi:menu"
+			label="Sessions and panels"
+			keys={MOD_LABEL + ' B'}
+			class="mini menu-only"
+			onclick={() => drawer.toggle()}
+		/>
+		{#if isAlive && canTranscript}
+			<Hint
+				icon={viewMode === 'transcript' ? 'mdi:console' : 'mdi:message-text-outline'}
+				label={viewMode === 'transcript' ? 'Terminal view' : 'Transcript view'}
+				keys={MOD_LABEL + ' E'}
+				class="mini"
+				onclick={() => toggleView()}
+			/>
+		{/if}
+	</div>
+{/snippet}
+
 {#snippet composerField()}
 			<textarea
 			bind:this={textareaElement}
@@ -1479,6 +1558,7 @@
 		></textarea>
 {/snippet}
 
+<Tooltip.Provider delayDuration={250}>
 <div class="session-container">
 
 	<div class="output-wrap">
@@ -1577,44 +1657,7 @@
 					onClearPrompt={() => void sendKeys(CLEAR_PROMPT_KEYS)}
 				/>
 
-				<!-- lane 0 — identity, which used to be the page header -->
-				<div class="sl">
-					<SessionSheet
-						open={sheetOpen}
-						currentTarget={target}
-						actions={sheetActions}
-						onKill={() => (showConfirmKill = true)}
-						onClose={() => (sheetOpen = false)}
-					/>
-					<SessionStateIndicator state={indicatorState} size="sm" />
-					<button type="button" class="nm" onclick={() => (sheetOpen = !sheetOpen)}>
-						<b>{currentSession ? getSessionDisplayName(currentSession) : target}</b>
-						<iconify-icon icon="mdi:chevron-down"></iconify-icon>
-					</button>
-					{#if statusSay}
-						<span class="sep">·</span>
-						<span class="say" class:amber={statusWants}>{statusSay}</span>
-					{/if}
-					<span class="sl-sp"></span>
-					<button
-						type="button"
-						class="mini menu-only"
-						onclick={() => drawer.toggle()}
-						aria-label="Sessions and panels"
-					>
-						<iconify-icon icon="mdi:menu"></iconify-icon>
-					</button>
-					{#if isAlive && canTranscript}
-						<button
-							type="button"
-							class="mini"
-							onclick={() => toggleView()}
-							aria-label="Terminal view"
-						>
-							<iconify-icon icon="mdi:console"></iconify-icon>
-						</button>
-					{/if}
-				</div>
+				{@render statusLine()}
 
 				<!-- lane 1 — the middle: the field, or what replaces it -->
 				<div class="mid">
@@ -1680,24 +1723,46 @@
 						</Popover.Trigger>
 						{@render attachMenu()}
 					</Popover.Root>
-					<button
-						type="button"
+					<Hint
+						icon="mdi:slash-forward"
+						label="Commands"
+						keys={MOD_LABEL + ' K'}
 						class="cx-g"
 						onclick={() => (commandsOpen = true)}
-						aria-label="Commands"
-					>
-						<iconify-icon icon="mdi:slash-forward"></iconify-icon>
-					</button>
-					<button
-						type="button"
-						class="cx-g"
-						class:lit={trayOpen}
-						class:warn={wantsKeypress || modArmed}
+					/>
+					<Popover.Root bind:open={moreOpen}>
+						<Popover.Trigger class="cx-g" title="More keys">
+							<iconify-icon icon="mdi:dots-horizontal"></iconify-icon>
+						</Popover.Trigger>
+						<Popover.Content
+							side="top"
+							class="w-auto max-w-[280px] p-2 bg-[#1a1a1a] border-[#333]"
+						>
+							<div class="popover-grid">
+								{#each moreKeys as item (item.label)}
+									<Button
+										variant="secondary"
+										size="toolbar"
+										class="min-w-14 min-h-12"
+										onclick={() => {
+											sendKeys(item.keys);
+											moreOpen = false;
+										}}
+									>
+										<iconify-icon icon={item.icon}></iconify-icon>
+										<span>{item.label}</span>
+									</Button>
+								{/each}
+							</div>
+						</Popover.Content>
+					</Popover.Root>
+					<Hint
+						icon="mdi:keyboard-outline"
+						label={trayOpen ? 'Hide keys' : 'Show keys'}
+						keys={MOD_LABEL + ' .'}
+						class="cx-g{trayOpen ? ' lit' : ''}{wantsKeypress || modArmed ? ' warn' : ''}"
 						onclick={() => (trayOpen = !trayOpen)}
-						aria-label="Keys"
-					>
-						<iconify-icon icon="mdi:keyboard-outline"></iconify-icon>
-					</button>
+					/>
 
 					<span class="foot-sp"></span>
 
@@ -1728,6 +1793,7 @@
 				</div>
 			</div>
 		{:else}
+		<div class="sl-solo">{@render statusLine()}</div>
 		<div class="toolbar">
 			{#if hasSelection}
 				<Button variant="success" size="toolbar" class="flex-1" onclick={copySelection}>
@@ -1945,6 +2011,7 @@
 		<span>Drop files to attach</span>
 	</div>
 {/if}
+</Tooltip.Provider>
 
 <style>
 	.chord-overlay {
@@ -2566,7 +2633,7 @@
 		flex: 1;
 		min-width: 8px;
 	}
-	.sl .mini {
+	.sl :global(.mini) {
 		width: 24px;
 		height: 22px;
 		border: 0;
@@ -2580,14 +2647,14 @@
 		flex: none;
 		cursor: pointer;
 	}
-	.sl .mini:hover {
+	.sl :global(.mini:hover) {
 		background: #202022;
 		color: #f5f5f4;
 	}
 	/* The sidebar is always on screen once there is room for it. */
 	@media (min-width: 769px) {
 		/* `.sl .mini` sets display, so this has to match its specificity. */
-		.sl .menu-only {
+		.sl :global(.menu-only) {
 			display: none;
 		}
 	}
@@ -2792,16 +2859,21 @@
 		width: 32px;
 		height: 32px;
 	}
+	/* Record is its own verb, so the mic is filled like the action button is —
+	   red for record, green for send, and nothing else on the bar is filled. */
 	.foot :global(.voice-round) {
 		border: 0;
-		background: none;
-		color: #78716c;
-		font-size: 18px;
+		background: #b91c1c;
+		color: #fff;
+		font-size: 17px;
 		box-shadow: none;
 	}
 	.foot :global(.voice-round:hover:not(:disabled)) {
-		background: #202022;
-		color: #f5f5f4;
+		background: #dc2626;
+	}
+	.foot :global(.voice-round.recording),
+	.foot :global(.voice-round.error) {
+		background: #ef4444;
 	}
 
 	.act-wrap {
@@ -2858,6 +2930,25 @@
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	/* Terminal mode keeps its own eight-button toolbar, but it still needs to
+	   say which session it is and offer the way back to the transcript. */
+	.sl-solo {
+		background: #151516;
+		border-top: 1px solid #2a2a2c;
+		padding-bottom: 2px;
+	}
+
+	/* The header's rare actions return to the status line once there is room
+	   across for them; a phone reaches them through the sheet instead. */
+	.wide-only {
+		display: none;
+	}
+	@media (min-width: 700px) {
+		.wide-only {
+			display: inline-flex;
+		}
 	}
 
 	/* A composer that runs the full width is a worse composer. */

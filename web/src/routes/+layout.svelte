@@ -107,6 +107,14 @@
 		}
 	}
 
+	/** The sidebar's own shortcut, the one VS Code taught everyone. */
+	function handleSidebarKey(e: KeyboardEvent) {
+		if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+		if (e.key.toLowerCase() !== 'b') return;
+		e.preventDefault();
+		drawer.toggle();
+	}
+
 	function closeDrawer() {
 		drawer.close();
 	}
@@ -141,6 +149,8 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover" />
 	<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
 </svelte:head>
+
+<svelte:window onkeydown={handleSidebarKey} />
 
 {#if showSidebar}
 	<div class="app-shell" class:resizing-any={isResizing}>

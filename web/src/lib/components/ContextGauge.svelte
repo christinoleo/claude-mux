@@ -24,6 +24,9 @@
 	const left100 = $derived(used === null ? null : Math.max(0, 100 - used));
 	const color = $derived(edgeColor(used ?? 0));
 
+	/** Where the rail turns amber, and roughly where Claude starts compacting. */
+	const COMPACT_AT = 80;
+
 	/**
 	 * The rail is one path: it turns the card's top corners and arcs over the
 	 * button mounted on it, so the fill's head is never hidden behind anything.
@@ -122,33 +125,49 @@
 			<div class="pop-head">
 				<span class="pop-title">Context</span>
 				<span class="pop-big">
-					{#if left100 === null}{context ? compact(context.tokens) : '—'}{:else}{left100}% left{/if}
+					{#if left100 === null}{context ? compact(context.tokens) : '—'}{:else}{left100}<em>% left</em>{/if}
 				</span>
 			</div>
-			{#if context}
-				<div class="pop-row">
-					<span>Used</span>
-					<span>
-						{compact(context.tokens)}{#if context.window}&nbsp;of {compact(context.window)}{/if}
-					</span>
+
+			{#if context && context.window && used !== null}
+				<!-- the rail, unrolled: the popover shows the proportion it was
+				     opened to explain, rather than restating it as a word -->
+				<div class="meter-wrap">
+					<div class="meter">
+						<div class="meter-fill" style="width: {Math.min(100, used)}%; background: {color}"></div>
+						<div class="meter-mark" style="left: {COMPACT_AT}%"></div>
+					</div>
 				</div>
-				<div class="pop-row"><span>Model</span><span>{context.model || 'unknown'}</span></div>
-				{#if !context.window}
-					<p class="pop-note">
-						No context window on record for this model, so there is no percentage to show —
-						only what the last response carried.
-					</p>
-				{:else if used !== null && used >= 80}
-					<p class="pop-note">
-						Claude compacts the conversation soon. Anything you want kept, say it now.
-					</p>
-				{:else}
-					<p class="pop-note">Claude compacts the conversation on its own near the limit.</p>
-				{/if}
-			{:else}
+				<div class="ends">
+					<span>{compact(context.tokens)} used</span>
+					<span>{compact(context.window)}</span>
+				</div>
+			{:else if context}
+				<div class="ends ends-solo">
+					<span>{compact(context.tokens)} in the last response</span>
+				</div>
+			{/if}
+
+			{#if context}
+				<div class="pop-foot">
+					<span class="model">{context.model || 'unknown model'}</span>
+				</div>
+			{/if}
+
+			{#if !context}
 				<p class="pop-note">
 					Nothing measured yet. The first response from Claude reports what the window holds.
 				</p>
+			{:else if !context.window}
+				<p class="pop-note">
+					No context window on record for this model, so there is no percentage to show.
+				</p>
+			{:else if used !== null && used >= COMPACT_AT}
+				<p class="pop-note warn">
+					Claude compacts the conversation soon. Anything you want kept, say it now.
+				</p>
+			{:else}
+				<p class="pop-note">Claude compacts on its own near the mark, around {COMPACT_AT}%.</p>
 			{/if}
 		</div>
 	{/if}
@@ -221,52 +240,112 @@
 		left: 12px;
 		right: 12px;
 		bottom: 10px;
-		max-width: 320px;
-		background: #1a1a1a;
-		border: 1px solid #333;
-		border-radius: 9px;
-		padding: 12px 13px;
+		max-width: 340px;
+		background: #1a1a1c;
+		border: 1px solid #313135;
+		border-radius: 12px;
+		padding: 14px 15px 13px;
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
-		box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+		gap: 10px;
+		box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
 		color: #f5f5f4;
 	}
 	.pop-head {
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;
-		gap: 8px;
+		gap: 12px;
 	}
 	.pop-title {
 		font-size: 10px;
-		letter-spacing: 0.14em;
+		letter-spacing: 0.16em;
 		text-transform: uppercase;
 		color: #78716c;
 	}
 	.pop-big {
 		font-family: var(--font-mono);
-		font-size: 20px;
+		font-size: 26px;
+		line-height: 1;
 		font-variant-numeric: tabular-nums;
 	}
-	.pop-row {
+	.pop-big em {
+		font-style: normal;
+		font-size: 13px;
+		color: #a8a29e;
+		margin-left: 2px;
+	}
+
+	/* The rail this popover belongs to is a line that fills, so the popover
+	   shows the same line at full size rather than restating it in words. */
+	.meter {
+		position: relative;
+		height: 8px;
+		border-radius: 4px;
+		background: rgba(245, 245, 244, 0.08);
+		overflow: hidden;
+	}
+	.meter-fill {
+		position: absolute;
+		inset: 0 auto 0 0;
+		border-radius: 4px;
+		transition: width 0.35s ease;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.meter-fill {
+			transition: none;
+		}
+	}
+	/* Where the rail turns amber — the one number on the bar worth marking. */
+	.meter-mark {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		width: 1px;
+		background: rgba(10, 10, 11, 0.75);
+	}
+
+	/* Figures sit under the end of the bar they describe, so the bar reads as
+	   the sentence and these are only its endpoints. */
+	.meter-wrap {
+		position: relative;
+	}
+	.ends {
 		display: flex;
 		justify-content: space-between;
-		gap: 16px;
-		font-size: 12px;
+		align-items: baseline;
+		gap: 8px;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		font-variant-numeric: tabular-nums;
 		color: #a8a29e;
 	}
-	.pop-row span:last-child {
-		font-family: var(--font-mono);
-		color: #f5f5f4;
-		font-variant-numeric: tabular-nums;
+	.ends-solo {
+		justify-content: flex-start;
 	}
+
+	.pop-foot {
+		display: flex;
+		border-top: 1px solid #2a2a2e;
+		padding-top: 10px;
+	}
+	.model {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: #a8a29e;
+		background: #232326;
+		border-radius: 5px;
+		padding: 3px 8px;
+	}
+
 	.pop-note {
 		font-size: 12px;
-		line-height: 1.45;
+		line-height: 1.5;
 		color: #78716c;
-		border-top: 1px solid #333;
-		padding-top: 8px;
 		margin: 0;
+		text-wrap: pretty;
+	}
+	.pop-note.warn {
+		color: #fbbf24;
 	}
 </style>
