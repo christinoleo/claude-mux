@@ -19,7 +19,7 @@ import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPa
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
-import { getQueueSummaries } from './message-queue.js';
+import { getQueueSummary } from './message-queue.js';
 import type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 
 // ============================================================================
@@ -538,9 +538,8 @@ export class SessionsWsManager {
 	 * what the next one is, so the UI can name it instead of showing a number.
 	 */
 	private mergeQueueCounts(sessions: Session[]): void {
-		const summaries = getQueueSummaries();
 		for (const session of sessions) {
-			const summary = session.tmux_target ? summaries.get(session.tmux_target) : undefined;
+			const summary = session.tmux_target ? getQueueSummary(session.tmux_target) : null;
 			/* eslint-disable @typescript-eslint/no-explicit-any */
 			(session as any).queue_count = summary?.count ?? 0;
 			(session as any).queue_head_text = summary?.head.text ?? null;

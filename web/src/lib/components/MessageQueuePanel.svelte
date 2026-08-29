@@ -1,13 +1,7 @@
 <script lang="ts">
 	import SidebarAccordion from './SidebarAccordion.svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
-
-	interface QueuedMessage {
-		text: string;
-		queuedAt: number;
-		/** `control` is a command claude-mux queued for itself, not something you typed. */
-		kind?: 'user' | 'control';
-	}
+	import type { QueuedMessage } from '$shared/server/message-queue.js';
 
 	interface Props {
 		target: string;

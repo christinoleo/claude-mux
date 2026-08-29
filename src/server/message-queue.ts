@@ -5,9 +5,9 @@
  * The queue is kept in memory and mirrored to ~/.claude-mux/queue.json, so a
  * server restart does not silently swallow messages that were waiting for a
  * busy pane. Only one server owns the file at a time (see the ownership lock
- * below) — a second instance, such as the dev server running alongside the
- * systemd one, keeps its own in-memory queue and leaves the file alone rather
- * than racing to paste the same message twice.
+ * below): a second instance, such as the dev server running alongside the
+ * systemd one, keeps its own in-memory queue and leaves the file alone, so
+ * neither restores — and then re-sends — what the other is already holding.
  */
 
 import { execFileSync, execSync } from 'child_process';
@@ -16,6 +16,7 @@ import { join } from 'path';
 import { getAllSessions } from '../db/index.js';
 import { CLAUDE_MUX_DIR } from '../utils/paths.js';
 import { writeFileAtomic } from '../utils/atomic-write.js';
+import { isPidAlive } from '../utils/pid.js';
 
 // ============================================================================
 // Types
@@ -108,16 +109,6 @@ interface PersistedQueueFile {
 	queues: Record<string, QueuedMessage[]>;
 }
 
-function isPidAlive(pid: number): boolean {
-	if (!pid || pid === process.pid) return pid === process.pid;
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (err) {
-		return (err as NodeJS.ErrnoException).code === 'EPERM';
-	}
-}
-
 /**
  * Read the persisted queue and decide whether this process may own it.
  *
@@ -137,13 +128,13 @@ function loadPersisted(): { queues: Map<string, QueuedMessage[]>; persist: boole
 			);
 			return { queues: empty, persist: false };
 		}
-		const now = Date.now();
 		const queues = new Map<string, QueuedMessage[]>();
 		for (const [target, messages] of Object.entries(file.queues ?? {})) {
-			const fresh = (messages ?? [])
-				.filter((m) => m && typeof m.text === 'string' && now - (m.queuedAt ?? 0) < QUEUE_TTL_MS)
+			// Expiry belongs to pruneQueues, which runs on the first drain tick.
+			const restored = (messages ?? [])
+				.filter((m) => m && typeof m.text === 'string')
 				.map((m) => ({ ...m, kind: m.kind === 'control' ? 'control' : ('user' as QueuedMessageKind) }));
-			if (fresh.length > 0) queues.set(target, fresh);
+			if (restored.length > 0) queues.set(target, restored);
 		}
 		if (queues.size > 0) {
 			console.log(`[queue] Restored ${queues.size} queue(s) from ${QUEUE_PATH}`);
@@ -199,11 +190,14 @@ const { queues, pendingDrain, recentlySent, missingSince } = globalState;
 // Queue operations
 // ============================================================================
 
+function queueFor(target: string): QueuedMessage[] {
+	let queue = queues.get(target);
+	if (!queue) queues.set(target, (queue = []));
+	return queue;
+}
+
 export function enqueue(target: string, text: string, kind: QueuedMessageKind = 'user'): QueuedMessage[] {
-	if (!queues.has(target)) {
-		queues.set(target, []);
-	}
-	const queue = queues.get(target)!;
+	const queue = queueFor(target);
 	queue.push({ text, queuedAt: Date.now(), kind });
 	missingSince.delete(target);
 	persistQueues();
@@ -251,17 +245,6 @@ export function clearQueue(target: string): void {
 	persistQueues();
 }
 
-/** Returns queue counts for all targets that have queued messages */
-export function getQueueCounts(): Map<string, number> {
-	const counts = new Map<string, number>();
-	for (const [target, queue] of queues) {
-		if (queue.length > 0) {
-			counts.set(target, queue.length);
-		}
-	}
-	return counts;
-}
-
 export interface QueueSummary {
 	count: number;
 	/** The message that goes out next — what the UI should name. */
@@ -269,17 +252,20 @@ export interface QueueSummary {
 }
 
 /**
- * Per-target count plus the message at the front, so the dashboard can say what
- * it is waiting on instead of showing a bare number.
+ * How much is queued for one target and what goes out next, so the dashboard
+ * can say what it is waiting on instead of showing a bare number. A lookup
+ * rather than a collection: the sessions broadcast asks per session, twice a
+ * second, and the queues are almost always empty.
  */
-export function getQueueSummaries(): Map<string, QueueSummary> {
-	const summaries = new Map<string, QueueSummary>();
-	for (const [target, queue] of queues) {
-		if (queue.length > 0) {
-			summaries.set(target, { count: queue.length, head: queue[0] });
-		}
-	}
-	return summaries;
+export function getQueueSummary(target: string): QueueSummary | null {
+	const queue = queues.get(target);
+	if (!queue || queue.length === 0) return null;
+	return { count: queue.length, head: queue[0] };
+}
+
+/** Whether anything at all is queued — the drain loop's own start/stop guard. */
+export function hasQueuedMessages(): boolean {
+	return queues.size > 0;
 }
 
 // ============================================================================
@@ -292,20 +278,30 @@ export function getQueueSummaries(): Map<string, QueueSummary> {
  * queue aimed at a closed pane keeps the drain loop spinning forever.
  */
 function pruneQueues(knownTargets: Set<string>, now: number): void {
+	let changed = false;
+	const drop = (target: string) => {
+		queues.delete(target);
+		pendingDrain.delete(target);
+		missingSince.delete(target);
+		changed = true;
+	};
+
 	for (const [target, queue] of queues) {
-		const fresh = queue.filter((m) => now - m.queuedAt < QUEUE_TTL_MS);
-		if (fresh.length !== queue.length) {
-			console.warn(
-				`[queue] Dropped ${queue.length - fresh.length} message(s) for ${target}: older than ${QUEUE_TTL_MS}ms`
-			);
-			if (fresh.length === 0) queues.delete(target);
-			else queues.set(target, fresh);
-			persistQueues();
-		}
-		if (!queues.has(target)) {
-			pendingDrain.delete(target);
-			missingSince.delete(target);
-			continue;
+		// Messages are appended in time order (and a retry goes back to the
+		// front), so the head is the oldest: no scan unless it has expired.
+		if (queue.length === 0 || now - queue[0].queuedAt >= QUEUE_TTL_MS) {
+			const fresh = queue.filter((m) => now - m.queuedAt < QUEUE_TTL_MS);
+			if (fresh.length < queue.length) {
+				console.warn(
+					`[queue] Dropped ${queue.length - fresh.length} message(s) for ${target}: older than ${QUEUE_TTL_MS}ms`
+				);
+			}
+			if (fresh.length === 0) {
+				drop(target);
+				continue;
+			}
+			queues.set(target, fresh);
+			changed = true;
 		}
 
 		if (knownTargets.has(target)) {
@@ -317,13 +313,12 @@ function pruneQueues(knownTargets: Set<string>, now: number): void {
 		const since = missingSince.get(target) ?? now;
 		missingSince.set(target, since);
 		if (now - since >= ORPHAN_GRACE_MS) {
-			console.warn(`[queue] Dropped ${queues.get(target)!.length} message(s) for ${target}: session gone`);
-			queues.delete(target);
-			pendingDrain.delete(target);
-			missingSince.delete(target);
-			persistQueues();
+			console.warn(`[queue] Dropped ${queue.length} message(s) for ${target}: session gone`);
+			drop(target);
 		}
 	}
+
+	if (changed) persistQueues();
 }
 
 /**
@@ -378,27 +373,32 @@ export function drainQueues(sessions: SessionLike[]): void {
 		if (now - pendingTime < IDLE_GRACE_MS) continue;
 
 		pendingDrain.delete(target);
-		const message = dequeue(target);
-		if (!message) continue;
+		// Peek rather than dequeue: a message only leaves the queue once tmux has
+		// taken it, so a failed send costs one attempt instead of a remove and a
+		// re-insert (and two writes of the persisted file).
+		const message = queue[0];
 		try {
 			sendTextToPane(target, message.text);
+			dequeue(target);
 			recentlySent.set(target, now);
 			console.log(`[queue] Auto-sent queued message to ${target}`);
 		} catch (err) {
 			// tmux refused the paste — usually the pane is gone. Retry a couple of
 			// times, then drop it: an undeliverable message must not keep the drain
 			// loop, and its error log, running forever.
-			const attempts = (message.attempts ?? 0) + 1;
-			if (attempts >= MAX_SEND_ATTEMPTS) {
+			message.attempts = (message.attempts ?? 0) + 1;
+			if (message.attempts >= MAX_SEND_ATTEMPTS) {
 				console.error(
-					`[queue] Giving up on message for ${target} after ${attempts} attempts:`,
+					`[queue] Giving up on message for ${target} after ${message.attempts} attempts:`,
 					err
 				);
+				dequeue(target);
 				continue;
 			}
-			console.error(`[queue] Failed to send queued message to ${target} (attempt ${attempts}):`, err);
-			if (!queues.has(target)) queues.set(target, []);
-			queues.get(target)!.unshift({ ...message, attempts });
+			console.error(
+				`[queue] Failed to send queued message to ${target} (attempt ${message.attempts}):`,
+				err
+			);
 			persistQueues();
 		}
 	}
@@ -413,7 +413,7 @@ export function drainQueues(sessions: SessionLike[]): void {
 export function ensureDrainLoop(): void {
 	if (globalState.drainTimer) return;
 	globalState.drainTimer = setInterval(() => {
-		if (getQueueCounts().size === 0) {
+		if (!hasQueuedMessages()) {
 			if (globalState.drainTimer) clearInterval(globalState.drainTimer);
 			globalState.drainTimer = null;
 			return;
@@ -430,4 +430,4 @@ export function ensureDrainLoop(): void {
 
 // Resume draining if queues survived a module reload (dev HMR keeps globalThis)
 // or a server restart (the persisted file above).
-if (getQueueCounts().size > 0) ensureDrainLoop();
+if (hasQueuedMessages()) ensureDrainLoop();

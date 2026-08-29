@@ -2,6 +2,7 @@ import { ReliableWebSocket } from './websocket-base.svelte';
 import { createPersisted } from './persisted';
 import { SessionsWsMessageSchema, type SystemStatsMessage } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
+import type { QueuedMessageKind } from '$shared/server/message-queue.js';
 
 const savedProjectsStore = createPersisted<string[]>('claude-mux-projects', []);
 
@@ -32,7 +33,7 @@ export interface Session {
 	queue_count?: number;
 	/** Text of the next queued message, and who queued it. */
 	queue_head_text?: string | null;
-	queue_head_kind?: 'user' | 'control' | null;
+	queue_head_kind?: QueuedMessageKind | null;
 	display_name?: string | null;
 	/** Text in the pane's prompt box right now (live, never persisted). */
 	draft_input?: string | null;

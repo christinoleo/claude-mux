@@ -5,6 +5,7 @@
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
+	import type { QueuedMessageKind } from '$shared/server/message-queue.js';
 
 	type AskEntry = Extract<TranscriptEntry, { kind: 'ask' }>;
 
@@ -37,7 +38,7 @@
 		/** The next queued message's text, so the row can name what it is waiting on. */
 		queueHeadText?: string | null;
 		/** Whether that message is the user's, or one claude-mux queued for itself. */
-		queueHeadKind?: 'user' | 'control' | null;
+		queueHeadKind?: QueuedMessageKind | null;
 		/** Messages waiting in Claude Code's own queue, typed into the terminal. */
 		paneQueue?: string[];
 		/** Sends a tmux key sequence (space-separated) to answer a question dialog. */
@@ -465,10 +466,8 @@
 			<span class="live-text">
 				{#if queueHeadKind === 'control'}
 					Dashboard command waiting for the prompt: <code>{queueHeadText}</code>
-				{:else if queueHeadText}
-					Queued for when this session is idle: {queueHeadText}
 				{:else}
-					{queueCount} message{queueCount === 1 ? '' : 's'} in the send queue
+					Queued for when this session is idle: {queueHeadText}
 				{/if}
 				{#if queueCount > 1}<span class="queue-more">+{queueCount - 1} more</span>{/if}
 			</span>
@@ -1271,7 +1270,7 @@
 		color: #78716c;
 	}
 	.live-row.queue-note code {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--mono);
 		color: #a8a29e;
 	}
 	.queue-more {
