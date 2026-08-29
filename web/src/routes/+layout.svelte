@@ -9,7 +9,7 @@
 	import AllSessionsPanel from '$lib/components/AllSessionsPanel.svelte';
 	import ScreenshotsPanel from '$lib/components/ScreenshotsPanel.svelte';
 	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
-	import SystemStatsWidget from '$lib/components/SystemStatsWidget.svelte';
+	import SidebarMeters from '$lib/components/SidebarMeters.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
 
 	let { children } = $props();
@@ -170,7 +170,7 @@
 					</div>
 				{/if}
 			</div>
-			<SystemStatsWidget />
+			<SidebarMeters />
 			<div
 				class="resize-handle"
 				onmousedown={handleResizeStart}
