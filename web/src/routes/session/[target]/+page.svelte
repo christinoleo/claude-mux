@@ -1761,7 +1761,7 @@
 									onclick={() => void sendKeys('Escape')}
 									title="Interrupt what Claude is doing"
 								>
-									<iconify-icon icon="mdi:stop"></iconify-icon>interrupt
+									<iconify-icon icon="mdi:stop"></iconify-icon><span>interrupt</span>
 								</button>
 							{/if}
 							<Popover.Root bind:open={attachPickerOpen}>
@@ -2341,6 +2341,9 @@
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
+		/* The footer's controls answer to the width the rail leaves them, which
+		   the viewport does not know: a sidebar sits between it and this card. */
+		container-type: inline-size;
 	}
 	.rail {
 		flex: none;
@@ -2462,6 +2465,10 @@
 		gap: 4px;
 		min-height: 42px;
 		padding: 2px 2px 0 11px;
+		/* Every control on this row is `flex: none`, so a row too long for the
+		   card ran on under the rail instead of stopping at it. */
+		min-width: 0;
+		overflow: hidden;
 	}
 	.foot-sp {
 		flex: 1;
@@ -2516,6 +2523,23 @@
 	}
 	.interrupt:hover {
 		background: #4a3a12;
+	}
+	/* Interrupt is the one control that arrives mid-row, and it arrives at the
+	   width where the spend readout has nowhere left to go. On a narrow card
+	   the glyph carries it: a stop sign in amber, on a bar where nothing else
+	   is amber, needs no caption. */
+	@container (max-width: 420px) {
+		.interrupt {
+			padding: 0 8px;
+		}
+		.interrupt span {
+			display: none;
+		}
+		/* The spend readout keeps its number and drops its sparkline, which is
+		   the half of it that cannot be read at this size anyway. */
+		.cx :global(.usage .bars) {
+			display: none;
+		}
 	}
 
 	/* Spend is information, not an action, so it reads as text on the footer's
