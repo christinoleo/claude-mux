@@ -35,7 +35,85 @@ const QUESTION = [
   "Enter to select · ↑/↓ to navigate · Esc to cancel",
 ].join("\n");
 
+/** A multi-select question: checkboxes, and descriptions at the rows' own indent. */
+const MULTI = [
+  "←  ☐ Languages  ✔ Submit  →",
+  "Which languages do you use?",
+  "❯ 1. [ ] Python",
+  "  High-level, general-purpose language popular for data science.",
+  "  2. [✔] Rust",
+  "  Systems programming language known for memory safety and performance.",
+  "  3. [ ] Go",
+  "  Compiled language designed for simplicity and concurrency.",
+  "  4. [ ] Type something",
+  "     Submit",
+  "────────────────────────────────────────────────────────────",
+  "  5. Chat about this",
+  "Enter to select · ↑/↓ to navigate · Esc to cancel",
+].join("\n");
+
+/** A question with previews: the panel shares the rows' lines, and outlives them. */
+const PREVIEW = [
+  " ☐ Layout",
+  "Which layout do you prefer?",
+  "❯ 1. Sidebar on left, content     ┌────────────────────────────┐",
+  "    right                         │ ── wrapped label ────────  │",
+  "  2. Top navigation               │ ┌──────────┬─────────────┐ │",
+  "                                  │ │ Nav      │ Main        │ │",
+  "                                  │ └──────────┴─────────────┘ │",
+  "                                  └────────────────────────────┘",
+  "                                  Notes: press n to add notes",
+  "────────────────────────────────────────────────────────────────",
+  "  Chat about this",
+  "Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel",
+].join("\n");
+
 describe("readPromptOptions", () => {
+  it("reads a multi-select question, checkboxes and all", () => {
+    const choice = readPromptOptions(MULTI);
+    expect(choice).not.toBeNull();
+    expect(choice!.multi).toBe(true);
+    expect(choice!.question).toBe("Which languages do you use?");
+    expect(choice!.options.map((o) => o.label)).toEqual([
+      "Python",
+      "Rust",
+      "Go",
+      "Type something",
+      "Chat about this",
+    ]);
+    expect(choice!.options.map((o) => o.checked)).toEqual([false, true, false, false, undefined]);
+  });
+
+  it("keeps a multi-select row's description, which sits at the row's own indent", () => {
+    const choice = readPromptOptions(MULTI);
+    expect(choice!.options[1].hint).toBe(
+      "Systems programming language known for memory safety and performance."
+    );
+  });
+
+  it("reads a question whose rows share their lines with a preview panel", () => {
+    const choice = readPromptOptions(PREVIEW);
+    expect(choice).not.toBeNull();
+    expect(choice!.question).toBe("Which layout do you prefer?");
+    expect(choice!.options.map((o) => o.label)).toEqual([
+      "Sidebar on left, content right",
+      "Top navigation",
+    ]);
+    expect(choice!.multi).toBeUndefined();
+  });
+
+  it("keeps the preview panel's own lines out of the options", () => {
+    const choice = readPromptOptions(PREVIEW);
+    expect(choice!.options.every((o) => o.hint === undefined)).toBe(true);
+    expect(choice!.options.every((o) => !/[┌│└]/.test(o.label))).toBe(true);
+  });
+
+  it("stays strict about distance when the pane never says it is a dialog", () => {
+    // The same shape as a preview question, minus the line naming the keys.
+    const noHint = PREVIEW.split("\n").slice(0, -1).join("\n");
+    expect(readPromptOptions(noHint)).toBeNull();
+  });
+
   it("reads a question whose rows are split by descriptions and a rule", () => {
     const choice = readPromptOptions(QUESTION);
     expect(choice).not.toBeNull();

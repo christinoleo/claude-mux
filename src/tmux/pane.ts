@@ -447,12 +447,22 @@ export type PromptOption = {
    * question's options are often too terse to choose between without it.
    */
   hint?: string;
+  /** Whether a multi-select row's own checkbox is ticked. */
+  checked?: boolean;
   /** Claude Code's own highlight — the row carrying the `❯` marker. */
   selected: boolean;
 };
 
 /** A numbered question waiting in the pane. */
-export type PromptChoice = { question: string | null; options: PromptOption[] } | null;
+export type PromptChoice = {
+  question: string | null;
+  options: PromptOption[];
+  /**
+   * The rows carry checkboxes: picking one ticks it and leaves the dialog
+   * open, and the answer is sent from a tab of its own.
+   */
+  multi?: boolean;
+} | null;
 
 /** Drop a box-drawing frame and padding from both ends of a pane line. */
 function unframe(line: string): string {
@@ -463,6 +473,29 @@ const OPTION_ROW = /^(❯|>)?\s*(\d+)[.)]\s+(\S.*)$/;
 
 /** A line that only rules off one part of a dialog from another. */
 const OPTION_RULE = /^[─━╌┄┈—–-]+$/;
+
+/**
+ * The line Claude Code draws under a dialog, naming the keys that drive it.
+ *
+ * It is the pane saying outright that what sits above is a dialog, which is
+ * worth more than any guess from shape: with it there, the rows may sit well
+ * above the foot behind a preview panel, and anything at all may separate
+ * them. Without it the scan stays strict, because then a numbered list in
+ * prose and a dialog really do look alike.
+ */
+const DIALOG_HINT = /↑\/↓|Enter to (?:select|confirm)|Esc to cancel/;
+
+/** A preview panel drawn to the right shares its lines with the rows. */
+const PREVIEW_COLUMN = /\s{2,}[┌┐└┘├┤─━│╭╮╰╯].*$/;
+
+/** A line that is drawing a box rather than saying anything. */
+const BOX_ROW = /^[┌┐└┘├┤─━│╭╮╰╯]/;
+
+/** A multi-select row carries its own state in a checkbox. */
+const CHECKBOX = /^\[([ xX✔✓])\]\s*/;
+
+/** How far past its row a description may be indented and still be one. */
+const HINT_INDENT_SPAN = 8;
 
 /**
  * A pane line's content and how far it is indented, with the frame off.
@@ -529,10 +562,15 @@ export function readPromptOptions(content: string): PromptChoice {
   }
   if (lastContent === -1) return null;
 
-  // A dialog puts its rows at the foot, under at most a closing border and a
-  // hint line — anything further up is prose that happens to be numbered.
+  // A dialog says so on its last line. Where it does, the rows are allowed to
+  // sit well above the foot — a preview panel is drawn under them, and so is
+  // the row that offers to talk about the question instead. Where it does
+  // not, they have to be at the foot, under at most a closing border.
+  const declared = DIALOG_HINT.test(at(lastContent).text);
+  const reach = declared ? OPTION_RUN_WINDOW : OPTION_RUN_TAIL;
+
   let end = -1;
-  for (let i = lastContent; i >= Math.max(0, lastContent - OPTION_RUN_TAIL); i--) {
+  for (let i = lastContent; i >= Math.max(0, lastContent - reach); i--) {
     if (OPTION_ROW.test(at(i).text)) {
       end = i;
       break;
@@ -558,6 +596,7 @@ export function readPromptOptions(content: string): PromptChoice {
       if (n === 1) break;
       continue;
     }
+    if (declared) continue;
     if (text.length === 0 || OPTION_RULE.test(text)) continue;
     // A description belongs to the row below it, so it is indented past it.
     const below = rows[rows.length - 1];
@@ -569,16 +608,47 @@ export function readPromptOptions(content: string): PromptChoice {
   if (rows.length < 2 || rows.length > MAX_PROMPT_OPTIONS) return null;
   if (rows[0].n !== 1) return null;
 
+  let multi = false;
   const options: PromptOption[] = rows.map((row, k) => {
+    // A preview panel shares the row's line, so the label stops where it does.
+    const preview = PREVIEW_COLUMN.test(row.label);
+    let label = row.label.replace(PREVIEW_COLUMN, "").trimEnd();
+    const box = label.match(CHECKBOX);
+    if (box) {
+      multi = true;
+      label = label.slice(box[0].length);
+    }
+
+    // The line under a row is the option's own description — unless a preview
+    // panel is drawn beside it, in which case the left column is narrow, the
+    // description is not drawn at all, and what sits there is the rest of a
+    // label too long for one line. A description is indented at least as far
+    // as its row and not much further; the rule that closes the run closes
+    // the search with it.
     const stop = k + 1 < rows.length ? rows[k + 1].i : lastContent + 1;
     let hint: string | undefined;
     for (let i = row.i + 1; i < stop; i++) {
       const { indent, text } = at(i);
-      if (!text || OPTION_RULE.test(text) || indent <= row.indent) continue;
-      hint = clampOption(text);
+      if (OPTION_RULE.test(text)) break;
+      if (!text || BOX_ROW.test(text)) continue;
+      if (indent < row.indent || indent > row.indent + HINT_INDENT_SPAN) continue;
+      const bare = text.replace(PREVIEW_COLUMN, "").trimEnd();
+      if (!bare) continue;
+      if (preview) {
+        label = `${label} ${bare}`;
+        continue;
+      }
+      hint = clampOption(bare);
       break;
     }
-    return { n: row.n, label: clampOption(row.label), hint, selected: row.selected };
+
+    return {
+      n: row.n,
+      label: clampOption(label),
+      hint,
+      checked: box ? box[1] !== " " : undefined,
+      selected: row.selected,
+    };
   });
 
   // The question is the nearest line above the run that isn't blank.
@@ -591,5 +661,5 @@ export function readPromptOptions(content: string): PromptChoice {
     break;
   }
 
-  return { question, options };
+  return multi ? { question, options, multi } : { question, options };
 }

@@ -28,9 +28,13 @@ const PaneChoiceSchema = z.object({
 			label: z.string(),
 			/** The line the dialog prints under the label, when it prints one. */
 			hint: z.string().optional(),
+			/** Whether a multi-select row's own checkbox is ticked. */
+			checked: z.boolean().optional(),
 			selected: z.boolean(),
 		})
 	),
+	/** The rows are checkboxes: picking one ticks it, and leaves the dialog open. */
+	multi: z.boolean().optional(),
 });
 
 /** The numbered options a pane dialog is offering, as they reach the browser. */

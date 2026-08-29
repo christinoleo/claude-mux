@@ -103,13 +103,27 @@ numbered 1, 2, 3 with no gap — and the poll only calls it for a session the
 hooks already report as `waiting` or `permission`, because the hooks are
 authoritative for whether a dialog is open and prose can look like a list.
 
-The rows need not be adjacent. A permission prompt's are, but a question's
-carry an indented description under each label and a rule above the last row,
-so only three things may sit between two rows: a blank line, a rule, and a
-line indented past the row below it. That indent is the whole test — it is
-what tells an option's own description from the question above the run — and
-requiring adjacency is what used to leave every `AskUserQuestion` answerable
-only from the pane. The description rides along as each option's `hint`.
+The rows need not be adjacent, and how far the scan will reach for them turns
+on one thing: whether the pane's last line is the hint naming the dialog's own
+keys (`Enter to select · ↑/↓ to navigate · Esc to cancel`). With it, the pane
+has said outright that a dialog is drawn, so the rows may sit well above the
+foot and anything at all may separate them — which is what a question needs,
+because its rows carry descriptions, a rule, and sometimes a preview panel
+several lines deep. Without it the scan stays strict, the way a permission
+prompt (which draws no such hint) is read: rows adjacent bar a blank line, a
+rule, or a line indented past the row below it, and the run at the foot.
+
+Three shapes come out of that, all verified against real captures in
+`tests/tmux/prompt-options.test.ts`. A plain question carries a description
+under each label, which rides along as the option's `hint`. A multi-select
+question carries `[ ]`/`[✔]` in the labels: the checkbox becomes `checked`,
+the choice is marked `multi`, and picking a row toggles it rather than
+answering — the answer goes in from a tab of its own, one `Right` away, which
+is what the composer's "Done" button sends. A question with previews draws the
+panel to the right of the rows, sharing their lines: the label is cut where
+the panel starts, and because that leaves the left column too narrow for a
+long label, the indented line under a preview row is joined to the label
+rather than read as a description.
 
 The session poll captures with colour once per tick and hands the stripped copy
 to every other check, so adding a detector there costs no extra `tmux` calls.

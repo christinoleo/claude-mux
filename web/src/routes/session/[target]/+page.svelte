@@ -1671,13 +1671,34 @@
 											class:sel={option.selected}
 											onclick={() => void pickOption(option.n)}
 										>
-											<u>{option.n}</u>
+											{#if option.checked === undefined}
+												<u>{option.n}</u>
+											{:else}
+												<iconify-icon
+													class="optbox"
+													class:on={option.checked}
+													icon={option.checked
+														? 'mdi:checkbox-marked'
+														: 'mdi:checkbox-blank-outline'}
+												></iconify-icon>
+											{/if}
 											<span class="optlabel">
 												{option.label}
 												{#if option.hint}<em>{option.hint}</em>{/if}
 											</span>
 										</button>
 									{/each}
+									{#if choice.multi}
+										<!-- Ticking a box leaves the dialog open; the answer goes
+										     in from a tab of its own, one key to the right. -->
+										<button
+											type="button"
+											class="optdone"
+											onclick={() => void sendKeys('Right')}
+										>
+											<iconify-icon icon="mdi:check-all"></iconify-icon>Done — review and submit
+										</button>
+									{/if}
 								</div>
 							{:else}
 								{#if hasAttachments}
@@ -2476,6 +2497,37 @@
 	}
 	.optrow.sel .optlabel em {
 		color: #c8a94a;
+	}
+	/* A multi-select row says what it is with its own box, so it does not also
+	   need the number — the box is the thing a tap changes. */
+	.optbox {
+		font-size: 15px;
+		color: #57534e;
+		flex: none;
+		align-self: flex-start;
+		padding-top: 1px;
+	}
+	.optbox.on {
+		color: #34d399;
+	}
+	.optdone {
+		display: inline-flex;
+		align-items: center;
+		align-self: flex-start;
+		gap: 6px;
+		margin-top: 3px;
+		height: 30px;
+		padding: 0 11px;
+		border: 0;
+		border-radius: 8px;
+		background: #1c3326;
+		color: #6ee7b7;
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+		cursor: pointer;
+	}
+	.optdone:hover {
+		background: #244433;
 	}
 	.optrow:hover {
 		background: #1e1e21;
