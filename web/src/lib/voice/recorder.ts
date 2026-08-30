@@ -38,7 +38,7 @@ export class VoiceRecorder {
 		null;
 	private audioCtx: AudioContext | null = null;
 	private analyser: AnalyserNode | null = null;
-	private timeBuf: Float32Array | null = null;
+	private timeBuf: Float32Array<ArrayBuffer> | null = null;
 	private gainNode: GainNode | null = null;
 
 	async start(

@@ -109,7 +109,7 @@
 {#if viewingScreenshot}
 	<div
 		class="modal-overlay"
-		onclick={closeModal}
+		onclick={(e) => e.target === e.currentTarget && closeModal()}
 		onkeydown={(e) => e.key === 'Escape' && closeModal()}
 		role="dialog"
 		aria-modal="true"
@@ -118,7 +118,6 @@
 		<div
 			class="modal-content"
 			style="transform: translateX({swipeOffset}px)"
-			onclick={(e) => e.stopPropagation()}
 			ontouchstart={handleTouchStart}
 			ontouchmove={handleTouchMove}
 			ontouchend={handleTouchEnd}
@@ -134,7 +133,7 @@
 				<Button
 					variant="secondary"
 					size="sm"
-					onclick={closeModal}
+					onclick={(e) => e.target === e.currentTarget && closeModal()}
 					class="modal-btn"
 				>
 					<iconify-icon icon="mdi:close"></iconify-icon>

@@ -15,7 +15,6 @@ export function wakeLockSupported(): boolean {
 export async function acquireWakeLock(): Promise<void> {
 	if (!wakeLockSupported() || sentinel) return;
 	try {
-		// @ts-expect-error - wakeLock not always in lib.dom
 		const s: WakeLockSentinelLike = await navigator.wakeLock.request('screen');
 		sentinel = s;
 		s.addEventListener('release', () => {

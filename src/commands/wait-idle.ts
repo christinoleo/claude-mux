@@ -28,7 +28,7 @@ export function createWaitIdleCommand(): Command {
       const startTime = Date.now();
       let lastState = session.state;
 
-      while (true) {
+      for (;;) {
         const current = getSession(session.id);
         if (!current) {
           process.stderr.write(

@@ -22,7 +22,10 @@
 		children
 	}: Props = $props();
 
+	// The prop is only the initial position; the accordion owns it afterwards.
+	// svelte-ignore state_referenced_locally
 	let expanded = $state(defaultExpanded ?? false);
+	// svelte-ignore state_referenced_locally
 	let hasBeenExpanded = $state(defaultExpanded ?? false);
 
 	function toggle() {

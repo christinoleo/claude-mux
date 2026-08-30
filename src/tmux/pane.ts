@@ -123,6 +123,7 @@ const PROMPT_HINTS = [/^Press \w+ to /i, /^Try "/i, /^\?\s/];
 
 /** Strip ANSI escape sequences (CSI colours and OSC hyperlinks) from pane text. */
 export function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
   return text.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
 }
 
@@ -240,7 +241,7 @@ export function readPromptBox(content: string): PromptBox {
       let start = 0;
       while (start < lineCells.length && /\s/.test(lineCells[start].ch)) start++;
       if (start < lineCells.length && /[❯>]/.test(lineCells[start].ch)) start++;
-      if (start < lineCells.length && /[  ]/.test(lineCells[start].ch)) start++;
+      if (start < lineCells.length && /[ \u00a0]/.test(lineCells[start].ch)) start++;
       cells.push(...lineCells.slice(start));
     } else {
       // Continuation lines carry a two-space hanging indent.
@@ -463,11 +464,6 @@ export type PromptChoice = {
    */
   multi?: boolean;
 } | null;
-
-/** Drop a box-drawing frame and padding from both ends of a pane line. */
-function unframe(line: string): string {
-  return line.replace(/^[\s│┃|╎┆┊]+/, "").replace(/[\s│┃|╎┆┊]+$/, "");
-}
 
 const OPTION_ROW = /^(❯|>)?\s*(\d+)[.)]\s+(\S.*)$/;
 
