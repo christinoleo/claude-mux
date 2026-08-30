@@ -13,8 +13,8 @@
  * opening with it signals intent, and "a barra de rolagem" must not become a
  * command.
  */
-import { fuzzyScore } from "../utils/fuzzy.js";
-import { scoreCommand, type DiscoveredCommand } from "./commands.js";
+import { fuzzyScore, scoreCommand } from "../utils/fuzzy.js";
+import type { DiscoveredCommand } from "./commands.js";
 
 export interface SpokenCommandResult {
   /** Text to inject — the original transcript when no command matched. */

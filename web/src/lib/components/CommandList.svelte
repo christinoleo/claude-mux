@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { scoreCommand } from '$shared/claude/commands.js';
+	import { scoreCommand } from '$shared/utils/fuzzy.js';
 
 	type Kind = 'builtin' | 'command' | 'skill' | 'agent';
 	interface Cmd {

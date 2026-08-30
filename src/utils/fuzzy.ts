@@ -65,3 +65,20 @@ export function highlightRuns(text: string, positions: number[]): { text: string
   if (cut < text.length) runs.push({ text: text.slice(cut), hit: false });
   return runs;
 }
+
+/**
+ * Ranking shared by the web command list and spoken-command resolution: a
+ * fuzzy match on the name (boosted so any name hit beats any description
+ * hit), else a substring match on the description — substring only, because
+ * a subsequence over long prose matches everything. Lives here rather than
+ * beside the command scanner so the browser bundle never sees "fs".
+ */
+export function scoreCommand(
+  cmd: { name: string; description: string },
+  query: string
+): number | null {
+  const nameScore = fuzzyScore(cmd.name, query);
+  if (nameScore != null) return nameScore + 500;
+  const descIdx = query ? cmd.description.toLowerCase().indexOf(query.toLowerCase()) : -1;
+  return descIdx === -1 ? null : 100 - descIdx * 0.5;
+}

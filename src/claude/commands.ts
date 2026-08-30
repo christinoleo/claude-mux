@@ -12,7 +12,6 @@
  *     → <installPath>/{commands,skills,agents}, namespaced as `plugin:name`
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
-import { fuzzyScore } from "../utils/fuzzy.js";
 import { homedir } from "os";
 import { basename, dirname, join, relative } from "path";
 
@@ -296,20 +295,4 @@ export function discoverCommands(cwd?: string): DiscoveredCommand[] {
     }
   }
   return [...byName.values()];
-}
-
-/**
- * Ranking shared by the web command list and spoken-command resolution: a
- * fuzzy match on the name (boosted so any name hit beats any description
- * hit), else a substring match on the description — substring only, because
- * a subsequence over long prose matches everything.
- */
-export function scoreCommand(
-  cmd: Pick<DiscoveredCommand, "name" | "description">,
-  query: string
-): number | null {
-  const nameScore = fuzzyScore(cmd.name, query);
-  if (nameScore != null) return nameScore + 500;
-  const descIdx = query ? cmd.description.toLowerCase().indexOf(query.toLowerCase()) : -1;
-  return descIdx === -1 ? null : 100 - descIdx * 0.5;
 }
