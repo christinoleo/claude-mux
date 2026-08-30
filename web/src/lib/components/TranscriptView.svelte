@@ -19,6 +19,8 @@
 		queueHeadText = null,
 		queueHeadKind = null,
 		paneQueue = [],
+		suggestion = null,
+		onAcceptSuggestion,
 		choiceOffered = false,
 		subagents = {},
 		onSendKeys,
@@ -42,6 +44,10 @@
 		queueHeadKind?: QueuedMessageKind | null;
 		/** Messages waiting in Claude Code's own queue, typed into the terminal. */
 		paneQueue?: string[];
+		/** Claude Code's own ghost-text proposal for the next prompt. */
+		suggestion?: string | null;
+		/** Accepts the suggestion (Tab then Enter in the pane). */
+		onAcceptSuggestion?: () => void;
 		/**
 		 * Whether the composer is offering the dialog's own rows. When it is,
 		 * the status row must not send you to the terminal for an answer that
@@ -242,10 +248,17 @@
 			<span class="earlier-count">{olderCount} older {olderCount === 1 ? 'entry' : 'entries'}</span>
 		</div>
 	{/if}
+	{#snippet turnGlyph(dictated: boolean)}
+		{#if dictated}
+			<iconify-icon class="mic-glyph" icon="mdi:microphone" title="dictated"></iconify-icon>
+		{:else}
+			<span class="prompt-glyph">❯</span>
+		{/if}
+	{/snippet}
 	{#each entries as entry (entry.id)}
 		{#if entry.kind === 'user'}
-			<div class="user-block">
-				<span class="prompt-glyph">❯</span>
+			<div class="user-block" class:dictated={entry.dictated}>
+				{@render turnGlyph(entry.dictated ?? false)}
 				<!-- A slash command is a different kind of turn: not prose the agent
 				     read, but an instruction to the harness. Show the command as a
 				     token so it is scannable, and its arguments as ordinary prompt
@@ -263,8 +276,8 @@
 			</div>
 		{:else if entry.kind === 'queued'}
 			{#if !entry.delivered}
-				<div class="user-block">
-					<span class="prompt-glyph">❯</span>
+				<div class="user-block" class:dictated={entry.dictated}>
+					{@render turnGlyph(entry.dictated ?? false)}
 					<div class="user-text">{entry.text}</div>
 					<span class="time" title="sent while the agent was working">
 						<iconify-icon icon="mdi:clock-fast"></iconify-icon>
@@ -529,6 +542,24 @@
 			</span>
 		</div>
 	{/each}
+	{#if suggestion}
+		<!-- Claude's own next-prompt proposal, drawn as the same not-yet-happened
+		     turn anchor as a queued message — but in the suggestion's blue, and
+		     tappable: accepting is the only interaction it has. -->
+		<button
+			type="button"
+			class="user-block pending suggested"
+			onclick={onAcceptSuggestion}
+			title="Accept Claude's suggestion"
+		>
+			<span class="prompt-glyph">❯</span>
+			<div class="user-text">{suggestion}</div>
+			<span class="time suggested-tag" title="Claude's suggested next prompt — tap to accept">
+				<iconify-icon icon="mdi:star-four-points-outline"></iconify-icon>
+				suggested · accept <kbd>&#8677;</kbd>
+			</span>
+		</button>
+	{/if}
 	{#if canInterrupt && pendingInPane.length > 0}
 		<!-- One control for the whole queue: ending the turn is what hands the
 		     messages over, and there is only ever one turn to end. -->
@@ -645,13 +676,62 @@
 	.user-block.pending .user-text {
 		color: #8f8578;
 	}
-	.prompt-glyph {
+	/* Claude's suggestion: the queued anchor's shape, in the one colour nothing
+	   else in the app uses — and clickable, because tapping accepts it. */
+	.user-block.suggested {
+		width: 100%;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+		border-color: #3b3b5c;
+		border-left-color: #6366f1;
+	}
+	.user-block.suggested:hover {
+		background: #14141c;
+	}
+	.user-block.suggested:focus-visible {
+		outline: 2px solid #818cf8;
+		outline-offset: -2px;
+	}
+	.user-block.suggested .prompt-glyph {
+		color: #818cf8;
+	}
+	/* Ghost text reads faint in the terminal; keep it reading that way here. */
+	.user-block.suggested .user-text {
+		color: #8b8fb0;
+	}
+	.user-block.suggested .suggested-tag {
+		color: #a5b4fc;
+	}
+	.suggested-tag kbd {
+		font: inherit;
+		padding: 0 4px;
+		border: 1px solid #3a3a52;
+		border-radius: 3px;
+	}
+	.prompt-glyph,
+	.mic-glyph {
 		flex-shrink: 0;
 		width: 14px;
 		font-family: var(--mono);
 		font-weight: 700;
 		font-size: 14px;
 		color: #f59e0b;
+	}
+	/* Dictated prompt: same turn anchor, warmed toward coral — spoken, not
+	   typed — with the microphone standing where the prompt glyph would be. */
+	.user-block.dictated {
+		background: #261418;
+		border-color: #492530;
+		border-left-color: #e0566f;
+	}
+	.mic-glyph {
+		color: #fb7185;
+		align-self: baseline;
+		transform: translateY(2px);
+	}
+	.user-block.dictated .user-text {
+		color: #fde8e8;
 	}
 	.user-text {
 		flex: 1;

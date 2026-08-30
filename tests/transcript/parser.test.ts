@@ -26,6 +26,32 @@ describe("TranscriptBuilder", () => {
     ]);
   });
 
+  it("stamps a prompt dictated when the injected isDictated predicate says so", () => {
+    const builder = new TranscriptBuilder(false, (text) => text === "spoken words");
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u1",
+        timestamp: TS,
+        message: { role: "user", content: "spoken words" },
+        origin: { kind: "human" },
+      }),
+    );
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u2",
+        timestamp: TS,
+        message: { role: "user", content: "typed words" },
+        origin: { kind: "human" },
+      }),
+    );
+    expect(builder.entries).toEqual([
+      { kind: "user", id: "u1", ts: Date.parse(TS), text: "spoken words", dictated: true },
+      { kind: "user", id: "u2", ts: Date.parse(TS), text: "typed words" },
+    ]);
+  });
+
   it("unwraps a slash command into its name and arguments", () => {
     const builder = new TranscriptBuilder();
     builder.feed(

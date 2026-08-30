@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { fuzzyMatch, highlightRuns } from '$lib/fuzzy';
+	import { fuzzyMatch, highlightRuns } from '$shared/utils/fuzzy.js';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Dialog from '$lib/components/ui/dialog';

@@ -229,11 +229,15 @@
 		attachments.filter((a) => a.status === 'ready' && a.path).map((a) => a.path!)
 	);
 	const hasDraft = $derived(textInput.trim().length > 0 || readyPaths.length > 0);
+	/** Claude Code's ghost-text proposal in the pane's prompt box, if any. */
+	const suggestion = $derived(
+		currentSession?.draft_kind === 'suggestion' ? (currentSession?.draft_input ?? null) : null
+	);
 	/** The action button names what it will do rather than always saying "send". */
 	const actionKind = $derived.by(() => {
 		if (modArmed) return 'keys' as const;
 		if (!hasDraft) {
-			return currentSession?.draft_kind === 'suggestion' ? ('accept' as const) : ('enter' as const);
+			return suggestion != null ? ('accept' as const) : ('enter' as const);
 		}
 		return (currentSession?.state ?? 'idle') === 'idle' ? ('send' as const) : ('queue' as const);
 	});
@@ -1631,6 +1635,8 @@
 						{queueHeadText}
 						{queueHeadKind}
 						paneQueue={currentSession?.pane_queue ?? []}
+						{suggestion}
+						onAcceptSuggestion={() => void acceptSuggestion()}
 						choiceOffered={choice !== null}
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={(keys) => void sendKeys(keys)}
@@ -1660,12 +1666,10 @@
 
 		{#if viewMode === 'transcript'}
 			<PaneDraftBar
-				text={currentSession?.draft_input ?? null}
-				kind={currentSession?.draft_kind ?? null}
+				text={currentSession?.draft_kind === 'typed' ? (currentSession?.draft_input ?? null) : null}
 				composerHasText={textInput.trim().length > 0 || readyPaths.length > 0}
 				onClear={() => void sendKeys(CLEAR_PROMPT_KEYS)}
 				onSend={() => void sendKeys('Enter')}
-				onAccept={() => void acceptSuggestion()}
 			/>
 		{/if}
 

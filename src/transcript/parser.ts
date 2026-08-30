@@ -26,13 +26,15 @@ export type TranscriptEntry =
       text: string;
       /** Set when the prompt was a slash command, so the UI can style it. */
       command?: { name: string; args?: string };
+      /** Set when the prompt was dictated by voice (see dictation-marks). */
+      dictated?: boolean;
     }
   /** A prompt typed mid-turn. By the time its queued_command line reaches the
    * file it has already been seen by the agent — most never get a user line
    * of their own (the harness injects them into tool results instead), so
    * this IS the user turn. `delivered` marks the rare double-delivery case
    * where a real user line with the same text follows; the UI hides those. */
-  | { kind: "queued"; id: string; ts: number; text: string; delivered?: boolean }
+  | { kind: "queued"; id: string; ts: number; text: string; delivered?: boolean; dictated?: boolean }
   /** A cross-session (agent-to-agent) message from another Claude session. */
   | { kind: "peer"; id: string; ts: number; text: string; from?: string }
   /** An AskUserQuestion dialog: interactive while unanswered. */
@@ -246,8 +248,19 @@ export class TranscriptBuilder {
    * @param sidechain true when reading a subagent's own file, where every line
    * is marked `isSidechain` — the main transcript skips those, since subagent
    * work lives in its own file.
+   * @param isDictated tells a prompt injected by voice from a typed one. The
+   * JSONL carries no origin for this, so the caller re-derives it (by text and
+   * time, see dictation-marks) and the builder stamps `dictated` at parse
+   * time, where the flag survives re-upserts of the same entry.
    */
-  constructor(private readonly sidechain = false) {}
+  constructor(
+    private readonly sidechain = false,
+    private readonly isDictated?: (text: string, ts: number) => boolean
+  ) {}
+
+  private dictatedFlag(text: string, ts: number): { dictated: true } | undefined {
+    return this.isDictated?.(text, ts) ? { dictated: true } : undefined;
+  }
 
   /** Position of an entry in `entries`, or undefined if it is not one. */
   indexOf(id: string): number | undefined {
@@ -289,7 +302,13 @@ export class TranscriptBuilder {
     const ts = parseTimestamp(record.timestamp ?? attachment.timestamp);
     this.pendingQueued.push({ text: prompt.trim(), id: uuid });
     return [
-      this.upsert({ kind: "queued", id: uuid, ts, text: truncate(prompt, TEXT_CHAR_LIMIT) }),
+      this.upsert({
+        kind: "queued",
+        id: uuid,
+        ts,
+        text: truncate(prompt, TEXT_CHAR_LIMIT),
+        ...this.dictatedFlag(prompt, ts),
+      }),
     ];
   }
 
@@ -389,6 +408,7 @@ export class TranscriptBuilder {
           ts,
           text: truncate(text, TEXT_CHAR_LIMIT),
           ...(command ? { command } : {}),
+          ...this.dictatedFlag(text, ts),
         }),
       ];
     }
@@ -443,6 +463,7 @@ export class TranscriptBuilder {
           id: uuid,
           ts,
           text: truncate(promptTexts.join("\n\n"), TEXT_CHAR_LIMIT),
+          ...this.dictatedFlag(promptTexts.join("\n\n"), ts),
         }),
       );
     }

@@ -4,42 +4,26 @@
 	 * hides the terminal.
 	 *
 	 * It lives next to the composer rather than in the transcript because it is
-	 * state, not history:
-	 * - `typed` text rides along in front of anything sent from here, since
-	 *   sending pastes into that same prompt.
-	 * - a `suggestion` is Claude Code's own faint next-prompt proposal. Tapping
-	 *   it accepts: Tab places it in the prompt, Enter submits.
+	 * state, not history: typed text rides along in front of anything sent from
+	 * here, since sending pastes into that same prompt. (Claude's suggestion is
+	 * a different thing and is drawn inside the transcript — see TranscriptView.)
 	 */
 	let {
 		text,
-		kind,
 		composerHasText = false,
 		onClear,
-		onSend,
-		onAccept
+		onSend
 	}: {
+		/** What the user typed into the terminal's prompt box, if anything. */
 		text: string | null;
-		kind: 'typed' | 'suggestion' | null;
 		/** The web composer holds text that would land behind a typed draft. */
 		composerHasText?: boolean;
 		onClear: () => void;
 		onSend: () => void;
-		onAccept: () => void;
 	} = $props();
 </script>
 
-{#if text && kind === 'suggestion'}
-	<button type="button" class="draft suggestion" onclick={onAccept}>
-		<div class="head">
-			<span class="eyebrow">Claude suggests</span>
-			<span class="cue">Accept <kbd>&#8677;</kbd></span>
-		</div>
-		<div class="body">
-			<span class="caret" aria-hidden="true">&#10095;</span>
-			<p class="text">{text}</p>
-		</div>
-	</button>
-{:else if text && kind === 'typed'}
+{#if text}
 	<div class="draft" class:collides={composerHasText}>
 		<div class="head">
 			<span class="eyebrow">
@@ -75,19 +59,6 @@
 		border-left-color: #f59e0b;
 		background: #17130d;
 	}
-	/* Claude's own proposal, in a colour nothing else in the app uses. */
-	.draft.suggestion {
-		background: #121218;
-		border-left-color: #6366f1;
-		cursor: pointer;
-	}
-	.draft.suggestion:hover {
-		background: #16161f;
-	}
-	.draft.suggestion:focus-visible {
-		outline: 2px solid #818cf8;
-		outline-offset: -2px;
-	}
 
 	.head {
 		display: flex;
@@ -95,8 +66,7 @@
 		justify-content: space-between;
 		gap: 12px;
 	}
-	.eyebrow,
-	.cue {
+	.eyebrow {
 		font-size: 9px;
 		font-weight: 600;
 		letter-spacing: 0.08em;
@@ -105,17 +75,6 @@
 	}
 	.draft.collides .eyebrow {
 		color: #f59e0b;
-	}
-	.suggestion .eyebrow,
-	.suggestion .cue {
-		color: #a5b4fc;
-	}
-	.cue kbd {
-		font: inherit;
-		padding: 1px 4px;
-		margin-left: 2px;
-		border: 1px solid #3a3a52;
-		border-radius: 3px;
 	}
 
 	.actions {
@@ -156,9 +115,6 @@
 		line-height: 1.5;
 		color: #57534e;
 	}
-	.suggestion .caret {
-		color: #6366f1;
-	}
 	.text {
 		flex: 1;
 		min-width: 0;
@@ -176,10 +132,6 @@
 		-webkit-line-clamp: 3;
 		line-clamp: 3;
 		overflow: hidden;
-	}
-	/* Ghost text reads faint in the terminal; keep it reading that way here. */
-	.suggestion .text {
-		color: #8b8580;
 	}
 
 	@keyframes shelf-in {

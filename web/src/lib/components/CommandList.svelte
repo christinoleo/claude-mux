@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
-	import { fuzzyScore } from '$lib/fuzzy';
+	import { scoreCommand } from '$shared/claude/commands.js';
 
 	type Kind = 'builtin' | 'command' | 'skill' | 'agent';
 	interface Cmd {
@@ -72,12 +72,8 @@
 		const pinSet = new Set(pinned);
 		const scored = commands
 			.map((c) => {
-				const nameScore = fuzzyScore(c.name, q);
-				// Description: substring only (subsequence over long prose matches everything)
-				const descIdx = q ? c.description.toLowerCase().indexOf(q.toLowerCase()) : -1;
-				const descScore = descIdx === -1 ? null : 100 - descIdx * 0.5;
-				const best = nameScore != null ? nameScore + 500 : descScore;
-				return best == null ? null : { c, score: best };
+				const score = scoreCommand(c, q);
+				return score == null ? null : { c, score };
 			})
 			.filter((x): x is { c: Cmd; score: number } => x != null);
 		if (q) {

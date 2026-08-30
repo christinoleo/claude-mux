@@ -14,6 +14,7 @@ import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessi
 import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
+import { isDictated } from './dictation-marks.js';
 import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, stripAnsi } from '../tmux/pane.js';
 import type { PromptChoice } from '../tmux/pane.js';
@@ -488,9 +489,9 @@ export class SessionsWsManager {
 				this.refreshAndBroadcast();
 			}, 500);
 			// Cleanup stale sessions (dead PIDs) periodically
-			try { cleanupStaleSessions(); } catch {}
+			try { cleanupStaleSessions(); } catch { /* best-effort */ }
 			this.cleanupTimer = setInterval(() => {
-				try { cleanupStaleSessions(); } catch {}
+				try { cleanupStaleSessions(); } catch { /* best-effort */ }
 			}, 10_000);
 			// Start system stats: refresh every 10s, broadcast separately
 			startSystemStats();
@@ -1066,6 +1067,7 @@ interface SubagentState {
 }
 
 interface TranscriptSessionState {
+	sessionId: string;
 	/** Null until the session's JSONL has been located (see resolveIn). */
 	tailer: JsonlTailer | null;
 	builder: TranscriptBuilder;
@@ -1158,10 +1160,16 @@ export class TranscriptWsManager {
 		}
 	}
 
+	/** A main-transcript builder that stamps voice-injected prompts (see dictation-marks). */
+	private mainBuilder(sessionId: string): TranscriptBuilder {
+		return new TranscriptBuilder(false, (text, ts) => isDictated(sessionId, text, ts));
+	}
+
 	private startSession(sessionId: string): TranscriptSessionState {
 		const state: TranscriptSessionState = {
+			sessionId,
 			tailer: null,
-			builder: new TranscriptBuilder(),
+			builder: this.mainBuilder(sessionId),
 			available: false,
 			resolveIn: RESOLVE_TICKS,
 			resolveBackoff: RESOLVE_TICKS,
@@ -1272,7 +1280,7 @@ export class TranscriptWsManager {
 			}
 			case 'reset':
 				// File replaced: rebuild on the next polls from offset 0.
-				state.builder = new TranscriptBuilder();
+				state.builder = this.mainBuilder(state.sessionId);
 				return [];
 			default:
 				return [];
