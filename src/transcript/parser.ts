@@ -24,8 +24,13 @@ export type TranscriptEntry =
       id: string;
       ts: number;
       text: string;
-      /** Set when the prompt was a slash command, so the UI can style it. */
-      command?: { name: string; args?: string };
+      /**
+       * Set when the prompt was a slash command, so the UI can style it.
+       * `output` is what a local command printed back — "Set model to Fable" —
+       * which the log records as a user line of its own, wrapped in
+       * <local-command-stdout>, right after the command.
+       */
+      command?: { name: string; args?: string; output?: string };
       /** Set when the prompt was dictated by voice (see dictation-marks). */
       dictated?: boolean;
     }
@@ -92,6 +97,41 @@ function parseSlashCommand(content: string): { name: string; args?: string } | n
   // <command-message> is the harness's own echo of the name; it adds nothing
   // the UI can show, and empty <command-args> must not become a trailing space.
   return { name, ...(tags.args ? { args: tags.args } : {}) };
+}
+
+/** What a local command printed, as the log wraps it; \1 pairs open with close. */
+const LOCAL_OUTPUT_TAG = /^<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>/;
+
+/**
+ * The caveat the harness writes ahead of a local command's lines. It is meant
+ * for the model, not the reader, and is usually flagged isMeta — but not in
+ * every version, so it is recognised by shape too.
+ */
+const LOCAL_CAVEAT = /^<local-command-caveat>/;
+
+/**
+ * Read what a local command printed out of the user line that carries it.
+ *
+ * A local command (`/model`, `/cost`, `/context`) never reaches the model:
+ * the harness runs it and logs three user lines — a caveat, the command, and
+ * its output wrapped in <local-command-stdout>. The output belongs under the
+ * command it answers, not in a turn of its own dressed as a prompt.
+ *
+ * @returns The output's text, or null when the line is something else.
+ */
+function parseLocalOutput(content: string): string | null {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("<local-command-")) return null;
+  const chunks: string[] = [];
+  let rest = trimmed;
+  for (let m = rest.match(LOCAL_OUTPUT_TAG); m; m = rest.match(LOCAL_OUTPUT_TAG)) {
+    const text = m[2].trim();
+    if (text) chunks.push(m[1] === "stderr" ? `[stderr]\n${text}` : text);
+    rest = rest.slice(m[0].length).trimStart();
+  }
+  // Not an output line after all — leave it to the caller.
+  if (chunks.length === 0 && !LOCAL_OUTPUT_TAG.test(trimmed)) return null;
+  return chunks.join("\n");
 }
 
 function parseAskQuestions(input: Record<string, unknown>): AskQuestion[] {
@@ -241,6 +281,8 @@ export class TranscriptBuilder {
    */
   context: ContextUsage | null = null;
   private indexById = new Map<string, number>();
+  /** The slash command logged last, which a local command's output belongs to. */
+  private lastCommandId: string | null = null;
   /** Queued prompts awaiting a possible re-delivery as a real user line. */
   private pendingQueued: { text: string; id: string }[] = [];
 
@@ -394,9 +436,27 @@ export class TranscriptBuilder {
       if (originKind !== undefined && originKind !== "human") return [];
       if (originKind === undefined && /^<(task-notification|system-reminder)/.test(content.trim()))
         return [];
+      if (LOCAL_CAVEAT.test(content.trimStart())) return [];
+      // A local command's output rides under the command it answers, which is
+      // the line logged just before it.
+      const output = parseLocalOutput(content);
+      if (output !== null) {
+        if (output.length === 0) return [];
+        const owner = this.lastCommandId ? this.getEntry(this.lastCommandId) : undefined;
+        if (owner?.kind === "user" && owner.command) {
+          return [
+            this.upsert({
+              ...owner,
+              command: { ...owner.command, output: truncate(output, TEXT_CHAR_LIMIT) },
+            }),
+          ];
+        }
+        return [this.upsert({ kind: "user", id: uuid, ts, text: truncate(output, TEXT_CHAR_LIMIT) })];
+      }
       // `text` stays the human-readable form of the turn either way, so search,
       // truncation and the queued-prompt matching below need no special case.
       const command = parseSlashCommand(content);
+      this.lastCommandId = command ? uuid : null;
       const text = command
         ? `${command.name}${command.args ? ` ${command.args}` : ""}`
         : content;

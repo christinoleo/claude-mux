@@ -239,6 +239,9 @@
 		if (!hasDraft) {
 			return suggestion != null ? ('accept' as const) : ('enter' as const);
 		}
+		// A dialog's text row is open: the draft is its answer, not a prompt to
+		// queue behind the turn — queued, it would land after the dialog closed.
+		if (answering) return 'answer' as const;
 		return (currentSession?.state ?? 'idle') === 'idle' ? ('send' as const) : ('queue' as const);
 	});
 	const ACTIONS = {
@@ -246,7 +249,8 @@
 		accept: { label: 'Accept', icon: 'mdi:keyboard-tab' },
 		enter: { label: 'Enter', icon: 'mdi:keyboard-return' },
 		send: { label: 'Send', icon: 'mdi:arrow-up' },
-		queue: { label: 'Queue', icon: 'mdi:tray-arrow-down' }
+		queue: { label: 'Queue', icon: 'mdi:tray-arrow-down' },
+		answer: { label: 'Answer', icon: 'mdi:message-reply-text-outline' }
 	} as const;
 	/** An armed modifier names the sequence it will send, not the verb. */
 	const actionLabel = $derived(
@@ -305,15 +309,51 @@
 	}
 
 	/**
-	 * The numbered options the pane is offering.
-	 *
-	 * Gated on state because `pane_choice` is read off the screen and the hooks
-	 * are authoritative for whether a dialog is actually open — a numbered list
-	 * in Claude's prose must never turn the composer into a chooser.
+	 * The dialog the pane is drawing, as the poll read it. The server gates
+	 * this on the state the hooks report — or, for a dialog a local command
+	 * such as `/model` opens while the session is idle, on the pane naming its
+	 * own keys — so a numbered list in Claude's prose never arrives here.
 	 */
-	const choice = $derived(
-		wantsKeypress && !hasDraft ? (currentSession?.pane_choice ?? null) : null
-	);
+	const paneChoice = $derived(currentSession?.pane_choice ?? null);
+
+	/**
+	 * The dialog's "Type something" row is open for typing. The field stays
+	 * put then, because what you type is the answer, and the rows step aside.
+	 */
+	const answering = $derived(paneChoice?.typing === true);
+
+	/**
+	 * The numbered options the pane is offering, standing in for the field.
+	 * A draft in the field means you are writing rather than choosing.
+	 */
+	const choice = $derived(!hasDraft && !answering ? paneChoice : null);
+
+	/** A hint segment naming a key and what it does: "s to use this session only". */
+	const KEY_SEGMENT = /^(\S+) to (.+)$/;
+
+	/** Keys the chooser already drives with its rows and its own buttons. */
+	const DRIVEN_KEYS = new Set(['Enter', 'Esc', '↑/↓', '←/→', 'ctrl+g']);
+
+	/**
+	 * The keys a dialog answers to beyond picking a row — the model picker's
+	 * "s to use this session only", a question's "n to add notes" — read off
+	 * the hint line the dialog draws under itself, so a dialog this page has
+	 * never seen still gets its extra keys offered as buttons.
+	 */
+	function extraKeys(keys: string | undefined): { key: string; label: string }[] {
+		if (!keys) return [];
+		const out: { key: string; label: string }[] = [];
+		for (const segment of keys.split('·')) {
+			const m = segment.trim().match(KEY_SEGMENT);
+			if (!m || DRIVEN_KEYS.has(m[1])) continue;
+			if (!/^[a-z]$/i.test(m[1]) && m[1] !== 'Tab' && m[1] !== 'Space') continue;
+			out.push({ key: m[1], label: m[2] });
+		}
+		return out;
+	}
+
+	/** A note the dialog adjusts with the horizontal arrows. */
+	const ARROW_NOTE = /←\/→/;
 
 	/** Anything drawn over the page that answers to the keyboard itself. */
 	const overlayOpen = $derived(
@@ -780,9 +820,35 @@
 		}, DOUBLE_TAP_MS);
 	}
 
+	/**
+	 * Type the draft into the dialog's open text row.
+	 *
+	 * A single-select question takes the row as its answer on Enter, so that
+	 * goes with it. A multi-select toggles the row's box on Enter instead, and
+	 * the answer is sent from the Submit tab — the strip's Done button — so
+	 * the text is left where it is.
+	 */
+	async function sendAnswerText() {
+		if (!target) return;
+		const text = textInput;
+		const multi = paneChoice?.multi === true;
+		textInput = '';
+		if (textareaElement) textareaElement.style.height = 'auto';
+		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ text, raw: true })
+		});
+		if (!multi) await sendKeys('Enter');
+	}
+
 	async function sendText() {
 		if (!target) return;
 		if (!canSend) return;
+		if (answering && textInput.trim()) {
+			await sendAnswerText();
+			return;
+		}
 		const paths = readyPaths;
 		if (!textInput.trim() && paths.length === 0) {
 			// Empty input: just send Enter key
@@ -1571,7 +1637,11 @@
 			<textarea
 			bind:this={textareaElement}
 			bind:value={textInput}
-			placeholder={modArmed ? 'Type keys, Enter to send as mod sequence…' : 'Type a message...'}
+			placeholder={modArmed
+				? 'Type keys, Enter to send as mod sequence…'
+				: answering
+					? 'Type your answer…'
+					: 'Type a message...'}
 			rows={1}
 			onkeydown={handleKeydown}
 			onkeyup={(e) => { handleKeyup(e); syncCaret(); }}
@@ -1637,7 +1707,7 @@
 						paneQueue={currentSession?.pane_queue ?? []}
 						{suggestion}
 						onAcceptSuggestion={() => void acceptSuggestion()}
-						choiceOffered={choice !== null}
+						choiceOffered={choice !== null || answering}
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={(keys) => void sendKeys(keys)}
 						onOpenTerminal={() => toggleView()}
@@ -1750,20 +1820,83 @@
 											</span>
 										</button>
 									{/each}
-									{#if choice.multi}
-										<!-- Ticking a box leaves the dialog open; the answer goes
-										     in from a tab of its own, one key to the right. -->
-										<button
-											type="button"
-											class="optdone"
-											onclick={() => void sendKeys('Right')}
-										>
-											<iconify-icon icon="mdi:check-all"></iconify-icon>Done — review and submit
-										</button>
-									{/if}
-									<p class="optkeys">↑↓ move · Enter confirm · Esc cancel</p>
+									<!-- What the dialog prints for itself under the rows — the model
+									     picker's effort setting, which the horizontal arrows adjust. -->
+									{#each choice.notes ?? [] as note (note)}
+										<p class="optnote">
+											<span>{note}</span>
+											{#if ARROW_NOTE.test(note)}
+												<button
+													type="button"
+													class="optarrow"
+													title="Left"
+													onclick={() => void sendKeys('Left')}
+												>
+													<iconify-icon icon="mdi:chevron-left"></iconify-icon>
+												</button>
+												<button
+													type="button"
+													class="optarrow"
+													title="Right"
+													onclick={() => void sendKeys('Right')}
+												>
+													<iconify-icon icon="mdi:chevron-right"></iconify-icon>
+												</button>
+											{/if}
+										</p>
+									{/each}
+									<div class="optextra">
+										{#if choice.multi}
+											<!-- Ticking a box leaves the dialog open; the answer goes
+											     in from a tab of its own, one key to the right. -->
+											<button
+												type="button"
+												class="optdone"
+												onclick={() => void sendKeys('Right')}
+											>
+												<iconify-icon icon="mdi:check-all"></iconify-icon>Done — review and submit
+											</button>
+										{/if}
+										<!-- The other keys the dialog names for itself, as buttons. -->
+										{#each extraKeys(choice.keys) as extra (extra.key)}
+											<button
+												type="button"
+												class="optkey"
+												onclick={() => void sendKeys(extra.key)}
+											>
+												<kbd>{extra.key}</kbd>{extra.label}
+											</button>
+										{/each}
+									</div>
+									<p class="optkeys">{choice.keys ?? '↑↓ move · Enter confirm · Esc cancel'}</p>
 								</div>
 							{:else}
+								{#if answering && paneChoice}
+									<!-- The dialog's text row is open: the field below is its
+									     answer. Up steps back onto the rows, keeping the text. -->
+									<div class="answering">
+										<iconify-icon icon="mdi:form-textbox"></iconify-icon>
+										<span class="atext">{paneChoice.question ?? 'Type your answer'}</span>
+										{#if paneChoice.multi}
+											<button
+												type="button"
+												class="optdone"
+												title="Leave the row and open the Submit tab"
+												onclick={() => void sendKeys('Up Right')}
+											>
+												<iconify-icon icon="mdi:check-all"></iconify-icon>Done
+											</button>
+										{/if}
+										<button
+											type="button"
+											class="optkey"
+											title="Back to the options"
+											onclick={() => void sendKeys('Up')}
+										>
+											<iconify-icon icon="mdi:format-list-bulleted"></iconify-icon>Options
+										</button>
+									</div>
+								{/if}
 								{#if hasAttachments}
 									<Popover.Root bind:open={attachStackOpen}>
 										<Popover.Trigger
@@ -2481,6 +2614,8 @@
 		position: relative;
 		padding: 8px 4px 0 13px;
 		display: flex;
+		/* Wraps only for the answering strip, which claims a whole line. */
+		flex-wrap: wrap;
 		gap: 9px;
 		align-items: flex-start;
 	}
@@ -2627,6 +2762,100 @@
 		color: #6b6b70;
 		font-family: var(--font-mono);
 		font-size: 10.5px;
+	}
+	/* A line the dialog prints for itself under the rows, with the arrows that
+	   adjust it when the line says they do. */
+	.optnote {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin: 3px 0 0;
+		padding: 0 9px;
+		font-size: 12px;
+		line-height: 1.4;
+		color: #a8a29e;
+	}
+	.optnote span {
+		min-width: 0;
+	}
+	.optarrow {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 24px;
+		padding: 0;
+		border: 0;
+		border-radius: 6px;
+		background: #26262a;
+		color: #d6d3d1;
+		font-size: 16px;
+		cursor: pointer;
+	}
+	.optarrow:hover {
+		background: #33333a;
+	}
+	.optextra {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+	}
+	/* One of the other keys the dialog names: the key as a cap, then its verb. */
+	.optkey {
+		display: inline-flex;
+		align-items: center;
+		align-self: flex-start;
+		gap: 6px;
+		margin-top: 3px;
+		height: 30px;
+		padding: 0 11px 0 8px;
+		border: 0;
+		border-radius: 8px;
+		background: #26262a;
+		color: #d6d3d1;
+		font-family: var(--font-mono);
+		font-size: 11.5px;
+		cursor: pointer;
+	}
+	.optkey:hover {
+		background: #33333a;
+	}
+	.optkey kbd {
+		padding: 0 5px;
+		border: 1px solid #44444a;
+		border-radius: 4px;
+		font-family: inherit;
+		font-size: 10.5px;
+		color: #fbbf24;
+	}
+	/* The field is answering a dialog's text row: say which question, and
+	   offer the two moves that are not typing. */
+	.answering {
+		flex: 1 0 100%;
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin: 0 0 -2px;
+		padding: 0 4px;
+		font-size: 12px;
+		color: #fde68a;
+	}
+	.answering > iconify-icon {
+		font-size: 15px;
+		color: #fbbf24;
+	}
+	.answering .atext {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.answering .optdone,
+	.answering .optkey {
+		margin-top: 0;
+		height: 26px;
 	}
 	.optrow:hover {
 		background: #1e1e21;

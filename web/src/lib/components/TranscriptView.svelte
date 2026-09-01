@@ -268,6 +268,12 @@
 						<span class="slash-name">{entry.command.name}</span>{#if entry.command.args}<span
 								class="slash-args">{entry.command.args}</span
 							>{/if}
+						<!-- A local command answers on the spot — "Set model to Fable" —
+						     and that answer is the harness's, not the agent's, so it sits
+						     under the command rather than as a turn. -->
+						{#if entry.command.output}
+							<div class="slash-output">{entry.command.output}</div>
+						{/if}
 					</div>
 				{:else}
 					<div class="user-text">{entry.text}</div>
@@ -510,7 +516,7 @@
 			<SessionStateIndicator state="permission" />
 			<span class="live-text">
 				{#if choiceOffered}
-					Waiting for permission — pick an option below ↓
+					Waiting for permission — answer below ↓
 				{:else}
 					Waiting for permission — switch to terminal view to respond
 				{/if}
@@ -755,6 +761,17 @@
 	}
 	.slash-args {
 		margin-left: 8px;
+	}
+	/* What the command printed back, in the harness's voice: quieter than the
+	   prompt, and kept as printed. */
+	.slash-output {
+		margin-top: 5px;
+		padding-left: 10px;
+		border-left: 2px solid #6b4c1a;
+		color: #b8a87a;
+		font-size: 12.5px;
+		white-space: pre-wrap;
+		word-break: break-word;
 	}
 
 	.time {

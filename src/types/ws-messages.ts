@@ -35,6 +35,12 @@ const PaneChoiceSchema = z.object({
 	),
 	/** The rows are checkboxes: picking one ticks it, and leaves the dialog open. */
 	multi: z.boolean().optional(),
+	/** The highlighted row is a text field: keystrokes fill it rather than drive the list. */
+	typing: z.boolean().optional(),
+	/** The dialog's own key hint, as drawn under it. */
+	keys: z.string().optional(),
+	/** Lines the dialog prints under its rows for itself — a setting, a warning. */
+	notes: z.array(z.string()).optional()
 });
 
 /** The numbered options a pane dialog is offering, as they reach the browser. */

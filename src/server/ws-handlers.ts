@@ -311,12 +311,15 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 			pane_queue: raw ? readQueuedMessages(raw) : [],
 			// The dialog's own numbered rows, so the composer can offer them as
 			// answers instead of making you drive arrows at a screen you can't see.
-			// Gated on the state the hooks report, which is the same gate the UI
-			// applies — parsing it for an idle pane is work nothing can read.
-			pane_choice:
-				stripped && (s.state === 'waiting' || s.state === 'permission')
-					? readPromptOptions(stripped)
-					: null,
+			// When the hooks report a dialog, any run at the foot is one. When
+			// they don't — a local command's dialog such as `/model` leaves the
+			// session idle, and the permission notification can trail the dialog
+			// by a tick — only a dialog that names its own keys is believed.
+			pane_choice: stripped
+				? readPromptOptions(stripped, {
+						declaredOnly: s.state !== 'waiting' && s.state !== 'permission'
+					})
+				: null,
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {

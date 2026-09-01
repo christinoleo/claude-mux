@@ -463,7 +463,37 @@ export type PromptChoice = {
    * open, and the answer is sent from a tab of its own.
    */
   multi?: boolean;
+  /**
+   * The highlighted row is a text field: the "Type something" option has been
+   * picked and keystrokes now go into it rather than driving the list. Enter
+   * submits a single-select answer; in a multi-select it toggles the row's own
+   * box, and the arrows have to leave the row before Right can reach Submit.
+   */
+  typing?: boolean;
+  /**
+   * The line the dialog draws under itself naming the keys it answers to, as
+   * printed — "Enter to set as default · s to use this session only · …". Set
+   * only when the pane drew one.
+   */
+  keys?: string;
+  /**
+   * Lines the dialog prints between its last row and the key hint: a setting
+   * the same dialog adjusts with other keys, such as the model picker's
+   * "● High effort (default) ←/→ to adjust".
+   */
+  notes?: string[];
 } | null;
+
+/** How the caller wants an undeclared run — one with no key hint — treated. */
+export type ReadPromptOptionsMode = {
+  /**
+   * Accept only a dialog that names its own keys on its last line. The hooks
+   * say nothing about a dialog a local command opens (`/model`, `/config`) —
+   * the session stays `idle` — so for those the pane's own word is the gate,
+   * and a bare numbered list at the foot of an idle pane must stay prose.
+   */
+  declaredOnly?: boolean;
+};
 
 const OPTION_ROW = /^(❯|>)?\s*(\d+)[.)]\s+(\S.*)$/;
 
@@ -480,6 +510,29 @@ const OPTION_RULE = /^[─━╌┄┈—–-]+$/;
  * prose and a dialog really do look alike.
  */
 const DIALOG_HINT = /↑\/↓|Enter to (?:select|confirm)|Esc to cancel/;
+
+/**
+ * The key the hint adds while a "Type something" row is open for typing. It
+ * is the only visible difference between a list and a list with a text field
+ * in it, and it decides whether keystrokes drive the rows or fill the field.
+ */
+const TYPING_HINT = /ctrl\+g to edit/i;
+
+/**
+ * The tab strip a question draws above itself — "←  ☐ Fruits  ✔ Submit  →",
+ * or just "☐ Color" for a single question. It sits directly over the question
+ * with no blank line between, so the walk that finds the question has to know
+ * it is not part of it.
+ */
+const TAB_STRIP = /^(?:←\s+)?[☐☒☑✔✓]\s/;
+
+/**
+ * A row that carries its description on its own line, after a run of spaces:
+ * "Default (recommended)  Opus 5 with 1M context · Best for everyday…". The
+ * model picker draws its rows that way; a question puts the description on
+ * the line below instead.
+ */
+const INLINE_HINT = /^(.*?\S)\s{2,}(\S.*)$/;
 
 /** A preview panel drawn to the right shares its lines with the rows. */
 const PREVIEW_COLUMN = /\s{2,}[┌┐└┘├┤─━│╭╮╰╯].*$/;
@@ -531,9 +584,10 @@ function clampOption(text: string): string {
  *
  * @param content Pane text with the ANSI already stripped — the session poll
  *                strips once per tick and hands that copy to every check.
+ * @param mode    `declaredOnly` when the hooks do not vouch for a dialog.
  * @returns null when no run qualifies.
  */
-export function readPromptOptions(content: string): PromptChoice {
+export function readPromptOptions(content: string, mode: ReadPromptOptionsMode = {}): PromptChoice {
   if (!content) return null;
 
   // Only the foot of the pane is ever inspected, so the frame comes off line
@@ -562,7 +616,9 @@ export function readPromptOptions(content: string): PromptChoice {
   // sit well above the foot — a preview panel is drawn under them, and so is
   // the row that offers to talk about the question instead. Where it does
   // not, they have to be at the foot, under at most a closing border.
-  const declared = DIALOG_HINT.test(at(lastContent).text);
+  const hintLine = at(lastContent).text;
+  const declared = DIALOG_HINT.test(hintLine);
+  if (mode.declaredOnly && !declared) return null;
   const reach = declared ? OPTION_RUN_WINDOW : OPTION_RUN_TAIL;
 
   let end = -1;
@@ -587,7 +643,10 @@ export function readPromptOptions(content: string): PromptChoice {
     if (m) {
       const n = Number(m[2]);
       if (expected !== -1 && n !== expected) break;
-      rows.push({ i, n, label: m[3], selected: m[1] === "❯", indent });
+      // The highlight marker takes the two columns the other rows fill with
+      // spaces, so the row's indent is where its number starts, not where
+      // the marker does — the description under it lines up with the rest.
+      rows.push({ i, n, label: m[3], selected: m[1] === "❯", indent: m[1] ? indent + 2 : indent });
       expected = n - 1;
       if (n === 1) break;
       continue;
@@ -605,6 +664,8 @@ export function readPromptOptions(content: string): PromptChoice {
   if (rows[0].n !== 1) return null;
 
   let multi = false;
+  // Lines under the last row that turn out not to be its description.
+  const notes: string[] = [];
   const options: PromptOption[] = rows.map((row, k) => {
     // A preview panel shares the row's line, so the label stops where it does.
     const preview = PREVIEW_COLUMN.test(row.label);
@@ -614,6 +675,7 @@ export function readPromptOptions(content: string): PromptChoice {
       multi = true;
       label = label.slice(box[0].length);
     }
+    const last = k + 1 === rows.length;
 
     // The line under a row is the option's own description — unless a preview
     // panel is drawn beside it, in which case the left column is narrow, the
@@ -621,21 +683,47 @@ export function readPromptOptions(content: string): PromptChoice {
     // label too long for one line. A description is indented at least as far
     // as its row and not much further; the rule that closes the run closes
     // the search with it.
-    const stop = k + 1 < rows.length ? rows[k + 1].i : lastContent + 1;
+    // Under the last row the search runs to the key hint, which is not a
+    // description of anything; the rows before it stop at the next row.
+    const stop = last ? (declared ? lastContent : lastContent + 1) : rows[k + 1].i;
+    const noting = last && declared;
     let hint: string | undefined;
+    // A rule closes the run, and the description search with it.
+    let ruled = false;
     for (let i = row.i + 1; i < stop; i++) {
       const { indent, text } = at(i);
-      if (OPTION_RULE.test(text)) break;
+      if (OPTION_RULE.test(text)) {
+        if (!noting) break;
+        ruled = true;
+        continue;
+      }
       if (!text || BOX_ROW.test(text)) continue;
-      if (indent < row.indent || indent > row.indent + HINT_INDENT_SPAN) continue;
       const bare = text.replace(PREVIEW_COLUMN, "").trimEnd();
       if (!bare) continue;
+      const under =
+        !ruled && indent >= row.indent && indent <= row.indent + HINT_INDENT_SPAN;
+      if (!under || hint !== undefined) {
+        // Not this row's description. Under the last row of a declared dialog
+        // that makes it a note the dialog is printing for itself.
+        if (noting) notes.push(clampOption(bare));
+        continue;
+      }
       if (preview) {
         label = `${label} ${bare}`;
         continue;
       }
       hint = clampOption(bare);
-      break;
+    }
+
+    // The model picker writes the description on the row itself, after a run
+    // of spaces; a question never does, and a preview row's spaces were the
+    // panel, which is already gone.
+    if (hint === undefined && !preview) {
+      const inline = label.match(INLINE_HINT);
+      if (inline) {
+        label = inline[1];
+        hint = clampOption(inline[2]);
+      }
     }
 
     return {
@@ -647,15 +735,33 @@ export function readPromptOptions(content: string): PromptChoice {
     };
   });
 
-  // The question is the nearest line above the run that isn't blank.
+  // The question is in the paragraph directly above the run: the line that
+  // asks it when one does, else the paragraph's first line, which is the
+  // title a dialog such as the model picker leads with. The paragraph ends at
+  // a blank line, a rule, or the tab strip a question draws over itself.
   let question: string | null = null;
+  let top: string | null = null;
   for (let i = rows[0].i - 1; i >= 0 && i >= rows[0].i - 4; i--) {
     const { text } = at(i);
-    if (!text) continue;
-    if (/^[─━╌┄┈╭╮╰╯]+$/.test(text)) break;
-    question = clampOption(text);
-    break;
+    if (/^[─━╌┄┈╭╮╰╯]+$/.test(text) || TAB_STRIP.test(text)) break;
+    if (!text) {
+      if (top !== null) break;
+      continue;
+    }
+    top = text;
+    if (text.endsWith("?")) {
+      question = clampOption(text);
+      break;
+    }
   }
+  if (question === null && top !== null) question = clampOption(top);
 
-  return multi ? { question, options, multi } : { question, options };
+  const choice: NonNullable<PromptChoice> = { question, options };
+  if (multi) choice.multi = true;
+  if (declared) {
+    choice.keys = clampOption(hintLine);
+    if (TYPING_HINT.test(hintLine)) choice.typing = true;
+    if (notes.length > 0) choice.notes = notes;
+  }
+  return choice;
 }

@@ -528,10 +528,19 @@ function handlePreToolUse(input: HookInput): void {
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.last_update = Date.now();
-  session.state = "busy";
-  session.current_action = input.tool_name
-    ? formatToolAction(input.tool_name, input.tool_input)
-    : "Working...";
+  if (input.tool_name === "AskUserQuestion") {
+    // The tool's whole job is to wait for the user, so the session is waiting
+    // from the moment it is called. The permission notification says the
+    // same thing a beat later; reporting it here means the dashboard shows
+    // the dialog's rows as soon as they are drawn, not after that beat.
+    session.state = "waiting";
+    session.current_action = "Asking a question";
+  } else {
+    session.state = "busy";
+    session.current_action = input.tool_name
+      ? formatToolAction(input.tool_name, input.tool_input)
+      : "Working...";
+  }
 
   if (input.tool_name?.includes("take_screenshot") && input.tool_input?.filePath) {
     session.screenshots = session.screenshots || [];

@@ -68,7 +68,124 @@ const PREVIEW = [
   "Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel",
 ].join("\n");
 
+/**
+ * The model picker `/model` opens, captured from a pane. A local command's
+ * dialog: the hooks never hear of it, its rows carry their descriptions on
+ * the same line after a run of spaces, a title paragraph rather than a
+ * question sits above them, and a setting the arrows adjust sits below.
+ */
+const MODEL = [
+  "❯ /model",
+  "──────────────────────────────────────────────────────────────────────────────",
+  "  Select model",
+  "  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model",
+  "  names, specify with --model.",
+  "    1. Default (recommended)  Opus 5 with 1M context · Best for everyday, complex tasks",
+  "    2. Opus (1M context)      Opus 5 with 1M context · Best for everyday, complex tasks",
+  "  ❯ 3. Fable                  Fable 5.1 · Most capable for your hardest and longest-running tasks",
+  "    4. Sonnet                 Sonnet 5 · Efficient for routine tasks",
+  "    5. Haiku ✔                Haiku 4.5 · Fastest for quick answers",
+  "  ● High effort (default) ←/→ to adjust",
+  "  Enter to set as default · s to use this session only · Esc to cancel",
+  "",
+  "",
+].join("\n");
+
+/**
+ * A single-select question whose "Type something." row has been picked and
+ * typed into, captured from a pane: the row shows the text in place of its
+ * label, and the hint grows a key for editing it.
+ */
+const TYPING = [
+  " ☐ Color",
+  "Pick a color",
+  "  1. Red",
+  "     warm",
+  "  2. Blue",
+  "     cool",
+  "❯ 3. purple please",
+  "────────────────────────────────────────────────────────────────────────────",
+  "  4. Chat about this",
+  "Enter to select · ↑/↓ to navigate · ctrl+g to edit in Vim · Esc to cancel",
+].join("\n");
+
+/**
+ * A multi-select question's Submit tab, captured from a pane. It names no
+ * keys, and its two rows sit at the foot the way a permission prompt's do.
+ */
+const REVIEW = [
+  "←  ☒ Fruits  ✔ Submit  →",
+  "Review your answers",
+  " ● Which fruits do you like?",
+  "   → Banana",
+  "Ready to submit your answers?",
+  "❯ 1. Submit answers",
+  "  2. Cancel",
+  "",
+  "",
+].join("\n");
+
 describe("readPromptOptions", () => {
+  it("reads the model picker, splitting each row's inline description off its label", () => {
+    const choice = readPromptOptions(MODEL);
+    expect(choice).not.toBeNull();
+    expect(choice!.question).toBe("Select model");
+    expect(choice!.options.map((o) => o.label)).toEqual([
+      "Default (recommended)",
+      "Opus (1M context)",
+      "Fable",
+      "Sonnet",
+      "Haiku ✔",
+    ]);
+    expect(choice!.options[3].hint).toBe("Sonnet 5 · Efficient for routine tasks");
+    expect(choice!.options.map((o) => o.selected)).toEqual([false, false, true, false, false]);
+    expect(choice!.multi).toBeUndefined();
+    expect(choice!.typing).toBeUndefined();
+  });
+
+  it("carries the model picker's own key hint and the setting under its rows", () => {
+    const choice = readPromptOptions(MODEL);
+    expect(choice!.keys).toBe(
+      "Enter to set as default · s to use this session only · Esc to cancel"
+    );
+    expect(choice!.notes).toEqual(["● High effort (default) ←/→ to adjust"]);
+    // The note is not the last row's description.
+    expect(choice!.options[4].hint).toBe("Haiku 4.5 · Fastest for quick answers");
+  });
+
+  it("reads a declared dialog when asked for declared dialogs only, and nothing else", () => {
+    expect(readPromptOptions(MODEL, { declaredOnly: true })).not.toBeNull();
+    expect(readPromptOptions(QUESTION, { declaredOnly: true })).not.toBeNull();
+    // A permission prompt names no keys; without the hooks it is just a list.
+    expect(readPromptOptions(PERMISSION, { declaredOnly: true })).toBeNull();
+    expect(readPromptOptions(REVIEW, { declaredOnly: true })).toBeNull();
+    expect(readPromptOptions(PERMISSION)).not.toBeNull();
+  });
+
+  it("says when the highlighted row is open for typing", () => {
+    const choice = readPromptOptions(TYPING);
+    expect(choice).not.toBeNull();
+    expect(choice!.typing).toBe(true);
+    expect(choice!.question).toBe("Pick a color");
+    expect(choice!.options.map((o) => o.label)).toEqual([
+      "Red",
+      "Blue",
+      "purple please",
+      "Chat about this",
+    ]);
+    expect(choice!.options[2].selected).toBe(true);
+    expect(readPromptOptions(QUESTION)!.typing).toBeUndefined();
+    expect(readPromptOptions(MULTI)!.typing).toBeUndefined();
+  });
+
+  it("reads a multi-select's Submit tab, with the line that asks as its question", () => {
+    const choice = readPromptOptions(REVIEW);
+    expect(choice).not.toBeNull();
+    expect(choice!.question).toBe("Ready to submit your answers?");
+    expect(choice!.options.map((o) => o.label)).toEqual(["Submit answers", "Cancel"]);
+    expect(choice!.keys).toBeUndefined();
+  });
+
   it("reads a multi-select question, checkboxes and all", () => {
     const choice = readPromptOptions(MULTI);
     expect(choice).not.toBeNull();
