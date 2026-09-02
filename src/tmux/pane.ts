@@ -43,25 +43,39 @@ function hardTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
  * Batch-fetch all pane titles in a single tmux command.
  * Returns a Map of "session:window.pane" -> title (or null if pane has no title).
  */
-export async function getAllPaneTitles(): Promise<Map<string, string | null>> {
-  const result = new Map<string, string | null>();
+export async function getAllPaneTitles(): Promise<Map<string, PaneInfo>> {
+  const result = new Map<string, PaneInfo>();
   const stdout = await hardTimeout(
     execFileAsync("tmux", [
-      "list-panes", "-a", "-F", "#{session_name}:#{window_index}.#{pane_index}\t#{pane_title}"
+      "list-panes", "-a", "-F",
+      "#{session_name}:#{window_index}.#{pane_index}\t#{session_attached}\t#{pane_width}\t#{pane_title}"
     ], { encoding: "utf-8", timeout: 2000 }).then((r) => r.stdout),
     2500,
     "",
   );
   for (const line of stdout.trim().split("\n")) {
     if (!line) continue;
-    const tabIdx = line.indexOf("\t");
-    if (tabIdx === -1) continue;
-    const target = line.slice(0, tabIdx);
-    const title = line.slice(tabIdx + 1).trim();
-    result.set(target, title || null);
+    // The title comes last because it is the one field that may hold a tab.
+    const [target, attached, width, ...rest] = line.split("\t");
+    if (!target || rest.length === 0) continue;
+    const title = rest.join("\t").trim();
+    result.set(target, {
+      title: title || null,
+      attached: Number(attached) || 0,
+      width: Number(width) || 0,
+    });
   }
   return result;
 }
+
+/** What one `list-panes` line says about a pane, beyond that it exists. */
+export type PaneInfo = {
+  title: string | null;
+  /** Clients attached to the pane's session — 0 means nobody is looking. */
+  attached: number;
+  /** Columns the pane is drawn at, which is what its text wraps to. */
+  width: number;
+};
 
 /**
  * Async version of capturePaneContent. Does not block the event loop.
@@ -471,6 +485,12 @@ export type PromptChoice = {
    */
   typing?: boolean;
   /**
+   * The text field open for typing is the highlighted option's notes, not
+   * the option itself: `n` opened it, Escape closes it and keeps the note,
+   * and Enter would submit the dialog with the note and no option picked.
+   */
+  noting?: boolean;
+  /**
    * The line the dialog draws under itself naming the keys it answers to, as
    * printed — "Enter to set as default · s to use this session only · …". Set
    * only when the pane drew one.
@@ -517,6 +537,12 @@ const DIALOG_HINT = /↑\/↓|Enter to (?:select|confirm)|Esc to cancel/;
  * in it, and it decides whether keystrokes drive the rows or fill the field.
  */
 const TYPING_HINT = /ctrl\+g to edit/i;
+
+/** The notes line a question with previews draws under its rows. */
+const NOTES_LINE = /^Notes:/;
+
+/** That line while the notes field is closed: it only says how to open it. */
+const NOTES_CLOSED = /press n to add notes/i;
 
 /**
  * The tab strip a question draws above itself — "←  ☐ Fruits  ✔ Submit  →",
@@ -704,8 +730,10 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
         !ruled && indent >= row.indent && indent <= row.indent + HINT_INDENT_SPAN;
       if (!under || hint !== undefined) {
         // Not this row's description. Under the last row of a declared dialog
-        // that makes it a note the dialog is printing for itself.
-        if (noting) notes.push(clampOption(bare));
+        // that makes it a note the dialog is printing for itself — unless a
+        // rule has already closed the run, past which only the dialog's own
+        // unnumbered rows ("Chat about this") are drawn.
+        if (noting && !ruled) notes.push(clampOption(bare));
         continue;
       }
       if (preview) {
@@ -760,7 +788,15 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
   if (multi) choice.multi = true;
   if (declared) {
     choice.keys = clampOption(hintLine);
-    if (TYPING_HINT.test(hintLine)) choice.typing = true;
+    if (TYPING_HINT.test(hintLine)) {
+      choice.typing = true;
+      // With the notes field open its line reads "Notes: <text>" or the
+      // placeholder; closed, it says how to open it. Only the open field
+      // takes what is typed.
+      if (notes.some((note) => NOTES_LINE.test(note) && !NOTES_CLOSED.test(note))) {
+        choice.noting = true;
+      }
+    }
     if (notes.length > 0) choice.notes = notes;
   }
   return choice;

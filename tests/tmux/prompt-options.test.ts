@@ -125,7 +125,44 @@ const REVIEW = [
   "",
 ].join("\n");
 
+/**
+ * A question with previews after `n`: the notes field is open, its line shows
+ * the text (or its placeholder) instead of saying how to open it, and the
+ * hint has grown the editing key. Captured from a pane.
+ */
+const NOTING = [
+  " ☐ Layout",
+  "Which layout?",
+  "❯ 1. Sidebar                      ┌──────────────────────────────────────────┐",
+  "  2. Topbar                       │ ┌───┬────┐                               │",
+  "                                  │ │nav│main│                               │",
+  "                                  │ └───┴────┘                               │",
+  "                                  └──────────────────────────────────────────┘",
+  "                                  Notes: my note",
+  "────────────────────────────────────────────────────────────────────────────",
+  "  Chat about this",
+  "Enter to select · ↑/↓ to navigate · n to add notes · ctrl+g to edit in Vim · Esc to cancel",
+].join("\n");
+
 describe("readPromptOptions", () => {
+  it("tells a notes field open for typing from a text row open for typing", () => {
+    const noting = readPromptOptions(NOTING);
+    expect(noting).not.toBeNull();
+    expect(noting!.typing).toBe(true);
+    expect(noting!.noting).toBe(true);
+    expect(noting!.notes).toEqual(["Notes: my note"]);
+    // The same dialog with the field closed is neither.
+    const closed = readPromptOptions(
+      NOTING.replace("Notes: my note", "Notes: press n to add notes").replace(
+        " · ctrl+g to edit in Vim",
+        ""
+      )
+    );
+    expect(closed!.typing).toBeUndefined();
+    expect(closed!.noting).toBeUndefined();
+    expect(closed!.notes).toEqual(["Notes: press n to add notes"]);
+  });
+
   it("reads the model picker, splitting each row's inline description off its label", () => {
     const choice = readPromptOptions(MODEL);
     expect(choice).not.toBeNull();

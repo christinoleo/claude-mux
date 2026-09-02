@@ -150,6 +150,62 @@ describe("TranscriptBuilder", () => {
     ]);
   });
 
+  it("folds a command's bundle into the plain line that typed it, and strips styling from its output", () => {
+    const builder = new TranscriptBuilder();
+    // Pasted into the prompt, `/compact` is logged as plain text first…
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u1",
+        timestamp: TS,
+        message: { role: "user", content: "/compact" },
+      }),
+    );
+    // …then the compaction it caused…
+    builder.feed(
+      line({
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "c1",
+        timestamp: TS,
+        compactMetadata: { trigger: "manual", preTokens: 39000, postTokens: 3000 },
+      }),
+    );
+    // …then the harness's own bundle and what it printed, dimmed.
+    const bundled = builder.feed(
+      line({
+        type: "user",
+        uuid: "u2",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args></command-args>",
+        },
+      }),
+    );
+    const printed = builder.feed(
+      line({
+        type: "user",
+        uuid: "u3",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: "<local-command-stdout>\u001b[2mCompacted (ctrl+o to see full summary)\u001b[22m</local-command-stdout>",
+        },
+      }),
+    );
+    expect(bundled).toEqual(["u1"]);
+    expect(printed).toEqual(["u1"]);
+    expect(builder.entries.map((e) => e.kind)).toEqual(["user", "compact"]);
+    expect(builder.entries[0]).toEqual({
+      kind: "user",
+      id: "u1",
+      ts: Date.parse(TS),
+      text: "/compact",
+      command: { name: "/compact", output: "Compacted (ctrl+o to see full summary)" },
+    });
+  });
+
   it("drops a local command's empty output, and the caveat even without isMeta", () => {
     const builder = new TranscriptBuilder();
     expect(
@@ -173,6 +229,59 @@ describe("TranscriptBuilder", () => {
       ),
     ).toEqual([]);
     expect(builder.entries).toEqual([]);
+  });
+
+  it("marks a compaction and hangs its summary off the boundary, not a prompt", () => {
+    const builder = new TranscriptBuilder();
+    builder.feed(
+      line({
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "c1",
+        timestamp: TS,
+        content: "Conversation compacted",
+        compactMetadata: { trigger: "manual", preTokens: 837232, postTokens: 14226 },
+      }),
+    );
+    const changed = builder.feed(
+      line({
+        type: "user",
+        uuid: "u1",
+        timestamp: TS,
+        isCompactSummary: true,
+        message: { role: "user", content: "This session is being continued…\n\nSummary:\n1. …" },
+      }),
+    );
+    expect(changed).toEqual(["c1"]);
+    expect(builder.entries).toEqual([
+      {
+        kind: "compact",
+        id: "c1",
+        ts: Date.parse(TS),
+        trigger: "manual",
+        preTokens: 837232,
+        postTokens: 14226,
+        summary: "This session is being continued…\n\nSummary:\n1. …",
+      },
+    ]);
+  });
+
+  it("remembers the model that wrote the latest assistant line", () => {
+    const builder = new TranscriptBuilder();
+    expect(builder.model).toBeNull();
+    builder.feed(
+      line({
+        type: "assistant",
+        uuid: "a1",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          model: "claude-haiku-4-5-20251001",
+          content: [{ type: "text", text: "hi" }],
+        },
+      }),
+    );
+    expect(builder.model).toBe("claude-haiku-4-5-20251001");
   });
 
   it("parses assistant text and thinking blocks, skipping empty thinking", () => {

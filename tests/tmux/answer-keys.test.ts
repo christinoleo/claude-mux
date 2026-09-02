@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { keysForAnswer, keysForOptionPick } from "../../src/tmux/answer-keys.js";
+import { keysForAnswer, keysForOptionMove, keysForOptionPick } from "../../src/tmux/answer-keys.js";
 
 describe("keysForAnswer", () => {
   it("walks down to a single-select option and submits", () => {
@@ -45,5 +45,22 @@ describe("keysForOptionPick", () => {
   it("refuses a row the dialog does not have", () => {
     expect(keysForOptionPick(0, 3, 3)).toBeNull();
     expect(keysForOptionPick(0, -1, 3)).toBeNull();
+  });
+});
+
+describe("keysForOptionMove", () => {
+  it("walks the highlight to a row without picking it", () => {
+    expect(keysForOptionMove(0, 2, 4)).toBe("Down Down");
+    expect(keysForOptionMove(3, 1, 4)).toBe("Up Up");
+  });
+
+  it("sends nothing when the highlight is already there, and starts at the top when none is marked", () => {
+    expect(keysForOptionMove(1, 1, 4)).toBe("");
+    expect(keysForOptionMove(-1, 1, 4)).toBe("Down");
+  });
+
+  it("refuses a row that does not exist", () => {
+    expect(keysForOptionMove(0, 4, 4)).toBeNull();
+    expect(keysForOptionMove(0, -1, 4)).toBeNull();
   });
 });

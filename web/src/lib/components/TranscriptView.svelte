@@ -300,6 +300,28 @@
 				</div>
 				<span class="time peer-time">{formatTime(entry.ts)}</span>
 			</div>
+		{:else if entry.kind === 'compact'}
+			<!-- The conversation was folded here. Everything above it is what the
+			     model no longer sees; the summary is what it reads instead. -->
+			<details class="compact">
+				<summary>
+					<iconify-icon icon="mdi:arrow-collapse-vertical"></iconify-icon>
+					<span class="compact-title">
+						Context compacted{entry.trigger === 'manual' ? ' (/compact)' : ' automatically'}
+					</span>
+					{#if entry.preTokens && entry.postTokens}
+						<span class="compact-tokens">
+							{Math.round(entry.preTokens / 1000)}k → {Math.round(entry.postTokens / 1000)}k tokens
+						</span>
+					{/if}
+					<span class="time">{formatTime(entry.ts)}</span>
+				</summary>
+				{#if entry.summary}
+					<div class="compact-summary">{@html renderMarkdown(entry.summary)}</div>
+				{:else}
+					<p class="compact-summary muted">Summary not written yet.</p>
+				{/if}
+			</details>
 		{:else if entry.kind === 'ask'}
 			{#if entry.answers || entry.rejected}
 				<details class="row ask-done">
@@ -1408,6 +1430,52 @@
 		padding-top: 8px;
 		border-top: 1px solid #262220;
 		font-size: 13.5px;
+	}
+
+	/* --- Compaction boundary: a fold line across the conversation --- */
+	.compact {
+		margin: 22px 0 14px;
+		border: 1px dashed #3a3a42;
+		border-radius: 8px;
+		background: #121216;
+		font-size: 12.5px;
+	}
+	.compact summary {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		padding: 8px 12px;
+		list-style: none;
+		cursor: pointer;
+		color: #a8a29e;
+	}
+	.compact summary::-webkit-details-marker {
+		display: none;
+	}
+	.compact summary iconify-icon {
+		font-size: 15px;
+		color: #a78bfa;
+	}
+	.compact-title {
+		color: #c4b5fd;
+	}
+	.compact-tokens {
+		font-family: var(--mono);
+		font-size: 11px;
+		color: #78716c;
+	}
+	.compact summary .time {
+		margin-left: auto;
+	}
+	.compact-summary {
+		padding: 4px 14px 12px;
+		border-top: 1px dashed #3a3a42;
+		font-size: 13px;
+		line-height: 1.55;
+		color: #a8a29e;
+	}
+	.compact-summary.muted {
+		color: #57534e;
 	}
 
 	/* --- Live status row --- */

@@ -49,9 +49,25 @@ export function keysForAnswer(
  * @returns The key sequence, or null when `to` is not a real row.
  */
 export function keysForOptionPick(from: number, to: number, count: number): string | null {
+  const move = keysForOptionMove(from, to, count);
+  if (move === null) return null;
+  return move ? `${move} Enter` : "Enter";
+}
+
+/**
+ * Keys that move the highlight to a row without picking it.
+ *
+ * Some dialogs hang a setting off the highlighted row — the model picker's
+ * effort level applies to whichever model the highlight is on — and a
+ * question's notes field opens for the highlighted option, so moving the
+ * highlight is an action of its own, not just the first half of a pick.
+ *
+ * @returns The arrow keys, "" when the highlight is already there, or null
+ *          when `to` is not a real row.
+ */
+export function keysForOptionMove(from: number, to: number, count: number): string | null {
   if (!Number.isInteger(to) || to < 0 || to >= count) return null;
   const start = from < 0 || from >= count ? 0 : from;
   const steps = to - start;
-  const move = Array(Math.abs(steps)).fill(steps > 0 ? "Down" : "Up");
-  return [...move, "Enter"].join(" ");
+  return Array(Math.abs(steps)).fill(steps > 0 ? "Down" : "Up").join(" ");
 }

@@ -42,6 +42,21 @@ export type TranscriptEntry =
   | { kind: "queued"; id: string; ts: number; text: string; delivered?: boolean; dictated?: boolean }
   /** A cross-session (agent-to-agent) message from another Claude session. */
   | { kind: "peer"; id: string; ts: number; text: string; from?: string }
+  /**
+   * The conversation was compacted here: everything above was folded into
+   * the summary Claude Code wrote, which arrives as the next user line and
+   * is attached to this entry rather than shown as a prompt.
+   */
+  | {
+      kind: "compact";
+      id: string;
+      ts: number;
+      /** "manual" for /compact, "auto" when the context window filled. */
+      trigger: string;
+      preTokens?: number;
+      postTokens?: number;
+      summary?: string;
+    }
   /** An AskUserQuestion dialog: interactive while unanswered. */
   | {
       kind: "ask";
@@ -102,6 +117,10 @@ function parseSlashCommand(content: string): { name: string; args?: string } | n
 /** What a local command printed, as the log wraps it; \1 pairs open with close. */
 const LOCAL_OUTPUT_TAG = /^<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>/;
 
+/** A terminal styling sequence (colour, dim, reset) left in logged output. */
+// eslint-disable-next-line no-control-regex
+const ANSI_SGR = /\x1b\[[0-9;]*m/g;
+
 /**
  * The caveat the harness writes ahead of a local command's lines. It is meant
  * for the model, not the reader, and is usually flagged isMeta — but not in
@@ -125,7 +144,9 @@ function parseLocalOutput(content: string): string | null {
   const chunks: string[] = [];
   let rest = trimmed;
   for (let m = rest.match(LOCAL_OUTPUT_TAG); m; m = rest.match(LOCAL_OUTPUT_TAG)) {
-    const text = m[2].trim();
+    // Some commands print styled — `/compact` dims its line — and the log
+    // keeps the escape codes.
+    const text = m[2].replace(ANSI_SGR, "").trim();
     if (text) chunks.push(m[1] === "stderr" ? `[stderr]\n${text}` : text);
     rest = rest.slice(m[0].length).trimStart();
   }
@@ -280,6 +301,10 @@ export class TranscriptBuilder {
    * follows it reports the smaller context on its own.
    */
   context: ContextUsage | null = null;
+  /** The model that wrote the latest assistant line, as the API names it. */
+  model: string | null = null;
+  /** The compaction logged last, whose summary is the next user line. */
+  private lastCompactId: string | null = null;
   private indexById = new Map<string, number>();
   /** The slash command logged last, which a local command's output belongs to. */
   private lastCommandId: string | null = null;
@@ -328,9 +353,50 @@ export class TranscriptBuilder {
         return this.feedAssistant(record);
       case "attachment":
         return this.feedAttachment(record);
+      case "system":
+        return this.feedSystem(record);
       default:
         return [];
     }
+  }
+
+  /**
+   * The most recent user turn, when it is plain text reading exactly `text`
+   * and nothing has been said since but the harness's own bookkeeping — the
+   * compaction a `/compact` triggers, for one.
+   */
+  private recentPlainUserLine(text: string): Extract<TranscriptEntry, { kind: "user" }> | null {
+    for (let i = this.entries.length - 1, seen = 0; i >= 0 && seen < 4; i--, seen++) {
+      const entry = this.entries[i];
+      if (entry.kind === "compact") continue;
+      if (entry.kind !== "user") return null;
+      return !entry.command && entry.text === text ? entry : null;
+    }
+    return null;
+  }
+
+  /**
+   * A system line. The only one with a place in the transcript is the
+   * compaction boundary: the reader needs to know where the conversation was
+   * folded, or the summary that follows reads as a prompt they never typed.
+   */
+  private feedSystem(record: Record<string, unknown>): string[] {
+    if (record.subtype !== "compact_boundary") return [];
+    const uuid = readString(record.uuid) ?? `compact-${this.entries.length}`;
+    const meta = asRecord(record.compactMetadata);
+    const pre = typeof meta?.preTokens === "number" ? meta.preTokens : undefined;
+    const post = typeof meta?.postTokens === "number" ? meta.postTokens : undefined;
+    this.lastCompactId = uuid;
+    return [
+      this.upsert({
+        kind: "compact",
+        id: uuid,
+        ts: parseTimestamp(record.timestamp),
+        trigger: readString(meta?.trigger) ?? "auto",
+        ...(pre !== undefined ? { preTokens: pre } : {}),
+        ...(post !== undefined ? { postTokens: post } : {}),
+      }),
+    ];
   }
 
   private feedAttachment(record: Record<string, unknown>): string[] {
@@ -421,6 +487,16 @@ export class TranscriptBuilder {
       ];
     }
 
+    // The summary Claude Code wrote when it compacted: what the model reads
+    // in place of the folded conversation, not something the user said.
+    if (record.isCompactSummary === true && typeof content === "string") {
+      const owner = this.lastCompactId ? this.getEntry(this.lastCompactId) : undefined;
+      if (owner?.kind === "compact") {
+        return [this.upsert({ ...owner, summary: truncate(content, TEXT_CHAR_LIMIT) })];
+      }
+      return [];
+    }
+
     if (record.isMeta === true) return [];
 
     if (typeof content === "string") {
@@ -456,6 +532,17 @@ export class TranscriptBuilder {
       // `text` stays the human-readable form of the turn either way, so search,
       // truncation and the queued-prompt matching below need no special case.
       const command = parseSlashCommand(content);
+      if (command) {
+        // A command pasted into the prompt is logged twice: first as the plain
+        // text the user sent, then as the harness's own bundle once it ran.
+        // Fold the bundle into that first line rather than showing a second.
+        const spelled = `${command.name}${command.args ? ` ${command.args}` : ""}`;
+        const typed = this.recentPlainUserLine(spelled);
+        if (typed) {
+          this.lastCommandId = typed.id;
+          return [this.upsert({ ...typed, command })];
+        }
+      }
       this.lastCommandId = command ? uuid : null;
       const text = command
         ? `${command.name}${command.args ? ` ${command.args}` : ""}`
@@ -533,6 +620,7 @@ export class TranscriptBuilder {
   private feedAssistant(record: Record<string, unknown>): string[] {
     const message = asRecord(record.message);
     if (message) this.context = readContextUsage(message) ?? this.context;
+    if (message) this.model = readString(message.model) ?? this.model;
     const content = message?.content;
     if (!Array.isArray(content)) return [];
     const uuid = readString(record.uuid) ?? `assistant-${this.entries.length}`;

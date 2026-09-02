@@ -26,7 +26,8 @@
 	import { drawer } from '$lib/stores/drawer.svelte';
 	import Hint from '$lib/components/Hint.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { keysForOptionPick } from '$shared/tmux/answer-keys.js';
+	import { keysForOptionMove, keysForOptionPick } from '$shared/tmux/answer-keys.js';
+	import { modelDisplayName } from '$shared/claude/model-name.js';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
 	import RenameSessionDialog from '$lib/components/RenameSessionDialog.svelte';
@@ -241,7 +242,7 @@
 		}
 		// A dialog's text row is open: the draft is its answer, not a prompt to
 		// queue behind the turn — queued, it would land after the dialog closed.
-		if (answering) return 'answer' as const;
+		if (answering) return paneChoice?.noting ? ('note' as const) : ('answer' as const);
 		return (currentSession?.state ?? 'idle') === 'idle' ? ('send' as const) : ('queue' as const);
 	});
 	const ACTIONS = {
@@ -250,7 +251,8 @@
 		enter: { label: 'Enter', icon: 'mdi:keyboard-return' },
 		send: { label: 'Send', icon: 'mdi:arrow-up' },
 		queue: { label: 'Queue', icon: 'mdi:tray-arrow-down' },
-		answer: { label: 'Answer', icon: 'mdi:message-reply-text-outline' }
+		answer: { label: 'Answer', icon: 'mdi:message-reply-text-outline' },
+		note: { label: 'Save note', icon: 'mdi:note-check-outline' }
 	} as const;
 	/** An armed modifier names the sequence it will send, not the verb. */
 	const actionLabel = $derived(
@@ -401,6 +403,23 @@
 		if (keys) await sendKeys(keys);
 	}
 
+	/**
+	 * Move Claude Code's highlight to a row without picking it — a long press.
+	 *
+	 * Some dialogs hang a setting off the highlighted row: the model picker's
+	 * effort applies to the highlighted model, and a question's notes open for
+	 * the highlighted option. Picking would close the dialog before either.
+	 */
+	async function highlightOption(n: number) {
+		const options = choice?.options ?? [];
+		const keys = keysForOptionMove(
+			options.findIndex((o) => o.selected),
+			options.findIndex((o) => o.n === n),
+			options.length
+		);
+		if (keys) await sendKeys(keys);
+	}
+
 
 	/**
 	 * The rare half of the old page header, folded into the session sheet.
@@ -426,6 +445,8 @@
 	// Tap candidate: modifier keydown with no intervening key → arm on keyup
 	let ctrlTapCandidate = false;
 	let altTapCandidate = false;
+	/** The model on the latest reply, named the way the terminal names it. */
+	const modelName = $derived(modelDisplayName(transcriptStore.model));
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
 	const queueHeadText = $derived(currentSession?.queue_head_text ?? null);
 	const queueHeadKind = $derived(currentSession?.queue_head_kind ?? null);
@@ -832,6 +853,7 @@
 		if (!target) return;
 		const text = textInput;
 		const multi = paneChoice?.multi === true;
+		const noting = paneChoice?.noting === true;
 		textInput = '';
 		if (textareaElement) textareaElement.style.height = 'auto';
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
@@ -839,7 +861,11 @@
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ text, raw: true })
 		});
-		if (!multi) await sendKeys('Enter');
+		// A note is closed with Escape, which keeps it on the option and
+		// brings the rows back to pick from — Enter would submit the dialog
+		// with the note and no option.
+		if (noting) await sendKeys('Escape');
+		else if (!multi) await sendKeys('Enter');
 	}
 
 	async function sendText() {
@@ -1606,6 +1632,12 @@
 			<span class="sep">·</span>
 			<span class="say" class:amber={statusWants}>{statusSay}</span>
 		{/if}
+		<!-- The model, as the terminal's own status line names it. It is read
+		     off the latest reply, so a /model change shows on the next one. -->
+		{#if viewMode === 'transcript' && modelName}
+			<span class="sep">·</span>
+			<span class="say model" title="Model on the latest reply">{modelName}</span>
+		{/if}
 		<span class="sl-sp"></span>
 		<!-- The old header's rare actions, back where they were, once there is
 		     room across for them. On a phone they stay in the sheet. -->
@@ -1640,7 +1672,9 @@
 			placeholder={modArmed
 				? 'Type keys, Enter to send as mod sequence…'
 				: answering
-					? 'Type your answer…'
+					? paneChoice?.noting
+						? 'Type a note…'
+						: 'Type your answer…'
 					: 'Type a message...'}
 			rows={1}
 			onkeydown={handleKeydown}
@@ -1801,7 +1835,9 @@
 											type="button"
 											class="optrow"
 											class:sel={option.selected}
+											title="Tap to pick · hold to highlight only"
 											onclick={() => void pickOption(option.n)}
+											use:longPress={{ onTrigger: () => void highlightOption(option.n) }}
 										>
 											{#if option.checked === undefined}
 												<u>{option.n}</u>
@@ -1846,6 +1882,24 @@
 										</p>
 									{/each}
 									<div class="optextra">
+										<!-- Move the highlight without picking: what a setting under the
+										     rows, or a note, applies to. A held row does the same. -->
+										<button
+											type="button"
+											class="optkey optnav"
+											title="Highlight the row above"
+											onclick={() => void sendKeys('Up')}
+										>
+											<iconify-icon icon="mdi:chevron-up"></iconify-icon>
+										</button>
+										<button
+											type="button"
+											class="optkey optnav"
+											title="Highlight the row below"
+											onclick={() => void sendKeys('Down')}
+										>
+											<iconify-icon icon="mdi:chevron-down"></iconify-icon>
+										</button>
 										{#if choice.multi}
 											<!-- Ticking a box leaves the dialog open; the answer goes
 											     in from a tab of its own, one key to the right. -->
@@ -1875,9 +1929,18 @@
 									<!-- The dialog's text row is open: the field below is its
 									     answer. Up steps back onto the rows, keeping the text. -->
 									<div class="answering">
-										<iconify-icon icon="mdi:form-textbox"></iconify-icon>
-										<span class="atext">{paneChoice.question ?? 'Type your answer'}</span>
-										{#if paneChoice.multi}
+										<iconify-icon icon={paneChoice.noting ? 'mdi:note-edit-outline' : 'mdi:form-textbox'}
+										></iconify-icon>
+										<span class="atext">
+											{#if paneChoice.noting}
+												Note on: {paneChoice.options.find((o) => o.selected)?.label ??
+													paneChoice.question ??
+													'this option'}
+											{:else}
+												{paneChoice.question ?? 'Type your answer'}
+											{/if}
+										</span>
+										{#if paneChoice.multi && !paneChoice.noting}
 											<button
 												type="button"
 												class="optdone"
@@ -1887,11 +1950,13 @@
 												<iconify-icon icon="mdi:check-all"></iconify-icon>Done
 											</button>
 										{/if}
+										<!-- A notes field closes with Escape and keeps the note; a text
+										     row is left with Up, which keeps its text too. -->
 										<button
 											type="button"
 											class="optkey"
 											title="Back to the options"
-											onclick={() => void sendKeys('Up')}
+											onclick={() => void sendKeys(paneChoice?.noting ? 'Escape' : 'Up')}
 										>
 											<iconify-icon icon="mdi:format-list-bulleted"></iconify-icon>Options
 										</button>
@@ -2819,6 +2884,13 @@
 	}
 	.optkey:hover {
 		background: #33333a;
+	}
+	/* The two arrows are keys too, just without a verb to print. */
+	.optkey.optnav {
+		width: 34px;
+		padding: 0;
+		justify-content: center;
+		font-size: 17px;
 	}
 	.optkey kbd {
 		padding: 0 5px;

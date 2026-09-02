@@ -12,6 +12,7 @@ interface SnapshotMsg {
 	firstIndex: number;
 	subagents: SubagentPayload[];
 	context: ContextUsage | null;
+	model?: string | null;
 	available: boolean;
 }
 interface HistoryMsg {
@@ -32,7 +33,11 @@ interface ContextMsg {
 	type: 'context';
 	context: ContextUsage;
 }
-type TranscriptMsg = SnapshotMsg | HistoryMsg | EntriesMsg | SubagentsMsg | ContextMsg;
+interface ModelMsg {
+	type: 'model';
+	model: string;
+}
+type TranscriptMsg = SnapshotMsg | HistoryMsg | EntriesMsg | SubagentsMsg | ContextMsg | ModelMsg;
 
 /** Entries per "load earlier" request. */
 const HISTORY_PAGE = 200;
@@ -61,6 +66,8 @@ class TranscriptStore extends ReliableWebSocket {
 	);
 	/** Context window in use as of the last API response, null before one. */
 	context = $state<ContextUsage | null>(null);
+	/** The model on the latest assistant line, as the API names it. */
+	model = $state<string | null>(null);
 	/** False until the session's JSONL file has been found and read. */
 	available = $state(false);
 	/** Entries appended since attach (page diffs it for the "new below" pill). */
@@ -116,6 +123,9 @@ class TranscriptStore extends ReliableWebSocket {
 			case 'context':
 				this.context = data.context;
 				break;
+			case 'model':
+				this.model = data.model;
+				break;
 		}
 	}
 
@@ -125,6 +135,7 @@ class TranscriptStore extends ReliableWebSocket {
 		this.firstIndex = msg.firstIndex;
 		this.settleEarlier();
 		this.context = msg.context ?? null;
+		this.model = msg.model ?? null;
 		this.reindex();
 		this.subagents = {};
 		this.applySubagents(msg.subagents ?? []);

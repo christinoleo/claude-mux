@@ -37,6 +37,8 @@ const PaneChoiceSchema = z.object({
 	multi: z.boolean().optional(),
 	/** The highlighted row is a text field: keystrokes fill it rather than drive the list. */
 	typing: z.boolean().optional(),
+	/** That text field is the highlighted option's notes, closed with Escape. */
+	noting: z.boolean().optional(),
 	/** The dialog's own key hint, as drawn under it. */
 	keys: z.string().optional(),
 	/** Lines the dialog prints under its rows for itself — a setting, a warning. */

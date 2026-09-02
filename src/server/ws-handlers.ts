@@ -18,6 +18,7 @@ import { isDictated } from './dictation-marks.js';
 import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, stripAnsi } from '../tmux/pane.js';
 import type { PromptChoice } from '../tmux/pane.js';
+import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 
 /**
  * What the session poll reads off the pane itself and rides the broadcast —
@@ -269,6 +270,9 @@ async function captureAndSyncSessions(): Promise<{
  * Async version of getEnrichedSessions. Uses batched tmux calls
  * and concurrent interruption checks to avoid blocking the event loop.
  */
+/** Panes with a widen in flight, so a slow tmux is not asked twice. */
+const wideningNow = new Set<string>();
+
 export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFields)[]> {
 	const [{ captures, rawCaptures, sessions }, paneTitles] = await Promise.all([
 		captureAndSyncSessions(),
@@ -276,6 +280,18 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 	]);
 
 	const links = readLinks();
+
+	// A pane nobody is attached to is held at the standard width, so the
+	// screen the readers above parse is laid out the same way every time.
+	// Fire-and-forget: the resize lands before the next tick's capture.
+	for (const s of sessions) {
+		const pane = s.tmux_target ? paneTitles.get(s.tmux_target) : undefined;
+		if (pane && wantsWidening(pane) && !wideningNow.has(s.tmux_target!)) {
+			const target = s.tmux_target!;
+			wideningNow.add(target);
+			void widenDetachedWindow(target).finally(() => wideningNow.delete(target));
+		}
+	}
 
 	// Scan for Remote Control URLs in pane content (detect new URLs and clear stale ones)
 	for (const s of sessions) {
@@ -293,7 +309,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 	}
 
 	const enrichedSessions = sessions.map((s) => {
-		const paneTitle = s.tmux_target ? (paneTitles.get(s.tmux_target) ?? null) : null;
+		const paneTitle = s.tmux_target ? (paneTitles.get(s.tmux_target)?.title ?? null) : null;
 		const raw = s.tmux_target ? rawCaptures.get(s.tmux_target) : undefined;
 		// Stripped once per tick by the caller; the option reader needs no colour.
 		const stripped = s.tmux_target ? captures.get(s.tmux_target) : undefined;
@@ -1039,6 +1055,8 @@ export type TranscriptWsMessage =
 			firstIndex: number;
 			subagents: SubagentPayload[];
 			context: ContextUsage | null;
+			/** The model on the latest assistant line, as the API names it. */
+			model: string | null;
 			available: boolean;
 			timestamp: number;
 		}
@@ -1057,7 +1075,9 @@ export type TranscriptWsMessage =
 	 * the session. A list-wide gauge would need the tailer hoisted out of this
 	 * manager into a registry both channels read — not a second reader.
 	 */
-	| { type: 'context'; context: ContextUsage; timestamp: number };
+	| { type: 'context'; context: ContextUsage; timestamp: number }
+	/** The model changed — `/model` mid-session — as seen on the next reply. */
+	| { type: 'model'; model: string; timestamp: number };
 
 interface SubagentState {
 	tailer: JsonlTailer;
@@ -1085,6 +1105,8 @@ interface TranscriptSessionState {
 	discoverIn: number;
 	/** Serialized context usage last sent, to skip unchanged broadcasts. */
 	sentContext: string;
+	/** Model id last sent, likewise. */
+	sentModel: string | null;
 	/** Clients that missed a broadcast to backpressure; each is resent a snapshot. */
 	stale: Set<WsClient>;
 }
@@ -1179,6 +1201,7 @@ export class TranscriptWsManager {
 			subagents: new Map(),
 			discoverIn: 0,
 			sentContext: '',
+			sentModel: null,
 			stale: new Set(),
 			timer: setInterval(() => this.poll(sessionId), TRANSCRIPT_POLL_MS)
 		};
@@ -1347,6 +1370,11 @@ export class TranscriptWsManager {
 			state.sentContext = encoded;
 			this.broadcast(sessionId, { type: 'context', context, timestamp: Date.now() });
 		}
+		const model = state.builder.model;
+		if (model && model !== state.sentModel) {
+			state.sentModel = model;
+			this.broadcast(sessionId, { type: 'model', model, timestamp: Date.now() });
+		}
 	}
 
 	/** Re-broadcast the whole transcript, e.g. after a file reset or a re-attach. */
@@ -1394,6 +1422,7 @@ export class TranscriptWsManager {
 					sub.payload ?? subagentPayload(id, sub, state.builder.finishedAgents.has(id))
 			),
 			context: state.builder.context,
+			model: state.builder.model,
 			available: state.available,
 			timestamp: Date.now()
 		};
