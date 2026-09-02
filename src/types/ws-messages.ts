@@ -90,10 +90,18 @@ const EnrichedSessionSchema = z.object({
 // Message schemas (discriminated by `type`)
 // ============================================================================
 
+/**
+ * The projects the server remembers, on every sessions broadcast. Optional
+ * because a browser may be talking to a server from before the list moved
+ * there, in which case it falls back to its own.
+ */
+const ProjectsField = z.array(z.string()).optional();
+
 const SessionsMessageSchema = z.object({
 	type: z.literal('sessions'),
 	sessions: z.array(EnrichedSessionSchema),
 	count: z.number(),
+	projects: ProjectsField,
 	timestamp: z.number()
 });
 
@@ -101,6 +109,7 @@ const ConnectedMessageSchema = z.object({
 	type: z.literal('connected'),
 	sessions: z.array(EnrichedSessionSchema),
 	count: z.number(),
+	projects: ProjectsField,
 	timestamp: z.number()
 });
 

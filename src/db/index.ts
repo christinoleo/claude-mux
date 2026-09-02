@@ -24,3 +24,12 @@ export {
   readLinks,
   writeLink,
 } from "./sessions-json.js";
+
+// Projects the sidebar groups sessions under, remembered on the server.
+export {
+  getSavedProjects,
+  saveProject,
+  saveProjects,
+  removeProject,
+  setProjectsPath,
+} from "./projects-json.js";

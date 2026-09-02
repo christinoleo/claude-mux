@@ -119,6 +119,7 @@ class SessionStore extends ReliableWebSocket {
 			case 'sessions':
 			case 'connected':
 				this.diffAndUpdate(msg.sessions as Session[]);
+				if (msg.projects) this.applyServerProjects(msg.projects);
 				break;
 			case 'systemStats':
 				this.systemStats = { cpu: msg.cpu, ram: msg.ram, swap: msg.swap, ramTotal: msg.ramTotal, swapTotal: msg.swapTotal };
@@ -196,14 +197,58 @@ class SessionStore extends ReliableWebSocket {
 		this.paused = !this.paused;
 	}
 
+	/**
+	 * Whether the server sends its own project list. Until the first broadcast
+	 * says so, and on a server from before the list lived there, the browser's
+	 * localStorage copy stands in.
+	 */
+	projectsFromServer = $state(false);
+	private get serverProjects(): boolean {
+		return this.projectsFromServer;
+	}
+	private set serverProjects(value: boolean) {
+		this.projectsFromServer = value;
+	}
+
 	loadSavedProjects(): void {
 		this.savedProjects = savedProjectsStore.load();
+	}
+
+	/**
+	 * Take the server's list. The first time, anything this browser still
+	 * remembers on its own is handed up, so a list built before the move is
+	 * not lost — and after that the browser copy is only a fallback.
+	 */
+	private applyServerProjects(projects: string[]): void {
+		if (!this.serverProjects) {
+			this.serverProjects = true;
+			const known = new Set(projects);
+			const local = savedProjectsStore.load().filter((cwd) => !known.has(cwd));
+			for (const cwd of local) void this.pushProject(cwd);
+			// Shown at once rather than after the round trip.
+			this.savedProjects = [...projects, ...local];
+			return;
+		}
+		this.savedProjects = projects;
+	}
+
+	private async pushProject(cwd: string): Promise<void> {
+		try {
+			await fetch('/api/projects', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ cwd })
+			});
+		} catch {
+			// The next broadcast will say what the server has.
+		}
 	}
 
 	saveProject(cwd: string): void {
 		if (this.savedProjects.includes(cwd)) return;
 		this.savedProjects = [...this.savedProjects, cwd];
-		savedProjectsStore.save(this.savedProjects);
+		if (this.serverProjects) void this.pushProject(cwd);
+		else savedProjectsStore.save(this.savedProjects);
 	}
 
 	/**
@@ -219,7 +264,15 @@ class SessionStore extends ReliableWebSocket {
 
 	removeProject(cwd: string): void {
 		this.savedProjects = this.savedProjects.filter((p) => p !== cwd);
-		savedProjectsStore.save(this.savedProjects);
+		if (this.serverProjects) {
+			void fetch('/api/projects', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ cwd })
+			}).catch(() => {});
+		} else {
+			savedProjectsStore.save(this.savedProjects);
+		}
 	}
 }
 

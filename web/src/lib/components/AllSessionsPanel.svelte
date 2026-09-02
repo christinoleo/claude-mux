@@ -212,9 +212,11 @@
 		return tmuxPanesStore.subscribe();
 	});
 
-	// Auto-persist any project we see a session in, so the group doesn't
-	// disappear when the last pane in it is closed.
+	// Any project a session runs in is remembered by the server as it
+	// broadcasts, so the group outlives its last pane without help from here.
+	// A server from before that still needs the browser to do it.
 	$effect(() => {
+		if (sessionStore.projectsFromServer) return;
 		for (const session of sessionStore.sessions) {
 			if (session.cwd) sessionStore.saveProject(session.cwd);
 		}
@@ -288,7 +290,9 @@
 	const RESET_KEEP_KEYS = new Set<string>([STORAGE_KEYS.lastSession]);
 
 	function resetLocalStorage() {
-		showConfirm('Reset Local Data', 'This will clear all saved projects, preferences, and cached data. The page will reload.', () => {
+		// Projects are the server's to remember now, so this only touches what
+		// is really local: preferences and caches for this browser.
+		showConfirm('Reset Local Data', 'This will clear preferences and cached data in this browser. Your projects are kept on the server. The page will reload.', () => {
 			for (let i = localStorage.length - 1; i >= 0; i--) {
 				const key = localStorage.key(i);
 				if (key && key.startsWith('claude-mux-') && !RESET_KEEP_KEYS.has(key)) {

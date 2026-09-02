@@ -19,6 +19,7 @@ import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } 
 import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, stripAnsi } from '../tmux/pane.js';
 import type { PromptChoice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
+import { getSavedProjects, saveProjects } from '../db/projects-json.js';
 
 /**
  * What the session poll reads off the pane itself and rides the broadcast —
@@ -584,7 +585,17 @@ export class SessionsWsManager {
 
 	private async createSessionsMessageAsync(type: 'sessions' | 'connected') {
 		const sessions = await getEnrichedSessionsAsync();
-		return { type, sessions, count: sessions.length, timestamp: Date.now() };
+		// The server remembers every directory a session has run in, so the
+		// sidebar's groups outlive their last session and are the same from
+		// every browser. Writes only when a directory is new.
+		saveProjects(sessions.map((s) => s.cwd).filter((cwd): cwd is string => !!cwd));
+		return {
+			type,
+			sessions,
+			count: sessions.length,
+			projects: getSavedProjects(),
+			timestamp: Date.now()
+		};
 	}
 
 	private createSystemStatsMessage(): SystemStatsMessage {
