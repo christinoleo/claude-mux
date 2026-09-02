@@ -26,9 +26,31 @@
 	import RenameSessionDialog from './RenameSessionDialog.svelte';
 	import FolderPicker from './FolderPicker.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
+	import { createPersisted } from '$lib/stores/persisted';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
 	import { formatRef, type PaneRef } from '$lib/split-refs';
+
+	/**
+	 * Machines folded shut in this browser. Other machines start folded — a
+	 * list of every project on every host is long to scan — and this one
+	 * starts open; the fold is remembered here, since it is a way of looking.
+	 * A folded machine still says how many sessions it runs, and turns amber
+	 * when one of them is asking for a person.
+	 */
+	const foldStore = createPersisted<Record<string, boolean>>('claude-mux-folded-machines', {});
+	let folded = $state<Record<string, boolean>>({});
+	onMount(() => {
+		folded = foldStore.load();
+	});
+	function isFolded(machine: Machine): boolean {
+		const stored = folded[machine.server.hostname];
+		return stored ?? !machine.local;
+	}
+	function toggleFold(machine: Machine) {
+		folded = { ...folded, [machine.server.hostname]: !isFolded(machine) };
+		foldStore.save(folded);
+	}
 
 	interface Props {
 		onSessionSelect?: () => void;
@@ -677,12 +699,32 @@
 			</div>
 		{/if}
 		{#each views as view (view.machine.server.hostname)}
-			{#if fleetStore.fleet && fleetStore.selected === 'all'}
-				<div class="mlabel">
+			{@const showLabel = fleetStore.fleet && fleetStore.selected === 'all'}
+			{@const shut = showLabel && isFolded(view.machine)}
+			{#if showLabel}
+				<button
+					type="button"
+					class="mlabel"
+					class:shut
+					class:wants={shut && machineWants(view.machine)}
+					aria-expanded={!shut}
+					onclick={() => toggleFold(view.machine)}
+					title={shut ? 'Show this machine' : 'Fold this machine'}
+				>
+					<iconify-icon icon={shut ? 'mdi:chevron-right' : 'mdi:chevron-down'}></iconify-icon>
 					<span class="dot" class:off={!view.machine.connected}></span>
-					{view.machine.server.hostname || 'this machine'}
-				</div>
+					<span class="mname">{view.machine.server.hostname || 'this machine'}</span>
+					<span class="mline"></span>
+					{#if shut}
+						<span class="mcount">
+							{#if machineWants(view.machine)}<span class="pill">wants you</span>{/if}
+							{liveCount(view.machine)} live
+							{#if view.quiet.length > 0}· {view.quiet.length} quiet{/if}
+						</span>
+					{/if}
+				</button>
 			{/if}
+			{#if !shut}
 			{#each view.cards as card (card.cwd)}
 				{@render projectCard(view.machine, card)}
 			{/each}
@@ -730,6 +772,7 @@
 						{@render paneRow(view.machine, pane)}
 					{/each}
 				</section>
+			{/if}
 			{/if}
 		{/each}
 	</div>
@@ -967,22 +1010,54 @@
 	.dot.off {
 		background: var(--faint);
 	}
+	/* A machine's heading folds its list away; shut, it still says how much is
+	   running there and turns amber when a session there wants a person. */
 	.mlabel {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 6px 4px 0;
+		gap: 6px;
+		width: 100%;
+		padding: 6px 4px 0 0;
+		border: 0;
+		background: none;
 		font-family: var(--font-mono);
 		font-size: 10.5px;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
 		color: var(--dim);
+		text-align: left;
+		cursor: pointer;
 	}
-	.mlabel::after {
-		content: '';
+	.mlabel:hover .mname {
+		color: var(--muted);
+	}
+	.mlabel iconify-icon {
+		font-size: 14px;
+		color: var(--faint);
+	}
+	.mlabel.shut {
+		padding-bottom: 2px;
+	}
+	.mlabel.wants .mname,
+	.mlabel.wants iconify-icon {
+		color: var(--amber);
+	}
+	.mline {
 		flex: 1;
 		height: 1px;
 		background: var(--line-soft);
+	}
+	.mcount {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		letter-spacing: 0;
+		text-transform: none;
+		color: var(--dim);
+	}
+	.mlabel .pill {
+		text-transform: none;
+		letter-spacing: 0;
 	}
 
 	/* ── list and cards ─────────────────────────────────────── */
