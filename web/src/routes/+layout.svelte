@@ -166,7 +166,10 @@
 		>
 			<div class="sidebar-content">
 				<AllSessionsPanel compact onSessionSelect={closeDrawer} />
-
+			</div>
+			<!-- The foot is one card, the way the composer is: what belongs to the
+			     session you are on (its queue, its screenshots), then the meters. -->
+			<div class="sidebar-foot">
 				{#if currentTarget}
 					<div class="sidebar-panel">
 						<MessageQueuePanel target={currentTarget} />
@@ -181,8 +184,8 @@
 						/>
 					</div>
 				{/if}
+				<SidebarMeters />
 			</div>
-			<SidebarMeters />
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 			<div
 				class="resize-handle"
@@ -268,6 +271,20 @@
 
 	.sidebar-panel {
 		flex-shrink: 0;
+	}
+
+	/* The composer's card, at the foot of the sidebar. */
+	.sidebar-foot {
+		flex-shrink: 0;
+		margin: 0 10px 10px;
+		background: #151516;
+		border: 1px solid #2a2a2c;
+		border-radius: 14px;
+		overflow: hidden;
+	}
+	.sidebar-foot .sidebar-panel + .sidebar-panel,
+	.sidebar-foot .sidebar-panel + :global(*) {
+		border-top: 1px solid #1f1f21;
 	}
 
 	.resize-handle {

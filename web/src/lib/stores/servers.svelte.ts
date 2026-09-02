@@ -16,6 +16,12 @@ function detectCurrent(): ServerInfo {
 class ServerStore {
 	current = $state<ServerInfo>({ hostname: '', url: '' });
 	servers = $state<ServerInfo[]>([]);
+	/**
+	 * This host's tailnet name, as discovery reports it. The page may have
+	 * been opened as `localhost`, and the server list still names the machine
+	 * by its tailnet name, so this is what tells the two apart.
+	 */
+	self = $state('');
 	loading = $state(false);
 	error = $state<string | null>(null);
 
@@ -37,6 +43,7 @@ class ServerStore {
 				return;
 			}
 			this.servers = data.servers;
+			this.self = data.self;
 			cache.save(data.servers);
 		} catch (err) {
 			this.error = err instanceof Error ? err.message : 'discover failed';

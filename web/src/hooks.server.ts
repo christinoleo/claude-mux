@@ -15,7 +15,33 @@ const wsDataMap = new WeakMap<
 >();
 
 // Handle function for SvelteKit
+/**
+ * Another claude-mux on the tailnet may read this one from the browser: the
+ * sidebar shows every machine's sessions at once, which means the page served
+ * by one host fetches and streams from the others. Browsers allow that only
+ * when the other host says so, and it says so for tailnet origins alone —
+ * `*.ts.net`, plus the loopback names a dev server answers on. There is no
+ * login to protect here beyond the tailnet itself, so the tailnet is the line.
+ */
+const CORS_ORIGIN = /^https?:\/\/(?:[a-z0-9-]+\.)*[a-z0-9-]+\.ts\.net(?::\d+)?$|^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i;
+
+function corsHeaders(origin: string): Record<string, string> {
+	return {
+		'Access-Control-Allow-Origin': origin,
+		'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+		'Access-Control-Allow-Headers': 'Content-Type',
+		'Access-Control-Max-Age': '600',
+		Vary: 'Origin'
+	};
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
+	const origin = event.request.headers.get('origin');
+	const crossSite = !!origin && origin !== event.url.origin && CORS_ORIGIN.test(origin);
+	if (crossSite && event.request.method === 'OPTIONS' && event.url.pathname.startsWith('/api/')) {
+		return new Response(null, { status: 204, headers: corsHeaders(origin) });
+	}
+
 	// Check for WebSocket upgrade
 	const connectionHeader = event.request.headers.get('connection');
 	const upgradeHeader = event.request.headers.get('upgrade');
@@ -36,7 +62,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	return resolve(event);
+	const response = await resolve(event);
+	if (crossSite && event.url.pathname.startsWith('/api/')) {
+		for (const [name, value] of Object.entries(corsHeaders(origin))) response.headers.set(name, value);
+	}
+	return response;
 };
 
 // WebSocket handlers for svelte-adapter-bun (passed straight to Bun.serve).

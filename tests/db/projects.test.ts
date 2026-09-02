@@ -4,6 +4,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import {
   getSavedProjects,
+  isForbiddenRoot,
   saveProject,
   saveProjects,
   removeProject,
@@ -42,6 +43,29 @@ describe("projects (JSON file)", () => {
     saveProjects(["/home/me/a", "/home/me/b"]);
     expect(removeProject("/home/me/a")).toBe(true);
     expect(getSavedProjects()).toEqual(["/home/me/b"]);
+  });
+
+  it("keeps only roots: a subfolder joins its project, a parent takes over its children", () => {
+    expect(saveProject("/home/me/app/web")).toBe(true);
+    // Under a remembered project: a subfolder, not a project.
+    expect(saveProject("/home/me/app/web/src")).toBe(false);
+    expect(getSavedProjects()).toEqual(["/home/me/app/web"]);
+    // Above it: becomes the root, and the former root folds into it.
+    expect(saveProject("/home/me/app")).toBe(true);
+    expect(getSavedProjects()).toEqual(["/home/me/app"]);
+    expect(saveProject("/home/me/app/web")).toBe(false);
+  });
+
+  it("never remembers the home directory, the root, or a mount point", () => {
+    expect(isForbiddenRoot("/")).toBe(true);
+    expect(isForbiddenRoot("/home/me", "/home/me")).toBe(true);
+    expect(isForbiddenRoot("/home/me/", "/home/me")).toBe(true);
+    expect(isForbiddenRoot("/tmp")).toBe(true);
+    expect(isForbiddenRoot("/mnt/tudao")).toBe(true);
+    expect(isForbiddenRoot("/mnt/tudao/Netherlands/tax")).toBe(false);
+    expect(isForbiddenRoot("/home/me/Projects/x", "/home/me")).toBe(false);
+    expect(saveProjects(["/", "/tmp", "/mnt/disk"])).toBe(false);
+    expect(getSavedProjects()).toEqual([]);
   });
 
   it("survives a torn or hand-edited file", () => {

@@ -15,6 +15,7 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
+import { homedir } from "os";
 import { getSessionsDir } from "./sessions-json.js";
 
 /** Overridable for tests; null means "next to the sessions directory". */
@@ -63,22 +64,51 @@ export function getSavedProjects(): string[] {
 }
 
 /**
- * Remember these directories. Returns whether anything new was written, so a
- * caller that runs every poll can tell a no-op from a change worth telling
- * clients about.
+ * Directories that are nobody's project: the home directory, the root, the
+ * places everything else lives under. A session opened in one of them is a
+ * session without a project — it must not become a group of its own, and it
+ * must never become the parent every real project nests under, which is what
+ * happens the first time someone runs an agent in `~` by accident.
+ */
+export function isForbiddenRoot(cwd: string, home: string = homedir()): boolean {
+  const path = cwd.replace(/\/+$/, "") || "/";
+  if (path === "/" || path === home) return true;
+  if (["/tmp", "/home", "/Users", "/root", "/mnt", "/media", "/opt", "/var", "/srv"].includes(path)) return true;
+  // One level under a mount root is still a disk, not a project: /mnt/tudao.
+  if (/^\/(?:mnt|media|Volumes)\/[^/]+$/.test(path)) return true;
+  return false;
+}
+
+/** Whether `child` sits somewhere under `parent`. */
+function isUnder(child: string, parent: string): boolean {
+  return child.startsWith(parent.endsWith("/") ? parent : `${parent}/`);
+}
+
+/**
+ * Remember these directories as projects. Returns whether anything new was
+ * written, so a caller that runs every poll can tell a no-op from a change
+ * worth telling clients about.
+ *
+ * Only roots are kept: a directory under a remembered project is that
+ * project's subfolder, not a project — the sidebar shows its sessions inside
+ * the parent's card with the relative path — and a directory that turns out
+ * to be above a remembered one takes it over, so the file always holds the
+ * shallowest cwd of each tree. A forbidden root is never remembered at all.
  */
 export function saveProjects(cwds: Iterable<string>): boolean {
   const file = readFile();
-  const known = new Set(file.projects);
-  let added = false;
-  for (const cwd of cwds) {
-    if (!cwd || known.has(cwd)) continue;
-    known.add(cwd);
-    file.projects.push(cwd);
-    added = true;
+  let changed = false;
+  for (const raw of cwds) {
+    const cwd = raw?.replace(/\/+$/, "");
+    if (!cwd || isForbiddenRoot(cwd)) continue;
+    if (file.projects.some((p) => p === cwd || isUnder(cwd, p))) continue;
+    const kept = file.projects.filter((p) => !isUnder(p, cwd));
+    if (kept.length !== file.projects.length) changed = true;
+    file.projects = [...kept, cwd];
+    changed = true;
   }
-  if (added) writeFile(file);
-  return added;
+  if (changed) writeFile(file);
+  return changed;
 }
 
 export function saveProject(cwd: string): boolean {

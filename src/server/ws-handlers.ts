@@ -20,6 +20,7 @@ import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPa
 import type { PromptChoice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
+import { peekContextPercent } from '../transcript/context-peek.js';
 
 /**
  * What the session poll reads off the pane itself and rides the broadcast —
@@ -36,6 +37,8 @@ type LivePaneFields = {
 	draft_kind: 'typed' | 'suggestion' | null;
 	pane_queue: string[];
 	pane_choice: PromptChoice;
+	/** Share of the context window in use as of the latest reply; null when unknown. */
+	context_pct: number | null;
 };
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
@@ -337,6 +340,8 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 						declaredOnly: s.state !== 'waiting' && s.state !== 'permission'
 					})
 				: null,
+			// One stat per session per tick; the file is only read when it grew.
+			context_pct: peekContextPercent(s),
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {

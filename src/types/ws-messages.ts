@@ -75,6 +75,8 @@ const EnrichedSessionSchema = z.object({
 	 * on `state`: the hooks are authoritative for whether a dialog is open.
 	 */
 	pane_choice: PaneChoiceSchema.nullable().optional(),
+	/** Share of the context window in use, read off the transcript's latest reply. */
+	context_pct: z.number().nullable().optional(),
 	display_name: z.string().nullable().optional(),
 	pane_title: z.string().nullable(),
 	pane_alive: z.boolean(),

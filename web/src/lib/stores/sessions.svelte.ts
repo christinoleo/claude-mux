@@ -47,6 +47,8 @@ export interface Session {
 	pane_queue?: string[];
 	/** Numbered options a dialog is offering in the pane. Gate on `state`. */
 	pane_choice?: PaneChoice | null;
+	/** Share of the context window in use as of the latest reply; null when unknown. */
+	context_pct?: number | null;
 	agent?: SessionAgent;
 }
 
@@ -55,7 +57,7 @@ const VOLATILE_KEYS: (keyof Session)[] = [
 	'state', 'current_action', 'prompt_text', 'last_update',
 	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'queue_count',
 	'queue_head_text', 'queue_head_kind', 'display_name',
-	'draft_input', 'draft_kind'
+	'draft_input', 'draft_kind', 'context_pct'
 ];
 
 /** Fast shallow comparison of two sessions on volatile fields + screenshots */
