@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ServerInfo } from '$lib/types/servers';
 import { APP_MARKER } from '$lib/constants';
+import { INSTANCE_ID } from '$lib/server/instance';
 
 const execFileAsync = promisify(execFile);
 const PROBE_TIMEOUT_MS = 1500;
@@ -35,13 +36,18 @@ function hostnameFromDns(dnsName: string): string {
 	return stripDot(dnsName).split('.')[0];
 }
 
-/** True only for a peer that answers as claude-mux. */
-async function probe(url: string): Promise<boolean> {
+/**
+ * The instance id of a peer that answers as claude-mux, or null. An older
+ * peer answers without one; it is kept under its own name, since there is
+ * nothing to tell it apart by.
+ */
+async function probe(url: string): Promise<string | null | false> {
 	try {
 		const res = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
 		if (!res.ok) return false;
-		const data = (await res.json()) as { app?: string };
-		return data.app === APP_MARKER;
+		const data = (await res.json()) as { app?: string; instance?: string };
+		if (data.app !== APP_MARKER) return false;
+		return data.instance ?? null;
 	} catch {
 		return false;
 	}
@@ -80,7 +86,20 @@ export async function discoverServers(port: string): Promise<Discovery> {
 	}
 
 	const probes = await Promise.all(candidates.map((c) => probe(c.url)));
-	const responders = candidates.filter((_, i) => probes[i]);
+	// One machine per instance: a second tailnet name leading to the same
+	// process (a host forwarding into its WSL) is dropped, and so is any name
+	// that turns out to be this process under another address.
+	const seen = new Set<string>([INSTANCE_ID]);
+	const responders: ServerInfo[] = [];
+	candidates.forEach((candidate, i) => {
+		const result = probes[i];
+		if (result === false) return;
+		if (result !== null) {
+			if (seen.has(result)) return;
+			seen.add(result);
+		}
+		responders.push(candidate);
+	});
 
 	const servers = [self, ...responders].sort((a, b) => a.hostname.localeCompare(b.hostname));
 	return { servers, self: self.hostname };
