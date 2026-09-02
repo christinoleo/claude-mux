@@ -30,8 +30,10 @@
 			if (pick) {
 				phase = 'redirecting';
 				void goto(`/session/${encodeURIComponent(pick)}`, { replaceState: true });
+				return;
 			}
-			return;
+			// No tmux-backed session to jump to (e.g. only sessions started outside tmux):
+			// fall through and show the sessions panel instead of waiting forever.
 		}
 
 		if (sessionStore.connected) {
