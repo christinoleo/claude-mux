@@ -16,7 +16,7 @@ import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { isDictated } from './dictation-marks.js';
 import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
-import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, stripAnsi } from '../tmux/pane.js';
+import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, stripAnsi, sendKeyAsync } from '../tmux/pane.js';
 import type { PromptChoice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
@@ -43,7 +43,8 @@ type LivePaneFields = {
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
-import { getQueueSummary } from './message-queue.js';
+import { getQueueSummary, enqueue } from './message-queue.js';
+import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
 import type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 
 // ============================================================================
@@ -277,6 +278,11 @@ async function captureAndSyncSessions(): Promise<{
 /** Panes with a widen in flight, so a slow tmux is not asked twice. */
 const wideningNow = new Set<string>();
 
+/** Sessions this process has already seen, so `/rc` goes only to new ones. */
+const rcSeen = new Set<string>();
+/** False on the first poll, which only primes `rcSeen` with what already runs. */
+let rcPrimed = false;
+
 export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFields)[]> {
 	const [{ captures, rawCaptures, sessions }, paneTitles] = await Promise.all([
 		captureAndSyncSessions(),
@@ -297,6 +303,21 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 		}
 	}
 
+	// Remote Control for the sessions claude-mux itself made, when asked to.
+	// A session is "new" when this process first sees it; everything alive at
+	// startup is left as it is. Workers other tools start straight in tmux do
+	// not carry a claude-mux name and are not touched.
+	const auto = getSettings().autoRemoteControl;
+	for (const s of sessions) {
+		if (rcSeen.has(s.id)) continue;
+		rcSeen.add(s.id);
+		if (!rcPrimed || !auto) continue;
+		if (s.rc_url || !s.tmux_target || (s.agent ?? 'claude') !== 'claude') continue;
+		if (!isClaudeMuxSessionName(s.tmux_target.split(':')[0])) continue;
+		enqueue(s.tmux_target, '/rc', 'control');
+	}
+	rcPrimed = true;
+
 	// Scan for Remote Control URLs in pane content (detect new URLs and clear stale ones)
 	for (const s of sessions) {
 		if (!s.tmux_target) continue;
@@ -306,6 +327,13 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 		if (rcUrl && rcUrl !== s.rc_url) {
 			updateSession(s.id, { rc_url: rcUrl });
 			s.rc_url = rcUrl;
+			// `/rc` leaves its dialog open on "Continue" until someone presses
+			// Enter. The URL it shows is now recorded, which is all the dialog
+			// was for, so answer it — otherwise a session turned on from the
+			// dashboard sits behind a dialog nobody at the dashboard can see.
+			if (/Disconnect this session[\s\S]*❯\s*Continue/.test(content)) {
+				void sendKeyAsync(s.tmux_target, 'Enter');
+			}
 		} else if (!rcUrl && s.rc_url) {
 			updateSession(s.id, { rc_url: null });
 			s.rc_url = null;
@@ -599,6 +627,7 @@ export class SessionsWsManager {
 			sessions,
 			count: sessions.length,
 			projects: getSavedProjects(),
+			settings: getSettings(),
 			timestamp: Date.now()
 		};
 	}

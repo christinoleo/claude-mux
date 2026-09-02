@@ -122,6 +122,7 @@ class SessionStore extends ReliableWebSocket {
 			case 'connected':
 				this.diffAndUpdate(msg.sessions as Session[]);
 				if (msg.projects) this.applyServerProjects(msg.projects);
+				if (msg.settings) this.settings = msg.settings;
 				break;
 			case 'systemStats':
 				this.systemStats = { cpu: msg.cpu, ram: msg.ram, swap: msg.swap, ramTotal: msg.ramTotal, swapTotal: msg.swapTotal };
@@ -205,6 +206,8 @@ class SessionStore extends ReliableWebSocket {
 	 * localStorage copy stands in.
 	 */
 	projectsFromServer = $state(false);
+	/** This machine's settings as the server last sent them; null on an older server. */
+	settings = $state<{ autoRemoteControl?: boolean } | null>(null);
 	private get serverProjects(): boolean {
 		return this.projectsFromServer;
 	}
@@ -262,6 +265,16 @@ class SessionStore extends ReliableWebSocket {
 	optimisticAdd(session: Session): void {
 		if (this.sessions.some((s) => s.id === session.id)) return;
 		this.sessions = [...this.sessions, session];
+	}
+
+	/** Flip a machine setting; the broadcast that follows confirms it. */
+	setSetting(patch: { autoRemoteControl?: boolean }): void {
+		this.settings = { ...(this.settings ?? {}), ...patch };
+		void fetch('/api/settings', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(patch)
+		}).catch(() => {});
 	}
 
 	removeProject(cwd: string): void {

@@ -99,11 +99,15 @@ const EnrichedSessionSchema = z.object({
  */
 const ProjectsField = z.array(z.string()).optional();
 
+/** This machine's settings, likewise on every broadcast; absent on older servers. */
+const SettingsField = z.object({ autoRemoteControl: z.boolean() }).partial().optional();
+
 const SessionsMessageSchema = z.object({
 	type: z.literal('sessions'),
 	sessions: z.array(EnrichedSessionSchema),
 	count: z.number(),
 	projects: ProjectsField,
+	settings: SettingsField,
 	timestamp: z.number()
 });
 
@@ -112,6 +116,7 @@ const ConnectedMessageSchema = z.object({
 	sessions: z.array(EnrichedSessionSchema),
 	count: z.number(),
 	projects: ProjectsField,
+	settings: SettingsField,
 	timestamp: z.number()
 });
 

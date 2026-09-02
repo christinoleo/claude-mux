@@ -165,6 +165,23 @@
 					{ label: 'Refresh', icon: 'mdi:refresh', run: () => location.reload() }
 				]
 			: []),
+		// Remote Control: on, the row opens the session in the Claude app; off,
+		// it asks the session to turn it on through the control queue.
+		...(isAlive && isClaudeSession
+			? [
+					currentSession?.rc_url
+						? {
+								label: 'Open in Claude app',
+								icon: 'mdi:cellphone-link',
+								run: () => window.open(currentSession?.rc_url ?? '', '_blank')
+							}
+						: {
+								label: 'Remote Control',
+								icon: 'mdi:cellphone-link-off',
+								run: () => void connectRemoteControl()
+							}
+				]
+			: []),
 		{ label: 'Kill pane', icon: 'mdi:power', run: () => (showConfirmKill = true), danger: true }
 	]);
 
@@ -907,6 +924,12 @@
 		textInput = '';
 		clearAttachments();
 		if (textareaElement) textareaElement.style.height = 'auto';
+	}
+
+	/** Ask the session to turn Remote Control on; the poll picks up the URL. */
+	async function connectRemoteControl() {
+		if (!target) return;
+		await fetch(`/api/sessions/${encodeURIComponent(target)}/rc`, { method: 'POST' });
 	}
 
 	async function acceptSuggestion() {

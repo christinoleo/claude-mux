@@ -405,6 +405,23 @@
 			run: () => sessionStore.togglePause(),
 			variant: sessionStore.paused ? 'destructive' : 'secondary'
 		},
+		// Only offered when the server says where it stands; an older one does not.
+		...(sessionStore.settings
+			? [
+					{
+						label: sessionStore.settings.autoRemoteControl
+							? 'Remote Control on new sessions: on'
+							: 'Remote Control on new sessions: off',
+						icon: sessionStore.settings.autoRemoteControl
+							? 'mdi:cellphone-link'
+							: 'mdi:cellphone-link-off',
+						run: () =>
+							sessionStore.setSetting({
+								autoRemoteControl: !sessionStore.settings?.autoRemoteControl
+							})
+					}
+				]
+			: []),
 		{ label: 'Reset data', icon: 'mdi:database-refresh', run: () => resetLocalStorage(), danger: true }
 	]);
 
@@ -1079,9 +1096,11 @@
 		color: var(--dim);
 		white-space: nowrap;
 	}
+	/* Remote Control: reachable from the account's other sessions and the
+	   phone. Indigo, the colour the app keeps for "connected elsewhere". */
 	.row .rc {
-		font-size: 12px;
-		color: #27ae60;
+		font-size: 13px;
+		color: #818cf8;
 	}
 	.pill {
 		font-size: 10.5px;

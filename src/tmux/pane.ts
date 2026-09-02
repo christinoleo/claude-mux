@@ -68,6 +68,16 @@ export async function getAllPaneTitles(): Promise<Map<string, PaneInfo>> {
   return result;
 }
 
+/** Press one key in a pane without blocking the poll; false when tmux refused. */
+export async function sendKeyAsync(target: string, key: string): Promise<boolean> {
+  try {
+    await execFileAsync("tmux", ["send-keys", "-t", target, key], { timeout: 1000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** What one `list-panes` line says about a pane, beyond that it exists. */
 export type PaneInfo = {
   title: string | null;
@@ -414,9 +424,10 @@ export function detectRemoteControlUrl(content: string): string | null {
 
   const clean = stripAnsi(content);
 
-  // Match claude.ai/code URLs (RC session URLs)
+  // Match claude.ai/code URLs (RC session URLs). The dialog ends its sentence
+  // with the URL, so a trailing full stop is prose, not part of the address.
   const match = clean.match(/https:\/\/claude\.ai\/code[^\s)\]>]*/);
-  return match ? match[0] : null;
+  return match ? match[0].replace(/[.,;:]+$/, "") : null;
 }
 
 /**

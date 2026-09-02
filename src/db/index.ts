@@ -33,3 +33,13 @@ export {
   removeProject,
   setProjectsPath,
 } from "./projects-json.js";
+
+// Machine-wide settings: how this server treats the sessions it creates.
+export {
+  getSettings,
+  updateSettings,
+  setSettingsPath,
+  isClaudeMuxSessionName,
+  DEFAULT_SETTINGS,
+  type Settings,
+} from "./settings-json.js";
