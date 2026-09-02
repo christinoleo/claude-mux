@@ -27,6 +27,8 @@
 	import FolderPicker from './FolderPicker.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
+	import { splitStore } from '$lib/stores/split.svelte';
+	import { formatRef, type PaneRef } from '$lib/split-refs';
 
 	interface Props {
 		onSessionSelect?: () => void;
@@ -287,12 +289,39 @@
 		return machine.local ? '' : machine.server.url;
 	}
 
-	function openSession(machine: Machine, tmuxTarget: string) {
+	/** How a split names this session: `target`, or `host@target` off this machine. */
+	function refOf(machine: Machine, tmuxTarget: string): PaneRef {
+		return { host: machine.local ? null : machine.server.hostname, target: tmuxTarget };
+	}
+
+	/** The session the page shows now, as a pane ref, for starting a split beside it. */
+	function currentRef(): PaneRef | null {
+		if (splitStore.active) return splitStore.pane(splitStore.focus);
+		return currentTarget ? { host: null, target: currentTarget } : null;
+	}
+
+	/**
+	 * Open a session. With a split on, it goes to the focused pane (⌥ for the
+	 * other); without one, ⌥ opens it beside the current session as a split,
+	 * and a plain click goes to the session — on its own host when remote,
+	 * since the terminal and composer talk to that host.
+	 */
+	function openSession(machine: Machine, tmuxTarget: string, other = false) {
+		const ref = refOf(machine, tmuxTarget);
+		if (splitStore.active) {
+			splitStore.openIn(other ? 'other' : 'focus', ref, currentRef());
+			onSessionSelect?.();
+			return;
+		}
+		if (other && currentTarget) {
+			splitStore.splitWith(ref, currentRef());
+			onSessionSelect?.();
+			return;
+		}
 		if (machine.local) {
 			goto(`/session/${encodeURIComponent(tmuxTarget)}`);
 			onSessionSelect?.();
 		} else {
-			// The terminal and composer talk to the session's own host.
 			window.location.href = `${machine.server.url}/session/${encodeURIComponent(tmuxTarget)}`;
 		}
 	}
@@ -303,7 +332,25 @@
 			renameId = session.id;
 			return;
 		}
-		if (session.tmux_target) openSession(machine, session.tmux_target);
+		if (session.tmux_target) openSession(machine, session.tmux_target, e.altKey);
+	}
+
+	/** Which pane, if any, shows this session — for the row's A/B tag. */
+	function paneTag(machine: Machine, tmuxTarget: string | null): 'A' | 'B' | null {
+		if (!tmuxTarget || !splitStore.active) return null;
+		const side = splitStore.sideOf(refOf(machine, tmuxTarget));
+		return side === 'a' ? 'A' : side === 'b' ? 'B' : null;
+	}
+
+	/** A row leaves as a pane ref; the panes and the page's right edge catch it. */
+	function dragStart(e: DragEvent, machine: Machine, tmuxTarget: string) {
+		if (!e.dataTransfer) return;
+		e.dataTransfer.setData('text/claude-mux-session', formatRef(refOf(machine, tmuxTarget)));
+		e.dataTransfer.effectAllowed = 'link';
+		splitStore.dragging = true;
+	}
+	function dragEnd() {
+		splitStore.dragging = false;
 	}
 
 	function killSessionReq(machine: Machine, s: Session) {
@@ -452,14 +499,20 @@
 	{@const isActive = machine.local && s.tmux_target === currentTarget}
 	{@const draft = machine.local && !isActive && s.tmux_target ? draftsStore.get(s.tmux_target) : ''}
 	{@const wants = wantsHuman(s)}
+	{@const tag = paneTag(machine, s.tmux_target)}
 	<a
 		href={machine.local && s.tmux_target ? `/session/${encodeURIComponent(s.tmux_target)}` : `${machine.server.url}/session/${encodeURIComponent(s.tmux_target ?? '')}`}
 		class="row"
-		class:cur={isActive}
+		class:cur={isActive || tag !== null}
 		class:orch={row.orchestrator}
+		class:inA={tag === 'A'}
+		class:inB={tag === 'B'}
+		draggable={s.tmux_target ? 'true' : 'false'}
+		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
+		ondragend={dragEnd}
 		onclick={(e) => handleRowClick(e, machine, s)}
 		use:longPress={{ onTrigger: () => { if (machine.local) renameId = s.id; } }}
-		title={machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`}
+		title={(machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`) + ' · ⌥-click or drag to open side by side'}
 	>
 		<span class="st"><SessionStateIndicator state={s.state} size="sm" title={s.current_action} /></span>
 		<span class="name">
@@ -467,6 +520,7 @@
 			{getSessionDisplayName(s)}
 		</span>
 		<span class="meta">
+			{#if tag}<span class="ptag" title="Open in pane {tag}">{tag}</span>{/if}
 			{#if s.rc_url}
 				<iconify-icon icon="mdi:cellphone-link" class="rc" title="Remote Control active"></iconify-icon>
 			{/if}
@@ -505,7 +559,10 @@
 		href="/session/{encodeURIComponent(pane.target)}"
 		class="row tmux"
 		class:cur={isActive}
-		onclick={(e) => { e.preventDefault(); openSession(machine, pane.target); }}
+		draggable="true"
+		ondragstart={(e) => dragStart(e, machine, pane.target)}
+		ondragend={dragEnd}
+		onclick={(e) => { e.preventDefault(); openSession(machine, pane.target, e.altKey); }}
 	>
 		<span class="st">
 			<iconify-icon icon={meta?.icon ?? 'mdi:console-line'} style={meta ? `color:${meta.color}` : ''}></iconify-icon>
@@ -1101,6 +1158,31 @@
 	.row .rc {
 		font-size: 13px;
 		color: #818cf8;
+	}
+	/* Which pane of a split the row is open in. A is amber, the focus colour;
+	   B is indigo, the "elsewhere" colour, so the two never read alike. */
+	.row.inA {
+		box-shadow: inset 2px 0 0 var(--amber);
+	}
+	.row.inB {
+		box-shadow: inset 2px 0 0 #818cf8;
+	}
+	.ptag {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		border: 1px solid var(--line);
+		border-radius: 4px;
+		padding: 0 4px;
+		color: var(--dim);
+	}
+	.row.inA .ptag {
+		color: var(--amber);
+		border-color: #5a4310;
+	}
+	.row.inB .ptag {
+		color: #818cf8;
+		border-color: #3a3a6a;
 	}
 	.pill {
 		font-size: 10.5px;

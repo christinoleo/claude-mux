@@ -28,6 +28,7 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { keysForOptionMove, keysForOptionPick } from '$shared/tmux/answer-keys.js';
 	import { modelDisplayName } from '$shared/claude/model-name.js';
+	import { serverStore } from '$lib/stores/servers.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
 	import RenameSessionDialog from '$lib/components/RenameSessionDialog.svelte';
@@ -85,6 +86,58 @@
 	const canTranscript = $derived(isClaudeSession && (currentSession?.agent ?? 'claude') === 'claude');
 	// Each view has its own URL: `?view=terminal` is the raw mirror. Without the
 	// param, the session reopens in whichever view it was last left in.
+	/**
+	 * This page is one pane of a split, drawn inside the split page's iframe.
+	 * The composer then carries the pane's controls — swap, zoom, close — and
+	 * asks the page outside for them with postMessage; the page outside only
+	 * ever tells this one whether it holds the focus.
+	 */
+	const embed = $derived($page.url.searchParams.has('embed'));
+	let paneFocused = $state(false);
+	let paneSide = $state<'a' | 'b' | null>(null);
+	/** Whether this pane runs on the same host as the page outside; a remote one names its host. */
+	let paneLocal = $state(true);
+	/** This host's tailnet name, for the label a pane on another host needs. */
+	const machineName = $derived(embed ? serverStore.self || serverStore.current.hostname : '');
+
+	function tellPane(action: 'focus' | 'focus-other' | 'swap' | 'zoom' | 'close' | 'ready') {
+		if (!embed || window.parent === window) return;
+		window.parent.postMessage({ type: 'claude-mux:pane', action }, '*');
+	}
+
+	onMount(() => {
+		if (!embed) return;
+		serverStore.init();
+		const onMessage = (e: MessageEvent) => {
+			if (e.source !== window.parent) return;
+			const msg = e.data as { type?: string; focused?: boolean; side?: 'a' | 'b'; local?: boolean } | null;
+			if (msg?.type !== 'claude-mux:focus') return;
+			paneFocused = msg.focused === true;
+			paneSide = msg.side ?? null;
+			paneLocal = msg.local !== false;
+		};
+		// Any interaction inside the pane is a claim on the focus.
+		const onPointer = () => tellPane('focus');
+		const onKeys = (e: KeyboardEvent) => {
+			if ((e.ctrlKey || e.metaKey) && (e.key === '1' || e.key === '2')) {
+				e.preventDefault();
+				const wanted = e.key === '1' ? 'a' : 'b';
+				tellPane(wanted === paneSide ? 'focus' : 'focus-other');
+			}
+		};
+		window.addEventListener('message', onMessage);
+		window.addEventListener('pointerdown', onPointer, true);
+		window.addEventListener('focus', onPointer);
+		window.addEventListener('keydown', onKeys, true);
+		tellPane('ready');
+		return () => {
+			window.removeEventListener('message', onMessage);
+			window.removeEventListener('pointerdown', onPointer, true);
+			window.removeEventListener('focus', onPointer);
+			window.removeEventListener('keydown', onKeys, true);
+		};
+	});
+
 	const viewMode = $derived.by(() => {
 		if (!canTranscript) return 'terminal';
 		const param = $page.url.searchParams.get('view');
@@ -1651,6 +1704,13 @@
 			<b>{currentSession ? getSessionDisplayName(currentSession) : target}</b>
 			<iconify-icon icon="mdi:chevron-down"></iconify-icon>
 		</button>
+		{#if embed && !paneLocal && machineName}
+			<!-- A pane may be on another host; its composer says which. -->
+			<span class="mach" title="Session runs on {machineName}">{machineName}</span>
+		{/if}
+		{#if embed && paneFocused}
+			<span class="foc" title="The sidebar opens sessions here; ⌘/Ctrl 1 and 2 move the focus">focus</span>
+		{/if}
 		{#if statusSay}
 			<span class="sep">·</span>
 			<span class="say" class:amber={statusWants}>{statusSay}</span>
@@ -1669,13 +1729,15 @@
 				<Hint icon={action.icon} label={action.label} class="mini" onclick={action.run} />
 			</span>
 		{/each}
-		<Hint
-			icon="mdi:menu"
-			label="Sessions and panels"
-			keys={MOD_LABEL + ' B'}
-			class="mini menu-only"
-			onclick={() => drawer.toggle()}
-		/>
+		{#if !embed}
+			<Hint
+				icon="mdi:menu"
+				label="Sessions and panels"
+				keys={MOD_LABEL + ' B'}
+				class="mini menu-only"
+				onclick={() => drawer.toggle()}
+			/>
+		{/if}
 		{#if isAlive && canTranscript}
 			<Hint
 				icon={viewMode === 'transcript' ? 'mdi:console' : 'mdi:message-text-outline'}
@@ -1684,6 +1746,15 @@
 				class="mini"
 				onclick={() => toggleView()}
 			/>
+		{/if}
+		{#if embed}
+			<!-- The pane's own controls, asked of the page outside. Kept as one
+			     group so that when the row wraps they land together, right-aligned. -->
+			<span class="pane-ctl">
+				<Hint icon="mdi:swap-horizontal" label="Swap panes" class="mini" onclick={() => tellPane('swap')} />
+				<Hint icon="mdi:arrow-expand" label="Only this pane" class="mini" onclick={() => tellPane('zoom')} />
+				<Hint icon="mdi:close" label="Close this pane" class="mini pane-close" onclick={() => tellPane('close')} />
+			</span>
 		{/if}
 	</div>
 {/snippet}
@@ -1802,6 +1873,8 @@
 
 			<div
 				class="cx"
+				class:focused={embed && paneFocused}
+				class:embed
 				use:swipe={{
 					enabled: () => isTouchDevice,
 					onUp: () => (trayOpen = true),
@@ -2621,6 +2694,42 @@
 	.sl-sp {
 		flex: 1;
 		min-width: 8px;
+	}
+	/* One pane of a split: the row may wrap in a narrow pane, and the pane's
+	   own controls travel as a group to the right of whichever line they land on. */
+	.cx.embed .sl {
+		flex-wrap: wrap;
+		row-gap: 2px;
+	}
+	.pane-ctl {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		margin-left: auto;
+	}
+	.pane-ctl :global(.pane-close:hover) {
+		color: #fca5a5;
+	}
+	.mach {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: #818cf8;
+		background: #1e1e3a;
+		border-radius: 4px;
+		padding: 0 5px;
+		white-space: nowrap;
+	}
+	.foc {
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #f59e0b;
+	}
+	/* The focused pane says so on its composer, not over the conversation. */
+	.cx.focused {
+		border-color: #5a4310;
+		box-shadow: inset 0 0 0 1px #3a2d0d;
 	}
 	/* 24×22 with the context rail's own hit band directly above is a target you
 	   aim at rather than one you hit — a miss high lands on the gauge. The

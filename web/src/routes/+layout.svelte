@@ -12,8 +12,40 @@
 	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
 	import SidebarMeters from '$lib/components/SidebarMeters.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
+	import SplitView from '$lib/components/SplitView.svelte';
+	import { splitStore } from '$lib/stores/split.svelte';
+	import { parseRef } from '$lib/split-refs';
 
 	let { children } = $props();
+
+	/**
+	 * Embedded: this page is one pane of a split, drawn inside another page's
+	 * iframe. No shell — the sidebar and its drawer belong to the page outside.
+	 */
+	const embed = $derived($page.url.searchParams.has('embed'));
+
+	/** The two panes of a split, read off `/session/A?with=B`. */
+	const splitA = $derived(
+		$page.url.pathname.startsWith('/session/')
+			? parseRef(decodeURIComponent($page.url.pathname.split('/session/')[1]))
+			: null
+	);
+	const splitB = $derived.by(() => {
+		const raw = $page.url.searchParams.get('with');
+		return raw ? parseRef(raw) : null;
+	});
+	const splitOn = $derived(!embed && splitA !== null && splitB !== null);
+	$effect(() => {
+		splitStore.setPanes(splitOn ? splitA : null, splitOn ? splitB : null);
+	});
+
+	/** Dropping a sidebar row here starts a split with the session on the page. */
+	function dropToSplit(e: DragEvent) {
+		e.preventDefault();
+		const ref = parseRef(e.dataTransfer?.getData('text/claude-mux-session') ?? '');
+		splitStore.dragging = false;
+		if (ref && splitA) splitStore.splitWith(ref, splitA);
+	}
 
 	/** Driven from the session composer's status line, which carries the toggle. */
 	const drawerOpen = $derived(drawer.open);
@@ -152,7 +184,7 @@
 
 <svelte:window onkeydown={handleSidebarKey} />
 
-{#if showSidebar}
+{#if showSidebar && !embed}
 	<div class="app-shell" class:resizing-any={isResizing}>
 		<aside
 			class="sidebar"
@@ -196,12 +228,35 @@
 		</aside>
 
 		<main class="content">
-			{@render children()}
+			{#if splitOn && splitA && splitB}
+				<SplitView a={splitA} b={splitB} />
+			{:else}
+				{@render children()}
+				{#if splitStore.dragging && splitA}
+					<!-- Shown only while a sidebar row is in flight: the right
+					     edge is where dropping it opens a second pane. -->
+					<div
+						class="split-drop"
+						role="region"
+						aria-label="Drop to open side by side"
+						ondragover={(e) => e.preventDefault()}
+						ondrop={dropToSplit}
+					>
+						<span>Open side by side</span>
+					</div>
+				{/if}
+			{/if}
 		</main>
 
 		{#if drawerOpen}
 			<button class="backdrop" onclick={closeDrawer} aria-label="Close menu"></button>
 		{/if}
+	</div>
+{:else if embed}
+	<!-- One pane of a split: the page alone, held to the frame's height the
+	     way .content holds it inside the shell, so its composer stays put. -->
+	<div class="embed-shell">
+		{@render children()}
 	</div>
 {:else}
 	{@render children()}
@@ -273,6 +328,23 @@
 		flex-shrink: 0;
 	}
 
+	/* The right edge of the page while a session is being dragged. */
+	.split-drop {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		bottom: 12px;
+		width: min(38%, 420px);
+		display: grid;
+		place-items: center;
+		border: 2px dashed #818cf8;
+		border-radius: 12px;
+		background: rgba(129, 140, 248, 0.1);
+		color: #a5b4fc;
+		font: 500 13px system-ui, sans-serif;
+		z-index: 30;
+	}
+
 	/* The composer's card, at the foot of the sidebar. */
 	.sidebar-foot {
 		flex-shrink: 0;
@@ -305,6 +377,11 @@
 
 	.content {
 		flex: 1;
+		overflow: hidden;
+		position: relative;
+	}
+	.embed-shell {
+		height: 100dvh;
 		overflow: hidden;
 		position: relative;
 	}
