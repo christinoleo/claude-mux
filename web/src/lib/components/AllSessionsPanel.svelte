@@ -1047,6 +1047,20 @@
 	.mlabel.shut {
 		padding-bottom: 2px;
 	}
+	/* A finger needs more than a 24px strip, and the last heading in the
+	   list sits right above the foot's own buttons: a miss there opens the
+	   queue instead of the machine. */
+	@media (pointer: coarse) {
+		.mlabel,
+		.mlabel.shut {
+			min-height: 44px;
+			padding-top: 4px;
+			padding-bottom: 4px;
+		}
+		.list {
+			padding-bottom: 24px;
+		}
+	}
 	.mlabel.wants .mname,
 	.mlabel.wants iconify-icon {
 		color: var(--amber);
@@ -1166,8 +1180,12 @@
 		color: #fca5a5;
 	}
 	@media (hover: none) {
+		/* Always shown, and the 24px glyph takes a finger-sized tap. */
 		.pbtn {
 			opacity: 1;
+			width: 44px;
+			height: 44px;
+			margin: -10px -10px -10px -14px;
 		}
 		.pclose {
 			display: none;
