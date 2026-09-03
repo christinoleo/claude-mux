@@ -3,6 +3,7 @@
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
 	import { keysForAnswer } from '$shared/tmux/answer-keys.js';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
+	import { toolIcon } from '$lib/tool-icons';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { QueuedMessageKind } from '$shared/server/message-queue.js';
@@ -212,17 +213,6 @@
 		return { cmd, short, long };
 	}
 
-	function toolIcon(name: string): string {
-		const n = name.toLowerCase();
-		if (n.includes('bash') || n.includes('command')) return 'mdi:console';
-		if (n.includes('edit') || n.includes('write') || n.includes('notebook')) return 'mdi:file-edit-outline';
-		if (n.includes('read')) return 'mdi:file-eye-outline';
-		if (n.includes('grep') || n.includes('glob') || n.includes('search')) return 'mdi:magnify';
-		if (n.includes('task') || n.includes('agent')) return 'mdi:robot-outline';
-		if (n.includes('web')) return 'mdi:web';
-		if (n.includes('todo')) return 'mdi:checkbox-marked-outline';
-		return 'mdi:tools';
-	}
 </script>
 
 <div class="transcript">
