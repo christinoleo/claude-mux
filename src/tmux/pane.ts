@@ -475,11 +475,19 @@ export function checkForInterruption(tmuxTarget: string): { state: 'idle'; curre
 /** Max options carried to the UI; a longer list is truncated. */
 const MAX_PROMPT_OPTIONS = 10;
 
-/** Max characters kept per option label. */
-const MAX_OPTION_CHARS = 120;
+/**
+ * Longest text kept per option label, description or question. A bound on
+ * the broadcast, not a display choice: the dialog's words are read in full,
+ * wrapped lines and all, because a question cut mid-sentence cannot be
+ * answered from the dashboard.
+ */
+const MAX_OPTION_CHARS = 4000;
 
 /** How far up from the last content line an option run may start. */
 const OPTION_RUN_WINDOW = 24;
+
+/** How many pane lines a question may take above its first row. */
+const QUESTION_LINES = 12;
 
 /**
  * How far above the last content line the run may end. A dialog puts its
@@ -501,6 +509,12 @@ export type PromptOption = {
   checked?: boolean;
   /** Claude Code's own highlight — the row carrying the `❯` marker. */
   selected: boolean;
+  /**
+   * The row is the question's free-text answer. Highlighting it is what opens
+   * it for typing, and Enter on it while it is empty declines the question —
+   * so it is picked with the arrows alone, never with Enter.
+   */
+  text?: true;
 };
 
 /** A numbered question waiting in the pane. */
@@ -604,6 +618,9 @@ const BOX_ROW = /^[┌┐└┘├┤─━│╭╮╰╯]/;
 /** A multi-select row carries its own state in a checkbox. */
 const CHECKBOX = /^\[([ xX✔✓])\]\s*/;
 
+/** The free-text row of a question, as Claude Code labels it while empty. */
+const TEXT_ROW = /^Type something\.?$/i;
+
 /** How far past its row a description may be indented and still be one. */
 const HINT_INDENT_SPAN = 8;
 
@@ -619,9 +636,40 @@ function bodyOf(line: string): { indent: number; text: string } {
   return { indent: body.length - text.length, text };
 }
 
-/** Keep a dialog's own words, but not a paragraph of them. */
+/** Keep a dialog's own words, up to the bound on the broadcast. */
 function clampOption(text: string): string {
   return text.length > MAX_OPTION_CHARS ? text.slice(0, MAX_OPTION_CHARS) + "…" : text;
+}
+
+/**
+ * Below this share of a paragraph's widest line, a line ended early: it is a
+ * title or the end of a sentence, and what follows starts a new line. At or
+ * above it the terminal wrapped it, and what follows is the same sentence.
+ */
+const WRAPPED_LINE_SHARE = 0.6;
+
+/**
+ * Shorter than this, a line was not wrapped by the terminal whatever its
+ * neighbours measure: panes are wider, and a dialog's short lines are its own
+ * — a title, a review's answers, the line that asks.
+ */
+const MIN_WRAPPED_COLS = 60;
+
+/**
+ * Join the lines of a paragraph the way the terminal broke them. A line the
+ * terminal wrapped continues on the next with a space; a line that ended
+ * early — the model picker's title over its description — keeps its break,
+ * which the dashboard renders as one.
+ */
+function joinParagraph(lines: string[]): string {
+  const widest = Math.max(...lines.map((line) => line.length));
+  let out = lines[0] ?? "";
+  for (let i = 1; i < lines.length; i++) {
+    const prev = lines[i - 1].length;
+    const wrapped = prev >= MIN_WRAPPED_COLS && prev >= widest * WRAPPED_LINE_SHARE;
+    out += (wrapped ? " " : "\n") + lines[i];
+  }
+  return out;
 }
 
 /**
@@ -748,26 +796,37 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
     // description of anything; the rows before it stop at the next row.
     const stop = last ? (declared ? lastContent : lastContent + 1) : rows[k + 1].i;
     const noting = last && declared;
-    let hint: string | undefined;
+    // A description wraps over as many lines as it needs, every one at the
+    // indent of the first; the paragraph ends at a blank line, a rule, or a
+    // line indented differently — the dialog's own note under the last row.
+    const hintLines: string[] = [];
+    let hintIndent = -1;
+    let hintOpen = false;
     // A rule closes the run, and the description search with it.
     let ruled = false;
     for (let i = row.i + 1; i < stop; i++) {
       const { indent, text } = at(i);
       if (OPTION_RULE.test(text)) {
+        hintOpen = false;
         if (!noting) break;
         ruled = true;
         continue;
       }
-      if (!text || BOX_ROW.test(text)) continue;
+      if (!text || BOX_ROW.test(text)) {
+        if (!text) hintOpen = false;
+        continue;
+      }
       const bare = text.replace(PREVIEW_COLUMN, "").trimEnd();
       if (!bare) continue;
       const under =
         !ruled && indent >= row.indent && indent <= row.indent + HINT_INDENT_SPAN;
-      if (!under || hint !== undefined) {
+      const continues = hintOpen && indent === hintIndent;
+      if (!under || (hintLines.length > 0 && !continues)) {
         // Not this row's description. Under the last row of a declared dialog
         // that makes it a note the dialog is printing for itself — unless a
         // rule has already closed the run, past which only the dialog's own
         // unnumbered rows ("Chat about this") are drawn.
+        hintOpen = false;
         if (noting && !ruled) notes.push(clampOption(bare));
         continue;
       }
@@ -775,8 +834,12 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
         label = `${label} ${bare}`;
         continue;
       }
-      hint = clampOption(bare);
+      hintLines.push(bare);
+      hintIndent = indent;
+      hintOpen = true;
     }
+    let hint: string | undefined =
+      hintLines.length > 0 ? clampOption(joinParagraph(hintLines)) : undefined;
 
     // The model picker writes the description on the row itself, after a run
     // of spaces; a question never does, and a preview row's spaces were the
@@ -789,35 +852,39 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
       }
     }
 
-    return {
+    const option: PromptOption = {
       n: row.n,
       label: clampOption(label),
       hint,
       checked: box ? box[1] !== " " : undefined,
       selected: row.selected,
     };
+    if (TEXT_ROW.test(option.label)) option.text = true;
+    return option;
   });
 
-  // The question is in the paragraph directly above the run: the line that
-  // asks it when one does, else the paragraph's first line, which is the
-  // title a dialog such as the model picker leads with. The paragraph ends at
-  // a blank line, a rule, or the tab strip a question draws over itself.
-  let question: string | null = null;
-  let top: string | null = null;
-  for (let i = rows[0].i - 1; i >= 0 && i >= rows[0].i - 4; i--) {
+  // The question is the paragraph directly above the run, whole: a long one
+  // wraps over several pane lines, and the model picker leads with a title
+  // over a description. The paragraph ends at a blank line, a rule, or the
+  // tab strip a question draws over itself.
+  const paragraph: string[] = [];
+  for (let i = rows[0].i - 1; i >= 0 && i >= rows[0].i - QUESTION_LINES; i--) {
     const { text } = at(i);
     if (/^[─━╌┄┈╭╮╰╯]+$/.test(text) || TAB_STRIP.test(text)) break;
     if (!text) {
-      if (top !== null) break;
+      if (paragraph.length > 0) break;
       continue;
     }
-    top = text;
-    if (text.endsWith("?")) {
-      question = clampOption(text);
-      break;
-    }
+    paragraph.unshift(text);
   }
-  if (question === null && top !== null) question = clampOption(top);
+  // A paragraph that ends by asking — a multi-select's review, which lists
+  // the answers first — is the line that asks; any other is carried whole.
+  let question: string | null = null;
+  if (paragraph.length > 0) {
+    const joined = joinParagraph(paragraph);
+    const asking = joined.split("\n").pop()!;
+    question = clampOption(asking.endsWith("?") ? asking : joined);
+  }
 
   const choice: NonNullable<PromptChoice> = { question, options };
   if (multi) choice.multi = true;

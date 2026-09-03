@@ -392,7 +392,34 @@
 	 * The dialog's "Type something" row is open for typing. The field stays
 	 * put then, because what you type is the answer, and the rows step aside.
 	 */
-	const answering = $derived(paneChoice?.typing === true);
+	/**
+	 * The free-text row was just picked here. Highlighting it is what opens
+	 * it, and the pane will say so on its next tick — but a tap that seems to
+	 * do nothing gets tapped again, and a second Enter on the open, empty row
+	 * declines the whole question. So the field takes over at once, and this
+	 * clears when the pane confirms, the dialog closes, or enough time passes.
+	 */
+	let pendingAnswer = $state(false);
+	let pendingAnswerTimer: ReturnType<typeof setTimeout> | null = null;
+	const PENDING_ANSWER_MS = 4000;
+	function expectTyping() {
+		pendingAnswer = true;
+		if (pendingAnswerTimer) clearTimeout(pendingAnswerTimer);
+		pendingAnswerTimer = setTimeout(() => {
+			pendingAnswerTimer = null;
+			pendingAnswer = false;
+		}, PENDING_ANSWER_MS);
+	}
+	$effect(() => {
+		if (pendingAnswer && (paneChoice === null || paneChoice.typing === true)) {
+			pendingAnswer = false;
+			if (pendingAnswerTimer) {
+				clearTimeout(pendingAnswerTimer);
+				pendingAnswerTimer = null;
+			}
+		}
+	});
+	const answering = $derived(paneChoice?.typing === true || pendingAnswer);
 
 	/**
 	 * The numbered options the pane is offering, standing in for the field.
@@ -453,6 +480,12 @@
 		const key = e.key === 'Enter' || e.key === 'Escape' ? e.key : ARROW_KEYS[e.key];
 		if (!key) return false;
 		e.preventDefault();
+		// Enter on the highlighted free-text row would decline the question:
+		// the row is already open, so the field takes over instead.
+		if (key === 'Enter' && choice.options.find((o) => o.selected)?.text) {
+			expectTyping();
+			return true;
+		}
 		void sendKeys(key);
 		return true;
 	}
@@ -465,11 +498,18 @@
 	 */
 	async function pickOption(n: number) {
 		const options = choice?.options ?? [];
-		const keys = keysForOptionPick(
-			options.findIndex((o) => o.selected),
-			options.findIndex((o) => o.n === n),
-			options.length
-		);
+		const from = options.findIndex((o) => o.selected);
+		const to = options.findIndex((o) => o.n === n);
+		// The free-text row opens on the highlight alone; Enter on it while it
+		// is still empty declines the question, so the arrows go without it.
+		if (options[to]?.text) {
+			const move = keysForOptionMove(from, to, options.length);
+			if (move === null) return;
+			expectTyping();
+			if (move) await sendKeys(move);
+			return;
+		}
+		const keys = keysForOptionPick(from, to, options.length);
 		if (keys) await sendKeys(keys);
 	}
 
@@ -482,11 +522,10 @@
 	 */
 	async function highlightOption(n: number) {
 		const options = choice?.options ?? [];
-		const keys = keysForOptionMove(
-			options.findIndex((o) => o.selected),
-			options.findIndex((o) => o.n === n),
-			options.length
-		);
+		const to = options.findIndex((o) => o.n === n);
+		const keys = keysForOptionMove(options.findIndex((o) => o.selected), to, options.length);
+		if (keys === null) return;
+		if (options[to]?.text) expectTyping();
 		if (keys) await sendKeys(keys);
 	}
 
@@ -899,6 +938,8 @@
 			await sendText();
 			return;
 		}
+		// Nothing typed into the dialog's text row: a bare Enter would decline it.
+		if (answering) return;
 		if (emptyEnterTimer) {
 			clearTimeout(emptyEnterTimer);
 			emptyEnterTimer = null;
@@ -947,7 +988,9 @@
 		}
 		const paths = readyPaths;
 		if (!textInput.trim() && paths.length === 0) {
-			// Empty input: just send Enter key
+			// Empty input: just send Enter key — unless the dialog's text row is
+			// open, where an empty Enter declines the question.
+			if (answering) return;
 			await sendKeys('Enter');
 			return;
 		}
@@ -2875,6 +2918,9 @@
 		font-size: 13px;
 		line-height: 1.4;
 		color: #a8a29e;
+		/* Carried whole from the pane, with the breaks the dialog drew itself. */
+		white-space: pre-line;
+		overflow-wrap: anywhere;
 	}
 	.optrow {
 		display: flex;
@@ -2917,6 +2963,8 @@
 		font-size: 11.5px;
 		line-height: 1.35;
 		color: #78716c;
+		white-space: pre-line;
+		overflow-wrap: anywhere;
 	}
 	.optrow.sel .optlabel em {
 		color: #c8a94a;

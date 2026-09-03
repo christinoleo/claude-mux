@@ -166,7 +166,9 @@ describe("readPromptOptions", () => {
   it("reads the model picker, splitting each row's inline description off its label", () => {
     const choice = readPromptOptions(MODEL);
     expect(choice).not.toBeNull();
-    expect(choice!.question).toBe("Select model");
+    expect(choice!.question).toBe(
+      "Select model\nSwitch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model."
+    );
     expect(choice!.options.map((o) => o.label)).toEqual([
       "Default (recommended)",
       "Opus (1M context)",
@@ -374,11 +376,54 @@ describe("readPromptOptions", () => {
     expect(readPromptOptions(many.join("\n"))).toBeNull();
   });
 
-  it("truncates a very long option label", () => {
+  it("keeps a long option label whole, up to the bound on the broadcast", () => {
     const long = "x".repeat(200);
     const choice = readPromptOptions(["Pick", `❯ 1. ${long}`, "  2. no"].join("\n"));
-    expect(choice!.options[0].label).toHaveLength(121);
-    expect(choice!.options[0].label.endsWith("…")).toBe(true);
+    expect(choice!.options[0].label).toBe(long);
+    const huge = "y".repeat(5000);
+    const capped = readPromptOptions(["Pick", `❯ 1. ${huge}`, "  2. no"].join("\n"));
+    expect(capped!.options[0].label).toHaveLength(4001);
+    expect(capped!.options[0].label.endsWith("…")).toBe(true);
+  });
+
+  it("marks the free-text row, and only that row", () => {
+    const choice = readPromptOptions(QUESTION);
+    expect(choice!.options.map((o) => o.text)).toEqual([undefined, undefined, true, undefined]);
+    // Typed into, the row shows the text instead of the label, and the
+    // dialog says it is typing — the flag is for the empty row.
+    expect(readPromptOptions(TYPING)!.options.every((o) => o.text === undefined)).toBe(true);
+  });
+
+  it("reads a question and its descriptions whole when the pane wrapped them", () => {
+    // Captured shape: a long question wraps over two pane lines, and so does
+    // the first option's description; the second row's does not.
+    const pane = [
+      " ☐ Faixa política",
+      "O que vira de `faixa_politica` quando o devedor sozinho só paga o valor cheio? Hoje ela GERA a oferta (gerarPropostas de",
+      "faixa) e também limita o operador. Qual passa a ser o papel dela?",
+      "",
+      "❯ 1. Faixa vira teto (Recommended)",
+      "     Mesma tabela, campos reinterpretados: descontoAvistaPct = desconto máximo, parcelasMax = parcelas máximas, mais uma",
+      "     coluna nova.",
+      "  2. Faixa continua gerando, só para o operador",
+      "     A lista de propostas some do portal do devedor.",
+      "  3. Type something.",
+      "────────────────────────────────────────────────────────────────────────────",
+      "  4. Chat about this",
+      "",
+      "Enter to select · ↑/↓ to navigate · Esc to cancel",
+    ].join("\n");
+    const choice = readPromptOptions(pane);
+    expect(choice!.question).toBe(
+      "O que vira de `faixa_politica` quando o devedor sozinho só paga o valor cheio? Hoje ela GERA a oferta (gerarPropostas de faixa) e também limita o operador. Qual passa a ser o papel dela?"
+    );
+    expect(choice!.options.map((o) => o.hint)).toEqual([
+      "Mesma tabela, campos reinterpretados: descontoAvistaPct = desconto máximo, parcelasMax = parcelas máximas, mais uma coluna nova.",
+      "A lista de propostas some do portal do devedor.",
+      undefined,
+      undefined,
+    ]);
+    expect(choice!.notes).toBeUndefined();
   });
 
   it("leaves the question null when nothing readable sits above the run", () => {

@@ -31,6 +31,8 @@ const PaneChoiceSchema = z.object({
 			/** Whether a multi-select row's own checkbox is ticked. */
 			checked: z.boolean().optional(),
 			selected: z.boolean(),
+			/** The question's free-text row: opened by highlighting it, declined by an empty Enter. */
+			text: z.literal(true).optional(),
 		})
 	),
 	/** The rows are checkboxes: picking one ticks it, and leaves the dialog open. */
