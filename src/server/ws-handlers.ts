@@ -10,7 +10,7 @@
 
 import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
-import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, type Session } from '../db/index.js';
+import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, sanitizeDisplayName, type Session } from '../db/index.js';
 import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
@@ -20,7 +20,7 @@ import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, read
 import type { PromptChoice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
-import { peekContextPercent } from '../transcript/context-peek.js';
+import { peekContextPercent, peekTranscriptTitle } from '../transcript/context-peek.js';
 
 /**
  * What the session poll reads off the pane itself and rides the broadcast —
@@ -285,6 +285,31 @@ const rcSeen = new Set<string>();
 /** False on the first poll, which only primes `rcSeen` with what already runs. */
 let rcPrimed = false;
 
+/**
+ * The transcript title each session was last seen to carry, so a name is
+ * applied when Claude Code changes it and not on every tick that it differs.
+ */
+const transcriptTitleSeen = new Map<string, string>();
+
+/**
+ * A `/rename` typed inside Claude Code goes through none of the hooks — slash
+ * commands never reach UserPromptSubmit — so the only trace is the
+ * `custom-title` record in the transcript. Mirror a change there into
+ * `display_name`. The other direction (renamed from the dashboard) sends the
+ * same `/rename` into the pane, so the record it produces already matches
+ * and nothing is written twice.
+ */
+function syncTranscriptTitle(s: Session): void {
+	if ((s.agent ?? 'claude') !== 'claude') return;
+	const title = peekTranscriptTitle(s);
+	if (title === undefined || transcriptTitleSeen.get(s.id) === title) return;
+	transcriptTitleSeen.set(s.id, title);
+	const name = sanitizeDisplayName(title);
+	if (name === (s.display_name ?? null)) return;
+	updateSession(s.id, { display_name: name });
+	s.display_name = name;
+}
+
 export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFields)[]> {
 	const [{ captures, rawCaptures, sessions }, paneTitles] = await Promise.all([
 		captureAndSyncSessions(),
@@ -319,6 +344,8 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 		enqueue(s.tmux_target, '/rc', 'control');
 	}
 	rcPrimed = true;
+
+	for (const s of sessions) syncTranscriptTitle(s);
 
 	// Scan for Remote Control URLs in pane content (detect new URLs and clear stale ones)
 	for (const s of sessions) {
