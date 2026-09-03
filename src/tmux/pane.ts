@@ -103,15 +103,40 @@ export async function capturePaneContentAsync(target: string, withColor = false)
 }
 
 /**
- * Check if the pane shows a spinner (e.g. during compaction).
- * Claude Code uses braille spinner characters (U+2800–U+28FF) in the status area.
- * Checks the bottom few lines of the pane where the spinner would appear.
+ * Claude Code's activity line: a spinner glyph, then what it is doing, ending
+ * in "…" — "✻ Julienning… (1m 39s", "⠋ Compacting conversation…". Older
+ * builds spin a braille glyph, newer ones the star family; the finished form
+ * ("✻ Baked for 33s · done") has no "…" and is not one.
+ *
+ * Only this shape counts as work. A braille or star glyph elsewhere in the
+ * pane — a CLI's own progress bar left in tool output, a bullet in Claude's
+ * answer — is not a spinner, and reading it as one held sessions at busy after
+ * they had stopped.
+ */
+const ACTIVITY_LINE = /^\s*[⠀-⣿✻✢✳✶✽·]\s+(\S[^…]*…)/;
+
+/** Lines from the foot of the pane that a spinner can sit in: above the prompt box and its footer. */
+const ACTIVITY_WINDOW = 12;
+
+/**
+ * What the spinner at the foot of the pane says Claude Code is doing, without
+ * the glyph — "Compacting conversation…" — or null when no spinner is drawn.
+ */
+export function readActivityLine(content: string): string | null {
+  if (!content) return null;
+  for (const line of content.split("\n").slice(-ACTIVITY_WINDOW)) {
+    const m = ACTIVITY_LINE.exec(line);
+    if (m) return m[1].trim();
+  }
+  return null;
+}
+
+/**
+ * Whether the pane shows a spinner while the hooks say idle — compaction,
+ * which fires no hook, is the usual case.
  */
 export function isPaneShowingSpinner(content: string): boolean {
-  if (!content) return false;
-  const bottomLines = content.split('\n').slice(-5).join('');
-  // Braille spinner characters: ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ etc. (U+2800-U+28FF)
-  return /[\u2800-\u28FF]/.test(bottomLines);
+  return readActivityLine(content) !== null;
 }
 
 /**
@@ -122,13 +147,12 @@ export function isPaneShowingSpinner(content: string): boolean {
  */
 export function isPaneShowingIdlePrompt(content: string): boolean {
   if (!content) return false;
-  const bottom = content.split("\n").slice(-12);
+  const bottom = content.split("\n").slice(-ACTIVITY_WINDOW);
   const joined = bottom.join("\n");
   // Any active-work or dialog indicator vetoes idle.
-  if (/[⠀-⣿]/.test(joined)) return false; // braille spinner
+  if (readActivityLine(content) !== null) return false;
   if (/esc to interrupt|esc to cancel|ctrl\+c to interrupt/i.test(joined)) return false;
-  // Activity status line: spinner glyph + word ending in "…", e.g. "✻ Julienning… (1m 39s"
-  // (the finished form "✻ Baked for 33s · done" has no "…" and passes).
+  // A status line drawn with some other glyph: "⎿ Running hook…".
   if (bottom.some((line) => /^\s*[^\w\s❯│>]\s+\S+…/.test(line))) return false;
   if (/Do you want|❯\s+\d+\./.test(joined)) return false;
   // The ready input prompt must actually be visible.

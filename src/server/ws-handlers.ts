@@ -16,7 +16,7 @@ import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { isDictated } from './dictation-marks.js';
 import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
-import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, isPaneShowingSpinner, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, stripAnsi, sendKeyAsync } from '../tmux/pane.js';
+import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, stripAnsi, sendKeyAsync } from '../tmux/pane.js';
 import type { PromptChoice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
@@ -253,9 +253,11 @@ async function captureAndSyncSessions(): Promise<{
 			} else {
 				idleLookTicks.delete(session.id);
 			}
-			// If hook says idle but pane shows a spinner (e.g. compaction), override to busy
-			if (session.state === 'idle' && isPaneShowingSpinner(content)) {
-				apply(session, { state: 'busy', current_action: 'Compacting...' });
+			// The hooks say idle but the pane is spinning: compaction, which fires
+			// no hook. The spinner's own words are the action.
+			if (session.state === 'idle') {
+				const activity = readActivityLine(content);
+				if (activity) apply(session, { state: 'busy', current_action: activity });
 			}
 		})
 	);

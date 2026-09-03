@@ -8,6 +8,7 @@ import { sizeArgsForNewSession } from '$shared/tmux/geometry.js';
 import { homedir } from 'os';
 import { join } from 'path';
 import { projectSlug } from '$shared/utils/slug.js';
+import { broadcastSessions } from '$lib/server/ws-managers.js';
 
 /** Pre-trust a workspace directory in ~/.claude.json so Claude skips the trust dialog */
 function ensureWorkspaceTrusted(cwd: string) {
@@ -86,6 +87,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			state: 'idle',
 			agent: selectedAgent
 		});
+		// The sidebar sees the row now, not at the watcher's next poll.
+		broadcastSessions();
 
 		return json({ ok: true, session: sessionName, tmuxTarget, agent: selectedAgent, record });
 	} catch (err) {

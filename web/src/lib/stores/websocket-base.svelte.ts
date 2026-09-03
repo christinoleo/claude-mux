@@ -182,7 +182,27 @@ export abstract class ReliableWebSocket {
 		}, this.config.pingInterval);
 	}
 
+	/** How long a ping sent on returning to the page may go unanswered. */
+	private static readonly WAKE_PONG_TIMEOUT = 3000;
+	private wakeTimer: ReturnType<typeof setTimeout> | null = null;
+
+	private expectPong(): void {
+		if (this.wakeTimer) clearTimeout(this.wakeTimer);
+		const asked = Date.now();
+		this.wakeTimer = setTimeout(() => {
+			this.wakeTimer = null;
+			if (this.ws && this.lastPong < asked) {
+				if (import.meta.env.DEV) console.debug(`${this.getLogPrefix()} No pong after wake, forcing reconnect`);
+				this.forceReconnect();
+			}
+		}, ReliableWebSocket.WAKE_PONG_TIMEOUT);
+	}
+
 	private stopPingTimer(): void {
+		if (this.wakeTimer) {
+			clearTimeout(this.wakeTimer);
+			this.wakeTimer = null;
+		}
 		if (this.pingTimer) {
 			clearInterval(this.pingTimer);
 			this.pingTimer = null;
@@ -216,8 +236,11 @@ export abstract class ReliableWebSocket {
 					if (import.meta.env.DEV) console.debug(`${this.getLogPrefix()} Connection lost while hidden, reconnecting`);
 					this.forceReconnect();
 				} else {
-					// Send a ping to verify connection is alive
+					// The socket says open, but a phone that slept may hold one the
+					// network has long since dropped, and the regular stale check is up
+					// to a ping interval away. Ask now and give up quickly.
 					this.ws.send('ping');
+					this.expectPong();
 				}
 			}
 		};

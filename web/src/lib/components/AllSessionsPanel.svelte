@@ -21,6 +21,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Popover from '$lib/components/ui/popover';
+	import { browser } from '$app/environment';
 	import { longPress } from '$lib/actions/longPress';
 	import ServerPicker from './ServerPicker.svelte';
 	import RenameSessionDialog from './RenameSessionDialog.svelte';
@@ -364,6 +365,14 @@
 		return side === 'a' ? 'A' : side === 'b' ? 'B' : null;
 	}
 
+	/**
+	 * Rows drag only under a mouse. A finger's long press is the rename (and
+	 * the agent picker) here, and on the browsers that start a native drag
+	 * from the same hold the two fight over it — for a split no phone is wide
+	 * enough to show anyway (see MIN_PANE_PX).
+	 */
+	const canDrag = browser && window.matchMedia('(pointer: fine)').matches;
+
 	/** A row leaves as a pane ref; the panes and the page's right edge catch it. */
 	function dragStart(e: DragEvent, machine: Machine, tmuxTarget: string) {
 		if (!e.dataTransfer) return;
@@ -529,12 +538,12 @@
 		class:orch={row.orchestrator}
 		class:inA={tag === 'A'}
 		class:inB={tag === 'B'}
-		draggable={s.tmux_target ? 'true' : 'false'}
+		draggable={canDrag && s.tmux_target ? 'true' : 'false'}
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
 		ondragend={dragEnd}
 		onclick={(e) => handleRowClick(e, machine, s)}
 		use:longPress={{ onTrigger: () => { if (machine.local) renameId = s.id; } }}
-		title={(machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`) + ' · ⌥-click or drag to open side by side'}
+		title={(machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`) + (canDrag ? ' · ⌥-click or drag to open side by side' : '')}
 	>
 		<span class="st"><SessionStateIndicator state={s.state} size="sm" title={s.current_action} /></span>
 		<span class="name">
@@ -581,7 +590,7 @@
 		href="/session/{encodeURIComponent(pane.target)}"
 		class="row tmux"
 		class:cur={isActive}
-		draggable="true"
+		draggable={canDrag ? 'true' : 'false'}
 		ondragstart={(e) => dragStart(e, machine, pane.target)}
 		ondragend={dragEnd}
 		onclick={(e) => { e.preventDefault(); openSession(machine, pane.target, e.altKey); }}
