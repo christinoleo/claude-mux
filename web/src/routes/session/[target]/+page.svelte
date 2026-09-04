@@ -157,6 +157,8 @@
 
 	let textInput = $state('');
 	let showConfirmKill = $state(false);
+	let showConfirmRestart = $state(false);
+	let restarting = $state(false);
 	let moreOpen = $state(false);
 	let commandsOpen = $state(false);
 	let attachPickerOpen = $state(false);
@@ -1634,6 +1636,22 @@
 		goto('/');
 	}
 
+	/**
+	 * Quits Claude Code and reopens this conversation in the same pane — the
+	 * way to pick up an update or re-read skills without losing the session.
+	 */
+	async function restartSession() {
+		if (!currentSession) return;
+		restarting = true;
+		try {
+			await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/restart`, {
+				method: 'POST'
+			});
+		} finally {
+			restarting = false;
+		}
+	}
+
 	function copySelection() {
 		const text = selectedText;
 		if (!text) return;
@@ -2249,6 +2267,21 @@
 											</Button>
 										{/each}
 									</div>
+									{#if isClaudeSession && currentSession}
+										<Button
+											variant="secondary"
+											size="toolbar"
+											class="mt-2 w-full min-h-12"
+											disabled={restarting}
+											onclick={() => {
+												moreOpen = false;
+												showConfirmRestart = true;
+											}}
+										>
+											<iconify-icon icon="mdi:restart"></iconify-icon>
+											<span>Restart Claude</span>
+										</Button>
+									{/if}
 								</Popover.Content>
 							</Popover.Root>
 							{#if !isBusy}
@@ -2314,6 +2347,21 @@
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
 			<AlertDialog.Action onclick={killSession} class="bg-destructive text-destructive-foreground hover:bg-destructive/90">Kill</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
+
+<AlertDialog.Root bind:open={showConfirmRestart}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>Restart Claude Code?</AlertDialog.Title>
+			<AlertDialog.Description>
+				Quits Claude Code and reopens this conversation in the same pane with the same flags. Picks up a pending update and reloads skills and hooks.{#if isBusy} It is busy right now — what it is doing will be cut off.{/if}
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={restartSession}>Restart</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
