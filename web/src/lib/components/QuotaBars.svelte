@@ -19,22 +19,47 @@
 		'no-limits': 'Plan limits do not apply to this account.'
 	};
 
-	/** "2h 5m", "3d", "12m" — enough precision to plan around, never more. */
-	function resetsIn(atMs: number | null): string {
-		if (atMs === null) return '';
-		const ms = atMs - Date.now();
+	/**
+	 * "2h 5m", "1d 3h", "12m" — enough precision to plan around, never more.
+	 * Rounded, not truncated, so it agrees with the absolute time beside it.
+	 */
+	function resetsIn(atMs: number, nowMs: number): string {
+		const ms = atMs - nowMs;
 		if (ms <= 0) return 'resetting';
 		const minutes = Math.round(ms / 60_000);
 		if (minutes < 60) return `${minutes}m`;
-		const hours = Math.floor(minutes / 60);
-		if (hours < 24) {
+		if (minutes < 24 * 60) {
+			const hours = Math.floor(minutes / 60);
 			const rest = minutes % 60;
 			return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
 		}
+		const hours = Math.round(minutes / 60);
 		const days = Math.floor(hours / 24);
 		const restHours = hours % 24;
 		return restHours > 0 ? `${days}d ${restHours}h` : `${days}d`;
 	}
+
+	/** "Sep 6, 3:00 AM" in the viewer's own zone, the way Claude Code's /usage prints it. */
+	function resetsAt(atMs: number, nowMs: number): string {
+		const at = new Date(atMs);
+		const sameDay = at.toDateString() === new Date(nowMs).toDateString();
+		return at.toLocaleString(undefined, {
+			...(sameDay ? {} : { month: 'short', day: 'numeric' }),
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+	}
+
+	function resetNote(atMs: number, nowMs: number): string {
+		return `resets in ${resetsIn(atMs, nowMs)} · ${resetsAt(atMs, nowMs)}`;
+	}
+
+	/** Ticks once a minute so a page left open keeps counting down. */
+	let now = $state(Date.now());
+	$effect(() => {
+		const timer = setInterval(() => (now = Date.now()), 60_000);
+		return () => clearInterval(timer);
+	});
 
 	const limits = $derived(quota?.available ? quota.limits : []);
 </script>
@@ -53,7 +78,7 @@
 					footLeft={compact ? undefined : SEVERITY[limit.severity].word}
 					footRight={compact || limit.resetsAtMs === null
 						? undefined
-						: `resets in ${resetsIn(limit.resetsAtMs)}`}
+						: resetNote(limit.resetsAtMs, now)}
 					{compact}
 				/>
 			</li>
