@@ -70,6 +70,8 @@ export interface Session {
   last_update: number;
   screenshots?: Screenshot[];
   chrome_active?: boolean;
+  /** In-flight background work (agents, shells) reported by the last Stop hook. */
+  background_tasks?: number;
   linked_to?: string | null;
   rc_url?: string | null;
   display_name?: string | null;
