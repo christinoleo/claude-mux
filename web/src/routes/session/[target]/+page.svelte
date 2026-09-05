@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { goto, afterNavigate } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import { reportClient } from '$lib/client-log';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { terminalStore } from '$lib/stores/terminal.svelte';
 	import { sessionStore, getSessionDisplayName } from '$lib/stores/sessions.svelte';
@@ -774,6 +775,32 @@
 	onDestroy(() => {
 		terminalStore.setTarget(null);
 		transcriptStore.setSession(null);
+	});
+
+	// The page has been seen showing one session while the URL named another,
+	// and only sometimes. A beat after every navigation, compare the two and
+	// write what the page believed to the server log, so the next report
+	// comes with the state that produced it.
+	afterNavigate(() => {
+		setTimeout(() => {
+			const urlTarget = decodeURIComponent(location.pathname.split('/session/')[1] ?? '');
+			const shown = currentSession?.tmux_target ?? target;
+			if (urlTarget && shown && urlTarget !== shown) {
+				reportClient('stale', {
+					urlTarget,
+					target,
+					shown,
+					currentSessionId: currentSession?.id ?? null,
+					sessionsKnown: sessionStore.sessions.length,
+					targetInStore: sessionStore.sessions.some((s) => s.tmux_target === urlTarget),
+					viewMode,
+					isAlive,
+					transcriptAvailable: transcriptStore.available,
+					transcriptEntries: transcriptStore.entries.length,
+					connected: sessionStore.connected
+				});
+			}
+		}, 800);
 	});
 
 	onMount(() => tmuxPanesStore.subscribe());

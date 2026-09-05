@@ -156,6 +156,8 @@ export default defineConfig({
 		allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',').map((h) => h.trim()) ?? true
 	},
 	build: {
-		target: 'esnext'
+		target: 'esnext',
+		// Readable stacks in the client error log; the tool is private.
+		sourcemap: true
 	}
 });

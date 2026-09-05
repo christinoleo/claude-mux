@@ -2,6 +2,8 @@
 	import '../app.css';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
+	import { afterNavigate } from '$app/navigation';
+	import { reportClient, watchClientErrors } from '$lib/client-log';
 	import { onMount, onDestroy } from 'svelte';
 	import { drawer } from '$lib/stores/drawer.svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
@@ -78,6 +80,16 @@
 	);
 
 	// Connect session store at layout level so sidebar always has data
+	onMount(() => watchClientErrors());
+
+	afterNavigate((nav) => {
+		reportClient('nav', {
+			type: nav.type,
+			from: nav.from?.url?.pathname ?? null,
+			to: nav.to?.url?.pathname ?? null
+		});
+	});
+
 	onMount(() => {
 		sessionStore.connect();
 
