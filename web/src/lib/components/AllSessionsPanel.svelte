@@ -162,8 +162,31 @@
 		return roots;
 	}
 
+	/**
+	 * Where under its project a session runs, short enough to read: the
+	 * worktree directory name is scaffolding, and what distinguishes one
+	 * worktree from the next is what comes after it.
+	 */
 	function relPath(cwd: string, root: string): string | null {
-		return cwd === root ? null : cwd.slice(root.length + 1) + '/';
+		if (cwd === root) return null;
+		return cwd.slice(root.length + 1).replace(/^\.worktrees?\//, '');
+	}
+
+	/**
+	 * A session nobody named is called after its tmux target, which says
+	 * nothing; when it runs in a subdirectory, that subdirectory is the one
+	 * thing that tells it apart, so it becomes the title.
+	 */
+	function rowTitle(row: Row): string {
+		const s = row.session;
+		if (!s.display_name && row.rel && !row.orchestrator) return row.rel;
+		return getSessionDisplayName(s);
+	}
+
+	/** The path chip under a named session; a title made of the path needs none. */
+	function rowWhere(row: Row): string | null {
+		if (row.orchestrator) return 'orch';
+		return row.session.display_name && row.rel ? row.rel : null;
 	}
 
 	function wantsHuman(s: Session): boolean {
@@ -541,10 +564,7 @@
 		title={(machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`) + (canDrag ? ' · ⌥-click or drag to open side by side' : '')}
 	>
 		<span class="st"><SessionStateIndicator state={s.state} size="sm" title={s.current_action} /></span>
-		<span class="name">
-			{#if row.orchestrator}<span class="path">orch</span>{:else if row.rel}<span class="path" title={s.cwd}>{row.rel}</span>{/if}
-			{getSessionDisplayName(s)}
-		</span>
+		<span class="name" title={s.cwd}>{rowTitle(row)}</span>
 		<span class="meta">
 			{#if tag}<span class="ptag" title="Open in pane {tag}">{tag}</span>{/if}
 			{#if s.rc_url}
@@ -573,6 +593,7 @@
 			{:else}
 				{s.current_action || s.state}
 			{/if}
+			{#if !draft && rowWhere(row)}<span class="path" title={s.cwd}>{rowWhere(row)}</span>{/if}
 		</span>
 	</a>
 {/snippet}
@@ -1232,12 +1253,13 @@
 	}
 	.path {
 		font-family: var(--font-mono);
-		font-size: 10.5px;
+		font-size: 10px;
 		color: var(--dim);
 		background: var(--surface-3);
 		border-radius: 4px;
 		padding: 0 5px;
-		margin-right: 4px;
+		margin-left: 6px;
+		flex-shrink: 0;
 	}
 	.row .meta {
 		display: flex;
