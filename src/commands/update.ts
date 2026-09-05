@@ -164,7 +164,11 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
   }
 
   console.log("\nRe-running setup to sync hooks...");
-  await runSetup({ yes: true });
+  // Through the binary npm just installed, not this process: the running code
+  // is the old version, and a change to what setup writes (the hook command,
+  // say) would otherwise only land on the update after the one that shipped it.
+  const setup = spawnSync("claude-mux", ["setup", "--yes"], { stdio: "inherit" });
+  if (setup.status !== 0) await runSetup({ yes: true });
 
   if (systemdActive) {
     console.log("");
