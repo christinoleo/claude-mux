@@ -119,6 +119,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: 2px;
+		/* Scrolls on its own past this, and never hands a swipe on to the
+		   transcript underneath. */
+		max-height: min(70dvh, 520px);
+		overflow-y: auto;
+		overscroll-behavior: contain;
 	}
 	.cap {
 		font-family: var(--font-mono);

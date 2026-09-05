@@ -322,6 +322,9 @@
 		min-height: 0;
 		overflow-y: auto;
 		overflow-x: hidden;
+		/* Reaching the end of the list must not scroll whatever sits behind
+		   the drawer on a phone. */
+		overscroll-behavior: contain;
 	}
 
 	.sidebar-panel {
@@ -437,6 +440,7 @@
 			z-index: 55;
 			border: none;
 			cursor: pointer;
+			touch-action: none;
 		}
 	}
 </style>

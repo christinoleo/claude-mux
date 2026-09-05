@@ -109,7 +109,6 @@
 		dead: Session[];
 		panes: TmuxPane[];
 		/** Newest activity, for ordering. */
-		recent: number;
 	}
 
 	interface MachineView {
@@ -228,8 +227,7 @@
 				wants: bucket.live.some(wantsHuman),
 				rows,
 				dead: bucket.dead,
-				panes: bucket.panes,
-				recent: Math.max(0, ...bucket.live.map((s) => s.last_update ?? 0))
+				panes: bucket.panes
 			};
 			if (query.trim()) {
 				const hit = matches(name) || rows.some((r) => matches(getSessionDisplayName(r.session)));
@@ -239,10 +237,11 @@
 			if (rows.length === 0 && bucket.panes.length === 0) quiet.push(card);
 			else cards.push(card);
 		}
-		// Whoever wants a person first, then by activity, then by name.
+		// Whoever wants a person first, then by name. Not by activity: every
+		// hook event moved the most recent project to the top, so the list
+		// reshuffled under the reader's finger all day long.
 		cards.sort((a, b) => {
 			if (a.wants !== b.wants) return a.wants ? -1 : 1;
-			if (a.recent !== b.recent) return b.recent - a.recent;
 			return a.name.localeCompare(b.name);
 		});
 		quiet.sort((a, b) => a.name.localeCompare(b.name));
