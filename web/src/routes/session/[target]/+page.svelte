@@ -1951,6 +1951,7 @@
 		{#if viewMode === 'transcript'}
 					<TranscriptView
 						entries={transcriptStore.entries}
+						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
 						available={transcriptStore.available}
 						loaded={transcriptStore.receivedData}
 						sessionState={currentSession?.state ?? null}

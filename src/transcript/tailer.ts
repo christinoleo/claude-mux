@@ -131,7 +131,8 @@ export function listSubagents(
 }
 
 export type TailResult =
-  | { status: "lines"; lines: string[] }
+  /** `more` is set when a byte limit stopped the read short of the file's end. */
+  | { status: "lines"; lines: string[]; more?: boolean }
   | { status: "unchanged" }
   | { status: "missing" }
   /** File shrank (rotated/replaced): caller must rebuild from scratch. */
@@ -149,7 +150,12 @@ export class JsonlTailer {
     return this.lastMtimeMs;
   }
 
-  read(): TailResult {
+  /**
+   * Read what was appended since the last call. With `limitBytes`, read at
+   * most that much and say whether more remains, so a caller catching up on
+   * a large file can take it in slices and yield between them.
+   */
+  read(limitBytes?: number): TailResult {
     let fd: number;
     try {
       fd = openSync(this.path, "r");
@@ -167,7 +173,8 @@ export class JsonlTailer {
       }
       if (size === this.offset) return { status: "unchanged" };
 
-      const chunk = Buffer.alloc(size - this.offset);
+      const want = size - this.offset;
+      const chunk = Buffer.alloc(limitBytes ? Math.min(want, limitBytes) : want);
       let read = 0;
       while (read < chunk.length) {
         const n = readSync(fd, chunk, read, chunk.length - read, this.offset + read);
@@ -188,7 +195,9 @@ export class JsonlTailer {
         }
       }
       this.partial = buffer.subarray(start);
-      return lines.length > 0 ? { status: "lines", lines } : { status: "unchanged" };
+      const more = this.offset < size;
+      if (lines.length === 0) return more ? { status: "lines", lines: [], more } : { status: "unchanged" };
+      return more ? { status: "lines", lines, more } : { status: "lines", lines };
     } catch {
       return { status: "missing" };
     } finally {

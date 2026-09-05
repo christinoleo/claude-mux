@@ -186,9 +186,36 @@ class TranscriptStore extends ReliableWebSocket {
 		});
 	}
 
-	/** Subagents arrive whole (they are short). */
+	/**
+	 * Ask for everything an agent ran and reported. Cards arrive lean — the
+	 * tail of the activity, no report — and this is what opening one sends.
+	 */
+	loadSubagent(agentId: string): void {
+		const held = this.subagents[agentId];
+		if (!held || held.full) return;
+		this.send(JSON.stringify({ type: 'subagent_request', agentId }));
+	}
+
+	/**
+	 * Subagents arrive lean unless their card was opened. A lean update for an
+	 * agent already held in full keeps what is held and appends the new tail,
+	 * so an open card does not lose its list to the next live update.
+	 */
 	private applySubagents(subagents: SubagentPayload[]): void {
 		for (const sub of subagents) {
+			const held = this.subagents[sub.agentId];
+			if (held?.full && !sub.full) {
+				const seen = new Set(sub.activity.map((a) => a.id));
+				const kept = held.activity.filter((a) => !seen.has(a.id));
+				this.subagents[sub.agentId] = {
+					...sub,
+					activity: [...kept, ...sub.activity],
+					trimmed: Math.max(0, sub.trimmed - kept.length),
+					report: sub.report ?? held.report,
+					full: true
+				};
+				continue;
+			}
 			this.subagents[sub.agentId] = sub;
 		}
 	}

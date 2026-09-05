@@ -124,7 +124,9 @@ export const websocket = {
 			// reader asking for the slice above what they already have.
 			handlers = {
 				historyRequest: (before: number, count: number) =>
-					transcriptWsManager.requestHistory(data.client, target, before, count)
+					transcriptWsManager.requestHistory(data.client, target, before, count),
+				subagentRequest: (agentId: string) =>
+					transcriptWsManager.requestSubagent(data.client, target, agentId)
 			};
 		}
 		const response = handleWsMessage(msgStr, handlers);

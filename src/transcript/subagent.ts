@@ -32,10 +32,22 @@ export interface SubagentPayload {
   /** The subagent's final message: what it reported back. */
   report: string | null;
   running: boolean;
+  /**
+   * Whether this carries the whole activity list and the report. A lean
+   * payload has the tail of the activity only; the full one is sent when a
+   * reader opens the card.
+   */
+  full: boolean;
 }
 
 /** Longest activity list sent per subagent; real agents reach 150+ tools. */
-const SUBAGENT_ACTIVITY_LIMIT = 120;
+export const SUBAGENT_ACTIVITY_LIMIT = 120;
+/**
+ * What a card that nobody has opened carries: enough to say what the agent
+ * is doing now. A session with forty agents was sending forty lists of a
+ * hundred calls in every snapshot, most of them inside closed cards.
+ */
+export const SUBAGENT_ACTIVITY_LEAN = 8;
 
 /**
  * Fallback liveness window, used only until the harness reports the agent as
@@ -49,8 +61,10 @@ const SUBAGENT_LIVE_WINDOW_MS = 45_000;
 export function subagentPayload(
   agentId: string,
   state: SubagentSource,
-  finished: boolean
+  finished: boolean,
+  full = true
 ): SubagentPayload {
+  const limit = full ? SUBAGENT_ACTIVITY_LIMIT : SUBAGENT_ACTIVITY_LEAN;
   const activity: SubagentPayload['activity'] = [];
   let report: string | null = null;
   for (const entry of state.builder.entries) {
@@ -68,7 +82,7 @@ export function subagentPayload(
   const mtime = state.tailer.mtimeMs();
   const running =
     !finished && mtime !== null && Date.now() - mtime < SUBAGENT_LIVE_WINDOW_MS;
-  const trimmed = Math.max(0, activity.length - SUBAGENT_ACTIVITY_LIMIT);
+  const trimmed = Math.max(0, activity.length - limit);
   return {
     agentId,
     toolUseId: state.meta.toolUseId ?? null,
@@ -76,10 +90,11 @@ export function subagentPayload(
     description: state.meta.description ?? null,
     model: state.meta.model ?? null,
     // Keep the newest calls — the tail is what "what is it doing" needs.
-    activity: activity.slice(-SUBAGENT_ACTIVITY_LIMIT),
+    activity: activity.slice(-limit),
     trimmed,
-    report,
-    running
+    report: full ? report : null,
+    running,
+    full
   };
 }
 

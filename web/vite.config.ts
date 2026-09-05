@@ -114,7 +114,9 @@ function devWebSocket() {
 					ws.on('message', (data) => {
 						const response = handleWsMessage(data.toString(), {
 							historyRequest: (before, count) =>
-								transcriptWsManager.requestHistory(client, target, before, count)
+								transcriptWsManager.requestHistory(client, target, before, count),
+							subagentRequest: (agentId) =>
+								transcriptWsManager.requestSubagent(client, target, agentId)
 						});
 						if (response === 'pong') ws.send('pong');
 					});

@@ -24,6 +24,7 @@
 		onAcceptSuggestion,
 		choiceOffered = false,
 		subagents = {},
+		onLoadSubagent,
 		onSendKeys,
 		onOpenTerminal,
 		olderCount = 0,
@@ -61,6 +62,8 @@
 		onOpenTerminal?: () => void;
 		/** Subagent work, keyed by the Task tool_use id that spawned it. */
 		subagents?: Record<string, SubagentPayload>;
+		/** A reader opened an agent's card: fetch everything it ran and reported. */
+		onLoadSubagent?: (agentId: string) => void;
 		/** Entries the server holds before the ones passed in `entries`. */
 		olderCount?: number;
 		/** A request for those older entries is in flight. */
@@ -411,6 +414,9 @@
 				class:error={entry.result?.ok === false}
 				class:agent={sub != null}
 				data-entry-id={entry.id}
+				ontoggle={(e) => {
+					if (sub && !sub.full && e.currentTarget.open) onLoadSubagent?.(sub.agentId);
+				}}
 			>
 				<summary>
 					<iconify-icon class="tool-icon" icon={toolIcon(entry.name)}></iconify-icon>

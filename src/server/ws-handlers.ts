@@ -173,6 +173,11 @@ interface HistoryRequestMessage {
 	count: number;
 }
 
+interface SubagentRequestMessage {
+	type: 'subagent_request';
+	agentId: string;
+}
+
 const DEFAULT_HISTORY_DEPTH = 200;
 const MAX_HISTORY_DEPTH = 5000;
 /** Max lines served per history_request */
@@ -1195,6 +1200,16 @@ interface TranscriptSessionState {
 	subagents: Map<string, SubagentState>;
 	/** Ticks until the next subagents directory scan. */
 	discoverIn: number;
+	/** Agents a reader has opened: their payloads go out in full from then on. */
+	expanded: Set<string>;
+	/**
+	 * The first read of a large transcript, in progress. It runs in slices
+	 * that yield between them, so the server keeps answering; the poll and
+	 * the snapshot wait on it.
+	 */
+	attaching: Promise<void> | null;
+	/** Set when the last client left; the state is kept warm until it ages out. */
+	idleSince: number | null;
 	/** Serialized context usage last sent, to skip unchanged broadcasts. */
 	sentContext: string;
 	/** Model id last sent, likewise. */
@@ -1220,7 +1235,17 @@ const RESOLVE_TICKS_MAX = 60;
  * phone for history the reader has to scroll back through anyway. The client
  * asks for older slices when the reader asks for them.
  */
-const SNAPSHOT_ENTRIES = 300;
+const SNAPSHOT_ENTRIES = 120;
+/**
+ * How long a session's parsed transcript is kept after its last reader
+ * leaves. Switching between sessions is the common case, and a 46 MB
+ * transcript with forty subagents costs over a second to parse cold, with
+ * the server frozen for it; warm, coming back is one incremental read.
+ */
+const SESSION_KEEP_MS = 10 * 60 * 1000;
+const SWEEP_MS = 60 * 1000;
+/** Bytes read per slice of a cold attach, between yields to the event loop. */
+const ATTACH_SLICE_BYTES = 4 * 1024 * 1024;
 /** Ceiling on one history request, so a client cannot ask for the world. */
 const MAX_HISTORY_ENTRIES = 500;
 
@@ -1255,16 +1280,38 @@ export class TranscriptWsManager {
 		if (!state) {
 			state = this.startSession(sessionId);
 			this.sessions.set(sessionId, state);
+		} else if (state.idleSince !== null) {
+			this.wake(sessionId, state);
 		}
-		state.sentContext = JSON.stringify(state.builder.context);
-		this.sendToClient(client, this.snapshot(state));
+		const send = () => {
+			state.sentContext = JSON.stringify(state.builder.context);
+			this.sendToClient(client, this.snapshot(state));
+		};
+		// A cold attach is still reading: the snapshot goes when it has caught up.
+		if (state.attaching) void state.attaching.then(send);
+		else send();
 		return true;
+	}
+
+	/** A parked session has a reader again: catch up on what was written meanwhile. */
+	private wake(sessionId: string, state: TranscriptSessionState): void {
+		state.idleSince = null;
+		state.timer = setInterval(() => this.poll(sessionId), TRANSCRIPT_POLL_MS);
+		if (!state.tailer || state.attaching) return;
+		const result = state.tailer.read();
+		if (result.status === 'reset') {
+			this.consume(state, result);
+			this.consume(state, state.tailer.read());
+		} else {
+			this.consume(state, result);
+		}
+		this.syncSubagents(state);
 	}
 
 	removeClient(client: WsClient, sessionId?: string): void {
 		const drop = (id: string, clients: Set<WsClient>) => {
 			if (!clients.delete(client)) return false;
-			if (clients.size === 0) this.stopSession(id);
+			if (clients.size === 0) this.park(id);
 			return true;
 		};
 		if (sessionId) {
@@ -1292,6 +1339,9 @@ export class TranscriptWsManager {
 			resolveBackoff: RESOLVE_TICKS,
 			subagents: new Map(),
 			discoverIn: 0,
+			expanded: new Set(),
+			attaching: null,
+			idleSince: null,
 			sentContext: '',
 			sentModel: null,
 			stale: new Set(),
@@ -1299,17 +1349,37 @@ export class TranscriptWsManager {
 		};
 		const path = this.locate(sessionId);
 		if (path) this.attach(state, path);
+		this.ensureSweeper();
 		return state;
 	}
 
 	/**
 	 * Point the state at a transcript file and read what is already in it, so
-	 * the next snapshot carries history rather than starting from empty.
+	 * the next snapshot carries history rather than starting from empty. A
+	 * long transcript is read in slices with a yield between each, and its
+	 * subagents one per yield, so a 46 MB session does not hold the server
+	 * for the second it takes; `state.attaching` is what to wait on.
 	 */
-	private attach(state: TranscriptSessionState, path: string): void {
-		state.tailer = new JsonlTailer(path);
-		this.consume(state, state.tailer.read());
-		this.syncSubagents(state);
+	private attach(state: TranscriptSessionState, path: string): Promise<void> {
+		const tailer = new JsonlTailer(path);
+		state.tailer = tailer;
+		const yieldNow = () => new Promise<void>((resolve) => setImmediate(resolve));
+		state.attaching = (async () => {
+			for (;;) {
+				const result = tailer.read(ATTACH_SLICE_BYTES);
+				this.consume(state, result);
+				if (result.status !== 'lines' || !result.more) break;
+				await yieldNow();
+			}
+			this.discoverSubagents(state);
+			for (const [agentId, sub] of state.subagents) {
+				this.tailSubagent(state, agentId, sub);
+				await yieldNow();
+			}
+		})().finally(() => {
+			if (state.tailer === tailer) state.attaching = null;
+		});
+		return state.attaching;
 	}
 
 	/** Where this session's JSONL lives, or null if it is not on disk yet. */
@@ -1327,35 +1397,74 @@ export class TranscriptWsManager {
 
 		if (state.discoverIn <= 0) {
 			state.discoverIn = SUBAGENT_DISCOVER_TICKS;
-			for (const file of listSubagents(state.tailer.path, new Set(state.subagents.keys()))) {
-				state.subagents.set(file.agentId, {
-					tailer: new JsonlTailer(file.path),
-					builder: new TranscriptBuilder(true),
-					meta: file.meta,
-					payload: null,
-					lastSent: ''
-				});
-			}
+			this.discoverSubagents(state);
 		} else {
 			state.discoverIn--;
 		}
 
 		const changed: SubagentPayload[] = [];
 		for (const [agentId, sub] of state.subagents) {
-			const result = sub.tailer.read();
-			if (result.status === 'reset') {
-				sub.builder = new TranscriptBuilder(true);
-			} else if (result.status === 'lines') {
-				for (const line of result.lines) sub.builder.feed(line);
-			}
-			const payload = subagentPayload(agentId, sub, state.builder.finishedAgents.has(agentId));
-			sub.payload = payload;
-			const encoded = JSON.stringify(payload);
-			if (encoded === sub.lastSent) continue;
-			sub.lastSent = encoded;
-			changed.push(payload);
+			const payload = this.tailSubagent(state, agentId, sub);
+			if (payload) changed.push(payload);
 		}
 		return changed;
+	}
+
+	/** Register subagent files that appeared beside the transcript. */
+	private discoverSubagents(state: TranscriptSessionState): void {
+		if (!state.tailer) return;
+		for (const file of listSubagents(state.tailer.path, new Set(state.subagents.keys()))) {
+			state.subagents.set(file.agentId, {
+				tailer: new JsonlTailer(file.path),
+				builder: new TranscriptBuilder(true),
+				meta: file.meta,
+				payload: null,
+				lastSent: ''
+			});
+		}
+	}
+
+	/**
+	 * Read one subagent's new lines and rebuild its payload — lean unless a
+	 * reader has opened its card. Returns the payload when it changed.
+	 */
+	private tailSubagent(
+		state: TranscriptSessionState,
+		agentId: string,
+		sub: SubagentState
+	): SubagentPayload | null {
+		const result = sub.tailer.read();
+		if (result.status === 'reset') {
+			sub.builder = new TranscriptBuilder(true);
+		} else if (result.status === 'lines') {
+			for (const line of result.lines) sub.builder.feed(line);
+		}
+		const payload = subagentPayload(
+			agentId,
+			sub,
+			state.builder.finishedAgents.has(agentId),
+			state.expanded.has(agentId)
+		);
+		sub.payload = payload;
+		const encoded = JSON.stringify(payload);
+		if (encoded === sub.lastSent) return null;
+		sub.lastSent = encoded;
+		return payload;
+	}
+
+	/**
+	 * A reader opened an agent's card: send everything it ran and reported,
+	 * and keep sending it in full while the session lives.
+	 */
+	requestSubagent(client: WsClient, sessionId: string, agentId: string): void {
+		const state = this.sessions.get(sessionId);
+		const sub = state?.subagents.get(agentId);
+		if (!state || !sub) return;
+		state.expanded.add(agentId);
+		const payload = subagentPayload(agentId, sub, state.builder.finishedAgents.has(agentId), true);
+		sub.payload = payload;
+		sub.lastSent = JSON.stringify(payload);
+		this.sendToClient(client, { type: 'subagents', subagents: [payload], timestamp: Date.now() });
 	}
 
 	/**
@@ -1377,11 +1486,42 @@ export class TranscriptWsManager {
 		});
 	}
 
+	/**
+	 * The last reader left. The parsed transcript stays, its poll stops, and
+	 * the sweeper drops it once nobody has come back for SESSION_KEEP_MS.
+	 */
+	private park(sessionId: string): void {
+		const state = this.sessions.get(sessionId);
+		this.clients.delete(sessionId);
+		if (!state) return;
+		clearInterval(state.timer);
+		state.idleSince = Date.now();
+		state.stale.clear();
+	}
+
 	private stopSession(sessionId: string): void {
 		const state = this.sessions.get(sessionId);
 		if (state) clearInterval(state.timer);
 		this.sessions.delete(sessionId);
 		this.clients.delete(sessionId);
+	}
+
+	private sweeper: ReturnType<typeof setInterval> | null = null;
+
+	private ensureSweeper(): void {
+		if (this.sweeper) return;
+		this.sweeper = setInterval(() => {
+			const now = Date.now();
+			for (const [id, state] of this.sessions) {
+				if (state.idleSince !== null && now - state.idleSince > SESSION_KEEP_MS) {
+					this.stopSession(id);
+				}
+			}
+			if (this.sessions.size === 0 && this.sweeper) {
+				clearInterval(this.sweeper);
+				this.sweeper = null;
+			}
+		}, SWEEP_MS);
 	}
 
 	/** Apply a tail result to the builder; returns changed entry ids. */
@@ -1410,6 +1550,7 @@ export class TranscriptWsManager {
 		const clients = this.clients.get(sessionId);
 		if (!state || !clients || clients.size === 0) return;
 
+		if (state.attaching) return;
 		if (!state.tailer) {
 			if (--state.resolveIn > 0) return;
 			const path = this.locate(sessionId);
@@ -1418,8 +1559,9 @@ export class TranscriptWsManager {
 				state.resolveIn = state.resolveBackoff;
 				return;
 			}
-			this.attach(state, path);
-			this.resend(sessionId, state);
+			void this.attach(state, path).then(() => {
+				if (this.sessions.get(sessionId) === state) this.resend(sessionId, state);
+			});
 			return;
 		}
 
@@ -1511,7 +1653,8 @@ export class TranscriptWsManager {
 			firstIndex,
 			subagents: [...state.subagents].map(
 				([id, sub]) =>
-					sub.payload ?? subagentPayload(id, sub, state.builder.finishedAgents.has(id))
+					sub.payload ??
+					subagentPayload(id, sub, state.builder.finishedAgents.has(id), state.expanded.has(id))
 			),
 			context: state.builder.context,
 			model: state.builder.model,
@@ -1533,7 +1676,7 @@ export class TranscriptWsManager {
 			if (result === 'backpressure') state?.stale.add(client);
 			else if (result === 'closed') clients.delete(client);
 		}
-		if (clients.size === 0) this.stopSession(sessionId);
+		if (clients.size === 0) this.park(sessionId);
 	}
 
 	private sendToClient(client: WsClient, message: TranscriptWsMessage, data?: string): SendResult {
@@ -1554,6 +1697,8 @@ export class TranscriptWsManager {
 export interface WsMessageHandlers {
 	resize?: (cols: number, rows: number) => void;
 	historyRequest?: (before: number, count: number) => void;
+	/** Transcript: a reader opened an agent's card and wants all of it. */
+	subagentRequest?: (agentId: string) => void;
 }
 
 export function handleWsMessage(msgStr: string, handlers?: WsMessageHandlers): 'pong' | null {
@@ -1561,8 +1706,13 @@ export function handleWsMessage(msgStr: string, handlers?: WsMessageHandlers): '
 	if (!handlers) return null;
 
 	try {
-		const msg = JSON.parse(msgStr) as ResizeMessage | HistoryRequestMessage;
+		const msg = JSON.parse(msgStr) as ResizeMessage | HistoryRequestMessage | SubagentRequestMessage;
 		switch (msg.type) {
+			case 'subagent_request':
+				if (handlers.subagentRequest && typeof msg.agentId === 'string') {
+					handlers.subagentRequest(msg.agentId);
+				}
+				break;
 			case 'resize':
 				if (handlers.resize && typeof msg.cols === 'number' && typeof msg.rows === 'number') {
 					handlers.resize(msg.cols, msg.rows);
