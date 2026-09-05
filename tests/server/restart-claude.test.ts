@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { buildRestartCommand, shellQuote, stripResumeFlags } from "../../src/server/restart-claude.js";
+import { buildRestartArgv, stripResumeFlags } from "../../src/server/restart-claude.js";
+import { shellQuote } from "../../src/utils/shell.js";
 
 describe("stripResumeFlags", () => {
   it("drops every way a launch can name a session", () => {
-    expect(stripResumeFlags(["claude", "--resume", "abc", "--model", "opus"])).toEqual(["claude", "--model", "opus"]);
+    expect(stripResumeFlags(["claude", "--resume", "abc", "--model", "opus"])).toEqual([
+      "claude",
+      "--model",
+      "opus",
+    ]);
     expect(stripResumeFlags(["claude", "-r", "abc"])).toEqual(["claude"]);
     expect(stripResumeFlags(["claude", "--resume=abc"])).toEqual(["claude"]);
     expect(stripResumeFlags(["claude", "--continue", "-c"])).toEqual(["claude"]);
@@ -25,10 +30,10 @@ describe("shellQuote", () => {
   });
 });
 
-describe("buildRestartCommand", () => {
-  it("replays the running argv with --resume, falling back to a bare claude", () => {
-    const own = buildRestartCommand({ id: "sid", pid: process.pid });
-    expect(own.endsWith(" --resume sid")).toBe(true);
-    expect(buildRestartCommand({ id: "sid", pid: 2 ** 22 - 1 })).toBe("claude --resume sid");
+describe("buildRestartArgv", () => {
+  it("replays the running argv with --resume, and refuses to guess for a dead pid", () => {
+    const own = buildRestartArgv({ id: "sid", pid: process.pid });
+    expect(own?.slice(-2)).toEqual(["--resume", "sid"]);
+    expect(buildRestartArgv({ id: "sid", pid: 2 ** 22 - 1 })).toBeNull();
   });
 });

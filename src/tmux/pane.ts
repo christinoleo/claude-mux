@@ -69,6 +69,19 @@ export async function getAllPaneTitles(): Promise<Map<string, PaneInfo>> {
 }
 
 /** Press one key in a pane without blocking the poll; false when tmux refused. */
+/**
+ * Run one tmux command and return its trimmed stdout, or null when tmux
+ * refused it (no such pane, no server) or did not answer in time.
+ */
+export async function runTmux(args: string[], timeout = 2000): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("tmux", args, { encoding: "utf-8", timeout });
+    return stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
 export async function sendKeyAsync(target: string, key: string): Promise<boolean> {
   try {
     await execFileAsync("tmux", ["send-keys", "-t", target, key], { timeout: 1000 });

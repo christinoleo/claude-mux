@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { shellQuote } from "../utils/shell.js";
 import { render } from "ink";
 import React from "react";
 import { execSync } from "child_process";
@@ -60,10 +61,8 @@ export async function runTui(options: TuiOptions): Promise<void> {
 
     // Build command to re-invoke claude-mux the same way it was originally called
     const cwd = process.cwd();
-    // Escape single quotes in args for shell safety
-    const escapeArg = (arg: string) => `'${arg.replace(/'/g, "'\\''")}'`;
-    const originalCmd = process.argv.map(escapeArg).join(" ");
-    const fullCmd = `cd ${escapeArg(cwd)} && ${originalCmd}`;
+    const originalCmd = process.argv.map(shellQuote).join(" ");
+    const fullCmd = `cd ${shellQuote(cwd)} && ${originalCmd}`;
 
     try {
       // Kill any existing watch session that isn't running claude-mux,
@@ -88,12 +87,12 @@ export async function runTui(options: TuiOptions): Promise<void> {
             needsCreate = false;
           } else {
             // Session exists but claude-mux isn't running — add a new window
-            execSync(`tmux new-window -t ${WATCH_SESSION} ${escapeArg(fullCmd)}`, { stdio: "ignore" });
+            execSync(`tmux new-window -t ${WATCH_SESSION} ${shellQuote(fullCmd)}`, { stdio: "ignore" });
             needsCreate = false;
           }
         } catch {
           // Can't list panes — add a new window in the existing session
-          execSync(`tmux new-window -t ${WATCH_SESSION} ${escapeArg(fullCmd)}`, { stdio: "ignore" });
+          execSync(`tmux new-window -t ${WATCH_SESSION} ${shellQuote(fullCmd)}`, { stdio: "ignore" });
           needsCreate = false;
         }
       } catch {
@@ -101,7 +100,7 @@ export async function runTui(options: TuiOptions): Promise<void> {
       }
 
       if (needsCreate) {
-        execSync(`tmux new-session -d -s ${WATCH_SESSION} ${escapeArg(fullCmd)}`, { stdio: "ignore" });
+        execSync(`tmux new-session -d -s ${WATCH_SESSION} ${shellQuote(fullCmd)}`, { stdio: "ignore" });
       }
       execSync(`tmux switch-client -t ${WATCH_SESSION}`, { stdio: "inherit" });
     } catch (error) {

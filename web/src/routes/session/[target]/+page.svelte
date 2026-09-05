@@ -1644,9 +1644,13 @@
 	 */
 	async function restartSession() {
 		if (!currentSession) return;
-		await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/restart`, {
+		const res = await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/restart`, {
 			method: 'POST'
 		});
+		if (!res.ok) {
+			const body = (await res.json().catch(() => ({}))) as { error?: string };
+			alert(`Could not restart Claude Code: ${body.error ?? res.statusText}`);
+		}
 	}
 
 	function copySelection() {

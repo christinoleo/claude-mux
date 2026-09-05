@@ -3,6 +3,7 @@ import { basename, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { CLAUDE_SETTINGS_PATH, CLAUDE_DIR } from "../utils/paths.js";
 import { VERSION } from "../utils/version.js";
+import { shellQuote } from "../utils/shell.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -73,120 +74,34 @@ export function getHookRunner(): string {
  */
 export function hookCommand(event: string): string {
   const runnerDir = dirname(process.execPath);
-  return `PATH="$PATH:${runnerDir}" ${getHookRunner()} "${getHookScriptPath("claude-mux-hook.js")}" ${event}`;
+  const script = getHookScriptPath("claude-mux-hook.js");
+  return `PATH="$PATH:${runnerDir}" ${shellQuote(getHookRunner())} ${shellQuote(script)} ${event}`;
+}
+
+/** One registration: the hook for `event`, filtered by `matcher` when given. */
+function matcher(event: string, match?: string): HookMatcher {
+  return {
+    ...(match ? { matcher: match } : {}),
+    hooks: [{ type: "command", command: hookCommand(event) }],
+  };
 }
 
 export function getClaudeWatchHooks(): HooksConfig {
   return {
-    SessionStart: [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("session-start"),
-          },
-        ],
-      },
-    ],
-    UserPromptSubmit: [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("user-prompt-submit"),
-          },
-        ],
-      },
-    ],
-    Stop: [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("stop"),
-          },
-        ],
-      },
-    ],
-    PermissionRequest: [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("permission-request"),
-          },
-        ],
-      },
-    ],
+    SessionStart: [matcher("session-start")],
+    UserPromptSubmit: [matcher("user-prompt-submit")],
+    Stop: [matcher("stop")],
+    PermissionRequest: [matcher("permission-request")],
+    // Notification carries its kind in the matcher, not the event name.
     Notification: [
-      {
-        matcher: "idle_prompt",
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("notification-idle"),
-          },
-        ],
-      },
-      {
-        matcher: "permission_prompt",
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("notification-permission"),
-          },
-        ],
-      },
-      {
-        matcher: "elicitation_dialog",
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("notification-elicitation"),
-          },
-        ],
-      },
+      matcher("notification-idle", "idle_prompt"),
+      matcher("notification-permission", "permission_prompt"),
+      matcher("notification-elicitation", "elicitation_dialog"),
     ],
-    PreToolUse: [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("pre-tool-use"),
-          },
-        ],
-      },
-    ],
-    PostToolUse: [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("post-tool-use"),
-          },
-        ],
-      },
-    ],
-    PostToolUseFailure: [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("post-tool-use-failure"),
-          },
-        ],
-      },
-    ],
-    SessionEnd: [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: hookCommand("session-end"),
-          },
-        ],
-      },
-    ],
+    PreToolUse: [matcher("pre-tool-use")],
+    PostToolUse: [matcher("post-tool-use")],
+    PostToolUseFailure: [matcher("post-tool-use-failure")],
+    SessionEnd: [matcher("session-end")],
   };
 }
 

@@ -104,11 +104,23 @@ interface HookInput {
    * Stop payload: work still in flight when the turn ended. A turn that ends
    * with a background agent or shell running is paused, not finished — the
    * task's completion wakes the session again without any prompt from the user.
-   * Claude Code lists only running work here, so nothing needs filtering.
+   * Claude Code lists only running work here.
    */
   background_tasks?: BackgroundTask[];
   /** Set on tool events fired from inside a subagent, with the parent's session id. */
   agent_id?: string;
+}
+
+/**
+ * Task types whose completion wakes the turn. A background shell may be a dev
+ * server that never ends, and a monitor watches indefinitely; a turn that ends
+ * with only those running is over, and the session must read as idle or its
+ * queue never drains.
+ */
+const WAKING_TASKS = new Set(["subagent", "workflow"]);
+
+function wakingTasks(input: HookInput): BackgroundTask[] {
+  return (input.background_tasks ?? []).filter((t) => t.type !== undefined && WAKING_TASKS.has(t.type));
 }
 
 /** The last Stop left work running; the ready prompt is a pause, not the end. */
@@ -118,9 +130,9 @@ function pausedOnBackground(session: Session): boolean {
 
 /** "Waiting on agent: Explore", "Waiting on 3 background tasks". */
 function describeBackground(tasks: BackgroundTask[]): string {
-  if (tasks.length > 1) return `Waiting on ${tasks.length} background tasks`;
+  if (tasks.length > 1) return `Waiting on ${tasks.length} agents`;
   const [t] = tasks;
-  return t.type === "subagent" ? `Waiting on agent: ${t.agent_type}` : `Waiting on background ${t.type}`;
+  return t.type === "subagent" ? `Waiting on agent: ${t.agent_type}` : `Waiting on ${t.type}`;
 }
 
 function mapEventName(hookEventName?: string): string | undefined {
@@ -501,7 +513,7 @@ function handleUserPromptSubmit(input: HookInput): void {
 
 function handleStop(input: HookInput): void {
   const session = getOrCreateSession(input);
-  const pending = input.background_tasks ?? [];
+  const pending = wakingTasks(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.background_tasks = pending.length;
