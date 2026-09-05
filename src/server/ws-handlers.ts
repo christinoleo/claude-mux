@@ -239,10 +239,15 @@ async function captureAndSyncSessions(): Promise<{
 
 			if (session.state !== 'idle' && detectRecentInterruption(content)) {
 				apply(session, { state: 'idle', current_action: null, prompt_text: null });
-			} else if (session.state === 'busy' && isPaneShowingIdlePrompt(content)) {
+			} else if (
+				session.state === 'busy' &&
+				!(session.background_tasks ?? 0) &&
+				isPaneShowingIdlePrompt(content)
+			) {
 				// Esc during thinking leaves no "Interrupted" marker; the pane just
 				// returns to the ready prompt. Debounce two ticks to avoid flapping
-				// on transient frames between tools.
+				// on transient frames between tools. A turn paused on a background
+				// agent shows that same ready prompt on purpose; the hook said so.
 				const ticks = (idleLookTicks.get(session.id) ?? 0) + 1;
 				if (ticks >= 2) {
 					idleLookTicks.delete(session.id);

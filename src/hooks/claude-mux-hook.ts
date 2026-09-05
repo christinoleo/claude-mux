@@ -77,13 +77,10 @@ interface Session {
   background_tasks?: number;
 }
 
-/** One entry of the Stop payload's `background_tasks`; only what is read here. */
+/** One entry of the Stop payload's `background_tasks`. */
 interface BackgroundTask {
-  id?: string;
   type?: string;
-  status?: string;
   agent_type?: string;
-  description?: string;
 }
 
 interface HookInput {
@@ -107,32 +104,25 @@ interface HookInput {
    * Stop payload: work still in flight when the turn ended. A turn that ends
    * with a background agent or shell running is paused, not finished — the
    * task's completion wakes the session again without any prompt from the user.
+   * Claude Code lists only running work here, so nothing needs filtering.
    */
   background_tasks?: BackgroundTask[];
+  /** Set on tool events fired from inside a subagent, with the parent's session id. */
+  agent_id?: string;
 }
 
-/** Statuses a task registry reports for work that is over. */
-const SETTLED_TASK = /^(completed|complete|done|failed|error|killed|cancelled|canceled|stopped)$/i;
-
-function inFlightTasks(input: HookInput): BackgroundTask[] {
-  if (!Array.isArray(input.background_tasks)) return [];
-  return input.background_tasks.filter((t) => !(t.status && SETTLED_TASK.test(t.status)));
+/** The last Stop left work running; the ready prompt is a pause, not the end. */
+function pausedOnBackground(session: Session): boolean {
+  return (session.background_tasks ?? 0) > 0;
 }
 
 /** "Waiting on agent: Explore", "Waiting on 3 background tasks". */
 function describeBackground(tasks: BackgroundTask[]): string {
-  if (tasks.length === 1) {
-    const t = tasks[0];
-    if (t.type === "subagent") return `Waiting on agent: ${t.agent_type ?? "subagent"}`;
-    return `Waiting on background ${t.type ?? "task"}`;
-  }
-  return `Waiting on ${tasks.length} background tasks`;
+  if (tasks.length > 1) return `Waiting on ${tasks.length} background tasks`;
+  const [t] = tasks;
+  return t.type === "subagent" ? `Waiting on agent: ${t.agent_type}` : `Waiting on background ${t.type}`;
 }
 
-/**
- * Map Claude Code 2.1 PascalCase hook_event_name to our kebab-case event names.
- * Falls back to undefined for unknown/Notification events (handled by argv).
- */
 function mapEventName(hookEventName?: string): string | undefined {
   if (!hookEventName) return undefined;
 
@@ -511,10 +501,7 @@ function handleUserPromptSubmit(input: HookInput): void {
 
 function handleStop(input: HookInput): void {
   const session = getOrCreateSession(input);
-  const pending = inFlightTasks(input);
-  debugLog(
-    `handleStop: ${pending.length} background task(s) in flight: ${pending.map((t) => t.agent_type ?? t.type ?? "?").join(", ")}`
-  );
+  const pending = input.background_tasks ?? [];
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.background_tasks = pending.length;
@@ -546,7 +533,7 @@ function handleNotificationIdle(input: HookInput): void {
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   // The prompt sits idle while a background agent works, and this fires a
   // minute in. The last Stop knew whether work was still in flight; trust it.
-  if (!(session.background_tasks && session.background_tasks > 0)) {
+  if (!pausedOnBackground(session)) {
     session.state = "idle";
     session.current_action = null;
   }
@@ -579,7 +566,11 @@ function handlePreToolUse(input: HookInput): void {
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.last_update = Date.now();
-  if (input.tool_name === "AskUserQuestion") {
+  if (input.agent_id) {
+    // A subagent's tool calls arrive under the parent's session id. The parent
+    // is busy, but what it is doing is waiting on the agent, not reading foo.ts.
+    session.state = "busy";
+  } else if (input.tool_name === "AskUserQuestion") {
     // The tool's whole job is to wait for the user, so the session is waiting
     // from the moment it is called. The permission notification says the
     // same thing a beat later; reporting it here means the dashboard shows
@@ -609,11 +600,8 @@ function handlePostToolUse(input: HookInput): void {
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
-  // A background agent's own tool calls arrive under the parent's session id.
-  // While the parent is paused on it, the pause is the better description.
-  if (!(session.background_tasks && session.background_tasks > 0)) {
-    session.current_action = null;
-  }
+  // Same as PreToolUse: a subagent's tool events leave the parent's label alone.
+  if (!input.agent_id) session.current_action = null;
   session.last_update = Date.now();
   writeSession(session);
 }

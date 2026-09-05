@@ -108,7 +108,6 @@
 		rows: Row[];
 		dead: Session[];
 		panes: TmuxPane[];
-		/** Newest activity, for ordering. */
 	}
 
 	interface MachineView {

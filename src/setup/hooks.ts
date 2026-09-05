@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { CLAUDE_SETTINGS_PATH, CLAUDE_DIR } from "../utils/paths.js";
 import { VERSION } from "../utils/version.js";
@@ -51,10 +51,13 @@ export function getHookScriptPath(scriptName: string): string {
   return join(__dirname, "..", "hooks", scriptName);
 }
 
-/** Returns the runner command for hook scripts */
+/**
+ * The runtime that runs the hook script: whichever one is running setup, so
+ * it is the same binary whose directory hookCommand puts on PATH. bun runs
+ * the .ts source in dev and the built .js just as well as node does.
+ */
 export function getHookRunner(): string {
-  // In dev, bun runs .ts directly; in prod, node runs .js
-  return isDev ? "bun" : "node";
+  return basename(process.execPath);
 }
 
 /**

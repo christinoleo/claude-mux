@@ -1,12 +1,11 @@
 import { Command } from "commander";
 import { execSync, spawnSync } from "child_process";
-import { setTimeout as delay } from "timers/promises";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { VERSION } from "../utils/version.js";
 import { runSetup } from "../setup/index.js";
-import { isPidAlive } from "../utils/pid.js";
+import { terminate } from "../utils/pid.js";
 import { DEFAULT_SERVER_PORT } from "../utils/paths.js";
 
 const UNIT_PATH = join(homedir(), ".config", "systemd", "user", "claude-mux.service");
@@ -95,21 +94,7 @@ function findProdPid(): number | null {
 
 async function stopProd(pid: number): Promise<void> {
   console.log(`Stopping prod server (pid ${pid})...`);
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    /* already gone */
-  }
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    if (!isPidAlive(pid)) return;
-    await delay(200);
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    /* already gone */
-  }
+  await terminate(pid);
 }
 
 function startProd(): void {

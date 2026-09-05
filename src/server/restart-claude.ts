@@ -8,25 +8,30 @@
  * pane was started with. Nothing on disk records that, but `/proc` does, so the
  * running process's own argv is read back and replayed with `--resume <id>`.
  *
- * The shell the pane returns to is the one Claude Code was launched from, so it
- * already sits in the launch directory — the one `--resume` looks the session
- * up under. No `cd` is sent; it would only ever move away from the right place.
+ * A pane comes in two shapes. One launched by hand has a shell under Claude
+ * Code, which gets the pane back when the process exits and is already in the
+ * launch directory `--resume` looks the session up under; the command is typed
+ * there. One the dashboard spawned runs Claude Code as its root process, so
+ * its exit would close the pane; tmux's `respawn-pane` replaces the process in
+ * place instead.
  */
 
-import { execFileSync } from "child_process";
+import { execFile } from "child_process";
 import { readFileSync } from "fs";
 import { basename } from "path";
+import { setTimeout as delay } from "timers/promises";
+import { promisify } from "util";
 
 import type { Session } from "../db/sessions-json.js";
+import { terminate } from "../utils/pid.js";
 
-const EXIT_TIMEOUT_MS = 5_000;
+const execFileAsync = promisify(execFile);
+
 const SHELL_TIMEOUT_MS = 5_000;
 const POLL_MS = 100;
 const SHELLS = new Set(["bash", "zsh", "fish", "sh", "dash", "ksh", "nu"]);
 
-export type RestartOutcome =
-  | { ok: true; command: string }
-  | { ok: false; error: string };
+export type RestartOutcome = { ok: true; command: string } | { ok: false; error: string };
 
 /**
  * The argv Claude Code was started with, minus any resume flag it already
@@ -82,58 +87,23 @@ export function buildRestartCommand(session: Pick<Session, "id" | "pid">): strin
   return argv.map(shellQuote).join(" ");
 }
 
-function isAlive(pid: number): boolean {
+async function tmux(...args: string[]): Promise<string | null> {
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitUntil(check: () => boolean, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (check()) return true;
-    await sleep(POLL_MS);
-  }
-  return check();
-}
-
-function paneCommand(target: string): string | null {
-  try {
-    return execFileSync("tmux", ["display-message", "-p", "-t", target, "#{pane_current_command}"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    const { stdout } = await execFileAsync("tmux", args, { encoding: "utf-8", timeout: 2_000 });
+    return stdout.trim();
   } catch {
     return null;
   }
 }
 
-/**
- * Asks the process to quit, gives it a moment to restore the terminal, and
- * only then forces it. Claude Code exits cleanly on SIGTERM; SIGKILL would
- * leave the pane in raw mode with the alternate screen still up.
- */
-async function stopProcess(pid: number): Promise<boolean> {
-  if (!isAlive(pid)) return true;
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    return !isAlive(pid);
+async function waitForShell(target: string): Promise<boolean> {
+  const deadline = Date.now() + SHELL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const cmd = await tmux("display-message", "-p", "-t", target, "#{pane_current_command}");
+    if (cmd !== null && SHELLS.has(cmd)) return true;
+    await delay(POLL_MS);
   }
-  if (await waitUntil(() => !isAlive(pid), EXIT_TIMEOUT_MS)) return true;
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // Died in the meantime.
-  }
-  return waitUntil(() => !isAlive(pid), 1_000);
+  return false;
 }
 
 export async function restartClaude(session: Session): Promise<RestartOutcome> {
@@ -143,24 +113,40 @@ export async function restartClaude(session: Session): Promise<RestartOutcome> {
     return { ok: false, error: "session has no process" };
   }
 
-  // Read argv before the process goes away; it is the only copy.
+  // Read the pane and the argv before the process goes away.
+  const shape = await tmux(
+    "display-message",
+    "-p",
+    "-t",
+    target,
+    "#{pane_pid}\t#{pane_current_path}"
+  );
+  if (shape === null) return { ok: false, error: "tmux pane not found" };
+  const [panePid, panePath] = shape.split("\t");
   const command = buildRestartCommand(session);
 
-  if (!(await stopProcess(session.pid))) {
-    return { ok: false, error: "Claude Code did not exit" };
+  if (Number(panePid) === session.pid) {
+    // Claude Code is the pane: replace it in place. The dashboard launches
+    // with CLAUDECODE unset for the same reason (see new-session).
+    const ok = await tmux(
+      "respawn-pane",
+      "-k",
+      "-t",
+      target,
+      "-c",
+      panePath,
+      `env -u CLAUDECODE ${command}`
+    );
+    return ok === null
+      ? { ok: false, error: "tmux could not respawn the pane" }
+      : { ok: true, command };
   }
 
-  const atShell = await waitUntil(() => {
-    const cmd = paneCommand(target);
-    return cmd !== null && SHELLS.has(cmd);
-  }, SHELL_TIMEOUT_MS);
-  if (!atShell) return { ok: false, error: "pane did not return to a shell" };
-
-  try {
-    // Clears anything left on the prompt line before the command lands.
-    execFileSync("tmux", ["send-keys", "-t", target, "C-u", command, "Enter"], { stdio: "ignore" });
-  } catch {
-    return { ok: false, error: "could not type into the pane" };
-  }
-  return { ok: true, command };
+  if (!(await terminate(session.pid))) return { ok: false, error: "Claude Code did not exit" };
+  if (!(await waitForShell(target))) return { ok: false, error: "pane did not return to a shell" };
+  // C-u clears anything left on the prompt line before the command lands.
+  const typed = await tmux("send-keys", "-t", target, "C-u", command, "Enter");
+  return typed === null
+    ? { ok: false, error: "could not type into the pane" }
+    : { ok: true, command };
 }

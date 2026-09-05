@@ -158,7 +158,6 @@
 	let textInput = $state('');
 	let showConfirmKill = $state(false);
 	let showConfirmRestart = $state(false);
-	let restarting = $state(false);
 	let moreOpen = $state(false);
 	let commandsOpen = $state(false);
 	let attachPickerOpen = $state(false);
@@ -236,6 +235,9 @@
 								run: () => void connectRemoteControl()
 							}
 				]
+			: []),
+		...(isAlive && isClaudeSession
+			? [{ label: 'Restart Claude', icon: 'mdi:restart', run: () => (showConfirmRestart = true) }]
 			: []),
 		{ label: 'Kill pane', icon: 'mdi:power', run: () => (showConfirmKill = true), danger: true }
 	]);
@@ -1642,14 +1644,9 @@
 	 */
 	async function restartSession() {
 		if (!currentSession) return;
-		restarting = true;
-		try {
-			await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/restart`, {
-				method: 'POST'
-			});
-		} finally {
-			restarting = false;
-		}
+		await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/restart`, {
+			method: 'POST'
+		});
 	}
 
 	function copySelection() {
@@ -2267,21 +2264,6 @@
 											</Button>
 										{/each}
 									</div>
-									{#if isClaudeSession && currentSession}
-										<Button
-											variant="secondary"
-											size="toolbar"
-											class="mt-2 w-full min-h-12"
-											disabled={restarting}
-											onclick={() => {
-												moreOpen = false;
-												showConfirmRestart = true;
-											}}
-										>
-											<iconify-icon icon="mdi:restart"></iconify-icon>
-											<span>Restart Claude</span>
-										</Button>
-									{/if}
 								</Popover.Content>
 							</Popover.Root>
 							{#if !isBusy}
