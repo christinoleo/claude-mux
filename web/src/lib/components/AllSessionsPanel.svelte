@@ -236,13 +236,10 @@
 			if (rows.length === 0 && bucket.panes.length === 0) quiet.push(card);
 			else cards.push(card);
 		}
-		// Whoever wants a person first, then by name. Not by activity: every
-		// hook event moved the most recent project to the top, so the list
-		// reshuffled under the reader's finger all day long.
-		cards.sort((a, b) => {
-			if (a.wants !== b.wants) return a.wants ? -1 : 1;
-			return a.name.localeCompare(b.name);
-		});
+		// By name, and nothing else: a project's place on the list is where the
+		// reader's finger expects it. Sessions move within their card; the amber
+		// dot says who wants a person without the card itself jumping.
+		cards.sort((a, b) => a.name.localeCompare(b.name));
 		quiet.sort((a, b) => a.name.localeCompare(b.name));
 
 		return {
