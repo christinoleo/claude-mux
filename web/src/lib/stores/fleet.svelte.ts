@@ -84,18 +84,22 @@ class FleetStore {
 
 	/** Every machine, this one first, then the others by name. */
 	machines: Machine[] = $derived.by(() => {
+		// Named as the tailnet knows it, even when the page was opened as localhost.
+		const hostname = serverStore.self || serverStore.current.hostname;
 		const local: Machine = {
-			// Named as the tailnet knows it, even when the page was opened as localhost.
-			server: {
-				hostname: serverStore.self || serverStore.current.hostname,
-				url: serverStore.current.url
-			},
+			server: { hostname, url: serverStore.current.url },
 			local: true,
 			connected: sessionStore.connected,
 			sessions: sessionStore.sessions,
 			projects: sessionStore.savedProjects
 		};
+		// A page opened as localhost learns its tailnet name only when discovery
+		// answers, and the cached server list already names this host by it.
+		// sync() drops that remote a beat later; until then it must not stand
+		// beside the local machine under the same name, or the sidebar's keyed
+		// lists throw and the page stops updating until it is reloaded.
 		const others = this.remotes
+			.filter((r) => r.server.hostname !== hostname)
 			.map<Machine>((r) => ({
 				server: r.server,
 				local: false,
