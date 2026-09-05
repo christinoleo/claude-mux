@@ -57,17 +57,30 @@ export function getHookRunner(): string {
   return isDev ? "bun" : "node";
 }
 
-export function getClaudeWatchHooks(): HooksConfig {
-  const hookScript = getHookScriptPath("claude-mux-hook.js");
-  const runner = getHookRunner();
+/**
+ * The shell line Claude Code runs for one hook event.
+ *
+ * Hooks run through /bin/sh with the environment of the Claude process. A
+ * session started by a script — a tmux window opened by a daemon, say — often
+ * carries a PATH without the version manager that holds node, and the hook
+ * then dies with "node: not found" before writing anything, so the pane shows
+ * as a bare shell. The directory of the runtime installing the hooks is
+ * appended so the runner resolves there too; appended rather than prepended,
+ * so a PATH that already has a node keeps using its own.
+ */
+export function hookCommand(event: string): string {
+  const runnerDir = dirname(process.execPath);
+  return `PATH="$PATH:${runnerDir}" ${getHookRunner()} "${getHookScriptPath("claude-mux-hook.js")}" ${event}`;
+}
 
+export function getClaudeWatchHooks(): HooksConfig {
   return {
     SessionStart: [
       {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" session-start`,
+            command: hookCommand("session-start"),
           },
         ],
       },
@@ -77,7 +90,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" user-prompt-submit`,
+            command: hookCommand("user-prompt-submit"),
           },
         ],
       },
@@ -87,7 +100,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" stop`,
+            command: hookCommand("stop"),
           },
         ],
       },
@@ -97,7 +110,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" permission-request`,
+            command: hookCommand("permission-request"),
           },
         ],
       },
@@ -108,7 +121,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" notification-idle`,
+            command: hookCommand("notification-idle"),
           },
         ],
       },
@@ -117,7 +130,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" notification-permission`,
+            command: hookCommand("notification-permission"),
           },
         ],
       },
@@ -126,7 +139,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" notification-elicitation`,
+            command: hookCommand("notification-elicitation"),
           },
         ],
       },
@@ -136,7 +149,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" pre-tool-use`,
+            command: hookCommand("pre-tool-use"),
           },
         ],
       },
@@ -146,7 +159,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" post-tool-use`,
+            command: hookCommand("post-tool-use"),
           },
         ],
       },
@@ -156,7 +169,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" post-tool-use-failure`,
+            command: hookCommand("post-tool-use-failure"),
           },
         ],
       },
@@ -166,7 +179,7 @@ export function getClaudeWatchHooks(): HooksConfig {
         hooks: [
           {
             type: "command",
-            command: `${runner} "${hookScript}" session-end`,
+            command: hookCommand("session-end"),
           },
         ],
       },
