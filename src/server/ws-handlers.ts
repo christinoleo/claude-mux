@@ -209,6 +209,19 @@ const idleLookTicks = new Map<string, number>();
  * checks (interruption, spinner, RC URL) off that single capture instead of
  * re-spawning `tmux capture-pane` three times per session per tick.
  */
+/**
+ * The hook said the turn is paused on a background agent, and its tool events
+ * keep the file fresh while it works. A count that has not been touched for
+ * this long is a leftover — an agent that died, a file written by an older
+ * hook — and the pane's ready prompt is believed over it, or the session
+ * would sit busy forever and its queue never drain.
+ */
+const PAUSE_TRUST_MS = 10 * 60 * 1000;
+
+function pausedOnBackground(session: Session): boolean {
+	return (session.background_tasks ?? 0) > 0 && Date.now() - session.last_update < PAUSE_TRUST_MS;
+}
+
 async function captureAndSyncSessions(): Promise<{
 	captures: Map<string, string>;
 	/** Same captures with ANSI intact, for reading the prompt box. */
@@ -241,7 +254,7 @@ async function captureAndSyncSessions(): Promise<{
 				apply(session, { state: 'idle', current_action: null, prompt_text: null });
 			} else if (
 				session.state === 'busy' &&
-				!(session.background_tasks ?? 0) &&
+				!pausedOnBackground(session) &&
 				isPaneShowingIdlePrompt(content)
 			) {
 				// Esc during thinking leaves no "Interrupted" marker; the pane just

@@ -209,8 +209,13 @@ class VoiceStore {
 				throw new Error(body || `HTTP ${res.status}`);
 			}
 
-			const data = (await res.json()) as { text?: string };
+			const data = (await res.json()) as { text?: string; error?: string };
 			const text = data.text ?? '';
+			if (data.error) {
+				// Transcribed, but not delivered: say so rather than pretend it went.
+				this.fail(data.error);
+				return text;
+			}
 			this.status = 'idle';
 			this.ownerTarget = null;
 			return text;

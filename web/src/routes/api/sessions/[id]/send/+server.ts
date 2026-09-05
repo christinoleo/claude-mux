@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { execFileSync } from 'child_process';
-import { sendTextToPane } from '$shared/server/message-queue.js';
+import { confirmSubmitted, sendTextToPane } from '$shared/server/message-queue.js';
 import {
 	composePromptWithAttachments,
 	validateAttachmentPaths
@@ -48,6 +48,12 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	try {
 		if (finalText) {
 			sendTextToPane(target, finalText, { appendEnter: !raw });
+			if (!raw && !(await confirmSubmitted(target))) {
+				return json(
+					{ error: 'Claude Code did not take the message; it is still in its input box' },
+					{ status: 502 }
+				);
+			}
 		} else {
 			// Send each key separately so repeated keys (e.g. C-b C-b) work correctly
 			for (const key of keys.split(' ')) {

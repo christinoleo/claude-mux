@@ -17,6 +17,7 @@ import { getAllSessions } from '../db/index.js';
 import { CLAUDE_MUX_DIR } from '../utils/paths.js';
 import { writeFileAtomic } from '../utils/atomic-write.js';
 import { isPidAlive } from '../utils/pid.js';
+import { capturePaneContentAsync, readPromptBox } from '../tmux/pane.js';
 
 // ============================================================================
 // Types
@@ -79,6 +80,28 @@ export function sendTextToPane(target: string, text: string, opts: { appendEnter
 	if (appendEnter) {
 		execFileSync('tmux', ['send-keys', '-t', target, 'Enter'], { stdio: 'ignore' });
 	}
+}
+
+/** How long Claude Code gets to take a pasted line before the box is read. */
+const SUBMIT_SETTLE_MS = 600;
+
+/**
+ * Whether Claude Code took the line just sent. A message it accepted has left
+ * the box: either the turn started, or, while busy, it went to Claude Code's
+ * own queue and the box shows the hint for that. Text still sitting there
+ * typed means the Enter was lost, which happens when the paste and the key
+ * land inside the same input burst; one more Enter is sent, and the box read
+ * again. Resolves false when the text is still there after that.
+ */
+export async function confirmSubmitted(target: string): Promise<boolean> {
+	for (let attempt = 0; attempt < 2; attempt++) {
+		await new Promise((r) => setTimeout(r, SUBMIT_SETTLE_MS));
+		const raw = await capturePaneContentAsync(target, true);
+		const box = raw === null ? null : readPromptBox(raw);
+		if (!box || box.kind !== 'typed' || !box.text.trim()) return true;
+		if (attempt === 0) execFileSync('tmux', ['send-keys', '-t', target, 'Enter'], { stdio: 'ignore' });
+	}
+	return false;
 }
 
 // ============================================================================

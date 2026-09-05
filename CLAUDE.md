@@ -125,6 +125,14 @@ the panel starts, and because that leaves the left column too narrow for a
 long label, the indented line under a preview row is joined to the label
 rather than read as a description.
 
+Delivery goes the other way through the same box. `sendTextToPane()` in
+`src/server/message-queue.ts` pastes the text and sends Enter; Claude Code
+sometimes folds an Enter that lands inside the paste burst into the text, so
+the send and voice routes then call `confirmSubmitted()`, which reads the box
+back: a taken message has left it (the turn started, or Claude Code queued it
+and shows its own hint), text still sitting there typed gets one more Enter,
+and if it stays the route answers 502 and the composer keeps the draft.
+
 The session poll captures with colour once per tick and hands the stripped copy
 to every other check, so adding a detector there costs no extra `tmux` calls.
 `draft_input`, `draft_kind`, `pane_queue` and `pane_choice` are live-only: they

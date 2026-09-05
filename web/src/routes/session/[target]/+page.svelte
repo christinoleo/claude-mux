@@ -370,6 +370,15 @@
 	 */
 	function handleGlobalKeys(e: KeyboardEvent) {
 		if (handleChooserKeys(e)) return;
+		// The voice key works wherever focus is; the composer handles it
+		// itself when it has focus, and marks the event so it is not taken twice.
+		if (!e.defaultPrevented && !e.repeat && isVoiceHotkey(e)) {
+			e.preventDefault();
+			if (target && (!voiceStore.isActive || voiceStore.isOwnedBy(target))) {
+				void voiceStore.toggle(target);
+			}
+			return;
+		}
 		if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
 		const key = e.key.toLowerCase();
 		if (key === 'k') {
@@ -1020,11 +1029,17 @@
 			await sendKeys('Enter');
 			return;
 		}
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+		const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ text: textInput, attachments: paths })
 		});
+		if (!res.ok) {
+			// The draft stays put, so nothing typed is lost on a failed send.
+			const body = (await res.json().catch(() => ({}))) as { error?: string };
+			alert(`Could not send: ${body.error ?? res.statusText}`);
+			return;
+		}
 		textInput = '';
 		clearAttachments();
 		// Reset textarea height after sending

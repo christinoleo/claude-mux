@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { sendTextToPane } from '$shared/server/message-queue.js';
+import { confirmSubmitted, sendTextToPane } from '$shared/server/message-queue.js';
 import { transcribeAudio } from '$lib/server/voice/index.js';
 import { discoverCommands, type DiscoveredCommand } from '$shared/claude/commands.js';
 import { hasSpokenCommandTrigger, resolveSpokenCommand } from '$shared/claude/voice-command.js';
@@ -57,6 +57,12 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
 	if (inject && text) {
 		try {
 			sendTextToPane(target, text, { appendEnter: submit });
+			if (submit && !(await confirmSubmitted(target))) {
+				return json(
+					{ text, injected: true, submitted: false, error: 'Claude Code did not take the message; it is still in its input box' },
+					{ status: 200 }
+				);
+			}
 			// Remember what went in by voice, so the transcript can badge it. A
 			// resolved slash command renders as its own kind of turn instead, so
 			// only prose is recorded.
