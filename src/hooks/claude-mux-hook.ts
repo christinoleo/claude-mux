@@ -248,14 +248,26 @@ function deleteSessionsByTmuxTarget(tmuxTarget: string, excludeId?: string): str
   return linkedTo;
 }
 
+/**
+ * The pane this hook runs in, as `session:window.pane`.
+ *
+ * Asked for its own pane, and not left to tmux's idea of the current one:
+ * without `-t`, a command run from a window that is not the active one is
+ * answered for the active window. Ten Claude Codes in one tmux session, each
+ * in its own window, then all claim window 0, every SessionStart deletes the
+ * others as stale duplicates, and the one file left is rewritten by whichever
+ * of them spoke last.
+ */
 function getTmuxTarget(): string | null {
   if (!process.env.TMUX) {
     return null;
   }
 
   try {
+    const pane = process.env.TMUX_PANE;
+    const target = pane ? ` -t ${JSON.stringify(pane)}` : "";
     const result = execSync(
-      'tmux display-message -p "#{session_name}:#{window_index}.#{pane_index}"',
+      `tmux display-message -p${target} "#{session_name}:#{window_index}.#{pane_index}"`,
       { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
     );
     return result.trim();

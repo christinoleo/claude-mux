@@ -17,8 +17,12 @@ export function getTmuxTarget(): string | null {
   }
 
   try {
+    // Our own pane, not tmux's current one: from a window that is not the
+    // active one, an untargeted display-message answers for the active window.
+    const pane = process.env.TMUX_PANE;
+    const target = pane ? ` -t ${JSON.stringify(pane)}` : "";
     const result = execSync(
-      'tmux display-message -p "#{session_name}:#{window_index}.#{pane_index}"',
+      `tmux display-message -p${target} "#{session_name}:#{window_index}.#{pane_index}"`,
       { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
     );
     return result.trim();
