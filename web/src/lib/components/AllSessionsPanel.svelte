@@ -1497,6 +1497,17 @@
 	.qx:hover {
 		color: #fca5a5;
 	}
+	/* A phone has no hover to reveal a control and no pixel-perfect finger, and
+	   these chips are the only way to start a session in a project that has
+	   none — so on touch they grow into a real tap target. */
+	@media (hover: none) {
+		.q {
+			height: 40px;
+		}
+		.qopen {
+			padding: 0 12px 0 10px;
+		}
+	}
 
 	/* agent picker (unchanged from before) */
 	.agent-choices {

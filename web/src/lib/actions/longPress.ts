@@ -37,6 +37,19 @@ export function longPress(node: HTMLElement, options: LongPressOptions): LongPre
 	let originX = 0;
 	let originY = 0;
 
+	/**
+	 * A touch screen answers a press of its own accord: it selects the word
+	 * under the finger and raises the callout menu, and the tap that follows
+	 * never reaches the element — the hold looks to the user like the tap did
+	 * nothing but highlight some text. Every element that takes a long press
+	 * wants that suppressed, so it is set here rather than left to each
+	 * caller's stylesheet to remember.
+	 */
+	node.style.userSelect = 'none';
+	node.style.setProperty('-webkit-user-select', 'none');
+	node.style.setProperty('-webkit-touch-callout', 'none');
+	if (!node.style.touchAction) node.style.touchAction = 'manipulation';
+
 	function clear(): void {
 		if (timer) {
 			clearTimeout(timer);

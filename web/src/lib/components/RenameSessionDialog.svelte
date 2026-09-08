@@ -19,11 +19,21 @@
 
 	let value = $state('');
 	let inputEl = $state<HTMLInputElement | null>(null);
+	/**
+	 * The kill arms before it fires. On a phone this dialog is the long-press
+	 * menu — the only place a pane can be killed at all, since the row's kill
+	 * switch needs a hover to appear — so it sits next to a text field a thumb
+	 * is already aiming at, and one stray tap must not end a session.
+	 */
+	let killArmed = $state(false);
 
 	// Seed the field once per opening. The name is read untracked so a rename
 	// arriving back over the WebSocket cannot overwrite what is being typed.
 	$effect(() => {
-		if (sessionId) value = untrack(() => session?.display_name ?? '');
+		if (sessionId) {
+			value = untrack(() => session?.display_name ?? '');
+			killArmed = false;
+		}
 	});
 
 	const TOP_MARGIN_PX = 16;
@@ -84,6 +94,25 @@
 		}
 	}
 
+	async function kill() {
+		const target = session;
+		if (!target) return;
+		if (!killArmed) {
+			killArmed = true;
+			return;
+		}
+		onClose();
+		try {
+			await fetch(`/api/sessions/${encodeURIComponent(target.id)}/kill`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ pid: target.pid, tmux_target: target.tmux_target })
+			});
+		} catch {
+			// watcher will reconcile
+		}
+	}
+
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter') {
 			e.preventDefault();
@@ -126,6 +155,13 @@
 			maxlength={120}
 		/>
 		<Dialog.Footer>
+			<Button
+				variant="ghost"
+				class="min-h-11 text-destructive hover:text-destructive sm:mr-auto"
+				onclick={kill}
+			>
+				{killArmed ? 'Confirm kill' : 'Kill session'}
+			</Button>
 			<Button variant="ghost" class="min-h-11" onclick={onClose}>Cancel</Button>
 			<Button class="min-h-11" onclick={commit}>Rename</Button>
 		</Dialog.Footer>
