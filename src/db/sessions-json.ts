@@ -76,6 +76,10 @@ export interface Session {
   rc_url?: string | null;
   display_name?: string | null;
   agent?: SessionAgent;
+  /** Set by the hook when the maestro daemon started the session. */
+  maestro_role?: string | null;
+  /** The GitHub issue a maestro worker owns. */
+  maestro_issue?: number | null;
 }
 
 export interface SessionInput {

@@ -50,6 +50,34 @@ const PaneChoiceSchema = z.object({
 /** The numbered options a pane dialog is offering, as they reach the browser. */
 export type PaneChoice = z.infer<typeof PaneChoiceSchema>;
 
+const IssueInfoSchema = z.object({
+	number: z.number(),
+	title: z.string(),
+	state: z.enum(['open', 'closed']),
+	labels: z.array(z.string()),
+	url: z.string()
+});
+
+/** A GitHub issue as the sidebar shows it next to the session working it. */
+export type IssueInfo = z.infer<typeof IssueInfoSchema>;
+
+const InboxTicketSchema = z.object({
+	repo: z.string(),
+	git_root: z.string(),
+	number: z.number(),
+	title: z.string(),
+	url: z.string(),
+	/** A maestro worker asking for a decision, or a wayfinder ticket only a person resolves. */
+	kind: z.enum(['needs-help', 'grilling', 'prototype']),
+	/** When it started waiting, as near as GitHub says: the last update, or when it was filed. */
+	since: z.number(),
+	/** The worker's latest comment, first paragraph — what it needs. */
+	note: z.string().nullable()
+});
+
+/** A ticket on GitHub that is waiting on a person rather than an agent. */
+export type InboxTicket = z.infer<typeof InboxTicketSchema>;
+
 const EnrichedSessionSchema = z.object({
 	v: z.number(),
 	id: z.string(),
@@ -87,7 +115,12 @@ const EnrichedSessionSchema = z.object({
 	queue_head_text: z.string().nullable().optional(),
 	/** Whether that message is yours or one claude-mux queued for itself. */
 	queue_head_kind: z.enum(['user', 'control']).nullable().optional(),
-	agent: z.enum(AGENT_IDS).optional()
+	agent: z.enum(AGENT_IDS).optional(),
+	/** Set when the maestro daemon started the session. */
+	maestro_role: z.string().nullable().optional(),
+	maestro_issue: z.number().nullable().optional(),
+	/** The issue that worker owns, as GitHub last described it — live only. */
+	issue: IssueInfoSchema.nullable().optional()
 });
 
 // ============================================================================
@@ -104,12 +137,16 @@ const ProjectsField = z.array(z.string()).optional();
 /** This machine's settings, likewise on every broadcast; absent on older servers. */
 const SettingsField = z.object({ autoRemoteControl: z.boolean() }).partial().optional();
 
+/** Tickets on GitHub waiting on a person, for the repos this machine's sessions are in. */
+const InboxField = z.array(InboxTicketSchema).optional();
+
 const SessionsMessageSchema = z.object({
 	type: z.literal('sessions'),
 	sessions: z.array(EnrichedSessionSchema),
 	count: z.number(),
 	projects: ProjectsField,
 	settings: SettingsField,
+	inbox: InboxField,
 	timestamp: z.number()
 });
 
@@ -119,6 +156,7 @@ const ConnectedMessageSchema = z.object({
 	count: z.number(),
 	projects: ProjectsField,
 	settings: SettingsField,
+	inbox: InboxField,
 	timestamp: z.number()
 });
 

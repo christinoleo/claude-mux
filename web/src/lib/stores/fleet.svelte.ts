@@ -17,7 +17,7 @@ import { ReliableWebSocket } from './websocket-base.svelte';
 import { createPersisted } from './persisted';
 import { sessionStore, type Session } from './sessions.svelte';
 import { serverStore } from './servers.svelte';
-import { SessionsWsMessageSchema } from '$shared/types/ws-messages.js';
+import { SessionsWsMessageSchema, type InboxTicket } from '$shared/types/ws-messages.js';
 import type { ServerInfo } from '$lib/types/servers';
 
 const selectedStore = createPersisted<string>('claude-mux-machine', 'all');
@@ -30,12 +30,15 @@ export interface Machine {
 	connected: boolean;
 	sessions: Session[];
 	projects: string[];
+	/** Tickets on GitHub waiting on a person, for that machine's repos. */
+	inbox: InboxTicket[];
 }
 
 /** A read-only sessions socket to another host. */
 class RemoteSessions extends ReliableWebSocket {
 	sessions = $state<Session[]>([]);
 	projects = $state<string[]>([]);
+	inbox = $state<InboxTicket[]>([]);
 
 	constructor(readonly server: ServerInfo) {
 		super();
@@ -74,6 +77,7 @@ class RemoteSessions extends ReliableWebSocket {
 		if (msg.type !== 'sessions' && msg.type !== 'connected') return;
 		this.sessions = msg.sessions as Session[];
 		if (msg.projects) this.projects = msg.projects;
+		if (msg.inbox) this.inbox = msg.inbox;
 	}
 }
 
@@ -91,7 +95,8 @@ class FleetStore {
 			local: true,
 			connected: sessionStore.connected,
 			sessions: sessionStore.sessions,
-			projects: sessionStore.savedProjects
+			projects: sessionStore.savedProjects,
+			inbox: sessionStore.inbox
 		};
 		// A page opened as localhost learns its tailnet name only when discovery
 		// answers, and the cached server list already names this host by it.
@@ -105,7 +110,8 @@ class FleetStore {
 				local: false,
 				connected: r.connected,
 				sessions: r.sessions,
-				projects: r.projects
+				projects: r.projects,
+				inbox: r.inbox
 			}))
 			.sort((a, b) => a.server.hostname.localeCompare(b.server.hostname));
 		return [local, ...others];

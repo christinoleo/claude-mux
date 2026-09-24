@@ -1075,6 +1075,22 @@
 		}
 	}
 
+	/** A message composed elsewhere on the page — a grilling round's answers. */
+	async function sendReply(text: string): Promise<boolean> {
+		if (!target) return false;
+		const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ text })
+		});
+		if (!res.ok) {
+			const body = (await res.json().catch(() => ({}))) as { error?: string };
+			alert(`Could not send: ${body.error ?? res.statusText}`);
+			return false;
+		}
+		return true;
+	}
+
 	async function sendTextRaw() {
 		if (!target) return;
 		if (!canSend) return;
@@ -1969,6 +1985,7 @@
 						olderCount={transcriptStore.firstIndex}
 						loadingEarlier={transcriptStore.loadingEarlier}
 						onLoadEarlier={() => holdPlaceThrough(transcriptStore.loadEarlier())}
+						onSendReply={sendReply}
 					/>
 				{:else}
 					<TerminalView

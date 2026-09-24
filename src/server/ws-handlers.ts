@@ -39,13 +39,16 @@ type LivePaneFields = {
 	pane_choice: PromptChoice;
 	/** Share of the context window in use as of the latest reply; null when unknown. */
 	context_pct: number | null;
+	/** The GitHub issue a maestro worker owns, as last read; null otherwise. */
+	issue: IssueInfo | null;
 };
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
 import { getQueueSummary, enqueue } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
-import type { SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
+import type { IssueInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
+import { inboxTickets, issueFor, watchRepos } from './github.js';
 
 // ============================================================================
 // Configuration
@@ -370,6 +373,17 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 
 	for (const s of sessions) syncTranscriptTitle(s);
 
+	// GitHub holds the other half of what a session is waiting on: the issue a
+	// maestro worker owns, and the tickets in its repo that want a person.
+	const wants = new Map<string, Set<number>>();
+	for (const s of sessions) {
+		if (!s.git_root) continue;
+		const set = wants.get(s.git_root) ?? new Set<number>();
+		if (s.maestro_issue) set.add(s.maestro_issue);
+		wants.set(s.git_root, set);
+	}
+	watchRepos(wants);
+
 	// Scan for Remote Control URLs in pane content (detect new URLs and clear stale ones)
 	for (const s of sessions) {
 		if (!s.tmux_target) continue;
@@ -422,6 +436,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 				: null,
 			// One stat per session per tick; the file is only read when it grew.
 			context_pct: peekContextPercent(s),
+			issue: issueFor(s.git_root, s.maestro_issue),
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {
@@ -680,6 +695,7 @@ export class SessionsWsManager {
 			count: sessions.length,
 			projects: getSavedProjects(),
 			settings: getSettings(),
+			inbox: inboxTickets(),
 			timestamp: Date.now()
 		};
 	}
@@ -713,7 +729,8 @@ export class SessionsWsManager {
 				// Merge queue counts into session data for broadcast
 				this.mergeQueueCounts(message.sessions);
 
-				const hash = JSON.stringify(message.sessions);
+				// The inbox changes on GitHub's clock, not the sessions', so it counts too.
+				const hash = JSON.stringify([message.sessions, message.inbox]);
 				if (hash === this.lastHash) {
 					return;
 				}

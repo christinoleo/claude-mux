@@ -75,6 +75,9 @@ interface Session {
   display_name?: string | null;
   /** In-flight background work (agents, shells, workflows) at the last Stop. */
   background_tasks?: number;
+  /** Set when the maestro daemon started this session: its role and issue. */
+  maestro_role?: string | null;
+  maestro_issue?: number | null;
 }
 
 /** One entry of the Stop payload's `background_tasks`. */
@@ -430,8 +433,20 @@ function handleSessionStart(input: HookInput): void {
     display_name: keepName ? (existing?.display_name ?? null) : null,
     last_update: Date.now(),
     linked_to: linkedTo ?? existing?.linked_to ?? null,
+    ...maestroFields(),
   };
   writeSession(session);
+}
+
+/**
+ * The maestro daemon starts each worker with MAESTRO_ROLE and MAESTRO_ISSUE in
+ * its environment, and the hook inherits Claude Code's environment, so the
+ * session can say which issue it is working without anyone asking GitHub.
+ */
+function maestroFields(): Pick<Session, "maestro_role" | "maestro_issue"> {
+  const role = process.env.MAESTRO_ROLE || null;
+  const issue = Number.parseInt(process.env.MAESTRO_ISSUE ?? "", 10);
+  return { maestro_role: role, maestro_issue: role && Number.isFinite(issue) ? issue : null };
 }
 
 function getOrCreateSession(input: HookInput): Session {
@@ -440,6 +455,7 @@ function getOrCreateSession(input: HookInput): Session {
     // Sessions written before this field existed, and resumed sessions whose
     // file moved, pick it up on their next event.
     if (input.transcript_path) existing.transcript_path = input.transcript_path;
+    if (existing.maestro_role === undefined) Object.assign(existing, maestroFields());
     return existing;
   }
 
@@ -464,6 +480,7 @@ function getOrCreateSession(input: HookInput): Session {
     prompt_text: null,
     last_update: Date.now(),
     linked_to: linkedTo,
+    ...maestroFields(),
   };
 }
 

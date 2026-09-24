@@ -160,6 +160,27 @@ older slices with `history_request` — the same message the terminal uses for i
 scrollback. Delta messages carry each entry's index so a client holding only the
 tail can tell a new entry from an update to one it never received.
 
+### 6. What GitHub says a session is waiting on
+
+The maestro and wayfinder skills keep their state in GitHub issues, not in any
+pane. The maestro daemon starts each worker with `MAESTRO_ROLE` and
+`MAESTRO_ISSUE` in its environment, and the hook copies them into the session
+JSON (`maestro_role`, `maestro_issue`). `src/server/github.ts` reads the repos
+the live sessions sit in through `gh`, at most once a minute and never on the
+poll's own time: the issue each worker owns rides the broadcast as the live
+field `issue`, and the tickets that want a person ride it as `inbox`. Those are
+a worker's `needs-help`, and the wayfinder `grilling`/`prototype` tickets that are
+open, unassigned and unblocked. Where `gh` is missing or logged out, both stay
+empty.
+
+The sidebar nests a worker under the session that runs its daemon (the one
+non-worker in the same tmux session) and names it after its issue.
+`NeedsYou.svelte` lists everything waiting on a person, oldest wait first:
+dialogs in panes, workers asking for help, then wayfinder tickets with a Start
+button that opens a session on the ticket. `src/transcript/grilling.ts` reads
+a grilling round (`❓ **Qn**` … `➡️`) out of Claude's last reply, so the
+transcript can draw it as a form and write the reply.
+
 ## Key Data Flow
 
 ```

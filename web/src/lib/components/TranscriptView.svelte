@@ -7,6 +7,12 @@
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { QueuedMessageKind } from '$shared/server/message-queue.js';
+	import {
+		parseGrillRound,
+		composeGrillReply,
+		type GrillAnswer,
+		type GrillRound
+	} from '$shared/transcript/grilling.js';
 
 	type AskEntry = Extract<TranscriptEntry, { kind: 'ask' }>;
 
@@ -29,7 +35,8 @@
 		onOpenTerminal,
 		olderCount = 0,
 		loadingEarlier = false,
-		onLoadEarlier
+		onLoadEarlier,
+		onSendReply
 	}: {
 		entries: TranscriptEntry[];
 		available: boolean;
@@ -73,7 +80,105 @@
 		 * so the scroll container can note where the reader was.
 		 */
 		onLoadEarlier?: () => void;
+		/**
+		 * Sends a message as the next prompt, the way the composer does;
+		 * resolves false when the pane did not take it.
+		 */
+		onSendReply?: (text: string) => Promise<boolean>;
 	} = $props();
+
+	// ── grilling rounds ──────────────────────────────────────────────────
+	// A reply that asks a numbered round of questions, each with Claude's
+	// recommendation, is drawn as a form: take the recommendation, write your
+	// own answer, or leave the question open — and the reply is composed.
+
+	/** Parsed rounds by entry text; a reply's text never changes once written. */
+	const roundCache = new Map<string, GrillRound | null>();
+	function grillRound(text: string): GrillRound | null {
+		if (!text.includes('❓')) return null;
+		let round = roundCache.get(text);
+		if (round === undefined) {
+			round = parseGrillRound(text);
+			roundCache.set(text, round);
+		}
+		return round;
+	}
+
+	/**
+	 * The one round that can still be answered: Claude's last words, with
+	 * nothing from you after them. Older rounds are history, drawn read-only.
+	 */
+	const liveGrillId = $derived.by(() => {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const e = entries[i];
+			if (e.kind === 'user' || e.kind === 'queued' || e.kind === 'ask') return null;
+			if (e.kind === 'text') return grillRound(e.text) ? e.id : null;
+		}
+		return null;
+	});
+
+	let grillAnswers = $state<Record<string, Record<number, GrillAnswer>>>({});
+	let grillSending = $state<string | null>(null);
+	let grillSent = $state<Record<string, boolean>>({});
+
+	function answerOf(id: string, q: GrillRound['questions'][number]): GrillAnswer {
+		return grillAnswers[id]?.[q.n] ?? (q.recommended ? { mode: 'accept' } : { mode: 'own', text: '' });
+	}
+
+	function setAnswer(id: string, n: number, answer: GrillAnswer) {
+		grillAnswers[id] = { ...(grillAnswers[id] ?? {}), [n]: answer };
+	}
+
+	/** Typing makes the answer yours; clearing the field hands it back. */
+	function typeAnswer(id: string, q: GrillRound['questions'][number], text: string) {
+		if (text.trim() === '' && q.recommended) setAnswer(id, q.n, { mode: 'accept' });
+		else setAnswer(id, q.n, { mode: 'own', text });
+	}
+
+	function ownText(id: string, q: GrillRound['questions'][number]): string {
+		const a = answerOf(id, q);
+		return a.mode === 'own' ? a.text : '';
+	}
+
+	function tally(id: string, round: GrillRound): string {
+		let agreed = 0;
+		let own = 0;
+		let open = 0;
+		for (const q of round.questions) {
+			const a = answerOf(id, q);
+			if (a.mode === 'accept') agreed++;
+			else if (a.mode === 'own' && a.text.trim()) own++;
+			else open++;
+		}
+		const parts: string[] = [];
+		if (agreed) parts.push(`${agreed} agreed`);
+		if (own) parts.push(`${own} in your words`);
+		if (open) parts.push(`${open} left open`);
+		return parts.join(', ');
+	}
+
+	async function sendRound(id: string, round: GrillRound) {
+		if (!onSendReply || grillSending) return;
+		const answers: Record<number, GrillAnswer> = {};
+		for (const q of round.questions) answers[q.n] = answerOf(id, q);
+		grillSending = id;
+		try {
+			if (await onSendReply(composeGrillReply(round, answers))) grillSent[id] = true;
+		} finally {
+			grillSending = null;
+		}
+	}
+
+	/** Grows a textarea with what is typed into it, up to the CSS max-height. */
+	function autosize(el: HTMLTextAreaElement) {
+		const fit = () => {
+			el.style.height = 'auto';
+			el.style.height = `${el.scrollHeight}px`;
+		};
+		fit();
+		el.addEventListener('input', fit);
+		return { destroy: () => el.removeEventListener('input', fit) };
+	}
 
 	/** Local multi-select staging + sequential-question progress per ask card. */
 	let askSelections = $state<Record<string, Set<number>>>({});
@@ -217,6 +322,94 @@
 	}
 
 </script>
+
+{#snippet grill(id: string, round: GrillRound)}
+	{@const live = id === liveGrillId && !grillSent[id] && onSendReply != null}
+	{@const ready = live && sessionState === 'idle'}
+	{#if round.intro}
+		<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
+		<div class="assistant-text markdown">{@html renderMarkdown(round.intro)}</div>
+	{/if}
+	<section class="grill" class:live aria-label="Questions from Claude">
+		{#each round.questions as q (q.n)}
+			{@const a = answerOf(id, q)}
+			<div class="gq" class:skipped={live && a.mode === 'skip'}>
+				<span class="gq-n">Q{q.n}</span>
+				<div class="gq-main">
+					{#if q.title}<p class="gq-title">{q.title}</p>{/if}
+					<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
+					<div class="gq-body markdown">{@html renderMarkdown(q.body)}</div>
+					{#if q.recommended}
+						{#if live}
+							<button
+								type="button"
+								class="gq-rec"
+								class:on={a.mode === 'accept'}
+								aria-pressed={a.mode === 'accept'}
+								onclick={() => setAnswer(id, q.n, { mode: 'accept' })}
+							>
+								<iconify-icon
+									icon={a.mode === 'accept' ? 'mdi:check-circle' : 'mdi:circle-outline'}
+								></iconify-icon>
+								<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
+								<span class="markdown">{@html renderMarkdown(q.recommended)}</span>
+							</button>
+						{:else}
+							<div class="gq-rec past">
+								<iconify-icon icon="mdi:arrow-right"></iconify-icon>
+								<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
+								<span class="markdown">{@html renderMarkdown(q.recommended)}</span>
+							</div>
+						{/if}
+					{/if}
+					{#if live}
+						<div class="gq-own">
+							<textarea
+								rows="1"
+								use:autosize
+								placeholder={q.recommended ? 'Or answer in your own words' : 'Your answer'}
+								value={ownText(id, q)}
+								oninput={(e) => typeAnswer(id, q, e.currentTarget.value)}
+								class:filled={a.mode === 'own' && a.text.trim() !== ''}
+							></textarea>
+							<button
+								type="button"
+								class="gq-skip"
+								class:on={a.mode === 'skip'}
+								aria-pressed={a.mode === 'skip'}
+								title="Leave this question open for a later round"
+								onclick={() =>
+									setAnswer(id, q.n, a.mode === 'skip' ? (q.recommended ? { mode: 'accept' } : { mode: 'own', text: '' }) : { mode: 'skip' })}
+							>
+								{a.mode === 'skip' ? 'Left open' : 'Skip'}
+							</button>
+						</div>
+					{/if}
+				</div>
+			</div>
+		{/each}
+		{#if live}
+			<footer class="grill-foot">
+				<span class="grill-tally">{tally(id, round)}</span>
+				<button
+					type="button"
+					class="grill-send"
+					disabled={!ready || grillSending === id}
+					title={ready ? 'Send these answers as your next message' : 'Claude is still working; send when it stops'}
+					onclick={() => void sendRound(id, round)}
+				>
+					{grillSending === id ? 'Sending…' : 'Send answers'}
+				</button>
+			</footer>
+		{:else if grillSent[id]}
+			<footer class="grill-foot"><span class="grill-tally">Answers sent</span></footer>
+		{/if}
+	</section>
+	{#if round.outro}
+		<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
+		<div class="assistant-text markdown">{@html renderMarkdown(round.outro)}</div>
+	{/if}
+{/snippet}
 
 <div class="transcript">
 	{#if !loaded}
@@ -393,6 +586,8 @@
 					</button>
 				</div>
 			{/if}
+		{:else if entry.kind === 'text' && grillRound(entry.text)}
+			{@render grill(entry.id, grillRound(entry.text)!)}
 		{:else if entry.kind === 'text'}
 			<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
 			<div class="assistant-text markdown">{@html renderMarkdown(entry.text)}</div>
@@ -1167,6 +1362,191 @@
 		color: #c7c2bd;
 		overflow-wrap: anywhere;
 		min-width: 0;
+	}
+
+	/* --- A grilling round: questions as a form. Amber while it waits on you,
+	   the colour every surface keeps for "a person is needed"; the numbers sit
+	   in a gutter of their own because the round is read in order. --- */
+	.grill {
+		margin: 12px 0 14px;
+		border: 1px solid #2a2a2c;
+		border-radius: 10px;
+		background: #161514;
+	}
+	.grill.live {
+		border-color: #5a4310;
+		border-left: 3px solid #f59e0b;
+		background: #1a1712;
+	}
+	.gq {
+		display: grid;
+		grid-template-columns: 34px 1fr;
+		padding: 12px 14px 12px 0;
+	}
+	.gq + .gq {
+		border-top: 1px solid #262320;
+	}
+	.gq.skipped .gq-main {
+		opacity: 0.55;
+	}
+	.gq-n {
+		font-family: var(--mono);
+		font-size: 12px;
+		/* The title's line box, so the number sits on the title's baseline. */
+		line-height: calc(14.5px * 1.65);
+		color: #78716c;
+		text-align: right;
+		padding-right: 10px;
+	}
+	.live .gq-n {
+		color: #fbbf24;
+	}
+	.gq-main {
+		min-width: 0;
+	}
+	.gq-title {
+		margin: 0 0 2px;
+		font-weight: 600;
+		color: #f5f5f4;
+	}
+	.gq-body {
+		color: #d6d3d1;
+	}
+	.gq-rec {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		width: 100%;
+		margin-top: 9px;
+		padding: 8px 10px;
+		border: 1px dashed #44403c;
+		border-radius: 8px;
+		background: transparent;
+		color: #a8a29e;
+		font: inherit;
+		font-size: 13.5px;
+		line-height: 1.55;
+		text-align: left;
+	}
+	button.gq-rec {
+		cursor: pointer;
+	}
+	button.gq-rec:hover {
+		border-color: #78716c;
+		color: #d6d3d1;
+	}
+	.gq-rec.on {
+		border-style: solid;
+		border-color: #a16207;
+		background: #2a2112;
+		color: #fde68a;
+	}
+	.gq-rec iconify-icon {
+		flex: none;
+		font-size: 16px;
+		margin-top: 2px;
+	}
+	.gq-rec.on iconify-icon {
+		color: #fbbf24;
+	}
+	.gq-rec.past {
+		border-style: solid;
+		border-color: #292524;
+		color: #a8a29e;
+	}
+	.gq-rec .markdown {
+		min-width: 0;
+	}
+	.gq-own {
+		display: flex;
+		align-items: flex-start;
+		gap: 6px;
+		margin-top: 6px;
+	}
+	.gq-own textarea {
+		flex: 1;
+		min-width: 0;
+		max-height: 160px;
+		resize: none;
+		padding: 6px 10px;
+		border: 1px solid #292524;
+		border-radius: 8px;
+		background: #121110;
+		color: #e7e5e4;
+		font: inherit;
+		font-size: 13.5px;
+		line-height: 1.5;
+		outline: none;
+	}
+	.gq-own textarea::placeholder {
+		color: #57534e;
+	}
+	.gq-own textarea:focus {
+		border-color: #78716c;
+	}
+	.gq-own textarea.filled {
+		border-color: #a16207;
+	}
+	.gq-skip {
+		flex: none;
+		height: 32px;
+		padding: 0 10px;
+		border: 1px solid transparent;
+		border-radius: 8px;
+		background: transparent;
+		color: #78716c;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.gq-skip:hover,
+	.gq-skip.on {
+		border-color: #292524;
+		color: #d6d3d1;
+	}
+	.grill-foot {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 14px 12px 34px;
+		border-top: 1px solid #262320;
+	}
+	.grill-tally {
+		flex: 1;
+		min-width: 0;
+		font-family: var(--mono);
+		font-size: 11.5px;
+		color: #a8a29e;
+	}
+	.grill-send {
+		flex: none;
+		height: 34px;
+		padding: 0 16px;
+		border: 0;
+		border-radius: 8px;
+		background: #f59e0b;
+		color: #1c1307;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.grill-send:hover:not(:disabled) {
+		background: #fbbf24;
+	}
+	.grill-send:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.gq-rec:focus-visible,
+	.gq-skip:focus-visible,
+	.grill-send:focus-visible {
+		outline: 2px solid #fbbf24;
+		outline-offset: 2px;
+	}
+	@media (pointer: coarse) {
+		.gq-skip,
+		.grill-send {
+			height: 40px;
+		}
 	}
 
 	/* --- AskUserQuestion: the waiting state made tangible. Red is the app's

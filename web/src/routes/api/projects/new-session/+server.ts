@@ -29,11 +29,17 @@ function ensureWorkspaceTrusted(cwd: string) {
 }
 
 export const POST: RequestHandler = async ({ request }) => {
-	const { cwd, agent } = await request.json();
+	const { cwd, agent, prompt } = await request.json();
 	if (!cwd) {
 		return json({ error: 'cwd required' }, { status: 400 });
 	}
 	const selectedAgent: SessionAgent = parseAgent(agent);
+	// A first prompt rides Claude Code's own command line, which runs it once
+	// the session is up; the send queue would paste it before there is a box.
+	const firstPrompt = typeof prompt === 'string' && prompt.trim() ? prompt.trim() : null;
+	if (firstPrompt && selectedAgent !== 'claude') {
+		return json({ error: 'A first prompt is only supported for Claude Code' }, { status: 400 });
+	}
 
 	// Check if the folder exists
 	if (!existsSync(cwd)) {
@@ -62,7 +68,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			// Detached, the window would be 80x24; the dashboard reads dialogs
 			// off the screen and wants them unwrapped (see tmux/geometry).
 			...sizeArgsForNewSession(),
-			'--', 'env', '-u', 'CLAUDECODE', ...AGENTS[selectedAgent].argv
+			'--', 'env', '-u', 'CLAUDECODE', ...AGENTS[selectedAgent].argv,
+			...(firstPrompt ? [firstPrompt] : [])
 		], {
 			stdio: 'ignore',
 			env: tmuxEnv

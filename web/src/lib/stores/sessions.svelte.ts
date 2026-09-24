@@ -3,7 +3,9 @@ import { createPersisted } from './persisted';
 import {
 	SessionsWsMessageSchema,
 	type SystemStatsMessage,
-	type PaneChoice
+	type PaneChoice,
+	type IssueInfo,
+	type InboxTicket
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
 import type { QueuedMessageKind } from '$shared/server/message-queue.js';
@@ -50,6 +52,11 @@ export interface Session {
 	/** Share of the context window in use as of the latest reply; null when unknown. */
 	context_pct?: number | null;
 	agent?: SessionAgent;
+	/** Set when the maestro daemon started the session. */
+	maestro_role?: string | null;
+	maestro_issue?: number | null;
+	/** The issue that worker owns, as GitHub last described it. */
+	issue?: IssueInfo | null;
 }
 
 /** Fields that change frequently and should trigger a session object replacement */
@@ -78,6 +85,8 @@ function sessionChanged(a: Session, b: Session): boolean {
 		if (!a.pane_choice || !b.pane_choice) return true;
 		if (JSON.stringify(a.pane_choice) !== JSON.stringify(b.pane_choice)) return true;
 	}
+	// The issue arrives fresh each tick and changes only when GitHub's answer does.
+	if (JSON.stringify(a.issue ?? null) !== JSON.stringify(b.issue ?? null)) return true;
 	// Screenshots: compare by length + last timestamp (avoids deep comparison)
 	const aShots = a.screenshots;
 	const bShots = b.screenshots;
@@ -92,6 +101,8 @@ class SessionStore extends ReliableWebSocket {
 	sessions = $state<Session[]>([]);
 	systemStats = $state<SystemStats>({ cpu: 0, ram: 0, swap: 0, ramTotal: 0, swapTotal: 0 });
 	paused = $state(false);
+	/** Tickets on GitHub waiting on a person, for this machine's repos. */
+	inbox = $state<InboxTicket[]>([]);
 
 	// O(1) lookup by id and tmux_target — derived from sessions
 	sessionById: Map<string, Session> = $derived(new Map(this.sessions.map(s => [s.id, s])));
@@ -123,6 +134,7 @@ class SessionStore extends ReliableWebSocket {
 				this.diffAndUpdate(msg.sessions as Session[]);
 				if (msg.projects) this.applyServerProjects(msg.projects);
 				if (msg.settings) this.settings = msg.settings;
+				if (msg.inbox && JSON.stringify(msg.inbox) !== JSON.stringify(this.inbox)) this.inbox = msg.inbox;
 				break;
 			case 'systemStats':
 				this.systemStats = { cpu: msg.cpu, ram: msg.ram, swap: msg.swap, ramTotal: msg.ramTotal, swapTotal: msg.swapTotal };
@@ -349,7 +361,20 @@ export function getProjectColor(cwd: string): string {
 }
 
 export function getSessionDisplayName(session: Session): string {
+	// A maestro worker exists to close one issue; its title says what it is
+	// doing better than any name the session picked up on the way.
+	if (session.issue) return session.issue.title;
 	return session.display_name || session.tmux_target || session.id;
+}
+
+/** A maestro worker whose issue carries `needs-help`: it stopped to ask for a decision. */
+export function needsHelp(session: Session): boolean {
+	return session.issue?.labels.includes('needs-help') ?? false;
+}
+
+/** Whether a session is waiting on a person: a dialog in the pane, or a worker asking on GitHub. */
+export function wantsHuman(session: Session): boolean {
+	return session.state === 'waiting' || session.state === 'permission' || needsHelp(session);
 }
 
 export function findDeepestProject(path: string, projects: Iterable<string>): string | null {

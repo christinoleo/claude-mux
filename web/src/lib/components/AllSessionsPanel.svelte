@@ -8,6 +8,8 @@
 		groupSessions,
 		getSessionDisplayName,
 		findDeepestProject,
+		wantsHuman,
+		needsHelp,
 		type Session
 	} from '$lib/stores/sessions.svelte';
 	import { fleetStore, type Machine } from '$lib/stores/fleet.svelte';
@@ -26,6 +28,8 @@
 	import ServerPicker from './ServerPicker.svelte';
 	import RenameSessionDialog from './RenameSessionDialog.svelte';
 	import FolderPicker from './FolderPicker.svelte';
+	import NeedsYou from './NeedsYou.svelte';
+	import type { InboxTicket } from '$shared/types/ws-messages.js';
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { createPersisted } from '$lib/stores/persisted';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
@@ -97,6 +101,10 @@
 		/** `web/` when the session runs below the project root; null at the root. */
 		rel: string | null;
 		orchestrator: boolean;
+		/** A maestro worker, drawn under the session that runs its daemon. */
+		worker?: boolean;
+		/** On that session's row: how many workers sit under it. */
+		workers?: number;
 	}
 
 	interface Card {
@@ -179,18 +187,54 @@
 	 */
 	function rowTitle(row: Row): string {
 		const s = row.session;
-		if (!s.display_name && row.rel && !row.orchestrator) return row.rel;
+		if (!s.issue && !s.display_name && row.rel && !row.orchestrator) return row.rel;
 		return getSessionDisplayName(s);
 	}
 
 	/** The path chip under a named session; a title made of the path needs none. */
 	function rowWhere(row: Row): string | null {
 		if (row.orchestrator) return 'orch';
+		if (row.worker && row.session.maestro_issue) return `#${row.session.maestro_issue}`;
+		if (row.workers) return `${row.workers} worker${row.workers === 1 ? '' : 's'}`;
 		return row.session.display_name && row.rel ? row.rel : null;
 	}
 
-	function wantsHuman(s: Session): boolean {
-		return s.state === 'waiting' || s.state === 'permission';
+	/** The tmux session a pane belongs to: `main` of `main:2.0`. */
+	function tmuxSessionOf(s: Session): string | null {
+		return s.tmux_target?.split(':')[0] ?? null;
+	}
+
+	/**
+	 * The maestro daemon opens each worker as a window of the tmux session the
+	 * master runs in, so a worker's master is the one non-worker session there.
+	 * Workers move up under it; one whose master is gone stays where it was.
+	 */
+	function nestWorkers(rows: Row[]): Row[] {
+		const workersOf = new Map<Row, Row[]>();
+		const placed = new Set<Row>();
+		for (const row of rows) {
+			if (row.session.maestro_role !== 'worker') continue;
+			const home = tmuxSessionOf(row.session);
+			const master = rows.find(
+				(r) => r !== row && !r.orchestrator && r.session.maestro_role !== 'worker' && tmuxSessionOf(r.session) === home
+			);
+			if (!master) continue;
+			row.worker = true;
+			workersOf.set(master, [...(workersOf.get(master) ?? []), row]);
+			placed.add(row);
+		}
+		if (placed.size === 0) return rows;
+		const out: Row[] = [];
+		for (const row of rows) {
+			if (placed.has(row)) continue;
+			const workers = workersOf.get(row);
+			out.push(workers ? { ...row, workers: workers.length } : row);
+			if (workers) {
+				workers.sort((a, b) => (a.session.maestro_issue ?? 0) - (b.session.maestro_issue ?? 0));
+				out.push(...workers);
+			}
+		}
+		return out;
 	}
 
 	function rowsFor(sessions: Session[], root: string | null): Row[] {
@@ -203,7 +247,7 @@
 				rows.push({ session: item.session, rel: root ? relPath(item.session.cwd, root) : null, orchestrator: false });
 			}
 		}
-		return rows;
+		return nestWorkers(rows);
 	}
 
 	function matches(text: string): boolean {
@@ -438,11 +482,11 @@
 		});
 	}
 
-	async function newSessionInProject(machine: Machine, cwd: string, agent: SessionAgent = 'claude') {
+	async function newSessionInProject(machine: Machine, cwd: string, agent: SessionAgent = 'claude', prompt?: string) {
 		const res = await fetch(`${apiBase(machine)}/api/projects/new-session`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ cwd, agent })
+			body: JSON.stringify({ cwd, agent, prompt })
 		});
 		const data = await res.json();
 		if (!data.ok) {
@@ -461,6 +505,11 @@
 	const actingMachine = $derived(
 		fleetStore.visible.length === 1 ? fleetStore.visible[0] : fleetStore.machines[0]
 	);
+
+	/** Work a wayfinder ticket: a fresh session in its repo, handed the ticket. */
+	function startTicket(machine: Machine, ticket: InboxTicket) {
+		void newSessionInProject(machine, ticket.git_root, 'claude', `/mattpocock-skills:wayfinder ${ticket.url}`);
+	}
 
 	function newProject() {
 		if (actingMachine.local) void folderPicker?.openAt();
@@ -554,6 +603,7 @@
 		class="row"
 		class:cur={isActive || tag !== null}
 		class:orch={row.orchestrator}
+		class:worker={row.worker}
 		class:inA={tag === 'A'}
 		class:inB={tag === 'B'}
 		draggable={canDrag && s.tmux_target ? 'true' : 'false'}
@@ -571,7 +621,7 @@
 				<iconify-icon icon="mdi:cellphone-link" class="rc" title="Remote Control active"></iconify-icon>
 			{/if}
 			{#if wants}
-				<span class="pill">wants you</span>
+				<span class="pill">{needsHelp(s) ? 'needs help' : 'wants you'}</span>
 			{:else}
 				<span class="when">{ago(s.last_update)}</span>
 			{/if}
@@ -714,6 +764,9 @@
 	{/if}
 
 	<div class="list">
+		{#if !query.trim()}
+			<NeedsYou machines={fleetStore.visible} onOpen={(m, t) => openSession(m, t)} onStart={startTicket} />
+		{/if}
 		{#if !anything}
 			<div class="empty">
 				{#if query.trim()}
@@ -1250,6 +1303,20 @@
 	}
 	.row.orch .name {
 		color: var(--muted);
+	}
+	/* A maestro worker hangs off the session running its daemon, on a thread
+	   drawn from the master's status column. */
+	.row.worker {
+		margin-left: 15px;
+	}
+	.row.worker::before {
+		content: '';
+		position: absolute;
+		left: -7px;
+		top: -2px;
+		bottom: -2px;
+		width: 1px;
+		background: var(--line);
 	}
 	.path {
 		font-family: var(--font-mono);
