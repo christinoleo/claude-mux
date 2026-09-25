@@ -85,7 +85,8 @@ export interface AskQuestion {
   header: string;
   question: string;
   multiSelect: boolean;
-  options: { label: string; description?: string }[];
+  /** `preview` is the panel the dialog draws beside the option while it is highlighted. */
+  options: { label: string; description?: string; preview?: string }[];
 }
 
 /** The tags Claude Code wraps a slash command in; \1 pairs open with close. */
@@ -169,6 +170,7 @@ function parseAskQuestions(input: Record<string, unknown>): AskQuestion[] {
           .map((o) => ({
             label: readString(o.label) ?? "",
             ...(readString(o.description) ? { description: readString(o.description)! } : {}),
+            ...(readString(o.preview) ? { preview: readString(o.preview)! } : {}),
           }))
           .filter((o) => o.label.length > 0)
       : [];

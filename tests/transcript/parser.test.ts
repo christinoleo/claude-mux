@@ -642,6 +642,46 @@ describe("AskUserQuestion", () => {
     ]);
   });
 
+  it("keeps the preview an option carries, for the panel the terminal draws beside it", () => {
+    const builder = new TranscriptBuilder();
+    builder.feed(
+      line({
+        type: "assistant",
+        uuid: "a2",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          id: "msg_2",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_prev",
+              name: "AskUserQuestion",
+              input: {
+                questions: [
+                  {
+                    question: "Approve these numbers?",
+                    header: "Distance",
+                    multiSelect: false,
+                    options: [
+                      { label: "Approve", description: "as drafted", preview: "Max length: 200\n  cells 1-12  x1" },
+                      { label: "Softer" },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    );
+    const entry = builder.entries[0];
+    expect(entry.kind === "ask" && entry.questions[0].options).toEqual([
+      { label: "Approve", description: "as drafted", preview: "Max length: 200\n  cells 1-12  x1" },
+      { label: "Softer" },
+    ]);
+  });
+
   it("attaches answers from toolUseResult.answers", () => {
     const builder = new TranscriptBuilder();
     builder.feed(askLine);

@@ -496,8 +496,16 @@ const MAX_PROMPT_OPTIONS = 10;
  */
 const MAX_OPTION_CHARS = 4000;
 
-/** How far up from the last content line an option run may start. */
+/** How many lines a run of options may span, from its last row up to its first. */
 const OPTION_RUN_WINDOW = 24;
+
+/**
+ * How far above the last content line a declared dialog's rows may end. A
+ * preview panel is drawn under them and is as tall as its content — twenty
+ * lines of worked numbers is ordinary — so this is sized to a tall pane, not
+ * to a typical panel.
+ */
+const DECLARED_RUN_REACH = 80;
 
 /** How many pane lines a question may take above its first row. */
 const QUESTION_LINES = 12;
@@ -649,6 +657,31 @@ function bodyOf(line: string): { indent: number; text: string } {
   return { indent: body.length - text.length, text };
 }
 
+/**
+ * The preview panel a question draws to the right of its rows, as the lines
+ * it spans and the column it starts at; null when there is none.
+ *
+ * The panel is a box whose top corner shares a line with the rows and whose
+ * bottom corner sits straight under it. Everything in that rectangle is the
+ * panel's, and the rows' text is only what lies left of it. Reading the panel
+ * off each line by its border does not work: a row whose stretch of panel is
+ * blank is left with nothing but `│   │`, which the frame stripping takes for
+ * the row's own border, and then the panel's lines below read as that row's
+ * description.
+ */
+function previewPanel(raw: string[], from: number, to: number): { top: number; bottom: number; col: number } | null {
+  for (let top = from; top <= to; top++) {
+    const m = (raw[top] ?? "").match(/^(.*?\S.*?\s{2,})[┌╭]/);
+    if (!m || !OPTION_ROW.test(m[1].trim())) continue;
+    const col = m[1].length;
+    for (let bottom = top + 1; bottom <= to; bottom++) {
+      const corner = (raw[bottom] ?? "")[col];
+      if (corner === "└" || corner === "╰") return { top, bottom, col };
+    }
+  }
+  return null;
+}
+
 /** Keep a dialog's own words, up to the bound on the broadcast. */
 function clampOption(text: string): string {
   return text.length > MAX_OPTION_CHARS ? text.slice(0, MAX_OPTION_CHARS) + "…" : text;
@@ -741,7 +774,14 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
   const hintLine = at(lastContent).text;
   const declared = DIALOG_HINT.test(hintLine);
   if (mode.declaredOnly && !declared) return null;
-  const reach = declared ? OPTION_RUN_WINDOW : OPTION_RUN_TAIL;
+  const reach = declared ? DECLARED_RUN_REACH : OPTION_RUN_TAIL;
+
+  // A preview panel shares its lines with the rows: from here on those lines
+  // are read only as far as the panel's left edge.
+  const panel = declared ? previewPanel(raw, Math.max(0, lastContent - reach), lastContent) : null;
+  if (panel) {
+    for (let i = panel.top; i <= panel.bottom; i++) seen.set(i, bodyOf(raw[i].slice(0, panel.col)));
+  }
 
   let end = -1;
   for (let i = lastContent; i >= Math.max(0, lastContent - reach); i--) {
@@ -756,7 +796,9 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
   // the option's own description, a rule, or nothing, so those are stepped
   // over — but anything else ends the run, which is what stops the walk at
   // the question and keeps a numbered list in prose from matching.
-  const floor = Math.max(0, lastContent - OPTION_RUN_WINDOW);
+  // Measured from the run's own last row: what is drawn under the rows says
+  // nothing about how far apart the rows are.
+  const floor = Math.max(0, end - OPTION_RUN_WINDOW);
   const rows: { i: number; n: number; label: string; selected: boolean; indent: number }[] = [];
   let expected = -1;
   for (let i = end; i >= floor; i--) {
@@ -790,7 +832,8 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
   const notes: string[] = [];
   const options: PromptOption[] = rows.map((row, k) => {
     // A preview panel shares the row's line, so the label stops where it does.
-    const preview = PREVIEW_COLUMN.test(row.label);
+    const preview =
+      PREVIEW_COLUMN.test(row.label) || (panel !== null && row.i >= panel.top && row.i <= panel.bottom);
     let label = row.label.replace(PREVIEW_COLUMN, "").trimEnd();
     const box = label.match(CHECKBOX);
     if (box) {

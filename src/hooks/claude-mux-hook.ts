@@ -558,12 +558,17 @@ function handleStop(input: HookInput): void {
   writeSession(session);
 }
 
+/** What a session asking through AskUserQuestion is doing, as its row says it. */
+const ASKING = "Asking a question";
+
 function handlePermissionRequest(input: HookInput): void {
   const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "waiting";
-  session.current_action = "Waiting...";
+  // AskUserQuestion goes through the permission machinery too; keep saying
+  // it is a question, which is what the notification below reads.
+  session.current_action = input.tool_name === "AskUserQuestion" ? ASKING : "Waiting...";
   session.last_update = Date.now();
   writeSession(session);
 }
@@ -586,6 +591,15 @@ function handleNotificationPermission(input: HookInput): void {
   const session = getOrCreateSession(input);
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
+  // Claude Code sends its permission notification for a question as well,
+  // seconds after the dialog is drawn. The question is not asking for
+  // permission, and reading it as one sends the dashboard to the terminal
+  // for an answer it could offer itself; the wait also started back when
+  // the question did.
+  if (session.state === "waiting" && session.current_action === ASKING) {
+    writeSession(session);
+    return;
+  }
   session.state = "permission";
   session.current_action = "Waiting for permission";
   session.last_update = Date.now();
@@ -617,7 +631,7 @@ function handlePreToolUse(input: HookInput): void {
     // same thing a beat later; reporting it here means the dashboard shows
     // the dialog's rows as soon as they are drawn, not after that beat.
     session.state = "waiting";
-    session.current_action = "Asking a question";
+    session.current_action = ASKING;
   } else {
     session.state = "busy";
     session.current_action = input.tool_name

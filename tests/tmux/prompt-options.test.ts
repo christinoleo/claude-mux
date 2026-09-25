@@ -435,3 +435,60 @@ describe("readPromptOptions", () => {
     expect(readPromptOptions("")).toBeNull();
   });
 });
+
+/**
+ * A question whose preview panel is taller than the scan used to reach: 20
+ * lines of panel, then its notes line, a rule, "Chat about this" and the key
+ * hint put the first row 26 lines above the foot. Captured from a 200x50 pane.
+ */
+const TALL_PREVIEW = [
+  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  " ☐ Distância",
+  "",
+  "Regra de distância pra arestas (máx 200). Aprova esses números?",
+  "",
+  "❯ 1. Aprovar (Recomendado)        ┌──────────────────────────────────────────┐",
+  "  2. Mais suave                   │ Comprimento máx: 200 (todos os níveis)   │",
+  "  3. Ajustar                      │                                          │",
+  "                                  │ Custo por célula dobra a cada 12:        │",
+  "                                  │   células 1-12  x1                       │",
+  "                                  │   13-24 x2 | 25-36 x4 | 37-48 x8 ...     │",
+  "                                  │                                          │",
+  "                                  │ Vazão cai pela metade a cada 12:         │",
+  "                                  │   vazão = base x 0,5^floor(L/12)         │",
+  "                                  │                                          │",
+  "                                  │ Aresta até 11 células: sem mudança       │",
+  "                                  │                                          │",
+  "                                  │ Cobre grande (~42 células):              │",
+  "                                  │   custo nível 1 ~132 minério             │",
+  "                                  │   vazão nível 1: 2 x 1/8 = 0,25/s        │",
+  "                                  │   vazão nível 2: 4 x 1/8 = 0,5/s         │",
+  "                                  │   precisa 0,85/s -> não dá               │",
+  "                                  │   corredor 1 célula = só 1 aresta        │",
+  "                                  │   trem 2 vagões: ~6,9 itens/s -> OK      │",
+  "                                  └──────────────────────────────────────────┘",
+  "",
+  "                                  Notes: press n to add notes",
+  "",
+  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  "  Chat about this",
+  "",
+  "Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel",
+].join("\n");
+
+describe("a preview taller than the old scan window", () => {
+  it("still finds every row", () => {
+    const choice = readPromptOptions(TALL_PREVIEW);
+    expect(choice).not.toBeNull();
+    expect(choice!.question).toBe("Regra de distância pra arestas (máx 200). Aprova esses números?");
+    expect(choice!.options.map((o) => o.label)).toEqual(["Aprovar (Recomendado)", "Mais suave", "Ajustar"]);
+    expect(choice!.options[0].selected).toBe(true);
+    expect(choice!.options.every((o) => !/[┌│└]/.test(o.label))).toBe(true);
+  });
+
+  it("keeps the panel's lines out of the options and the dialog's notes", () => {
+    const choice = readPromptOptions(TALL_PREVIEW)!;
+    expect(choice.options.every((o) => o.hint === undefined)).toBe(true);
+    expect(choice.notes).toEqual(["Notes: press n to add notes"]);
+  });
+});

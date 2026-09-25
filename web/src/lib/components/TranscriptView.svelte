@@ -184,8 +184,15 @@
 	let askSelections = $state<Record<string, Set<number>>>({});
 	let askProgress = $state<Record<string, number>>({});
 
-	/** Only the newest unanswered dialog can be driven — older cards are history. */
-	const canAnswer = $derived(sessionState === 'waiting' && onSendKeys != null);
+	/**
+	 * Only the newest unanswered dialog can be driven — older cards are history.
+	 * Claude Code also sends a permission notification for a question, which
+	 * a hook from before 0.29.1 took for a permission prompt; an open question
+	 * is answerable either way.
+	 */
+	const canAnswer = $derived(
+		(sessionState === 'waiting' || sessionState === 'permission') && onSendKeys != null
+	);
 
 	/**
 	 * A message queued in the pane only waits on the turn in flight, so the
@@ -566,6 +573,7 @@
 										>
 											<span class="ask-opt-label">{opt.label}</span>
 											{#if opt.description}<span class="ask-opt-desc">{opt.description}</span>{/if}
+											{#if opt.preview}<pre class="ask-opt-preview">{opt.preview}</pre>{/if}
 										</button>
 									{/each}
 								</div>
@@ -728,7 +736,9 @@
 		<div class="live-row attention" style="color: {sessionStateVisual('permission').color}">
 			<SessionStateIndicator state="permission" />
 			<span class="live-text">
-				{#if choiceOffered}
+				{#if liveAskId}
+					Waiting for your answer — pick an option above ↑
+				{:else if choiceOffered}
 					Waiting for permission — answer below ↓
 				{:else}
 					Waiting for permission — switch to terminal view to respond
@@ -1640,6 +1650,23 @@
 		font-size: 12px;
 		line-height: 1.45;
 		color: #a8a29e;
+	}
+	/* The panel the terminal draws beside a highlighted option, shown under
+	   every option here: on a phone there is no room to the side, and the
+	   worked numbers are usually what the choice turns on. */
+	.ask-opt-preview {
+		align-self: stretch;
+		margin: 6px 0 0;
+		padding: 8px 10px;
+		border-radius: 6px;
+		background: #161110;
+		border: 1px solid #2b1c1a;
+		color: #d6d3d1;
+		font-family: var(--mono);
+		font-size: 12px;
+		line-height: 1.5;
+		white-space: pre;
+		overflow-x: auto;
 	}
 	.ask-confirm {
 		margin-top: 8px;
