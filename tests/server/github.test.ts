@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ticketsFromIssues, toIssueInfo, firstParagraph, type RawIssue } from "../../src/server/github.js";
+import { ticketsFromIssues, toIssueInfo, firstParagraph, withLiveAsker, type RawIssue } from "../../src/server/github.js";
 
 function issue(over: Partial<RawIssue> & { number: number }): RawIssue {
   return {
@@ -40,6 +40,18 @@ describe("ticketsFromIssues", () => {
     ]);
   });
 
+  it("leaves out anything on hold, the daemon's label for someone else's task", () => {
+    const tickets = ticketsFromIssues(
+      [
+        issue({ number: 1, labels: [{ name: "needs-help" }, { name: "hold" }] }),
+        issue({ number: 2, labels: [{ name: "wayfinder:grilling" }, { name: "hold" }] }),
+      ],
+      "o/r",
+      "/repo"
+    );
+    expect(tickets).toEqual([]);
+  });
+
   it("skips pull requests and closed issues", () => {
     const tickets = ticketsFromIssues(
       [
@@ -68,5 +80,27 @@ describe("toIssueInfo", () => {
 describe("firstParagraph", () => {
   it("flattens the first paragraph of a comment to one line", () => {
     expect(firstParagraph("Need a call on\nthe migration.\n\nDetails below.")).toBe("Need a call on the migration.");
+  });
+});
+
+describe("withLiveAsker", () => {
+  // The two issues autoDS parked under needs-help on 2026-09-20, with no worker.
+  const tickets = ticketsFromIssues(
+    [
+      issue({ number: 104, labels: [{ name: "wayfinder:task" }, { name: "needs-help" }] }),
+      issue({ number: 105, labels: [{ name: "wayfinder:task" }, { name: "needs-help" }] }),
+      issue({ number: 7, labels: [{ name: "wayfinder:grilling" }] }),
+    ],
+    "o/r",
+    "/repo"
+  );
+
+  it("drops a needs-help whose worker is gone, and keeps one whose worker waits", () => {
+    const kept = withLiveAsker(tickets, new Set(["/repo#105"]));
+    expect(kept.map((t) => t.number)).toEqual([105, 7]);
+  });
+
+  it("never filters wayfinder tickets, which have no worker by design", () => {
+    expect(withLiveAsker(tickets, new Set()).map((t) => t.number)).toEqual([7]);
   });
 });

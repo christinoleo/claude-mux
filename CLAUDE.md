@@ -169,8 +169,10 @@ JSON (`maestro_role`, `maestro_issue`). `src/server/github.ts` reads the repos
 the live sessions sit in through `gh`, at most once a minute and never on the
 poll's own time: the issue each worker owns rides the broadcast as the live
 field `issue`, and the tickets that want a person ride it as `inbox`. Those are
-a worker's `needs-help`, and the wayfinder `grilling`/`prototype` tickets that are
-open, unassigned and unblocked. Where `gh` is missing or logged out, both stay
+a worker's `needs-help` while that worker's session is still alive (a
+`needs-help` with no live worker was parked by hand, and nobody waits on it),
+and the wayfinder `grilling`/`prototype` tickets that are open, unassigned and
+unblocked. Anything labelled `hold` (maestro's "not the daemon's") is left out. Where `gh` is missing or logged out, both stay
 empty.
 
 The sidebar nests a worker under the session that runs its daemon (the one

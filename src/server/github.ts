@@ -31,6 +31,8 @@ const HITL_LABELS: Record<string, InboxTicket['kind']> = {
 	'wayfinder:prototype': 'prototype'
 };
 const NEEDS_HELP = 'needs-help';
+/** maestro's "not the daemon's": a person's task or the master's own, never a worker's call. */
+const HOLD = 'hold';
 
 /** The slice of GitHub's REST issue object this module reads. */
 export interface RawIssue {
@@ -109,6 +111,7 @@ export function ticketsFromIssues(issues: RawIssue[], slug: string, gitRoot: str
 	for (const issue of issues) {
 		if (issue.pull_request || issue.state !== 'open') continue;
 		const labels = labelNames(issue);
+		if (labels.includes(HOLD)) continue;
 		const base = { repo: slug, git_root: gitRoot, number: issue.number, title: issue.title, url: issue.html_url };
 		if (labels.includes(NEEDS_HELP)) {
 			out.push({ ...base, kind: 'needs-help', since: Date.parse(issue.updated_at), note: null });
@@ -234,7 +237,22 @@ export function issueFor(gitRoot: string | null, n: number | null | undefined): 
 	return repos.get(gitRoot)?.issues.get(n) ?? null;
 }
 
-/** Every ticket waiting on a person, across the repos being watched. */
-export function inboxTickets(): InboxTicket[] {
-	return [...repos.values()].flatMap((r) => r.tickets);
+/**
+ * Every ticket waiting on a person, across the repos being watched.
+ *
+ * `needs-help` is only a call for a decision while the worker that raised it
+ * is still there: the daemon leaves a worker's window open once it asks. An
+ * issue under the label with no live worker was parked there by hand — to
+ * keep the daemon off a task, from before maestro had `hold` — and nobody is
+ * blocked on it. `liveWorkers` holds `<git root>#<issue>` for each worker.
+ */
+export function inboxTickets(liveWorkers: Set<string>): InboxTicket[] {
+	return withLiveAsker(
+		[...repos.values()].flatMap((r) => r.tickets),
+		liveWorkers
+	);
+}
+
+export function withLiveAsker(tickets: InboxTicket[], liveWorkers: Set<string>): InboxTicket[] {
+	return tickets.filter((t) => t.kind !== 'needs-help' || liveWorkers.has(`${t.git_root}#${t.number}`));
 }

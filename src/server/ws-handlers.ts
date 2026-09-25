@@ -695,7 +695,13 @@ export class SessionsWsManager {
 			count: sessions.length,
 			projects: getSavedProjects(),
 			settings: getSettings(),
-			inbox: inboxTickets(),
+			inbox: inboxTickets(
+				new Set(
+					sessions
+						.filter((s) => s.pane_alive && s.maestro_issue && s.git_root)
+						.map((s) => `${s.git_root}#${s.maestro_issue}`)
+				)
+			),
 			timestamp: Date.now()
 		};
 	}
