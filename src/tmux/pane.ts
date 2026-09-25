@@ -344,15 +344,81 @@ const MAX_QUEUED_MESSAGES = 10;
 const QUEUED_ROW_BG = "48;5;237";
 
 /**
+ * The line Claude Code draws under its queue since September 2026, naming the
+ * key that sends the queue early. It is the pane saying a queue is there.
+ */
+const QUEUE_HINT = /^\s*ctrl\+x ctrl\+s to send now\s*$/;
+
+/** How far above the foot the queue's hint may sit: under it, a spinner and a tip. */
+const QUEUE_HINT_REACH = 40;
+
+/**
+ * A queued row as the newer layout draws it: the marker at column 0, then the
+ * text in the dim grey that tells it from a sent message, drawn in white.
+ */
+// eslint-disable-next-line no-control-regex -- matching the escape codes is the point
+const DIM_QUEUED_START = /❯ (?:\x1b\[[0-9;]*m)*\x1b\[38;5;246m/;
+const DIM_TEXT = "38;5;246";
+
+/**
+ * The queue in the newer layout: a run above the spinner, closed by the hint.
+ * Walking up from the hint, a row that starts with the marker in dim grey
+ * begins a message, an indented dim row continues the one above it, a blank
+ * row separates two, and anything else — a sent message, tool output — is
+ * where the queue ends. Null when the pane draws no such hint.
+ */
+function readSpinnerQueue(lines: string[], clean: string[]): string[] | null {
+  let hint = -1;
+  for (let i = clean.length - 1; i >= Math.max(0, clean.length - QUEUE_HINT_REACH); i--) {
+    if (QUEUE_HINT.test(clean[i])) {
+      hint = i;
+      break;
+    }
+  }
+  if (hint === -1) return null;
+
+  const rows: { text: string; starts: boolean }[] = [];
+  for (let i = hint - 1; i >= 0; i--) {
+    const text = clean[i];
+    if (text.trim() === '') continue;
+    const starts = /^❯ /.test(text) && DIM_QUEUED_START.test(lines[i]);
+    if (!starts && !(/^ {2,}\S/.test(text) && lines[i].includes(DIM_TEXT))) break;
+    rows.push({ text: text.replace(/^❯ /, '').trim(), starts });
+    if (rows.length > MAX_QUEUED_MESSAGES * 4) break;
+  }
+  rows.reverse();
+  // A run that opens mid-message began above the reach of the walk.
+  while (rows.length > 0 && !rows[0].starts) rows.shift();
+  return joinQueuedRows(rows);
+}
+
+function joinQueuedRows(rows: { text: string; starts: boolean }[]): string[] {
+  const messages: string[] = [];
+  for (const row of rows) {
+    if (row.starts || messages.length === 0) messages.push(row.text);
+    // A wrapped message continues on the next row.
+    else messages[messages.length - 1] += ' ' + row.text;
+  }
+  return messages
+    .map((m) => m.trim())
+    .filter(Boolean)
+    .slice(0, MAX_QUEUED_MESSAGES)
+    .map((m) => (m.length > MAX_QUEUED_CHARS ? m.slice(0, MAX_QUEUED_CHARS) + '…' : m));
+}
+
+/**
  * Read the messages waiting in Claude Code's own queue — what the user typed
  * into the pane while it was busy, which it will pick up turn by turn.
  *
- * They sit directly above the prompt box, indented two spaces, each row painted
- * with a background. A submitted message looks similar but starts at column 0,
- * which is what keeps scrollback out of the result.
+ * Claude Code has drawn the queue two ways. Since September 2026 it sits above
+ * the spinner, each row starting at column 0 like a sent message but in dim
+ * grey, and closes with "ctrl+x ctrl+s to send now" (see readSpinnerQueue).
+ * Before, it sat directly above the prompt box, indented two spaces, each row
+ * painted with a background; a submitted message started at column 0, which
+ * is what kept scrollback out of the result.
  *
  * Needs a capture taken with `tmux capture-pane -e`; without escape codes there
- * is no background to match and the result is empty.
+ * is no colour to match and the result is empty.
  *
  * @returns The queued messages, oldest first.
  */
@@ -361,6 +427,9 @@ export function readQueuedMessages(content: string): string[] {
 
   const lines = content.split('\n');
   const clean = lines.map(stripAnsi);
+  const spinnerQueue = readSpinnerQueue(lines, clean);
+  if (spinnerQueue) return spinnerQueue;
+
   const box = findPromptBox(clean);
   if (!box) return [];
 
@@ -374,19 +443,7 @@ export function readQueuedMessages(content: string): string[] {
     if (rows.length > MAX_QUEUED_MESSAGES * 4) break;
   }
   rows.reverse();
-
-  const messages: string[] = [];
-  for (const row of rows) {
-    if (row.starts || messages.length === 0) messages.push(row.text);
-    // A wrapped message continues on the next row.
-    else messages[messages.length - 1] += ' ' + row.text;
-  }
-
-  return messages
-    .map((m) => m.trim())
-    .filter(Boolean)
-    .slice(0, MAX_QUEUED_MESSAGES)
-    .map((m) => (m.length > MAX_QUEUED_CHARS ? m.slice(0, MAX_QUEUED_CHARS) + '…' : m));
+  return joinQueuedRows(rows);
 }
 
 /**

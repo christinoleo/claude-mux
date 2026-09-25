@@ -91,9 +91,13 @@ queued messages". Suggestions surface as `draft_kind: 'suggestion'` and are
 accepted with Tab then Enter; hints are dropped via the `PROMPT_HINTS` patterns.
 
 `readQueuedMessages()` reads the other half of the same picture: messages the
-user typed into the pane while Claude was busy, which sit directly above the box
-indented two spaces on a painted row (`48;5;237`). A submitted message looks the
-same but starts at column 0, which is what keeps scrollback out of the result.
+user typed into the pane while Claude was busy. Claude Code has drawn them two
+ways. Since September 2026 the queue sits above the spinner, closed by the hint
+`ctrl+x ctrl+s to send now`, and each row starts at column 0 like a submitted
+message; only the dim grey text (`38;5;246`, against white for a sent one)
+tells them apart. Before, the queue sat directly above the box, indented two
+spaces on a painted row (`48;5;237`), and a submitted message started at
+column 0. The reader tries the hint first and falls back to the older layout.
 
 `readPromptOptions()` reads the third thing a pane can hold: the numbered rows
 of a permission or question dialog, which `readPromptBox` recognises only in
