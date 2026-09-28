@@ -9,6 +9,7 @@
 	import { sessionStore } from '$lib/stores/sessions.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { acquireWakeLock, releaseWakeLock } from '$lib/wakeLock.svelte';
+	import { voiceStore } from '$lib/stores/voice.svelte';
 	import AllSessionsPanel from '$lib/components/AllSessionsPanel.svelte';
 	import ScreenshotsPanel from '$lib/components/ScreenshotsPanel.svelte';
 	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
@@ -110,15 +111,24 @@
 		if (browser) void releaseWakeLock();
 	});
 
+	/**
+	 * The screen stays on when asked to, and always while you dictate: a phone
+	 * that dims mid-sentence suspends the page, and the recording with it.
+	 */
+	const wantAwake = $derived(
+		preferences.keepAwake || voiceStore.status === 'recording' || voiceStore.status === 'transcribing'
+	);
+
 	function handleVisibility() {
-		if (document.visibilityState === 'visible' && preferences.keepAwake) {
+		// The browser drops the lock whenever the page is hidden; take it back.
+		if (document.visibilityState === 'visible' && wantAwake) {
 			void acquireWakeLock();
 		}
 	}
 
 	$effect(() => {
 		if (!browser) return;
-		if (preferences.keepAwake) void acquireWakeLock();
+		if (wantAwake) void acquireWakeLock();
 		else void releaseWakeLock();
 	});
 

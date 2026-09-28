@@ -84,13 +84,23 @@
 		alertOpen = true;
 	}
 
-	/** Which machine a new session should be made on, and where. */
-	let agentPicker = $state<{ machine: Machine; cwd: string } | null>(null);
+	/**
+	 * Which machine a new session should be made on, and where. `card` is the
+	 * project it was opened from, so the dialog can also take it off the list:
+	 * on a phone there is no hover to reveal a chip's close button.
+	 */
+	let agentPicker = $state<{ machine: Machine; cwd: string; card?: Card } | null>(null);
 
 	function pickAgent(agent: SessionAgent) {
 		const target = agentPicker;
 		agentPicker = null;
 		if (target) void newSessionInProject(target.machine, target.cwd, agent);
+	}
+
+	function removeFromPicker() {
+		const target = agentPicker;
+		agentPicker = null;
+		if (target?.card) closeProject(target.machine, target.card);
 	}
 
 	// ── the model: one view per machine ─────────────────────────────────────
@@ -681,8 +691,8 @@
 				class="pbtn"
 				title="New session here (right-click or hold for another agent)"
 				onclick={() => void newSessionInProject(machine, card.cwd)}
-				oncontextmenu={(e) => { e.preventDefault(); agentPicker = { machine, cwd: card.cwd }; }}
-				use:longPress={{ onTrigger: () => (agentPicker = { machine, cwd: card.cwd }) }}
+				oncontextmenu={(e) => { e.preventDefault(); agentPicker = { machine, cwd: card.cwd, card }; }}
+				use:longPress={{ onTrigger: () => (agentPicker = { machine, cwd: card.cwd, card }) }}
 			>
 				<iconify-icon icon="mdi:plus"></iconify-icon>
 			</button>
@@ -823,8 +833,8 @@
 								type="button"
 								class="qopen"
 								onclick={() => void newSessionInProject(view.machine, card.cwd)}
-								oncontextmenu={(e) => { e.preventDefault(); agentPicker = { machine: view.machine, cwd: card.cwd }; }}
-								use:longPress={{ onTrigger: () => (agentPicker = { machine: view.machine, cwd: card.cwd }) }}
+								oncontextmenu={(e) => { e.preventDefault(); agentPicker = { machine: view.machine, cwd: card.cwd, card }; }}
+								use:longPress={{ onTrigger: () => (agentPicker = { machine: view.machine, cwd: card.cwd, card }) }}
 							>
 								<span class="chip" style="background:{card.color}"></span>{card.name}
 								{#if card.dead.length > 0}<span class="qdead" title="{card.dead.length} closed session{card.dead.length === 1 ? '' : 's'}">·{card.dead.length}</span>{/if}
@@ -883,6 +893,12 @@
 				</button>
 			{/each}
 		</div>
+		{#if agentPicker?.card}
+			<button type="button" class="agent-remove" onclick={removeFromPicker}>
+				<iconify-icon icon="mdi:close"></iconify-icon>
+				Remove {agentPicker.card.name} from the list
+			</button>
+		{/if}
 	</Dialog.Content>
 </Dialog.Root>
 
@@ -1548,8 +1564,14 @@
 		height: 12px;
 		border-radius: 3px;
 	}
+	/* The close button always takes its room and only shows on hover. Were it
+	   to appear, the chip would widen, the row rewrap, the chip slide out from
+	   under the pointer, the button vanish, the chip slide back — a flicker
+	   that also made a tap on a phone land on whatever moved under it. */
 	.qx {
-		display: none;
+		display: inline-flex;
+		opacity: 0;
+		pointer-events: none;
 		align-items: center;
 		padding: 0 6px 0 2px;
 		border: 0;
@@ -1558,8 +1580,10 @@
 		font-size: 12px;
 		cursor: pointer;
 	}
-	.q:hover .qx {
-		display: inline-flex;
+	.q:hover .qx,
+	.q:focus-within .qx {
+		opacity: 1;
+		pointer-events: auto;
 	}
 	.qx:hover {
 		color: #fca5a5;
@@ -1574,9 +1598,32 @@
 		.qopen {
 			padding: 0 12px 0 10px;
 		}
+		/* A tap would reveal it and hit it at once. Removing a project on a
+		   phone is in the long-press dialog instead. */
+		.qx {
+			display: none;
+		}
 	}
 
-	/* agent picker (unchanged from before) */
+	/* agent picker */
+	.agent-remove {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		width: 100%;
+		min-height: 40px;
+		margin-top: 4px;
+		border: 1px solid #2a2a2c;
+		border-radius: 10px;
+		background: transparent;
+		color: #fca5a5;
+		font-size: 13px;
+		cursor: pointer;
+	}
+	.agent-remove:hover {
+		background: #2a1515;
+	}
 	.agent-choices {
 		display: flex;
 		flex-direction: column;

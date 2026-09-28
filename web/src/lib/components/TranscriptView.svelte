@@ -105,14 +105,17 @@
 	}
 
 	/**
-	 * The one round that can still be answered: Claude's last words, with
-	 * nothing from you after them. Older rounds are history, drawn read-only.
+	 * The one round that can still be answered: the latest one with nothing
+	 * from you after it. Claude may go on talking past it — a background
+	 * agent reports in, and it says so — without the questions being any
+	 * less open; only your reply, or a question dialog, closes a round.
+	 * Older rounds are history, drawn read-only.
 	 */
 	const liveGrillId = $derived.by(() => {
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const e = entries[i];
 			if (e.kind === 'user' || e.kind === 'queued' || e.kind === 'ask') return null;
-			if (e.kind === 'text') return grillRound(e.text) ? e.id : null;
+			if (e.kind === 'text' && grillRound(e.text)) return e.id;
 		}
 		return null;
 	});
@@ -332,7 +335,9 @@
 
 {#snippet grill(id: string, round: GrillRound)}
 	{@const live = id === liveGrillId && !grillSent[id] && onSendReply != null}
-	{@const ready = live && sessionState === 'idle'}
+	<!-- A busy session takes the reply into Claude Code's own queue, as the
+	     composer's does; only an open dialog would swallow it as keystrokes. -->
+	{@const ready = live && sessionState !== 'waiting' && sessionState !== 'permission'}
 	{#if round.intro}
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
 		<div class="assistant-text markdown">{@html renderMarkdown(round.intro)}</div>
@@ -402,7 +407,9 @@
 					type="button"
 					class="grill-send"
 					disabled={!ready || grillSending === id}
-					title={ready ? 'Send these answers as your next message' : 'Claude is still working; send when it stops'}
+					title={ready
+						? 'Send these answers as your next message'
+						: 'Answer the open dialog first; these go in after it'}
 					onclick={() => void sendRound(id, round)}
 				>
 					{grillSending === id ? 'Sending…' : 'Send answers'}
