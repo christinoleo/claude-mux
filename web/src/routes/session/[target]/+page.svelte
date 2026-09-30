@@ -1873,10 +1873,24 @@
 		     so the transcript view says it here instead. -->
 		{#if viewMode === 'transcript' && paneUpdate}
 			<span class="sep">·</span>
-			<span class="say upd {paneUpdate.kind}" title={paneUpdate.text}>
-				<iconify-icon icon="mdi:update"></iconify-icon>
-				{UPDATE_LABEL[paneUpdate.kind]}
-			</span>
+			{#if paneUpdate.kind === 'installed' && isAlive && isClaudeSession}
+				<!-- The update is on disk; restarting is all it needs. Straight away
+				     when idle, behind the usual question when a turn would be cut off. -->
+				<button
+					type="button"
+					class="say upd installed"
+					title="{paneUpdate.text} — click to restart Claude Code now"
+					onclick={() => (isBusy ? (showConfirmRestart = true) : void restartSession())}
+				>
+					<iconify-icon icon="mdi:restart"></iconify-icon>
+					{UPDATE_LABEL.installed}
+				</button>
+			{:else}
+				<span class="say upd {paneUpdate.kind}" title={paneUpdate.text}>
+					<iconify-icon icon="mdi:update"></iconify-icon>
+					{UPDATE_LABEL[paneUpdate.kind]}
+				</span>
+			{/if}
 		{/if}
 		<span class="sl-sp"></span>
 		<!-- The old header's rare actions, back where they were, once there is
@@ -2879,6 +2893,17 @@
 		align-items: center;
 		gap: 3px;
 		color: #34d399;
+	}
+	button.say.upd {
+		padding: 1px 6px;
+		border: 1px solid #065f46;
+		border-radius: 6px;
+		background: #052e22;
+		font: inherit;
+		cursor: pointer;
+	}
+	button.say.upd:hover {
+		background: #064e3b;
 	}
 	.say.upd.available {
 		color: #a8a29e;
