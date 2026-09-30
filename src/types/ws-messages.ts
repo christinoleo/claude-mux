@@ -105,6 +105,11 @@ const EnrichedSessionSchema = z.object({
 	 * on `state`: the hooks are authoritative for whether a dialog is open.
 	 */
 	pane_choice: PaneChoiceSchema.nullable().optional(),
+	/** Claude Code's footer notice about its own update — live only. */
+	pane_update: z
+		.object({ kind: z.enum(['installed', 'available', 'failed']), text: z.string() })
+		.nullable()
+		.optional(),
 	/** Share of the context window in use, read off the transcript's latest reply. */
 	context_pct: z.number().nullable().optional(),
 	display_name: z.string().nullable().optional(),

@@ -525,6 +525,46 @@ export function detectRemoteControlUrl(content: string): string | null {
 }
 
 /**
+ * What Claude Code's footer says about its own updates:
+ * - `installed`: a new version is on disk and takes effect on restart.
+ * - `available`: a new version exists and has to be installed by hand.
+ * - `failed`: the auto-updater tried and gave up.
+ */
+export type UpdateNotice = { kind: "installed" | "available" | "failed"; text: string } | null;
+
+const UPDATE_NOTICES: [Exclude<UpdateNotice, null>["kind"], RegExp][] = [
+  ["installed", /Update installed.*Restart to (?:apply|update)/],
+  ["available", /Update available! Run:.*/],
+  ["failed", /Auto-update failed.*/],
+];
+
+/**
+ * Read Claude Code's update notice off the footer. The footer is everything
+ * below the prompt box's bottom separator, which keeps a transcript that
+ * merely quotes the notice from counting. The notice is drawn right-aligned
+ * beside the mode line, so the match runs from its first word to line end.
+ */
+export function readUpdateNotice(content: string): UpdateNotice {
+  if (!content) return null;
+  const lines = content.split("\n");
+  let sep = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].startsWith("─────")) {
+      sep = i;
+      break;
+    }
+  }
+  if (sep === -1) return null;
+  for (const line of lines.slice(sep + 1)) {
+    for (const [kind, pattern] of UPDATE_NOTICES) {
+      const m = pattern.exec(line);
+      if (m) return { kind, text: line.slice(m.index).replace(/\s{2,}/g, " ").trim() };
+    }
+  }
+  return null;
+}
+
+/**
  * Check if a tmux pane shows a recent interruption/cancellation.
  * Returns the session update to apply, or null if no update needed.
  *

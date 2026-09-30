@@ -139,7 +139,8 @@ and if it stays the route answers 502 and the composer keeps the draft.
 
 The session poll captures with colour once per tick and hands the stripped copy
 to every other check, so adding a detector there costs no extra `tmux` calls.
-`draft_input`, `draft_kind`, `pane_queue` and `pane_choice` are live-only: they
+`draft_input`, `draft_kind`, `pane_queue`, `pane_choice` and `pane_update` (Claude
+Code's footer notice about its own update) are live-only: they
 ride the WebSocket broadcast and are never written to the session JSON. They are
 typed once as `LivePaneFields` in `src/server/ws-handlers.ts`, and **each one
 also needs a line in `EnrichedSessionSchema`** (`src/types/ws-messages.ts`) —

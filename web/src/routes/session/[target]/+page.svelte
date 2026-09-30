@@ -570,6 +570,12 @@
 	let altTapCandidate = false;
 	/** The model on the latest reply, named the way the terminal names it. */
 	const modelName = $derived(modelDisplayName(transcriptStore.model));
+	const paneUpdate = $derived(currentSession?.pane_update ?? null);
+	const UPDATE_LABEL = {
+		installed: 'Update installed · restart to apply',
+		available: 'Update available',
+		failed: 'Auto-update failed'
+	} as const;
 	const queueCount = $derived(currentSession?.queue_count ?? 0);
 	const queueHeadText = $derived(currentSession?.queue_head_text ?? null);
 	const queueHeadKind = $derived(currentSession?.queue_head_kind ?? null);
@@ -1863,6 +1869,15 @@
 			<span class="sep">·</span>
 			<span class="say model" title="Model on the latest reply">{modelName}</span>
 		{/if}
+		<!-- Claude Code announces its own updates only in the terminal's footer,
+		     so the transcript view says it here instead. -->
+		{#if viewMode === 'transcript' && paneUpdate}
+			<span class="sep">·</span>
+			<span class="say upd {paneUpdate.kind}" title={paneUpdate.text}>
+				<iconify-icon icon="mdi:update"></iconify-icon>
+				{UPDATE_LABEL[paneUpdate.kind]}
+			</span>
+		{/if}
 		<span class="sl-sp"></span>
 		<!-- The old header's rare actions, back where they were, once there is
 		     room across for them. On a phone they stay in the sheet. -->
@@ -2858,6 +2873,18 @@
 	}
 	.say.amber {
 		color: #fbbf24;
+	}
+	.say.upd {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		color: #34d399;
+	}
+	.say.upd.available {
+		color: #a8a29e;
+	}
+	.say.upd.failed {
+		color: #f87171;
 	}
 	.sl-sp {
 		flex: 1;
