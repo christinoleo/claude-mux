@@ -91,6 +91,13 @@
 	 */
 	let agentPicker = $state<{ machine: Machine; cwd: string; card?: Card } | null>(null);
 
+	/** The quiet chip whose menu is open, by machine and folder; null when none is. */
+	let quietMenu = $state<string | null>(null);
+
+	function quietKey(machine: Machine, card: Card): string {
+		return `${machine.server.hostname}\u0000${card.cwd}`;
+	}
+
 	function pickAgent(agent: SessionAgent) {
 		const target = agentPicker;
 		agentPicker = null;
@@ -828,21 +835,40 @@
 						{/if}
 					</span>
 					{#each view.quiet as card (card.cwd)}
-						<span class="q" title={card.cwd}>
-							<button
-								type="button"
-								class="qopen"
-								onclick={() => void newSessionInProject(view.machine, card.cwd)}
-								oncontextmenu={(e) => { e.preventDefault(); agentPicker = { machine: view.machine, cwd: card.cwd, card }; }}
-								use:longPress={{ onTrigger: () => (agentPicker = { machine: view.machine, cwd: card.cwd, card }) }}
-							>
+						{@const key = quietKey(view.machine, card)}
+						<!-- A chip opens its menu: new session with any agent, clear what
+						     closed, or take the project off the list. One tap on a phone and
+						     a click on a desktop do the same, with nothing hidden behind hover. -->
+						<Popover.Root open={quietMenu === key} onOpenChange={(o) => (quietMenu = o ? key : null)}>
+							<Popover.Trigger class="q" title={card.cwd}>
 								<span class="chip" style="background:{card.color}"></span>{card.name}
 								{#if card.dead.length > 0}<span class="qdead" title="{card.dead.length} closed session{card.dead.length === 1 ? '' : 's'}">·{card.dead.length}</span>{/if}
-							</button>
-							<button type="button" class="qx" title="Remove from the list" onclick={() => closeProject(view.machine, card)}>
-								<iconify-icon icon="mdi:close"></iconify-icon>
-							</button>
-						</span>
+							</Popover.Trigger>
+							<Popover.Content class="menu qmenu" align="start" sideOffset={6}>
+								<div class="qhead">
+									<b>{card.name}</b>
+									<span class="qpath">{card.cwd}{#if !view.machine.local} · {view.machine.server.hostname}{/if}</span>
+								</div>
+								{#each AGENT_IDS as id (id)}
+									{@const meta = AGENTS[id]}
+									<button type="button" class="mitem" onclick={() => { quietMenu = null; void newSessionInProject(view.machine, card.cwd, id); }}>
+										<iconify-icon icon={meta.icon} style="color: {meta.color};"></iconify-icon>New {meta.label} session
+									</button>
+								{/each}
+								<span class="msep"></span>
+								{#if card.dead.length > 0 && view.machine.local}
+									<button type="button" class="mitem" onclick={() => { quietMenu = null; sweepDead(view.machine, card.dead); }}>
+										<iconify-icon icon="mdi:broom"></iconify-icon>Clear {card.dead.length} closed session{card.dead.length === 1 ? '' : 's'}
+									</button>
+								{/if}
+								<button type="button" class="mitem" onclick={() => { quietMenu = null; void navigator.clipboard?.writeText(card.cwd); }}>
+									<iconify-icon icon="mdi:content-copy"></iconify-icon>Copy path
+								</button>
+								<button type="button" class="mitem danger" onclick={() => { quietMenu = null; closeProject(view.machine, card); }}>
+									<iconify-icon icon="mdi:close"></iconify-icon>Remove from list
+								</button>
+							</Popover.Content>
+						</Popover.Root>
 					{/each}
 				</section>
 			{/if}
@@ -1533,76 +1559,66 @@
 		text-transform: uppercase;
 		color: var(--dim);
 	}
-	.q {
+	/* A quiet chip is the trigger of its own menu. */
+	:global(.q) {
 		display: inline-flex;
-		align-items: stretch;
+		align-items: center;
+		gap: 6px;
 		height: 26px;
+		padding: 0 8px 0 6px;
 		border-radius: 8px;
 		background: var(--surface-2);
 		border: 1px solid var(--line-soft);
 		color: var(--muted);
+		font: inherit;
 		font-size: 12px;
-		overflow: hidden;
+		cursor: pointer;
 	}
-	.q:hover {
+	:global(.q:hover),
+	:global(.q[data-state='open']) {
 		color: var(--text);
 		border-color: var(--line);
 	}
-	.qopen {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 0 8px 0 6px;
-		border: 0;
-		background: none;
-		color: inherit;
-		font: inherit;
-		cursor: pointer;
-	}
-	.q .chip {
+	:global(.q) .chip {
 		width: 12px;
 		height: 12px;
 		border-radius: 3px;
 	}
-	/* The close button always takes its room and only shows on hover. Were it
-	   to appear, the chip would widen, the row rewrap, the chip slide out from
-	   under the pointer, the button vanish, the chip slide back — a flicker
-	   that also made a tap on a phone land on whatever moved under it. */
-	.qx {
-		display: inline-flex;
-		opacity: 0;
-		pointer-events: none;
-		align-items: center;
-		padding: 0 6px 0 2px;
-		border: 0;
-		background: none;
-		color: var(--dim);
-		font-size: 12px;
-		cursor: pointer;
-	}
-	.q:hover .qx,
-	.q:focus-within .qx {
-		opacity: 1;
-		pointer-events: auto;
-	}
-	.qx:hover {
-		color: #fca5a5;
-	}
-	/* A phone has no hover to reveal a control and no pixel-perfect finger, and
-	   these chips are the only way to start a session in a project that has
-	   none — so on touch they grow into a real tap target. */
+	/* A phone has no pixel-perfect finger, and these chips are the only way to
+	   start a session in a project that has none, so on touch they grow into a
+	   real tap target. */
 	@media (hover: none) {
-		.q {
+		:global(.q) {
 			height: 40px;
-		}
-		.qopen {
 			padding: 0 12px 0 10px;
 		}
-		/* A tap would reveal it and hit it at once. Removing a project on a
-		   phone is in the long-press dialog instead. */
-		.qx {
-			display: none;
-		}
+	}
+	:global(.menu.qmenu) {
+		width: 250px;
+	}
+	.qhead {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		padding: 4px 10px 6px;
+		min-width: 0;
+	}
+	.qhead b {
+		font-size: 13px;
+		color: #f5f5f4;
+	}
+	.qpath {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: #a8a29e;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.msep {
+		height: 1px;
+		margin: 3px 4px;
+		background: #2a2a2c;
 	}
 
 	/* agent picker */
