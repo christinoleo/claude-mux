@@ -32,6 +32,37 @@ function getLatestVersion(): string | null {
 
 const SYSTEMD_UNIT = "claude-mux.service";
 
+export interface PrefetchOptions {
+  attempts?: number;
+  delayMs?: number;
+}
+
+/**
+ * Pull the release tarball into npm's cache before anything is stopped. Right
+ * after a publish the registry lists the new version minutes before it serves
+ * the tarball, and an install in that gap 404s — which used to leave the host
+ * with its server stopped. Retrying here waits the gap out while the old
+ * server keeps running, and the install that follows reads from the cache.
+ */
+export async function prefetchRelease(version: string, opts: PrefetchOptions = {}): Promise<boolean> {
+  const attempts = opts.attempts ?? 20;
+  const delayMs = opts.delayMs ?? 15_000;
+  for (let i = 1; i <= attempts; i++) {
+    const r = spawnSync("npm", ["cache", "add", `claude-mux@${version}`], {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    if (r.status === 0) return true;
+    if (i === attempts) {
+      process.stderr.write(r.stderr ?? "");
+      return false;
+    }
+    if (i === 1) console.log(`claude-mux@${version} is not downloadable yet; waiting for npm to serve it...`);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
 function isSystemdManaged(): boolean {
   // Unit file present means `service install` was run on this host; that's
   // the authoritative signal. is-active can return false negatives under
@@ -135,6 +166,11 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
     return;
   }
 
+  if (!(await prefetchRelease(latest))) {
+    console.error(`Could not download claude-mux@${latest} from npm; the running server was left alone.`);
+    process.exit(1);
+  }
+
   // Stop the running prod server BEFORE `npm i -g` so the install doesn't
   // overwrite module files the live process is still loading lazily.
   const skipRestart = !!opts.skipRestart;
@@ -154,12 +190,9 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
     stdio: "inherit",
   });
   if (install.status !== 0) {
-    console.error("npm install failed.");
-    if (systemdActive) {
-      console.error(`Old server was stopped; restart it with: systemctl --user start ${SYSTEMD_UNIT}`);
-    } else if (nohupPid) {
-      console.error("Old server was stopped; restart it manually with `claude-mux serve`.");
-    }
+    console.error("npm install failed; starting the old server again.");
+    if (systemdActive) systemctlUser("start", SYSTEMD_UNIT);
+    else if (nohupPid) startProd();
     process.exit(install.status ?? 1);
   }
 
