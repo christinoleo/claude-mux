@@ -2455,7 +2455,7 @@
 		inset: 0;
 		display: grid;
 		place-items: center;
-		z-index: 1000;
+		z-index: var(--z-overlay);
 		pointer-events: none;
 		background: radial-gradient(ellipse at center, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.92) 100%);
 		font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -2781,7 +2781,7 @@
 		inset: 0;
 		background: rgba(20, 40, 80, 0.55);
 		backdrop-filter: blur(2px);
-		z-index: 9999;
+		z-index: var(--z-overlay);
 		display: flex;
 		align-items: center;
 		justify-content: center;

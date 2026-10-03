@@ -367,7 +367,7 @@
 		background: rgba(129, 140, 248, 0.1);
 		color: #a5b4fc;
 		font: 500 13px system-ui, sans-serif;
-		z-index: 30;
+		z-index: var(--z-overlay);
 	}
 
 	/* The composer's card, at the foot of the sidebar. */
@@ -427,7 +427,7 @@
 			box-sizing: border-box;
 			padding-top: env(safe-area-inset-top);
 			padding-bottom: env(safe-area-inset-bottom);
-			z-index: 60;
+			z-index: var(--z-drawer);
 			transform: translateX(-100%);
 			transition: transform 0.2s ease;
 			background: hsl(var(--background) / 0.85);
@@ -459,7 +459,7 @@
 			right: 0;
 			bottom: 0;
 			background: rgba(0, 0, 0, 0.4);
-			z-index: 55;
+			z-index: var(--z-drawer-backdrop);
 			border: none;
 			cursor: pointer;
 			touch-action: none;

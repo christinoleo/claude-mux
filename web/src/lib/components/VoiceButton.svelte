@@ -394,7 +394,7 @@
 		border: 1px solid #333;
 		border-radius: 6px;
 		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
-		z-index: 50;
+		z-index: var(--z-floating);
 	}
 
 	.voice-meter {
@@ -452,7 +452,7 @@
 		box-shadow:
 			0 6px 18px rgba(0, 0, 0, 0.4),
 			0 0 0 1px rgba(220, 38, 38, 0.15);
-		z-index: 20;
+		z-index: var(--z-floating);
 		white-space: nowrap;
 		animation: voice-cancel-rise 180ms cubic-bezier(0.2, 0.9, 0.2, 1);
 	}

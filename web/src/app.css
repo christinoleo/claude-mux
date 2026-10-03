@@ -5,6 +5,21 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /*
+   * The page's one stacking order, lowest first. Anything that sits above the
+   * page itself takes its z-index from here; tests/web/z-index.test.ts fails
+   * on a raw number above 10, which is only for ordering inside a component.
+   *
+   * Floating content (popovers, tooltips, menus) outranks a modal because it
+   * can only be opened from inside whatever is on top, and both outrank the
+   * mobile drawer, which a popover opened from the drawer has to clear.
+   */
+  --z-drawer-backdrop: 100;
+  --z-drawer: 110;
+  --z-modal: 200;
+  --z-floating: 300;
+  --z-overlay: 400;
+
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.147 0.004 49.25);

@@ -103,7 +103,6 @@
 	:global(.server-picker-content) {
 		width: 220px;
 		padding: 6px;
-		z-index: 70;
 	}
 
 	.picker-header {
