@@ -576,9 +576,8 @@
 		available: 'Update available',
 		failed: 'Auto-update failed'
 	} as const;
-	const queueCount = $derived(currentSession?.queue?.length ?? 0);
-	const queueHeadText = $derived(currentSession?.queue?.[0]?.text ?? null);
-	const queueHeadKind = $derived(currentSession?.queue?.[0]?.kind ?? null);
+	const queue = $derived(currentSession?.queue ?? []);
+	const queueCount = $derived(queue.length);
 	/** Shown only in the transcript, which is the view that streams them. */
 	/** Every subagent the transcript knows; the rail decides which to show. */
 	const railAgents = $derived(
@@ -2002,9 +2001,7 @@
 						sessionState={currentSession?.state ?? null}
 						currentAction={currentSession?.current_action ?? null}
 						activity={currentSession?.pane_activity ?? null}
-						{queueCount}
-						{queueHeadText}
-						{queueHeadKind}
+						{queue}
 						paneQueue={currentSession?.pane_queue ?? []}
 						{suggestion}
 						onAcceptSuggestion={() => void acceptSuggestion()}

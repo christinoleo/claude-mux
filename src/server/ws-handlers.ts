@@ -45,13 +45,15 @@ type LivePaneFields = {
 	context_pct: number | null;
 	/** The GitHub issue a maestro worker owns, as last read; null otherwise. */
 	issue: IssueInfo | null;
+	/** Every message claude-mux holds for the pane, next out first. */
+	queue: QueuedMessageInfo[];
 };
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
 import { getQueue, enqueue } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
-import type { IssueInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
+import type { IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 import { inboxTickets, issueFor, watchRepos } from './github.js';
 
 // ============================================================================
@@ -472,6 +474,10 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 			// One stat per session per tick; the file is only read when it grew.
 			context_pct: peekContextPercent(s),
 			issue: issueFor(s.git_root, s.maestro_issue),
+			// Whole, so the composer can draw and edit it without polling the queue route.
+			queue: s.tmux_target
+				? getQueue(s.tmux_target).map(({ text, queuedAt, kind }) => ({ text, queuedAt, kind }))
+				: [],
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {
@@ -703,18 +709,6 @@ export class SessionsWsManager {
 		}
 	}
 
-	/**
-	 * Merge the send queue into each session object, whole, so the composer can
-	 * draw and edit it live without polling the queue route.
-	 */
-	private mergeQueues(sessions: Session[]): void {
-		for (const session of sessions) {
-			const queue = session.tmux_target ? getQueue(session.tmux_target) : [];
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			(session as any).queue = queue.map(({ text, queuedAt, kind }) => ({ text, queuedAt, kind }));
-		}
-	}
-
 	private async createSessionsMessageAsync(type: 'sessions' | 'connected') {
 		const sessions = await getEnrichedSessionsAsync();
 		// The server remembers every directory a session has run in, so the
@@ -763,9 +757,6 @@ export class SessionsWsManager {
 		this.createSessionsMessageAsync('sessions')
 			.then((message) => {
 				// (queue draining runs in its own server loop — see message-queue.ts ensureDrainLoop)
-
-				// Merge queue counts into session data for broadcast
-				this.mergeQueues(message.sessions);
 
 				// The inbox changes on GitHub's clock, not the sessions', so it counts too.
 				const hash = JSON.stringify([message.sessions, message.inbox]);

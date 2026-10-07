@@ -13,11 +13,10 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	const prompt = composePrompt(target, rawText, body.attachments);
 	if (!prompt.ok) return json({ error: prompt.error }, { status: 400 });
-	const finalText = prompt.text;
 
 	try {
-		if (finalText) {
-			sendTextToPane(target, finalText, { appendEnter: !raw });
+		if (prompt.text) {
+			sendTextToPane(target, prompt.text, { appendEnter: !raw });
 			if (!raw && !(await confirmSubmitted(target))) {
 				return json(
 					{ error: 'Claude Code did not take the message; it is still in its input box' },

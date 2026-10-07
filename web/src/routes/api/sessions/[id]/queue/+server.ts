@@ -2,25 +2,20 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
 	enqueue,
-	getQueue,
 	removeFromQueue,
 	reorderQueue,
 	clearQueue,
-	editQueueItem
+	editQueueItem,
+	type QueuedMessage
 } from '$shared/server/message-queue.js';
 import { composePrompt } from '$lib/server/prompt.js';
 import { broadcastSessions } from '$lib/server/ws-managers.js';
 
 /** Answer with the queue, and push it to every dashboard without waiting for the poll. */
-function changed(queue: unknown) {
+function changed(queue: QueuedMessage[]) {
 	broadcastSessions();
 	return json({ queue });
 }
-
-export const GET: RequestHandler = async ({ params }) => {
-	const target = decodeURIComponent(params.id);
-	return json({ queue: getQueue(target) });
-};
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);

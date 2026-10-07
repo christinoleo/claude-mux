@@ -78,6 +78,8 @@ const QueuedMessageSchema = z.object({
 	queuedAt: z.number(),
 	kind: z.enum(['user', 'control'])
 });
+/** One message in claude-mux's send queue, as the broadcast carries it. */
+export type QueuedMessageInfo = z.infer<typeof QueuedMessageSchema>;
 
 const InboxTicketSchema = z.object({
 	repo: z.string(),

@@ -6,10 +6,10 @@ import {
 	type PaneChoice,
 	type PaneActivity,
 	type IssueInfo,
-	type InboxTicket
+	type InboxTicket,
+	type QueuedMessageInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
-import type { QueuedMessage } from '$shared/server/message-queue.js';
 
 const savedProjectsStore = createPersisted<string[]>('claude-mux-projects', []);
 
@@ -38,7 +38,7 @@ export interface Session {
 	linked_to?: string | null;
 	rc_url?: string | null;
 	/** Messages claude-mux holds for the pane, next out first. */
-	queue?: QueuedMessage[];
+	queue?: QueuedMessageInfo[];
 	display_name?: string | null;
 	/** Text in the pane's prompt box right now (live, never persisted). */
 	draft_input?: string | null;
@@ -79,8 +79,16 @@ function sessionChanged(a: Session, b: Session): boolean {
 	const bQueue = b.pane_queue;
 	if ((aQueue?.length ?? 0) !== (bQueue?.length ?? 0)) return true;
 	if (aQueue && bQueue && aQueue.some((msg, i) => msg !== bQueue[i])) return true;
-	// The server queue: likewise fresh each tick, and short.
-	if (JSON.stringify(a.queue ?? []) !== JSON.stringify(b.queue ?? [])) return true;
+	// The server queue: likewise fresh each tick, and almost always empty.
+	const aSent = a.queue ?? [];
+	const bSent = b.queue ?? [];
+	if (aSent.length !== bSent.length) return true;
+	if (
+		aSent.some(
+			(m, i) => m.text !== bSent[i].text || m.queuedAt !== bSent[i].queuedAt || m.kind !== bSent[i].kind
+		)
+	)
+		return true;
 	// Pane choice: likewise a fresh object each tick, and it only changes when
 	// the dialog does. Every field counts — a ticked checkbox, a row turning
 	// into a text field, a note the dialog adds — so compare the whole thing

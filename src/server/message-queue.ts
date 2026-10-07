@@ -18,6 +18,7 @@ import { CLAUDE_MUX_DIR } from '../utils/paths.js';
 import { writeFileAtomic } from '../utils/atomic-write.js';
 import { isPidAlive } from '../utils/pid.js';
 import { capturePaneContentAsync, readPromptBox } from '../tmux/pane.js';
+import type { QueuedMessageInfo } from '../types/ws-messages.js';
 
 // ============================================================================
 // Types
@@ -29,12 +30,9 @@ import { capturePaneContentAsync, readPromptBox } from '../tmux/pane.js';
  * own behalf (today: mirroring a dashboard rename as `/rename`). The UI needs
  * the difference so it can stop reporting its own bookkeeping as your backlog.
  */
-export type QueuedMessageKind = 'user' | 'control';
+export type QueuedMessageKind = QueuedMessageInfo['kind'];
 
-export interface QueuedMessage {
-	text: string;
-	queuedAt: number;
-	kind: QueuedMessageKind;
+export interface QueuedMessage extends QueuedMessageInfo {
 	/** Failed send attempts, so a message aimed at a dead pane gives up. */
 	attempts?: number;
 }

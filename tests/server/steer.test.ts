@@ -37,26 +37,27 @@ async function settle<T>(promise: Promise<T>): Promise<T> {
 }
 
 const pasted = () => tmuxCalls.some((c) => c[0] === 'paste-buffer');
-const chorded = () => tmuxCalls.some((c) => c.join(' ') === CHORD.join(' '));
+const callIndex = (args: string[]) => tmuxCalls.findIndex((c) => c.join(' ') === args.join(' '));
+const chorded = () => callIndex(CHORD) > -1;
+
+beforeEach(() => {
+	vi.useFakeTimers();
+	tmuxCalls.length = 0;
+	boxText = null;
+	clearQueue(TARGET);
+});
+
+afterEach(() => {
+	clearQueue(TARGET);
+	vi.useRealTimers();
+});
 
 describe('steer', () => {
-	beforeEach(() => {
-		vi.useFakeTimers();
-		tmuxCalls.length = 0;
-		boxText = null;
-		clearQueue(TARGET);
-	});
-
-	afterEach(() => {
-		clearQueue(TARGET);
-		vi.useRealTimers();
-	});
-
 	it('pastes into a busy pane, then sends the send-now chord', async () => {
 		expect(await settle(steerIntoPane(TARGET, 'look at this', true))).toBe(true);
 		expect(pasted()).toBe(true);
-		const enter = tmuxCalls.findIndex((c) => c.join(' ') === `send-keys -t ${TARGET} Enter`);
-		const chord = tmuxCalls.findIndex((c) => c.join(' ') === CHORD.join(' '));
+		const enter = callIndex(['send-keys', '-t', TARGET, 'Enter']);
+		const chord = callIndex(CHORD);
 		expect(enter).toBeGreaterThan(-1);
 		expect(chord).toBeGreaterThan(enter);
 	});
@@ -75,18 +76,6 @@ describe('steer', () => {
 });
 
 describe('promote to steer', () => {
-	beforeEach(() => {
-		vi.useFakeTimers();
-		tmuxCalls.length = 0;
-		boxText = null;
-		clearQueue(TARGET);
-	});
-
-	afterEach(() => {
-		clearQueue(TARGET);
-		vi.useRealTimers();
-	});
-
 	it('takes the item out of the queue and steers it', async () => {
 		enqueue(TARGET, 'first');
 		enqueue(TARGET, 'second');
@@ -116,8 +105,6 @@ describe('promote to steer', () => {
 });
 
 describe('edit a queued item', () => {
-	beforeEach(() => clearQueue(TARGET));
-
 	it('replaces the text in place, keeping position, kind and time', () => {
 		enqueue(TARGET, 'first');
 		enqueue(TARGET, '/rename x', 'control');
