@@ -51,4 +51,71 @@ describe("readUpdateNotice", () => {
   it("finds nothing in a footer without one", () => {
     expect(readUpdateNotice(foot("  ? for shortcuts"))).toBeNull();
   });
+
+  describe("fullscreen layout", () => {
+    const WIDE = "─".repeat(200);
+    // Captured from a 200-column fullscreen pane: the notice sits right-aligned
+    // above the box's top separator, and the footer below the box is plain.
+    const fullscreen = (above: string) =>
+      [
+        "",
+        "✢ Moonwalking… (9m 24s · ↓ 36.2k tokens)",
+        above,
+        WIDE,
+        "❯ ",
+        WIDE,
+        "  claude-mux Opus 5.5 [█░░░░ 18%] christinoleo@omarchy",
+        "  ⏵⏵ bypass permissions on · 1 shell · ← for agents",
+      ].join("\n");
+
+    it("reads the notice drawn above the prompt box", () => {
+      expect(readUpdateNotice(fullscreen(" ".repeat(157) + "Update available! Run: mise upgrade claude"))).toEqual({
+        kind: "available",
+        text: "Update available! Run: mise upgrade claude",
+      });
+    });
+
+    it("reads the notice beside the agents panel, cut at the panel's border", () => {
+      // Same pane with the agents panel open: the conversation column ends at
+      // the panel's border, so the notice is right-aligned to column 110.
+      const pane = [
+        "✻ Cooked for 10m 45s · done 12:48 AM" + " ".repeat(73) + "│" + "─".repeat(88),
+        " ".repeat(66) + "Update available! Run: mise upgrade claude  │",
+        "─".repeat(195) + " tui ─",
+        "❯ ok, ping me when the worker finishes",
+        WIDE,
+        "  claude-mux Opus 5.5 [█░░░░ 19%] christinoleo@omarchy",
+      ].join("\n");
+      expect(readUpdateNotice(pane)).toEqual({
+        kind: "available",
+        text: "Update available! Run: mise upgrade claude",
+      });
+    });
+
+    it("ignores the agents panel's own text, past the border", () => {
+      const pane = [
+        " ".repeat(110) + "│ worker: Update available! Run: x",
+        " ".repeat(110) + "│",
+        WIDE,
+        "❯ ",
+        WIDE,
+      ].join("\n");
+      expect(readUpdateNotice(pane)).toBeNull();
+    });
+
+    it("ignores an indented reply line that stops short of the right edge", () => {
+      const rule = "─".repeat(80);
+      const pane = [" ".repeat(26) + "Update available! Run: npm i", rule, "❯ ", rule].join("\n");
+      expect(readUpdateNotice(pane)).toBeNull();
+    });
+
+    it("ignores a left-aligned line above the box that quotes the notice", () => {
+      expect(readUpdateNotice(fullscreen("  Claude said: Update available! Run: mise upgrade claude"))).toBeNull();
+    });
+
+    it("ignores a right-aligned notice separated from the box by a blank line", () => {
+      const pane = fullscreen(" ".repeat(157) + "Update available! Run: mise upgrade claude").replace(WIDE, "\n" + WIDE);
+      expect(readUpdateNotice(pane)).toBeNull();
+    });
+  });
 });

@@ -43,6 +43,11 @@ export type TranscriptEntry =
   /** A cross-session (agent-to-agent) message from another Claude session. */
   | { kind: "peer"; id: string; ts: number; text: string; from?: string }
   /**
+   * Claude Code's own record that the user pressed Escape. It is logged as a
+   * user line but is the harness's note, not something anyone typed.
+   */
+  | { kind: "interrupt"; id: string; ts: number; text: string }
+  /**
    * The conversation was compacted here: everything above was folded into
    * the summary Claude Code wrote, which arrives as the next user line and
    * is attached to this entry rather than shown as a prompt.
@@ -128,6 +133,15 @@ const ANSI_SGR = /\x1b\[[0-9;]*m/g;
  * every version, so it is recognised by shape too.
  */
 const LOCAL_CAVEAT = /^<local-command-caveat>/;
+
+/** What Claude Code logs when Escape stops a turn, with or without "for tool use". */
+const INTERRUPT_MARKER = /^\[Request interrupted (by user[^\]]*)\]$/;
+
+/** The note an interrupt marker reads as, or null when the text is not one. */
+function interruptNote(text: string): string | null {
+  const m = INTERRUPT_MARKER.exec(text.trim());
+  return m ? `Interrupted ${m[1]}` : null;
+}
 
 /**
  * Read what a local command printed out of the user line that carries it.
@@ -515,6 +529,8 @@ export class TranscriptBuilder {
       if (originKind === undefined && /^<(task-notification|system-reminder)/.test(content.trim()))
         return [];
       if (LOCAL_CAVEAT.test(content.trimStart())) return [];
+      const interrupt = interruptNote(content);
+      if (interrupt) return [this.upsert({ kind: "interrupt", id: uuid, ts, text: interrupt })];
       // A local command's output rides under the command it answers, which is
       // the line logged just before it.
       const output = parseLocalOutput(content);
@@ -605,7 +621,10 @@ export class TranscriptBuilder {
         if (text && text.trim().length > 0) promptTexts.push(text);
       }
     }
-    if (promptTexts.length > 0) {
+    const interrupt = promptTexts.length === 1 ? interruptNote(promptTexts[0]) : null;
+    if (interrupt) {
+      changed.push(this.upsert({ kind: "interrupt", id: uuid, ts, text: interrupt }));
+    } else if (promptTexts.length > 0) {
       changed.push(
         this.upsert({
           kind: "user",
