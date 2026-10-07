@@ -17,6 +17,7 @@
 
 import { readContextUsage, type ContextUsage } from "./context.js";
 import { asRecord, readString } from "./json.js";
+import { parseMcpToolName } from "./mcp.js";
 
 export type TranscriptEntry =
   | {
@@ -81,7 +82,8 @@ export type TranscriptEntry =
       name: string;
       summary: string;
       input: string;
-      result?: { ok: boolean; output: string };
+      /** `images` are files Claude Code saved for image results (screenshots). */
+      result?: { ok: boolean; output: string; images?: string[] };
       /** Git-style hunks from the Edit/Write sidecar's structuredPatch. */
       patch?: { file: string; hunks: PatchHunk[] };
     };
@@ -244,23 +246,78 @@ function parseTimestamp(value: unknown): number {
   return Number.isFinite(ts) ? ts : Date.now();
 }
 
-/** One-line human summary of a tool invocation: name + its key argument. */
+/** Arguments that name what a built-in tool call acts on, best first. */
+const BUILTIN_KEY_ARGS = [
+  "command",
+  "file_path",
+  "pattern",
+  "url",
+  "query",
+  "description",
+  "prompt",
+  "skill",
+];
+/** Arguments that say most about an MCP call, best first. */
+const MCP_KEY_ARGS = [
+  "url",
+  "uid",
+  "key",
+  "function",
+  "query",
+  "command",
+  "file_path",
+  "path",
+  "selector",
+  "text",
+  "name",
+  "title",
+];
+/** The fallback argument is the first string short enough to read at a glance. */
+const MCP_SHORT_ARG = 80;
+
+function firstString(input: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = readString(input[key]);
+    if (value?.trim()) return value;
+  }
+  return null;
+}
+
+function shortString(input: Record<string, unknown>): string | null {
+  for (const value of Object.values(input)) {
+    if (typeof value === "string" && value.trim() && value.length <= MCP_SHORT_ARG) return value;
+  }
+  return null;
+}
+
+/**
+ * One-line human summary of a tool invocation: name + its key argument. An
+ * MCP tool reads as its bare tool name; the server is left to the caller,
+ * which can parse it out of the raw name with parseMcpToolName.
+ */
 export function summarizeToolUse(rawName: string, input: Record<string, unknown>): string {
-  // Same display convention as the hook's formatToolAction: MCP tools read as
-  // their bare name, not mcp__<server>__<tool>.
-  const name = rawName.replace(/^mcp__[^_]+__/, "");
-  const key =
-    readString(input.command) ??
-    readString(input.file_path) ??
-    readString(input.pattern) ??
-    readString(input.url) ??
-    readString(input.query) ??
-    readString(input.description) ??
-    readString(input.prompt) ??
-    readString(input.skill);
+  const mcp = parseMcpToolName(rawName);
+  const name = mcp?.tool ?? rawName;
+  const key = mcp
+    ? (firstString(input, MCP_KEY_ARGS) ?? shortString(input))
+    : firstString(input, BUILTIN_KEY_ARGS);
   if (!key) return name;
   const flat = key.replace(/\s+/g, " ").trim();
   return `${name}: ${flat.length > 120 ? `${flat.slice(0, 117)}...` : flat}`;
+}
+
+/** Claude Code saves an image result to disk and says where in a text part. */
+const IMAGE_SOURCE = /^\[Image: source: (.+?)(?:, original [^\]]*)?\]/;
+
+/** The saved files behind a tool result's images, in order. */
+function toolResultImages(blockContent: unknown): string[] {
+  if (!Array.isArray(blockContent)) return [];
+  const paths: string[] = [];
+  for (const part of blockContent) {
+    const match = IMAGE_SOURCE.exec(readString(asRecord(part)?.text) ?? "");
+    if (match) paths.push(match[1].trim());
+  }
+  return paths;
 }
 
 /** Flatten a tool_result / toolUseResult payload into displayable text. */
@@ -277,16 +334,23 @@ function toolResultText(sidecar: unknown, blockContent: unknown): string {
   }
   if (typeof blockContent === "string") return blockContent;
   if (Array.isArray(blockContent)) {
+    // An image Claude Code saved to disk travels as `images` and is drawn as
+    // one, so neither it nor the note naming its file belongs in the text.
+    const saved = toolResultImages(blockContent).length;
+    let unsaved = blockContent.filter((part) => asRecord(part)?.type === "image").length - saved;
     const parts = blockContent
       .map((part) => {
         const rec = asRecord(part);
+        const text = readString(rec?.text) ?? "";
         // Screenshots and other image results carry no text; name the file the
         // sidecar saved instead of rendering an empty result.
-        if (rec?.type === "image") return readString(sc?.file) ?? "[image]";
-        return readString(rec?.text) ?? "";
+        if (rec?.type === "image") {
+          return unsaved-- > 0 ? (readString(sc?.file) ?? "[image]") : "";
+        }
+        return IMAGE_SOURCE.test(text) ? "" : text;
       })
       .filter((text) => text.length > 0);
-    if (parts.length > 0) return parts.join("\n");
+    if (parts.length > 0 || saved > 0) return parts.join("\n");
   }
   if (sc) {
     try {
@@ -609,10 +673,15 @@ export class TranscriptBuilder {
         // only for failures.
         const output =
           patch && rec.is_error !== true ? "" : toolResultText(record.toolUseResult, rec.content);
+        const images = toolResultImages(rec.content);
         changed.push(
           this.upsert({
             ...entry,
-            result: { ok: rec.is_error !== true, output: truncate(output, RESULT_CHAR_LIMIT) },
+            result: {
+              ok: rec.is_error !== true,
+              output: truncate(output, RESULT_CHAR_LIMIT),
+              ...(images.length > 0 ? { images } : {}),
+            },
             ...(patch ? { patch } : {}),
           }),
         );

@@ -3,6 +3,7 @@
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { createPersisted } from '$lib/stores/persisted';
 	import { toolIcon } from '$lib/tool-icons';
+	import ToolLabel from '$lib/components/ToolLabel.svelte';
 
 	let {
 		agents,
@@ -236,7 +237,7 @@
 								{#each tail as act (act.id)}
 									<li class:pending={act.ok === null} class:failed={act.ok === false}>
 										<iconify-icon icon={toolIcon(act.name)}></iconify-icon>
-										<span>{act.summary}</span>
+										<span><ToolLabel name={act.name} summary={act.summary} /></span>
 									</li>
 								{/each}
 							</ol>

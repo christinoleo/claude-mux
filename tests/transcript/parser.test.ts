@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { TranscriptBuilder, summarizeToolUse } from "../../src/transcript/parser.js";
+import { parseMcpToolName } from "../../src/transcript/mcp.js";
 
 function line(obj: unknown): string {
   return JSON.stringify(obj);
@@ -791,5 +792,162 @@ describe("summarizeToolUse", () => {
     expect(summarizeToolUse("Edit", { file_path: "/a/b.ts" })).toBe("Edit: /a/b.ts");
     expect(summarizeToolUse("Task", { description: "Explore repo" })).toBe("Task: Explore repo");
     expect(summarizeToolUse("Weird", {})).toBe("Weird");
+  });
+});
+
+describe("summarizeToolUse for MCP tools", () => {
+  it("names the tool and its key argument, leaving the server to the caller", () => {
+    expect(
+      summarizeToolUse("mcp__brave-windows__navigate_page", { type: "url", url: "https://x.dev" }),
+    ).toBe("navigate_page: https://x.dev");
+    expect(summarizeToolUse("mcp__chrome-devtools__click", { uid: "1_23" })).toBe("click: 1_23");
+    expect(summarizeToolUse("mcp__brave-windows__press_key", { key: "Enter" })).toBe(
+      "press_key: Enter",
+    );
+  });
+
+  it("flattens a function to one line", () => {
+    expect(
+      summarizeToolUse("mcp__brave-windows__evaluate_script", {
+        function: "() => {\n  return document.title;\n}",
+      }),
+    ).toBe("evaluate_script: () => { return document.title; }");
+  });
+
+  it("falls back to the first short string argument", () => {
+    expect(
+      summarizeToolUse("mcp__weird_server__do_thing", {
+        count: 3,
+        mode: "fast",
+        note: "x".repeat(200),
+      }),
+    ).toBe("do_thing: fast");
+    expect(summarizeToolUse("mcp__brave-windows__take_screenshot", { pageId: 36 })).toBe(
+      "take_screenshot",
+    );
+  });
+
+  it("splits server names that hold single underscores", () => {
+    expect(summarizeToolUse("mcp__claude_ai_Claude_Docs__batch", { opId: "a1" })).toBe("batch: a1");
+  });
+});
+
+describe("parseMcpToolName", () => {
+  it("splits on the double underscore", () => {
+    expect(parseMcpToolName("mcp__brave-windows__navigate_page")).toEqual({
+      server: "brave-windows",
+      tool: "navigate_page",
+    });
+    expect(parseMcpToolName("mcp__claude_ai_Claude_Docs__batch")).toEqual({
+      server: "claude_ai_Claude_Docs",
+      tool: "batch",
+    });
+  });
+
+  it("returns null for built-in tools and malformed names", () => {
+    expect(parseMcpToolName("Bash")).toBeNull();
+    expect(parseMcpToolName("mcp__server")).toBeNull();
+    expect(parseMcpToolName("mcp____tool")).toBeNull();
+  });
+});
+
+describe("image results", () => {
+  it("records the files Claude Code saved for a screenshot", () => {
+    const builder = new TranscriptBuilder();
+    const shot = "/home/u/.claude/projects/p/s/tool-results/mcp-brave-windows-blob-1.png";
+    builder.feed(
+      line({
+        type: "assistant",
+        uuid: "a1",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          id: "msg_1",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_1",
+              name: "mcp__brave-windows__take_screenshot",
+              input: { pageId: 36 },
+            },
+          ],
+        },
+      }),
+    );
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u1",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: [
+                { type: "text", text: "Took a screenshot of the current page's viewport." },
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "iVBOR" },
+                },
+                { type: "text", text: `[Image: source: ${shot}, original 2368x1328]` },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    const entry = builder.entries[0];
+    expect(entry.kind).toBe("tool");
+    if (entry.kind === "tool") {
+      expect(entry.summary).toBe("take_screenshot");
+      expect(entry.result?.images).toEqual([shot]);
+      expect(entry.result?.output).toBe("Took a screenshot of the current page's viewport.");
+    }
+  });
+
+  it("keeps a comma in the saved path and a placeholder for an image not saved", () => {
+    const builder = new TranscriptBuilder();
+    const shot = "/home/u/.claude/projects/-home-u-a,b/s/tool-results/blob-2.png";
+    builder.feed(
+      line({
+        type: "assistant",
+        uuid: "a1",
+        timestamp: TS,
+        message: {
+          role: "assistant",
+          id: "msg_1",
+          content: [{ type: "tool_use", id: "toolu_1", name: "mcp__x__shot", input: {} }],
+        },
+      }),
+    );
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u1",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: [
+                { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } },
+                { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } },
+                { type: "text", text: `[Image: source: ${shot}]` },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    const entry = builder.entries[0];
+    if (entry.kind === "tool") {
+      expect(entry.result?.images).toEqual([shot]);
+      // Two images, one saved: the other keeps its placeholder.
+      expect(entry.result?.output).toBe("[image]");
+    }
   });
 });
