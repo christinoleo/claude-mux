@@ -26,6 +26,7 @@ import {
 } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { parseMcpToolName } from "../transcript/mcp.js";
 
 // Paths
 const LEGACY_CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
@@ -332,7 +333,7 @@ function formatToolAction(
   toolName: string,
   toolInput?: HookInput["tool_input"]
 ): string {
-  const name = toolName.replace(/^mcp__[^_]+__/, "");
+  const name = parseMcpToolName(toolName)?.tool ?? toolName;
 
   switch (toolName) {
     case "Bash":

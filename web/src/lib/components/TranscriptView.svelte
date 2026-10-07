@@ -4,6 +4,7 @@
 	import { keysForAnswer } from '$shared/tmux/answer-keys.js';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { toolIcon } from '$lib/tool-icons';
+	import ToolLabel from '$lib/components/ToolLabel.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { QueuedMessageKind } from '$shared/server/message-queue.js';
@@ -615,13 +616,13 @@
 							<span class="agent-name">{sub.description ?? entry.summary}</span>
 							{#if sub.agentType}<span class="agent-type">{sub.agentType}</span>{/if}
 							{#if doing}
-								<span class="agent-doing mono">{doing.summary}</span>
+								<span class="agent-doing mono"><ToolLabel name={doing.name} summary={doing.summary} /></span>
 							{:else if sub.activity.length > 0}
 								<span class="agent-count">{sub.activity.length} tools</span>
 							{/if}
 						</span>
 					{:else}
-						<span class="row-summary mono">{entry.summary}</span>
+						<span class="row-summary mono"><ToolLabel name={entry.name} summary={entry.summary} /></span>
 					{/if}
 					{#if entry.result}
 						<iconify-icon
@@ -646,7 +647,7 @@
 							{#each sub.activity as act (act.id)}
 								<li class:pending={act.ok === null} class:failed={act.ok === false}>
 									<iconify-icon class="tool-icon" icon={toolIcon(act.name)}></iconify-icon>
-									<span class="mono">{act.summary}</span>
+									<span class="mono"><ToolLabel name={act.name} summary={act.summary} /></span>
 								</li>
 							{/each}
 						</ol>
@@ -689,7 +690,15 @@
 					{#if showResult && entry.result}
 						<section class="pane result" class:ok={entry.result.ok} class:fail={!entry.result.ok}>
 							<header class="pane-head">{entry.result.ok ? 'Result' : 'Error'}</header>
-							<pre>{entry.result.output || '(no output)'}</pre>
+							{#each entry.result.images ?? [] as path, i (i)}
+								{@const src = `/api/files/image?path=${encodeURIComponent(path)}`}
+								<a class="result-image" href={src} target="_blank" rel="noopener">
+									<img {src} alt={path.split('/').pop()} loading="lazy" />
+								</a>
+							{/each}
+							{#if entry.result.output || !entry.result.images}
+								<pre>{entry.result.output || '(no output)'}</pre>
+							{/if}
 						</section>
 					{/if}
 					</div>
@@ -1294,6 +1303,17 @@
 	}
 	.pane.result.fail .pane-head {
 		color: #d16b6b;
+	}
+	.result-image {
+		display: block;
+		margin-bottom: 6px;
+	}
+	.result-image img {
+		display: block;
+		max-width: 100%;
+		max-height: 320px;
+		border: 1px solid #221e1a;
+		border-radius: 4px;
 	}
 	.pane pre {
 		font-family: var(--mono);
