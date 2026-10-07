@@ -8,6 +8,9 @@
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { QueuedMessageKind } from '$shared/server/message-queue.js';
+	import type { PaneActivity } from '$shared/types/ws-messages.js';
+	import { untrack } from 'svelte';
+	import { formatSpinnerElapsed } from '$lib/format';
 	import {
 		parseGrillRound,
 		composeGrillReply,
@@ -24,6 +27,7 @@
 		loaded,
 		sessionState = null,
 		currentAction = null,
+		activity = null,
 		queueCount = 0,
 		queueHeadText = null,
 		queueHeadKind = null,
@@ -47,6 +51,8 @@
 		/** Live session state from the hooks (real-time, unlike the JSONL which lags). */
 		sessionState?: 'busy' | 'idle' | 'waiting' | 'permission' | null;
 		currentAction?: string | null;
+		/** Claude Code's spinner line, split into its parts; null outside tmux or between frames. */
+		activity?: PaneActivity | null;
 		/** Messages waiting in claude-mux's own send queue. */
 		queueCount?: number;
 		/** The next queued message's text, so the row can name what it is waiting on. */
@@ -88,6 +94,38 @@
 		 */
 		onSendReply?: (text: string) => Promise<boolean>;
 	} = $props();
+
+	// ── live activity line ───────────────────────────────────────────────
+	// The pane's elapsed count reaches us once per poll; between polls it
+	// ticks here. A reading that agrees with the local count to within a
+	// couple of seconds is poll lag, not news, and leaves the clock alone —
+	// otherwise the count would step back each time a late frame arrives.
+
+	let clock = $state<{ base: number; at: number } | null>(null);
+	let now = $state(Date.now());
+
+	$effect(() => {
+		const s = activity?.elapsed_s ?? null;
+		untrack(() => {
+			if (s === null) clock = null;
+			else if (!clock || Math.abs(s - shownElapsed(clock, Date.now())) > 2)
+				clock = { base: s, at: Date.now() };
+		});
+	});
+
+	// Keyed on whether a clock runs, not on the clock, so a resync keeps the same interval.
+	const ticking = $derived(clock !== null);
+	$effect(() => {
+		if (!ticking) return;
+		const id = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(id);
+	});
+
+	function shownElapsed(c: { base: number; at: number }, t: number): number {
+		return c.base + Math.max(0, Math.floor((t - c.at) / 1000));
+	}
+
+	const elapsedText = $derived(clock ? formatSpinnerElapsed(shownElapsed(clock, now)) : null);
 
 	/** Entries as drawn: runs of routine tool calls fold into one summary row. */
 	const items = $derived(groupToolRuns(entries));
@@ -769,7 +807,21 @@
 	{#if sessionState === 'busy'}
 		<div class="live-row busy">
 			<SessionStateIndicator state="busy" />
-			<span class="live-text mono">{currentAction ?? 'Working…'}</span>
+			{#if activity}
+				<span class="live-verb mono">{activity.verb}</span>
+				<span class="live-chips">
+					{#if activity.doing}<span class="live-chip doing">{activity.doing}</span>{/if}
+					{#if elapsedText}<span class="live-chip mono">{elapsedText}</span>{/if}
+					{#if activity.tokens}
+						<span class="live-chip mono"
+							>{activity.tokens.dir === 'up' ? '↑' : '↓'} {activity.tokens.count} tokens</span
+						>
+					{/if}
+					{#if activity.thinking}<span class="live-chip">{activity.thinking}</span>{/if}
+				</span>
+			{:else}
+				<span class="live-text mono">{currentAction ?? 'Working…'}</span>
+			{/if}
 		</div>
 	{:else if sessionState === 'permission'}
 		<div class="live-row attention" style="color: {sessionStateVisual('permission').color}">
@@ -1981,6 +2033,33 @@
 	.queue-more {
 		margin-left: 6px;
 		color: #57534e;
+	}
+	.live-verb {
+		flex: none;
+		color: #d6d3d1;
+	}
+	.live-chips {
+		display: flex;
+		gap: 5px;
+		min-width: 0;
+		overflow: hidden;
+	}
+	.live-chip {
+		flex: none;
+		padding: 0 7px;
+		border: 1px solid #2f2f36;
+		border-radius: 9px;
+		font-size: 11.5px;
+		line-height: 18px;
+		color: #78716c;
+		white-space: nowrap;
+	}
+	.live-chip.doing {
+		flex: 0 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		color: #a8a29e;
 	}
 	.live-text {
 		overflow: hidden;

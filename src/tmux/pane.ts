@@ -118,30 +118,93 @@ export async function capturePaneContentAsync(target: string, withColor = false)
 /**
  * Claude Code's activity line: a spinner glyph, then what it is doing, ending
  * in "…" — "✻ Julienning… (1m 39s", "⠋ Compacting conversation…". Older
- * builds spin a braille glyph, newer ones the star family; the finished form
- * ("✻ Baked for 33s · done") has no "…" and is not one.
+ * builds spin a braille glyph, newer ones the star family, whose frames
+ * include a plain "*" (only read at column 0, where an answer's bullet never
+ * sits); the finished form ("✻ Baked for 33s · done") has no "…" and is not
+ * one.
  *
  * Only this shape counts as work. A braille or star glyph elsewhere in the
  * pane — a CLI's own progress bar left in tool output, a bullet in Claude's
  * answer — is not a spinner, and reading it as one held sessions at busy after
  * they had stopped.
  */
-const ACTIVITY_LINE = /^\s*[⠀-⣿✻✢✳✶✽·]\s+(\S[^…]*…)/;
+const ACTIVITY_LINE = /^(?:\s*[⠀-⣿✻✢✳✶✽·]|\*)\s+(\S[^…]*…)\s*(?:\(([^)]*)(\))?)?/;
 
 /** Lines from the foot of the pane that a spinner can sit in: above the prompt box and its footer. */
 const ACTIVITY_WINDOW = 12;
+
+/**
+ * Everything the spinner line says, split into its parts:
+ * `✻ Moonwalking… (running PostToolUse hook · 5m 19s · ↓ 21.3k tokens · thought for 9s)`.
+ * Any part may be missing; the detail in brackets comes and goes as the turn
+ * moves on, and a narrow pane cuts it short.
+ */
+export interface PaneActivity {
+  /** The spinner's verb, ellipsis included: "Moonwalking…". */
+  verb: string;
+  /** What the turn is doing right now, when the line names it: "running PostToolUse hook". */
+  doing: string | null;
+  /** Seconds since the turn started, as the line counts them. */
+  elapsed_s: number | null;
+  /** Tokens so far, and which way they went: ↓ received, ↑ sent. */
+  tokens: { dir: "down" | "up"; count: string } | null;
+  /** "thinking" while Claude thinks, "thought for 9s" once it has. */
+  thinking: string | null;
+}
+
+const ELAPSED_PART = /^(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s)?$/;
+const TOKENS_PART = /^([↓↑])\s*([\d.]+[kKmM]?)\s+tokens?$/;
+const THINKING_PART = /^(?:thinking|thought for)\b/i;
+/** Key hints the detail sometimes ends with; they say nothing about the turn. */
+const HINT_PART = /\b(?:esc|ctrl\+\w) to\b/i;
+
+function parseActivityDetail(detail: string, closed: boolean): Omit<PaneActivity, "verb"> {
+  const out: Omit<PaneActivity, "verb"> = { doing: null, elapsed_s: null, tokens: null, thinking: null };
+  const parts = detail.split("·");
+  // A pane too narrow for the whole line cuts the last part off mid-word.
+  if (!closed) parts.pop();
+  for (const raw of parts) {
+    const part = raw.trim();
+    if (!part || HINT_PART.test(part)) continue;
+    // A non-empty part matches only if at least one unit is present.
+    const time = ELAPSED_PART.exec(part);
+    if (time) {
+      out.elapsed_s = Number(time[1] ?? 0) * 3600 + Number(time[2] ?? 0) * 60 + Number(time[3] ?? 0);
+      continue;
+    }
+    const tokens = TOKENS_PART.exec(part);
+    if (tokens) {
+      out.tokens = { dir: tokens[1] === "↑" ? "up" : "down", count: tokens[2] };
+      continue;
+    }
+    if (THINKING_PART.test(part)) {
+      out.thinking = part;
+      continue;
+    }
+    out.doing ??= part;
+  }
+  return out;
+}
+
+/**
+ * The spinner at the foot of the pane, read whole, or null when no spinner is
+ * drawn.
+ */
+export function readActivity(content: string): PaneActivity | null {
+  if (!content) return null;
+  for (const line of content.split("\n").slice(-ACTIVITY_WINDOW)) {
+    const m = ACTIVITY_LINE.exec(line);
+    if (m) return { verb: m[1].trim(), ...parseActivityDetail(m[2] ?? "", m[3] !== undefined) };
+  }
+  return null;
+}
 
 /**
  * What the spinner at the foot of the pane says Claude Code is doing, without
  * the glyph — "Compacting conversation…" — or null when no spinner is drawn.
  */
 export function readActivityLine(content: string): string | null {
-  if (!content) return null;
-  for (const line of content.split("\n").slice(-ACTIVITY_WINDOW)) {
-    const m = ACTIVITY_LINE.exec(line);
-    if (m) return m[1].trim();
-  }
-  return null;
+  return readActivity(content)?.verb ?? null;
 }
 
 /**

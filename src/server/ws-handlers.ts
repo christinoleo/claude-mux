@@ -16,8 +16,8 @@ import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { isDictated } from './dictation-marks.js';
 import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
-import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi, sendKeyAsync } from '../tmux/pane.js';
-import type { PromptChoice, UpdateNotice } from '../tmux/pane.js';
+import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi, sendKeyAsync } from '../tmux/pane.js';
+import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
 import { peekContextPercent, peekTranscriptTitle } from '../transcript/context-peek.js';
@@ -39,6 +39,8 @@ type LivePaneFields = {
 	pane_choice: PromptChoice;
 	/** Claude Code's footer notice about its own update; null when it shows none. */
 	pane_update: UpdateNotice;
+	/** The spinner line while a turn runs, split into its parts; null when none is drawn. */
+	pane_activity: PaneActivity | null;
 	/** Share of the context window in use as of the latest reply; null when unknown. */
 	context_pct: number | null;
 	/** The GitHub issue a maestro worker owns, as last read; null otherwise. */
@@ -438,6 +440,9 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 				: null,
 			// Claude Code says so only in its footer, which the transcript never sees.
 			pane_update: stripped ? readUpdateNotice(stripped) : null,
+			// The spinner says more than the hooks do: what runs, for how long,
+			// how many tokens. Busy only, so a frame left over never outlives the turn.
+			pane_activity: stripped && s.state === 'busy' ? readActivity(stripped) : null,
 			// One stat per session per tick; the file is only read when it grew.
 			context_pct: peekContextPercent(s),
 			issue: issueFor(s.git_root, s.maestro_issue),

@@ -4,6 +4,7 @@ import {
 	SessionsWsMessageSchema,
 	type SystemStatsMessage,
 	type PaneChoice,
+	type PaneActivity,
 	type IssueInfo,
 	type InboxTicket
 } from '$shared/types/ws-messages.js';
@@ -51,6 +52,8 @@ export interface Session {
 	pane_choice?: PaneChoice | null;
 	/** Claude Code's footer notice about its own update. */
 	pane_update?: { kind: 'installed' | 'available' | 'failed'; text: string } | null;
+	/** The spinner line while a turn runs, split into its parts. */
+	pane_activity?: PaneActivity | null;
 	/** Share of the context window in use as of the latest reply; null when unknown. */
 	context_pct?: number | null;
 	agent?: SessionAgent;
@@ -88,6 +91,7 @@ function sessionChanged(a: Session, b: Session): boolean {
 		if (JSON.stringify(a.pane_choice) !== JSON.stringify(b.pane_choice)) return true;
 	}
 	if ((a.pane_update?.text ?? null) !== (b.pane_update?.text ?? null)) return true;
+	if (JSON.stringify(a.pane_activity ?? null) !== JSON.stringify(b.pane_activity ?? null)) return true;
 	// The issue arrives fresh each tick and changes only when GitHub's answer does.
 	if (JSON.stringify(a.issue ?? null) !== JSON.stringify(b.issue ?? null)) return true;
 	// Screenshots: compare by length + last timestamp (avoids deep comparison)

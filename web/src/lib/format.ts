@@ -26,8 +26,18 @@ export function compact(value: number): string {
 	}).format(value);
 }
 
-/** Recording length as m:ss — the only clock in the app that counts up. */
+/** Recording length as m:ss. */
 export function formatElapsed(seconds: number): string {
 	const whole = Math.max(0, Math.floor(seconds));
 	return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+/** A running turn's length the way Claude Code's spinner writes it: "14s", "5m 19s", "1h 2m". */
+export function formatSpinnerElapsed(total: number): string {
+	const h = Math.floor(total / 3600);
+	const m = Math.floor((total % 3600) / 60);
+	const sec = total % 60;
+	if (h > 0) return `${h}h ${m}m`;
+	if (m > 0) return `${m}m ${sec}s`;
+	return `${sec}s`;
 }

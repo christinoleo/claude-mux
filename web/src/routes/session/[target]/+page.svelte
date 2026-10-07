@@ -2001,6 +2001,7 @@
 						loaded={transcriptStore.receivedData}
 						sessionState={currentSession?.state ?? null}
 						currentAction={currentSession?.current_action ?? null}
+						activity={currentSession?.pane_activity ?? null}
 						{queueCount}
 						{queueHeadText}
 						{queueHeadKind}
