@@ -51,4 +51,37 @@ describe("readUpdateNotice", () => {
   it("finds nothing in a footer without one", () => {
     expect(readUpdateNotice(foot("  ? for shortcuts"))).toBeNull();
   });
+
+  describe("fullscreen layout", () => {
+    const WIDE = "─".repeat(200);
+    // Captured from a 200-column fullscreen pane: the notice sits right-aligned
+    // above the box's top separator, and the footer below the box is plain.
+    const fullscreen = (above: string) =>
+      [
+        "",
+        "✢ Moonwalking… (9m 24s · ↓ 36.2k tokens)",
+        above,
+        WIDE,
+        "❯ ",
+        WIDE,
+        "  claude-mux Opus 5.5 [█░░░░ 18%] christinoleo@omarchy",
+        "  ⏵⏵ bypass permissions on · 1 shell · ← for agents",
+      ].join("\n");
+
+    it("reads the notice drawn above the prompt box", () => {
+      expect(readUpdateNotice(fullscreen(" ".repeat(157) + "Update available! Run: mise upgrade claude"))).toEqual({
+        kind: "available",
+        text: "Update available! Run: mise upgrade claude",
+      });
+    });
+
+    it("ignores a left-aligned line above the box that quotes the notice", () => {
+      expect(readUpdateNotice(fullscreen("  Claude said: Update available! Run: mise upgrade claude"))).toBeNull();
+    });
+
+    it("ignores a right-aligned notice separated from the box by a blank line", () => {
+      const pane = fullscreen(" ".repeat(157) + "Update available! Run: mise upgrade claude").replace(WIDE, "\n" + WIDE);
+      expect(readUpdateNotice(pane)).toBeNull();
+    });
+  });
 });

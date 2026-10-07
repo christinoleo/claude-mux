@@ -43,6 +43,11 @@ export type TranscriptEntry =
   /** A cross-session (agent-to-agent) message from another Claude session. */
   | { kind: "peer"; id: string; ts: number; text: string; from?: string }
   /**
+   * Claude Code's own record that the user pressed Escape. It is logged as a
+   * user line but is the harness's note, not something anyone typed.
+   */
+  | { kind: "interrupt"; id: string; ts: number; text: string }
+  /**
    * The conversation was compacted here: everything above was folded into
    * the summary Claude Code wrote, which arrives as the next user line and
    * is attached to this entry rather than shown as a prompt.
@@ -128,6 +133,9 @@ const ANSI_SGR = /\x1b\[[0-9;]*m/g;
  * every version, so it is recognised by shape too.
  */
 const LOCAL_CAVEAT = /^<local-command-caveat>/;
+
+/** What Claude Code logs when Escape stops a turn, with or without "for tool use". */
+const INTERRUPT_MARKER = /^\[Request interrupted (by user[^\]]*)\]$/;
 
 /**
  * Read what a local command printed out of the user line that carries it.
@@ -503,6 +511,8 @@ export class TranscriptBuilder {
 
     if (typeof content === "string") {
       if (content.trim().length === 0) return [];
+      const interrupt = INTERRUPT_MARKER.exec(content.trim());
+      if (interrupt) return [this.upsert({ kind: "interrupt", id: uuid, ts, text: `Interrupted ${interrupt[1]}` })];
       // Only human prompts render as turns. System-injected user lines (task
       // notifications, reminders) carry origin.kind !== "human"; when origin
       // is absent (older versions) fall back to sniffing system markers.
@@ -605,7 +615,10 @@ export class TranscriptBuilder {
         if (text && text.trim().length > 0) promptTexts.push(text);
       }
     }
-    if (promptTexts.length > 0) {
+    const interrupt = promptTexts.length === 1 ? INTERRUPT_MARKER.exec(promptTexts[0].trim()) : null;
+    if (interrupt) {
+      changed.push(this.upsert({ kind: "interrupt", id: uuid, ts, text: `Interrupted ${interrupt[1]}` }));
+    } else if (promptTexts.length > 0) {
       changed.push(
         this.upsert({
           kind: "user",

@@ -539,23 +539,33 @@ const UPDATE_NOTICES: [Exclude<UpdateNotice, null>["kind"], RegExp][] = [
 ];
 
 /**
- * Read Claude Code's update notice off the footer. The footer is everything
- * below the prompt box's bottom separator, which keeps a transcript that
- * merely quotes the notice from counting. The notice is drawn right-aligned
- * beside the mode line, so the match runs from its first word to line end.
+ * Read Claude Code's update notice off the pane. Two layouts draw it, both
+ * right-aligned: the inline TUI puts it in the footer below the prompt box's
+ * bottom separator, beside the mode line; the fullscreen TUI puts it on the
+ * line(s) directly above the box's top separator. Only those places count,
+ * and above the box only lines pushed past the middle of the rule, which
+ * keeps a transcript that merely quotes the notice from counting. The match
+ * runs from the notice's first word to line end.
  */
 export function readUpdateNotice(content: string): UpdateNotice {
   if (!content) return null;
   const lines = content.split("\n");
-  let sep = -1;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].startsWith("─────")) {
-      sep = i;
-      break;
+  const seps: number[] = [];
+  for (let i = lines.length - 1; i >= 0 && seps.length < 2; i--) {
+    if (lines[i].startsWith("─────")) seps.push(i);
+  }
+  if (seps.length === 0) return null;
+  const [bottom, top] = seps;
+  const candidates = lines.slice(bottom + 1);
+  if (top !== undefined) {
+    const half = lines[top].trimEnd().length / 2;
+    for (let i = top - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line.trim() || line.length - line.trimStart().length < half) break;
+      candidates.push(line);
     }
   }
-  if (sep === -1) return null;
-  for (const line of lines.slice(sep + 1)) {
+  for (const line of candidates) {
     for (const [kind, pattern] of UPDATE_NOTICES) {
       const m = pattern.exec(line);
       if (m) return { kind, text: line.slice(m.index).replace(/\s{2,}/g, " ").trim() };

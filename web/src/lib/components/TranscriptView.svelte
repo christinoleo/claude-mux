@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Marked } from 'marked';
+	import { renderMarkdown } from '$lib/markdown';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
 	import { keysForAnswer } from '$shared/tmux/answer-keys.js';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
@@ -254,35 +254,6 @@
 		delete askSelections[entry.id];
 	}
 
-	function escapeHtml(text: string): string {
-		return text
-			.replaceAll('&', '&amp;')
-			.replaceAll('<', '&lt;')
-			.replaceAll('>', '&gt;')
-			.replaceAll('"', '&quot;');
-	}
-
-	// Raw HTML in model output is rendered as literal text, not injected.
-	// breaks:false — the model writes standard markdown; hard-breaking every
-	// newline doubles the vertical rhythm inside lists and paragraphs.
-	const marked = new Marked({
-		gfm: true,
-		breaks: false,
-		renderer: {
-			html({ raw }) {
-				return escapeHtml(raw);
-			}
-		}
-	});
-
-	function renderMarkdown(text: string): string {
-		try {
-			return marked.parse(text, { async: false });
-		} catch {
-			return `<pre>${escapeHtml(text)}</pre>`;
-		}
-	}
-
 	function formatTime(ts: number): string {
 		try {
 			return new Date(ts).toLocaleTimeString(undefined, {
@@ -499,6 +470,14 @@
 					<div class="user-text peer-text">{entry.text}</div>
 				</div>
 				<span class="time peer-time">{formatTime(entry.ts)}</span>
+			</div>
+		{:else if entry.kind === 'interrupt'}
+			<!-- Escape stopped the turn. Claude Code logs it as a user line, but
+			     nobody typed it, so it reads as a log note like "Question dismissed". -->
+			<div class="row note">
+				<iconify-icon icon="mdi:stop-circle-outline"></iconify-icon>
+				<span class="row-summary">{entry.text}</span>
+				<span class="time">{formatTime(entry.ts)}</span>
 			</div>
 		{:else if entry.kind === 'compact'}
 			<!-- The conversation was folded here. Everything above it is what the
@@ -1221,6 +1200,15 @@
 		border-bottom: 1px solid #262220;
 		border-bottom-left-radius: 0;
 		border-bottom-right-radius: 0;
+	}
+	/* A row with nothing to open: the closed summary's look, no hover. */
+	.row.note {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 2px 8px;
+		font-size: 12.5px;
+		color: #8a837c;
 	}
 	.row-summary {
 		flex: 1;

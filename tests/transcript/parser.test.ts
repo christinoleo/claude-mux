@@ -26,6 +26,32 @@ describe("TranscriptBuilder", () => {
     ]);
   });
 
+  it("reads Claude Code's interrupt markers as notes, not prompts", () => {
+    const builder = new TranscriptBuilder();
+    // Shapes copied from a live session log.
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "i1",
+        timestamp: TS,
+        message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] },
+        interruptedMessageId: "msg_011Cfofrk8uDWjqKbzpWXNt1",
+      }),
+    );
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "i2",
+        timestamp: TS,
+        message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user for tool use]" }] },
+      }),
+    );
+    expect(builder.entries).toEqual([
+      { kind: "interrupt", id: "i1", ts: Date.parse(TS), text: "Interrupted by user" },
+      { kind: "interrupt", id: "i2", ts: Date.parse(TS), text: "Interrupted by user for tool use" },
+    ]);
+  });
+
   it("stamps a prompt dictated when the injected isDictated predicate says so", () => {
     const builder = new TranscriptBuilder(false, (text) => text === "spoken words");
     builder.feed(
