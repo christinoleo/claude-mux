@@ -29,3 +29,4 @@ web/.env.local
 steamdeck/dist-electron/
 steamdeck/releases/
 steamdeck/node_modules/
+.worktree/
