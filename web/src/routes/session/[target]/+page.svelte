@@ -576,9 +576,9 @@
 		available: 'Update available',
 		failed: 'Auto-update failed'
 	} as const;
-	const queueCount = $derived(currentSession?.queue_count ?? 0);
-	const queueHeadText = $derived(currentSession?.queue_head_text ?? null);
-	const queueHeadKind = $derived(currentSession?.queue_head_kind ?? null);
+	const queueCount = $derived(currentSession?.queue?.length ?? 0);
+	const queueHeadText = $derived(currentSession?.queue?.[0]?.text ?? null);
+	const queueHeadKind = $derived(currentSession?.queue?.[0]?.kind ?? null);
 	/** Shown only in the transcript, which is the view that streams them. */
 	/** Every subagent the transcript knows; the rail decides which to show. */
 	const railAgents = $derived(

@@ -104,6 +104,29 @@ export async function confirmSubmitted(target: string): Promise<boolean> {
 	return false;
 }
 
+/**
+ * Claude Code's "send now" chord. While a turn runs, it hands every message
+ * waiting in Claude Code's own queue to the model at once, moving a running
+ * foreground command to the background rather than killing it. While idle, it
+ * submits whatever sits typed in the box.
+ */
+export function sendNowInPane(target: string): void {
+	execFileSync('tmux', ['send-keys', '-t', target, 'C-x', 'C-s'], { stdio: 'ignore' });
+}
+
+/**
+ * Deliver text into the running turn now. A busy pane takes the pasted line
+ * into Claude Code's own queue, and the chord then pushes that queue into the
+ * turn; any other pane just takes it as a normal send. Resolves false when
+ * Claude Code left the text in its box, as `confirmSubmitted` does.
+ */
+export async function steerIntoPane(target: string, text: string, busy: boolean): Promise<boolean> {
+	sendTextToPane(target, text);
+	if (!(await confirmSubmitted(target))) return false;
+	if (busy) sendNowInPane(target);
+	return true;
+}
+
 // ============================================================================
 // Queue storage — shared via globalThis to survive Vite's dual module loading
 // (Vite plugin uses native import, API routes use SSR module loader)
@@ -250,6 +273,44 @@ export function removeFromQueue(target: string, index: number): QueuedMessage[] 
 	return queue ?? [];
 }
 
+/** Replace one item's text in place; its position and timestamp stay. */
+export function editQueueItem(target: string, index: number, text: string): QueuedMessage[] {
+	const queue = queues.get(target);
+	if (!queue || index < 0 || index >= queue.length) return queue ?? [];
+	queue[index] = { ...queue[index], text };
+	persistQueues();
+	return queue;
+}
+
+/**
+ * Take one item out of the queue to steer it into the pane, and put it back
+ * where it was when the pane does not take it. Taken out first so the drain
+ * loop cannot send the same message while the steer is in flight.
+ */
+export async function promoteToSteer(
+	target: string,
+	index: number,
+	busy: boolean
+): Promise<{ ok: boolean; queue: QueuedMessage[] }> {
+	const queue = queues.get(target);
+	if (!queue || index < 0 || index >= queue.length) return { ok: false, queue: queue ?? [] };
+	const [message] = queue.splice(index, 1);
+	if (queue.length === 0) queues.delete(target);
+	persistQueues();
+	let ok = false;
+	try {
+		ok = await steerIntoPane(target, message.text, busy);
+	} finally {
+		if (!ok) {
+			const restored = queueFor(target);
+			restored.splice(Math.min(index, restored.length), 0, message);
+			persistQueues();
+			ensureDrainLoop();
+		}
+	}
+	return { ok, queue: getQueue(target) };
+}
+
 export function reorderQueue(target: string, fromIndex: number, toIndex: number): QueuedMessage[] {
 	const queue = queues.get(target);
 	if (!queue) return [];
@@ -266,24 +327,6 @@ export function clearQueue(target: string): void {
 	pendingDrain.delete(target);
 	missingSince.delete(target);
 	persistQueues();
-}
-
-export interface QueueSummary {
-	count: number;
-	/** The message that goes out next — what the UI should name. */
-	head: QueuedMessage;
-}
-
-/**
- * How much is queued for one target and what goes out next, so the dashboard
- * can say what it is waiting on instead of showing a bare number. A lookup
- * rather than a collection: the sessions broadcast asks per session, twice a
- * second, and the queues are almost always empty.
- */
-export function getQueueSummary(target: string): QueueSummary | null {
-	const queue = queues.get(target);
-	if (!queue || queue.length === 0) return null;
-	return { count: queue.length, head: queue[0] };
 }
 
 /** Whether anything at all is queued — the drain loop's own start/stop guard. */

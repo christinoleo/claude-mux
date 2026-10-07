@@ -7,7 +7,7 @@ const queueDir = mkdtempSync(join(tmpdir(), 'claude-mux-queue-'));
 const queuePath = join(queueDir, 'queue.json');
 process.env.CLAUDE_MUX_QUEUE_PATH = queuePath;
 
-const { enqueue, getQueue, clearQueue, drainQueues, getQueueSummary } = await import(
+const { enqueue, getQueue, clearQueue, drainQueues } = await import(
 	'../../src/server/message-queue.js'
 );
 
@@ -29,15 +29,6 @@ describe('message queue', () => {
 		enqueue(TARGET, 'hello');
 		enqueue(TARGET, '/rename thing', 'control');
 		expect(getQueue(TARGET).map((m) => m.kind)).toEqual(['user', 'control']);
-	});
-
-	it('summarises the head message so the UI can name it', () => {
-		enqueue(TARGET, '/rename thing', 'control');
-		enqueue(TARGET, 'second');
-		const summary = getQueueSummary(TARGET);
-		expect(summary?.count).toBe(2);
-		expect(summary?.head.text).toBe('/rename thing');
-		expect(summary?.head.kind).toBe('control');
 	});
 
 	it('drops a queue whose session disappeared, after the grace period', () => {

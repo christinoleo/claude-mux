@@ -73,6 +73,12 @@ const PaneActivitySchema = z.object({
 /** Claude Code's spinner line, split into its parts (see `readActivity`), with the turn's start in place of its elapsed count. */
 export type PaneActivity = z.infer<typeof PaneActivitySchema>;
 
+const QueuedMessageSchema = z.object({
+	text: z.string(),
+	queuedAt: z.number(),
+	kind: z.enum(['user', 'control'])
+});
+
 const InboxTicketSchema = z.object({
 	repo: z.string(),
 	git_root: z.string(),
@@ -129,11 +135,8 @@ const EnrichedSessionSchema = z.object({
 	display_name: z.string().nullable().optional(),
 	pane_title: z.string().nullable(),
 	pane_alive: z.boolean(),
-	queue_count: z.number().optional(),
-	/** The next message claude-mux will paste into the pane — live only. */
-	queue_head_text: z.string().nullable().optional(),
-	/** Whether that message is yours or one claude-mux queued for itself. */
-	queue_head_kind: z.enum(['user', 'control']).nullable().optional(),
+	/** Every message claude-mux holds for the pane, next out first — live only. */
+	queue: z.array(QueuedMessageSchema).optional(),
 	agent: z.enum(AGENT_IDS).optional(),
 	/** Set when the maestro daemon started the session. */
 	maestro_role: z.string().nullable().optional(),

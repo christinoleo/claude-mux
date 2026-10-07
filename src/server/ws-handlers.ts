@@ -49,7 +49,7 @@ type LivePaneFields = {
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
-import { getQueueSummary, enqueue } from './message-queue.js';
+import { getQueue, enqueue } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
 import type { IssueInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 import { inboxTickets, issueFor, watchRepos } from './github.js';
@@ -704,17 +704,14 @@ export class SessionsWsManager {
 	}
 
 	/**
-	 * Merge the send queue into each session object: how many messages wait, and
-	 * what the next one is, so the UI can name it instead of showing a number.
+	 * Merge the send queue into each session object, whole, so the composer can
+	 * draw and edit it live without polling the queue route.
 	 */
-	private mergeQueueCounts(sessions: Session[]): void {
+	private mergeQueues(sessions: Session[]): void {
 		for (const session of sessions) {
-			const summary = session.tmux_target ? getQueueSummary(session.tmux_target) : null;
-			/* eslint-disable @typescript-eslint/no-explicit-any */
-			(session as any).queue_count = summary?.count ?? 0;
-			(session as any).queue_head_text = summary?.head.text ?? null;
-			(session as any).queue_head_kind = summary?.head.kind ?? null;
-			/* eslint-enable @typescript-eslint/no-explicit-any */
+			const queue = session.tmux_target ? getQueue(session.tmux_target) : [];
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(session as any).queue = queue.map(({ text, queuedAt, kind }) => ({ text, queuedAt, kind }));
 		}
 	}
 
@@ -768,7 +765,7 @@ export class SessionsWsManager {
 				// (queue draining runs in its own server loop — see message-queue.ts ensureDrainLoop)
 
 				// Merge queue counts into session data for broadcast
-				this.mergeQueueCounts(message.sessions);
+				this.mergeQueues(message.sessions);
 
 				// The inbox changes on GitHub's clock, not the sessions', so it counts too.
 				const hash = JSON.stringify([message.sessions, message.inbox]);
