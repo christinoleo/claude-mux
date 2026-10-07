@@ -64,12 +64,13 @@ export type IssueInfo = z.infer<typeof IssueInfoSchema>;
 const PaneActivitySchema = z.object({
 	verb: z.string(),
 	doing: z.string().nullable(),
-	elapsed_s: z.number().nullable(),
+	/** When the turn started, in the server's clock (epoch ms); see `timestamp` on the message. */
+	started_at: z.number().nullable(),
 	tokens: z.object({ dir: z.enum(['down', 'up']), count: z.string() }).nullable(),
 	thinking: z.string().nullable()
 });
 
-/** Claude Code's spinner line, split into its parts (see `readActivity`). */
+/** Claude Code's spinner line, split into its parts (see `readActivity`), with the turn's start in place of its elapsed count. */
 export type PaneActivity = z.infer<typeof PaneActivitySchema>;
 
 const InboxTicketSchema = z.object({

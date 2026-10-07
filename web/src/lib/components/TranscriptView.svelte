@@ -9,8 +9,8 @@
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { QueuedMessageKind } from '$shared/server/message-queue.js';
 	import type { PaneActivity } from '$shared/types/ws-messages.js';
-	import { untrack } from 'svelte';
 	import { formatSpinnerElapsed } from '$lib/format';
+	import { Badge } from '$lib/components/ui/badge';
 	import {
 		parseGrillRound,
 		composeGrillReply,
@@ -96,36 +96,25 @@
 	} = $props();
 
 	// ── live activity line ───────────────────────────────────────────────
-	// The pane's elapsed count reaches us once per poll; between polls it
-	// ticks here. A reading that agrees with the local count to within a
-	// couple of seconds is poll lag, not news, and leaves the clock alone —
-	// otherwise the count would step back each time a late frame arrives.
+	// The pane's elapsed count would move every second; the server sends the
+	// turn's start instead, and the count ticks here.
 
-	let clock = $state<{ base: number; at: number } | null>(null);
 	let now = $state(Date.now());
-
-	$effect(() => {
-		const s = activity?.elapsed_s ?? null;
-		untrack(() => {
-			if (s === null) clock = null;
-			else if (!clock || Math.abs(s - shownElapsed(clock, Date.now())) > 2)
-				clock = { base: s, at: Date.now() };
-		});
-	});
-
-	// Keyed on whether a clock runs, not on the clock, so a resync keeps the same interval.
-	const ticking = $derived(clock !== null);
+	const startedAt = $derived(activity?.started_at ?? null);
+	const ticking = $derived(startedAt !== null);
 	$effect(() => {
 		if (!ticking) return;
+		now = Date.now();
 		const id = setInterval(() => (now = Date.now()), 1000);
 		return () => clearInterval(id);
 	});
 
-	function shownElapsed(c: { base: number; at: number }, t: number): number {
-		return c.base + Math.max(0, Math.floor((t - c.at) / 1000));
-	}
+	/** The spinner's parts, drawn as quiet pills beside its verb. */
+	const CHIP = 'border-[#2f2f36] px-[7px] py-0 text-[11.5px] leading-[18px] font-normal text-[#78716c]';
 
-	const elapsedText = $derived(clock ? formatSpinnerElapsed(shownElapsed(clock, now)) : null);
+	const elapsedText = $derived(
+		startedAt !== null ? formatSpinnerElapsed(Math.max(0, Math.floor((now - startedAt) / 1000))) : null
+	);
 
 	/** Entries as drawn: runs of routine tool calls fold into one summary row. */
 	const items = $derived(groupToolRuns(entries));
@@ -810,14 +799,18 @@
 			{#if activity}
 				<span class="live-verb mono">{activity.verb}</span>
 				<span class="live-chips">
-					{#if activity.doing}<span class="live-chip doing">{activity.doing}</span>{/if}
-					{#if elapsedText}<span class="live-chip mono">{elapsedText}</span>{/if}
+					{#if activity.doing}
+						<Badge variant="outline" class="{CHIP} min-w-0 shrink justify-start text-[#a8a29e]">
+							<span class="truncate">{activity.doing}</span>
+						</Badge>
+					{/if}
+					{#if elapsedText}<Badge variant="outline" class="{CHIP} font-mono">{elapsedText}</Badge>{/if}
 					{#if activity.tokens}
-						<span class="live-chip mono"
-							>{activity.tokens.dir === 'up' ? '↑' : '↓'} {activity.tokens.count} tokens</span
+						<Badge variant="outline" class="{CHIP} font-mono"
+							>{activity.tokens.dir === 'up' ? '↑' : '↓'} {activity.tokens.count} tokens</Badge
 						>
 					{/if}
-					{#if activity.thinking}<span class="live-chip">{activity.thinking}</span>{/if}
+					{#if activity.thinking}<Badge variant="outline" class={CHIP}>{activity.thinking}</Badge>{/if}
 				</span>
 			{:else}
 				<span class="live-text mono">{currentAction ?? 'Working…'}</span>
@@ -2043,23 +2036,6 @@
 		gap: 5px;
 		min-width: 0;
 		overflow: hidden;
-	}
-	.live-chip {
-		flex: none;
-		padding: 0 7px;
-		border: 1px solid #2f2f36;
-		border-radius: 9px;
-		font-size: 11.5px;
-		line-height: 18px;
-		color: #78716c;
-		white-space: nowrap;
-	}
-	.live-chip.doing {
-		flex: 0 1 auto;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		color: #a8a29e;
 	}
 	.live-text {
 		overflow: hidden;

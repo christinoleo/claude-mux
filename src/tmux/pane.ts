@@ -119,8 +119,9 @@ export async function capturePaneContentAsync(target: string, withColor = false)
  * Claude Code's activity line: a spinner glyph, then what it is doing, ending
  * in "…" — "✻ Julienning… (1m 39s", "⠋ Compacting conversation…". Older
  * builds spin a braille glyph, newer ones the star family, whose frames
- * include a plain "*" (only read at column 0, where an answer's bullet never
- * sits); the finished form ("✻ Baked for 33s · done") has no "…" and is not
+ * include a plain "*". That one is believed only at column 0 and with the
+ * bracketed detail after the verb, since a message line starts at column 0
+ * too and can begin "* … …"; the finished form ("✻ Baked for 33s · done") has no "…" and is not
  * one.
  *
  * Only this shape counts as work. A braille or star glyph elsewhere in the
@@ -128,7 +129,7 @@ export async function capturePaneContentAsync(target: string, withColor = false)
  * answer — is not a spinner, and reading it as one held sessions at busy after
  * they had stopped.
  */
-const ACTIVITY_LINE = /^(?:\s*[⠀-⣿✻✢✳✶✽·]|\*)\s+(\S[^…]*…)\s*(?:\(([^)]*)(\))?)?/;
+const ACTIVITY_LINE = /^(?:\s*[⠀-⣿✻✢✳✶✽·]\s+(\S[^…]*…)\s*(?:\(([^)]*)(\))?)?|\*\s+(\S[^…]*…)\s*\(([^)]*)(\))?)/;
 
 /** Lines from the foot of the pane that a spinner can sit in: above the prompt box and its footer. */
 const ACTIVITY_WINDOW = 12;
@@ -161,8 +162,12 @@ const HINT_PART = /\b(?:esc|ctrl\+\w) to\b/i;
 function parseActivityDetail(detail: string, closed: boolean): Omit<PaneActivity, "verb"> {
   const out: Omit<PaneActivity, "verb"> = { doing: null, elapsed_s: null, tokens: null, thinking: null };
   const parts = detail.split("·");
-  // A pane too narrow for the whole line cuts the last part off mid-word.
-  if (!closed) parts.pop();
+  // A pane too narrow for the whole line cuts the last part off, maybe
+  // mid-word. Keep it only when it still reads as a whole count; "5m" may be
+  // "5m 19s" cut short, so an elapsed count must run to its seconds.
+  const last = parts.at(-1)?.trim() ?? "";
+  const whole = (ELAPSED_PART.test(last) && last.endsWith("s")) || TOKENS_PART.test(last);
+  if (!closed && !whole) parts.pop();
   for (const raw of parts) {
     const part = raw.trim();
     if (!part || HINT_PART.test(part)) continue;
@@ -194,7 +199,10 @@ export function readActivity(content: string): PaneActivity | null {
   if (!content) return null;
   for (const line of content.split("\n").slice(-ACTIVITY_WINDOW)) {
     const m = ACTIVITY_LINE.exec(line);
-    if (m) return { verb: m[1].trim(), ...parseActivityDetail(m[2] ?? "", m[3] !== undefined) };
+    if (!m) continue;
+    // The second alternative is the bare "*" frame, which must carry its detail.
+    const [verb, detail, close] = m[1] !== undefined ? [m[1], m[2], m[3]] : [m[4], m[5], m[6]];
+    return { verb: verb.trim(), ...parseActivityDetail(detail ?? "", close !== undefined) };
   }
   return null;
 }

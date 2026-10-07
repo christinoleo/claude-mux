@@ -100,9 +100,17 @@ describe("readActivity", () => {
     });
   });
 
-  it("reads the plain-asterisk frame only at column 0", () => {
+  it("reads the plain-asterisk frame only at column 0 and with its detail", () => {
     expect(readActivityLine(fullscreen("* Meandering… (14s · ↓ 1.0k tokens)"))).toBe("Meandering…");
     expect(readActivityLine(fullscreen("  * Loading the config…"))).toBeNull();
+    // A message line starts at column 0 too.
+    expect(readActivityLine(fullscreen("* try again… and again…"))).toBeNull();
+  });
+
+  it("keeps a whole count the pane cut the bracket after", () => {
+    expect(readActivity("✻ Julienning… (1m 39s")?.elapsed_s).toBe(99);
+    expect(readActivity("✻ Julienning… (2m 5s · ↓ 1.2k tokens")?.tokens).toEqual({ dir: "down", count: "1.2k" });
+    expect(readActivity("✻ Julienning… (5m")?.elapsed_s).toBeNull();
   });
 
   it("drops key hints and a part the pane cut short", () => {

@@ -52,7 +52,7 @@ export interface Session {
 	pane_choice?: PaneChoice | null;
 	/** Claude Code's footer notice about its own update. */
 	pane_update?: { kind: 'installed' | 'available' | 'failed'; text: string } | null;
-	/** The spinner line while a turn runs, split into its parts. */
+	/** The spinner line while a turn runs, split into its parts; `started_at` is in this browser's clock. */
 	pane_activity?: PaneActivity | null;
 	/** Share of the context window in use as of the latest reply; null when unknown. */
 	context_pct?: number | null;
@@ -138,6 +138,7 @@ class SessionStore extends ReliableWebSocket {
 		switch (msg.type) {
 			case 'sessions':
 			case 'connected':
+				this.toLocalClock(msg.sessions as Session[], msg.timestamp);
 				this.diffAndUpdate(msg.sessions as Session[]);
 				if (msg.projects) this.applyServerProjects(msg.projects);
 				if (msg.settings) this.settings = msg.settings;
@@ -146,6 +147,23 @@ class SessionStore extends ReliableWebSocket {
 			case 'systemStats':
 				this.systemStats = { cpu: msg.cpu, ram: msg.ram, swap: msg.swap, ramTotal: msg.ramTotal, swapTotal: msg.swapTotal };
 				break;
+		}
+	}
+
+	/** How far this browser's clock runs ahead of the server's, in ms. */
+	private clockSkew: number | null = null;
+
+	/**
+	 * A turn's start arrives in the server's clock; the transcript counts up
+	 * from it in this one. The skew is kept until it moves by more than the
+	 * network's jitter, so the same start converts to the same instant and
+	 * the count never steps back.
+	 */
+	private toLocalClock(sessions: Session[], serverNow: number): void {
+		const skew = Date.now() - serverNow;
+		if (this.clockSkew === null || Math.abs(skew - this.clockSkew) > 2000) this.clockSkew = skew;
+		for (const s of sessions) {
+			if (s.pane_activity?.started_at != null) s.pane_activity.started_at += this.clockSkew;
 		}
 	}
 
