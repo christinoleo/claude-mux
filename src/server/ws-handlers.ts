@@ -16,8 +16,8 @@ import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { isDictated } from './dictation-marks.js';
 import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
-import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi, sendKeyAsync } from '../tmux/pane.js';
-import type { PromptChoice, UpdateNotice } from '../tmux/pane.js';
+import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi, sendKeyAsync } from '../tmux/pane.js';
+import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
 import { peekContextPercent, peekTranscriptTitle } from '../transcript/context-peek.js';
@@ -39,6 +39,8 @@ type LivePaneFields = {
 	pane_choice: PromptChoice;
 	/** Claude Code's footer notice about its own update; null when it shows none. */
 	pane_update: UpdateNotice;
+	/** The spinner line while a turn runs, split into its parts; null when none is drawn. */
+	pane_activity: LiveActivity | null;
 	/** Share of the context window in use as of the latest reply; null when unknown. */
 	context_pct: number | null;
 	/** The GitHub issue a maestro worker owns, as last read; null otherwise. */
@@ -302,6 +304,32 @@ async function captureAndSyncSessions(): Promise<{
 }
 
 /**
+ * The spinner as it rides the broadcast: the turn's start in place of its
+ * elapsed count, which moves every second and would otherwise send the whole
+ * sessions message to every client every tick. The browser counts up itself.
+ */
+type LiveActivity = Omit<PaneActivity, 'elapsed_s'> & { started_at: number | null };
+
+/** When each running turn started, as first worked out from the pane. */
+const turnStarts = new Map<string, number>();
+
+function liveActivity(sessionId: string, activity: PaneActivity | null): LiveActivity | null {
+	if (!activity) {
+		turnStarts.delete(sessionId);
+		return null;
+	}
+	const { elapsed_s, ...rest } = activity;
+	if (elapsed_s === null) return { ...rest, started_at: turnStarts.get(sessionId) ?? null };
+	// Whole seconds read at poll time put the start anywhere in a window of a
+	// second or so; a reading inside the tolerance is the same turn.
+	const start = Date.now() - elapsed_s * 1000;
+	const known = turnStarts.get(sessionId);
+	if (known !== undefined && Math.abs(start - known) <= 2000) return { ...rest, started_at: known };
+	turnStarts.set(sessionId, start);
+	return { ...rest, started_at: start };
+}
+
+/**
  * Async version of getEnrichedSessions. Uses batched tmux calls
  * and concurrent interruption checks to avoid blocking the event loop.
  */
@@ -438,6 +466,9 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 				: null,
 			// Claude Code says so only in its footer, which the transcript never sees.
 			pane_update: stripped ? readUpdateNotice(stripped) : null,
+			// The spinner says more than the hooks do: what runs, for how long,
+			// how many tokens. Busy only, so a frame left over never outlives the turn.
+			pane_activity: liveActivity(s.id, stripped && s.state === 'busy' ? readActivity(stripped) : null),
 			// One stat per session per tick; the file is only read when it grew.
 			context_pct: peekContextPercent(s),
 			issue: issueFor(s.git_root, s.maestro_issue),

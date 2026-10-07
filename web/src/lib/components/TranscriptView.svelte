@@ -8,6 +8,9 @@
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { QueuedMessageKind } from '$shared/server/message-queue.js';
+	import type { PaneActivity } from '$shared/types/ws-messages.js';
+	import { formatSpinnerElapsed } from '$lib/format';
+	import { Badge } from '$lib/components/ui/badge';
 	import {
 		parseGrillRound,
 		composeGrillReply,
@@ -24,6 +27,7 @@
 		loaded,
 		sessionState = null,
 		currentAction = null,
+		activity = null,
 		queueCount = 0,
 		queueHeadText = null,
 		queueHeadKind = null,
@@ -47,6 +51,8 @@
 		/** Live session state from the hooks (real-time, unlike the JSONL which lags). */
 		sessionState?: 'busy' | 'idle' | 'waiting' | 'permission' | null;
 		currentAction?: string | null;
+		/** Claude Code's spinner line, split into its parts; null outside tmux or between frames. */
+		activity?: PaneActivity | null;
 		/** Messages waiting in claude-mux's own send queue. */
 		queueCount?: number;
 		/** The next queued message's text, so the row can name what it is waiting on. */
@@ -88,6 +94,27 @@
 		 */
 		onSendReply?: (text: string) => Promise<boolean>;
 	} = $props();
+
+	// ── live activity line ───────────────────────────────────────────────
+	// The pane's elapsed count would move every second; the server sends the
+	// turn's start instead, and the count ticks here.
+
+	let now = $state(Date.now());
+	const startedAt = $derived(activity?.started_at ?? null);
+	const ticking = $derived(startedAt !== null);
+	$effect(() => {
+		if (!ticking) return;
+		now = Date.now();
+		const id = setInterval(() => (now = Date.now()), 1000);
+		return () => clearInterval(id);
+	});
+
+	/** The spinner's parts, drawn as quiet pills beside its verb. */
+	const CHIP = 'border-[#2f2f36] px-[7px] py-0 text-[11.5px] leading-[18px] font-normal text-[#78716c]';
+
+	const elapsedText = $derived(
+		startedAt !== null ? formatSpinnerElapsed(Math.max(0, Math.floor((now - startedAt) / 1000))) : null
+	);
 
 	/** Entries as drawn: runs of routine tool calls fold into one summary row. */
 	const items = $derived(groupToolRuns(entries));
@@ -769,7 +796,25 @@
 	{#if sessionState === 'busy'}
 		<div class="live-row busy">
 			<SessionStateIndicator state="busy" />
-			<span class="live-text mono">{currentAction ?? 'Working…'}</span>
+			{#if activity}
+				<span class="live-verb mono">{activity.verb}</span>
+				<span class="live-chips">
+					{#if activity.doing}
+						<Badge variant="outline" class="{CHIP} min-w-0 shrink justify-start text-[#a8a29e]">
+							<span class="truncate">{activity.doing}</span>
+						</Badge>
+					{/if}
+					{#if elapsedText}<Badge variant="outline" class="{CHIP} font-mono">{elapsedText}</Badge>{/if}
+					{#if activity.tokens}
+						<Badge variant="outline" class="{CHIP} font-mono"
+							>{activity.tokens.dir === 'up' ? '↑' : '↓'} {activity.tokens.count} tokens</Badge
+						>
+					{/if}
+					{#if activity.thinking}<Badge variant="outline" class={CHIP}>{activity.thinking}</Badge>{/if}
+				</span>
+			{:else}
+				<span class="live-text mono">{currentAction ?? 'Working…'}</span>
+			{/if}
 		</div>
 	{:else if sessionState === 'permission'}
 		<div class="live-row attention" style="color: {sessionStateVisual('permission').color}">
@@ -1981,6 +2026,16 @@
 	.queue-more {
 		margin-left: 6px;
 		color: #57534e;
+	}
+	.live-verb {
+		flex: none;
+		color: #d6d3d1;
+	}
+	.live-chips {
+		display: flex;
+		gap: 5px;
+		min-width: 0;
+		overflow: hidden;
 	}
 	.live-text {
 		overflow: hidden;

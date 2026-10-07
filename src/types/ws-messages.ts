@@ -61,6 +61,18 @@ const IssueInfoSchema = z.object({
 /** A GitHub issue as the sidebar shows it next to the session working it. */
 export type IssueInfo = z.infer<typeof IssueInfoSchema>;
 
+const PaneActivitySchema = z.object({
+	verb: z.string(),
+	doing: z.string().nullable(),
+	/** When the turn started, in the server's clock (epoch ms); see `timestamp` on the message. */
+	started_at: z.number().nullable(),
+	tokens: z.object({ dir: z.enum(['down', 'up']), count: z.string() }).nullable(),
+	thinking: z.string().nullable()
+});
+
+/** Claude Code's spinner line, split into its parts (see `readActivity`), with the turn's start in place of its elapsed count. */
+export type PaneActivity = z.infer<typeof PaneActivitySchema>;
+
 const InboxTicketSchema = z.object({
 	repo: z.string(),
 	git_root: z.string(),
@@ -110,6 +122,8 @@ const EnrichedSessionSchema = z.object({
 		.object({ kind: z.enum(['installed', 'available', 'failed']), text: z.string() })
 		.nullable()
 		.optional(),
+	/** The spinner line while a turn runs, split into its parts — live only. */
+	pane_activity: PaneActivitySchema.nullable().optional(),
 	/** Share of the context window in use, read off the transcript's latest reply. */
 	context_pct: z.number().nullable().optional(),
 	display_name: z.string().nullable().optional(),
