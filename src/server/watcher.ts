@@ -3,7 +3,13 @@ import { SESSIONS_DIR } from "../utils/paths.js";
 import { join } from "path";
 
 export interface WatcherCallback {
-  (): void;
+  /** `changed` holds the ids of the sessions whose JSON was added, changed or removed. */
+  (changed: ReadonlySet<string>): void;
+}
+
+/** A session's JSON is named after its id. */
+function sessionIdOf(file: string): string {
+  return file.slice(0, -".json".length);
 }
 
 /**
@@ -25,8 +31,9 @@ class SessionWatcher {
     this.updateState();
 
     this.pollTimer = setInterval(() => {
-      if (this.checkForChanges()) {
-        this.notifySubscribers();
+      const changed = this.checkForChanges();
+      if (changed.size > 0) {
+        this.notifySubscribers(changed);
       }
     }, this.pollInterval);
   }
@@ -49,9 +56,9 @@ class SessionWatcher {
     }
   }
 
-  private checkForChanges(): boolean {
+  private checkForChanges(): Set<string> {
     const newState = new Map<string, number>();
-    let changed = false;
+    const changed = new Set<string>();
 
     try {
       const files = readdirSync(SESSIONS_DIR);
@@ -62,14 +69,9 @@ class SessionWatcher {
           newState.set(file, stat.mtimeMs);
 
           const oldMtime = this.lastState.get(file);
-          if (oldMtime === undefined) {
-            // New file
-            console.log("[watcher] File added:", file);
-            changed = true;
-          } else if (oldMtime !== stat.mtimeMs) {
-            // Modified file
-            console.log("[watcher] File changed:", file);
-            changed = true;
+          if (oldMtime !== stat.mtimeMs) {
+            console.log(`[watcher] File ${oldMtime === undefined ? "added" : "changed"}:`, file);
+            changed.add(sessionIdOf(file));
           }
         } catch {
           // File may have been deleted during iteration
@@ -80,7 +82,7 @@ class SessionWatcher {
       for (const file of this.lastState.keys()) {
         if (!newState.has(file)) {
           console.log("[watcher] File removed:", file);
-          changed = true;
+          changed.add(sessionIdOf(file));
         }
       }
     } catch {
@@ -91,11 +93,11 @@ class SessionWatcher {
     return changed;
   }
 
-  private notifySubscribers(): void {
+  private notifySubscribers(changed: ReadonlySet<string>): void {
     console.log("[watcher] Notifying", this.subscribers.size, "subscribers");
     for (const callback of this.subscribers) {
       try {
-        callback();
+        callback(changed);
       } catch (error) {
         console.error("[watcher] Subscriber error:", error);
       }

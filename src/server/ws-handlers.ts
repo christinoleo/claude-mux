@@ -9,7 +9,7 @@
  */
 
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, sanitizeDisplayName, type Session } from '../db/index.js';
 import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
@@ -1284,6 +1284,8 @@ const SUBAGENT_DISCOVER_TICKS = 4;
  * RESOLVE_TICKS_MAX. A session that has not yet answered its first prompt has
  * no file, and every attempt stats each project directory — worth doing
  * promptly at first and rarely once it is clear nothing is being written.
+ * The backoff is only the fallback: a hook writing the session JSON is the
+ * signal that Claude Code is at work (see sessionsChanged).
  */
 const RESOLVE_TICKS = 4;
 const RESOLVE_TICKS_MAX = 60;
@@ -1311,6 +1313,7 @@ export class TranscriptWsManager {
 	private clients = new Map<string, Set<WsClient>>();
 	private sessions = new Map<string, TranscriptSessionState>();
 	private config: Required<WsConfig>;
+	private unwatch: (() => void) | null = null;
 
 	constructor(config?: WsConfig) {
 		this.config = { ...DEFAULT_CONFIG, ...config };
@@ -1409,6 +1412,24 @@ export class TranscriptWsManager {
 		if (path) this.attach(state, path);
 		this.ensureSweeper();
 		return state;
+	}
+
+	/**
+	 * Hooks wrote these sessions' JSON. Claude Code creates the transcript the
+	 * moment a prompt is submitted, and the UserPromptSubmit hook lands in the
+	 * same second, so a session still without a transcript whose recorded
+	 * path now exists attaches on its next poll rather than when the backoff,
+	 * by then up to 30s long, runs out. Checking that one path costs a stat;
+	 * a busy session writes its JSON on every tool call, and a full locate
+	 * on each of those would scan every project directory.
+	 */
+	sessionsChanged(changed: Iterable<string>): void {
+		for (const id of changed) {
+			const state = this.sessions.get(id);
+			if (!state || state.tailer) continue;
+			const recorded = getSession(id)?.transcript_path;
+			if (recorded && existsSync(recorded)) state.resolveIn = 1;
+		}
 	}
 
 	/**
@@ -1568,6 +1589,7 @@ export class TranscriptWsManager {
 
 	private ensureSweeper(): void {
 		if (this.sweeper) return;
+		this.unwatch = sessionWatcher.subscribe((changed) => this.sessionsChanged(changed));
 		this.sweeper = setInterval(() => {
 			const now = Date.now();
 			for (const [id, state] of this.sessions) {
@@ -1578,6 +1600,8 @@ export class TranscriptWsManager {
 			if (this.sessions.size === 0 && this.sweeper) {
 				clearInterval(this.sweeper);
 				this.sweeper = null;
+				this.unwatch?.();
+				this.unwatch = null;
 			}
 		}, SWEEP_MS);
 	}

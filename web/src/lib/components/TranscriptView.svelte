@@ -443,6 +443,13 @@
 			<iconify-icon class="spin" icon="mdi:loading" style="font-size: 32px;"></iconify-icon>
 			<p>Loading transcript…</p>
 		</div>
+	{:else if !available && sessionState && sessionState !== 'idle'}
+		<!-- The turn is under way; Claude Code writes the log as each block
+		     finishes, and the live row below says what it is doing meanwhile. -->
+		<div class="empty starting">
+			<iconify-icon icon="mdi:text-box-plus-outline" style="font-size: 32px;"></iconify-icon>
+			<p>Starting… waiting for the first entry.</p>
+		</div>
 	{:else if !available}
 		<div class="empty">
 			<iconify-icon icon="mdi:text-box-search-outline" style="font-size: 32px;"></iconify-icon>
@@ -916,6 +923,17 @@
 		padding: 56px 16px;
 		color: #78716c;
 		text-align: center;
+	}
+	.empty.starting {
+		padding-bottom: 24px;
+	}
+	.empty.starting iconify-icon {
+		animation: starting-breathe 1.8s ease-in-out infinite;
+	}
+	@keyframes starting-breathe {
+		50% {
+			opacity: 0.4;
+		}
 	}
 	.empty .hint {
 		font-size: 12px;
@@ -2043,7 +2061,8 @@
 		white-space: nowrap;
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.spin {
+		.spin,
+		.empty.starting iconify-icon {
 			animation: none;
 		}
 	}
