@@ -532,6 +532,9 @@ export function detectRemoteControlUrl(content: string): string | null {
  */
 export type UpdateNotice = { kind: "installed" | "available" | "failed"; text: string } | null;
 
+/** How far short of the right edge a right-aligned notice may stop. */
+const RIGHT_EDGE_SLACK = 4;
+
 const UPDATE_NOTICES: [Exclude<UpdateNotice, null>["kind"], RegExp][] = [
   ["installed", /Update installed.*Restart to (?:apply|update)/],
   ["available", /Update available! Run:.*/],
@@ -542,10 +545,13 @@ const UPDATE_NOTICES: [Exclude<UpdateNotice, null>["kind"], RegExp][] = [
  * Read Claude Code's update notice off the pane. Two layouts draw it, both
  * right-aligned: the inline TUI puts it in the footer below the prompt box's
  * bottom separator, beside the mode line; the fullscreen TUI puts it on the
- * line(s) directly above the box's top separator. Only those places count,
- * and above the box only lines pushed past the middle of the rule, which
- * keeps a transcript that merely quotes the notice from counting. The match
- * runs from the notice's first word to line end.
+ * line(s) directly above the box's top separator. Only those places count.
+ * Above the box a line counts only when it is drawn flush against the right
+ * edge and indented past a quarter of the rule, which keeps a transcript
+ * that merely quotes the notice (or an indented reply line) from counting.
+ * With the agents panel open the right edge is the panel's `│` border, not
+ * the pane's, so each line is read up to that border and the panel's own
+ * text never takes part.
  */
 export function readUpdateNotice(content: string): UpdateNotice {
   if (!content) return null;
@@ -558,10 +564,13 @@ export function readUpdateNotice(content: string): UpdateNotice {
   const [bottom, top] = seps;
   const candidates = lines.slice(bottom + 1);
   if (top !== undefined) {
-    const half = lines[top].trimEnd().length / 2;
+    const width = lines[top].trimEnd().length;
     for (let i = top - 1; i >= 0; i--) {
-      const line = lines[i];
-      if (!line.trim() || line.length - line.trimStart().length < half) break;
+      const border = lines[i].indexOf("│");
+      const line = border === -1 ? lines[i] : lines[i].slice(0, border);
+      const edge = border === -1 ? width : border;
+      const indent = line.length - line.trimStart().length;
+      if (!line.trim() || indent < width / 4 || line.trimEnd().length < edge - RIGHT_EDGE_SLACK) break;
       candidates.push(line);
     }
   }

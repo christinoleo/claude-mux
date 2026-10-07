@@ -114,7 +114,8 @@
 	const liveGrillId = $derived.by(() => {
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const e = entries[i];
-			if (e.kind === 'user' || e.kind === 'queued' || e.kind === 'ask') return null;
+			if (e.kind === 'user' || e.kind === 'queued' || e.kind === 'ask' || e.kind === 'interrupt')
+				return null;
 			if (e.kind === 'text' && grillRound(e.text)) return e.id;
 		}
 		return null;
