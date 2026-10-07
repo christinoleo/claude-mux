@@ -14,6 +14,7 @@
 		type GrillAnswer,
 		type GrillRound
 	} from '$shared/transcript/grilling.js';
+	import { groupToolRuns } from '$shared/transcript/tool-groups.js';
 
 	type AskEntry = Extract<TranscriptEntry, { kind: 'ask' }>;
 
@@ -87,6 +88,17 @@
 		 */
 		onSendReply?: (text: string) => Promise<boolean>;
 	} = $props();
+
+	/** Entries as drawn: runs of routine tool calls fold into one summary row. */
+	const items = $derived(groupToolRuns(entries));
+
+	/**
+	 * Which tool cards and groups the reader has open, by entry id (a group
+	 * under `group:<first call>`). A run folds only as its calls finish, so the
+	 * card someone is reading can turn into a group under them; remembering it
+	 * here lets the new group open on that card instead of snapping shut.
+	 */
+	let opened = $state<Record<string, boolean>>({});
 
 	// ── grilling rounds ──────────────────────────────────────────────────
 	// A reply that asks a numbered round of questions, each with Claude's
@@ -428,7 +440,7 @@
 			<span class="prompt-glyph">❯</span>
 		{/if}
 	{/snippet}
-	{#each entries as entry (entry.id)}
+	{#snippet row(entry: TranscriptEntry)}
 		{#if entry.kind === 'user'}
 			<div class="user-block" class:dictated={entry.dictated}>
 				{@render turnGlyph(entry.dictated ?? false)}
@@ -605,7 +617,9 @@
 				class:error={entry.result?.ok === false}
 				class:agent={sub != null}
 				data-entry-id={entry.id}
+				open={opened[entry.id] ?? false}
 				ontoggle={(e) => {
+					opened[entry.id] = e.currentTarget.open;
 					if (sub && !sub.full && e.currentTarget.open) onLoadSubagent?.(sub.agentId);
 				}}
 			>
@@ -704,6 +718,35 @@
 					</div>
 				{/if}
 			</details>
+		{/if}
+	{/snippet}
+	{#each items as item (item.id)}
+		{#if item.kind === 'group'}
+			<!-- A run of routine calls, folded the way the terminal folds it. Open,
+			     it is the same rows the run would have drawn on its own. -->
+			<details
+				class="row tool-group"
+				open={opened[`group:${item.id}`] ?? opened[item.id] ?? false}
+				ontoggle={(e) => (opened[`group:${item.id}`] = e.currentTarget.open)}
+			>
+				<summary>
+					<iconify-icon class="tool-icon" icon="mdi:layers-outline"></iconify-icon>
+					<span class="row-summary">{item.summary}</span>
+					{#if item.failed > 0}
+						<span class="group-failed">{item.failed} failed</span>
+						<iconify-icon class="tool-status fail" icon="mdi:alert-circle-outline"></iconify-icon>
+					{:else}
+						<iconify-icon class="tool-status ok" icon="mdi:check"></iconify-icon>
+					{/if}
+				</summary>
+				<div class="group-rows">
+					{#each item.entries as entry (entry.id)}
+						{@render row(entry)}
+					{/each}
+				</div>
+			</details>
+		{:else}
+			{@render row(item)}
 		{/if}
 	{/each}
 
@@ -1253,6 +1296,28 @@
 	}
 	.tool-card.error {
 		border-color: rgba(127, 29, 29, 0.6);
+	}
+	/* A folded run opens in place, without a card of its own: its rows hang off
+	   a thin rule under the summary, so a call opened inside it still reads as
+	   the one card on the screen. */
+	.tool-group[open] {
+		border-color: transparent;
+		background: transparent;
+	}
+	.tool-group[open] > summary {
+		padding: 2px 8px;
+		border-bottom: none;
+		border-radius: 7px;
+	}
+	.group-rows {
+		margin: 2px 0 6px 15px;
+		padding-left: 8px;
+		border-left: 1px solid #292524;
+	}
+	.group-failed {
+		flex-shrink: 0;
+		font-size: 11.5px;
+		color: #f87171;
 	}
 	.spin {
 		animation: spin 1s linear infinite;
