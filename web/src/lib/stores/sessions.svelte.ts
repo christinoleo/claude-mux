@@ -6,10 +6,10 @@ import {
 	type PaneChoice,
 	type PaneActivity,
 	type IssueInfo,
-	type InboxTicket
+	type InboxTicket,
+	type QueuedMessageInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
-import type { QueuedMessageKind } from '$shared/server/message-queue.js';
 
 const savedProjectsStore = createPersisted<string[]>('claude-mux-projects', []);
 
@@ -37,10 +37,8 @@ export interface Session {
 	chrome_active?: boolean;
 	linked_to?: string | null;
 	rc_url?: string | null;
-	queue_count?: number;
-	/** Text of the next queued message, and who queued it. */
-	queue_head_text?: string | null;
-	queue_head_kind?: QueuedMessageKind | null;
+	/** Messages claude-mux holds for the pane, next out first. */
+	queue?: QueuedMessageInfo[];
 	display_name?: string | null;
 	/** Text in the pane's prompt box right now (live, never persisted). */
 	draft_input?: string | null;
@@ -67,8 +65,7 @@ export interface Session {
 /** Fields that change frequently and should trigger a session object replacement */
 const VOLATILE_KEYS: (keyof Session)[] = [
 	'state', 'current_action', 'prompt_text', 'last_update',
-	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'queue_count',
-	'queue_head_text', 'queue_head_kind', 'display_name',
+	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'display_name',
 	'draft_input', 'draft_kind', 'context_pct'
 ];
 
@@ -82,6 +79,16 @@ function sessionChanged(a: Session, b: Session): boolean {
 	const bQueue = b.pane_queue;
 	if ((aQueue?.length ?? 0) !== (bQueue?.length ?? 0)) return true;
 	if (aQueue && bQueue && aQueue.some((msg, i) => msg !== bQueue[i])) return true;
+	// The server queue: likewise fresh each tick, and almost always empty.
+	const aSent = a.queue ?? [];
+	const bSent = b.queue ?? [];
+	if (aSent.length !== bSent.length) return true;
+	if (
+		aSent.some(
+			(m, i) => m.text !== bSent[i].text || m.queuedAt !== bSent[i].queuedAt || m.kind !== bSent[i].kind
+		)
+	)
+		return true;
 	// Pane choice: likewise a fresh object each tick, and it only changes when
 	// the dialog does. Every field counts — a ticked checkbox, a row turning
 	// into a text field, a note the dialog adds — so compare the whole thing

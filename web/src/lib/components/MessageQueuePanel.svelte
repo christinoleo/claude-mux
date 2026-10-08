@@ -1,7 +1,6 @@
 <script lang="ts">
 	import SidebarAccordion from './SidebarAccordion.svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
-	import type { QueuedMessage } from '$shared/server/message-queue.js';
 
 	interface Props {
 		target: string;
@@ -9,59 +8,21 @@
 
 	let { target }: Props = $props();
 
-	let queue = $state<QueuedMessage[]>([]);
-	let loading = $state(false);
-
 	const currentSession = $derived(sessionStore.sessionByTarget.get(target));
-	const queueCount = $derived(currentSession?.queue_count ?? 0);
+	// The broadcast carries the queue whole; a change here lands on the next tick.
+	const queue = $derived(currentSession?.queue ?? []);
 
-	// Refetch only when the server-reported count diverges from our local view —
-	// otherwise local DELETE/clear already overwrote `queue` from the response.
-	$effect(() => {
-		if (queueCount !== queue.length) fetchQueue();
-	});
-
-	async function fetchQueue() {
-		loading = true;
-		try {
-			const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`);
-			const data = await res.json();
-			queue = data.queue ?? [];
-		} catch {
-			queue = [];
-		} finally {
-			loading = false;
-		}
-	}
-
-	async function removeItem(index: number) {
-		const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
-			method: 'DELETE',
+	function edit(method: 'DELETE' | 'PATCH', body: object) {
+		return fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
+			method,
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ index })
+			body: JSON.stringify(body)
 		});
-		const data = await res.json();
-		queue = data.queue ?? [];
 	}
 
-	async function clearAll() {
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
-			method: 'DELETE',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({})
-		});
-		queue = [];
-	}
-
-	async function moveItem(fromIndex: number, toIndex: number) {
-		const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
-			method: 'PATCH',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ fromIndex, toIndex })
-		});
-		const data = await res.json();
-		queue = data.queue ?? [];
-	}
+	const removeItem = (index: number) => edit('DELETE', { index });
+	const clearAll = () => edit('DELETE', {});
+	const moveItem = (fromIndex: number, toIndex: number) => edit('PATCH', { fromIndex, toIndex });
 
 	function relativeTime(ts: number): string {
 		const diff = Math.floor((Date.now() - ts) / 1000);
@@ -75,14 +36,12 @@
 	}
 </script>
 
-<SidebarAccordion icon="mdi:tray-full" title="Queue" count={queueCount}>
-	{#if loading && queue.length === 0}
-		<p class="empty-text">Loading...</p>
-	{:else if queue.length === 0}
+<SidebarAccordion icon="mdi:tray-full" title="Queue" count={queue.length}>
+	{#if queue.length === 0}
 		<p class="empty-text">No queued messages</p>
 	{:else}
 		<div class="queue-list">
-			{#each queue as item, i (item.queuedAt)}
+			{#each queue as item, i (item.id)}
 				<div class="queue-item">
 					<div class="queue-item-content">
 						<span class="queue-text">{truncate(item.text)}</span>

@@ -7,7 +7,7 @@
 	import ToolLabel from '$lib/components/ToolLabel.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
-	import type { QueuedMessageKind } from '$shared/server/message-queue.js';
+	import type { QueuedMessageInfo } from '$shared/types/ws-messages.js';
 	import type { PaneActivity } from '$shared/types/ws-messages.js';
 	import { formatSpinnerElapsed } from '$lib/format';
 	import { Badge } from '$lib/components/ui/badge';
@@ -28,9 +28,7 @@
 		sessionState = null,
 		currentAction = null,
 		activity = null,
-		queueCount = 0,
-		queueHeadText = null,
-		queueHeadKind = null,
+		queue = [],
 		paneQueue = [],
 		suggestion = null,
 		onAcceptSuggestion,
@@ -53,12 +51,8 @@
 		currentAction?: string | null;
 		/** Claude Code's spinner line, split into its parts; null outside tmux or between frames. */
 		activity?: PaneActivity | null;
-		/** Messages waiting in claude-mux's own send queue. */
-		queueCount?: number;
-		/** The next queued message's text, so the row can name what it is waiting on. */
-		queueHeadText?: string | null;
-		/** Whether that message is the user's, or one claude-mux queued for itself. */
-		queueHeadKind?: QueuedMessageKind | null;
+		/** Messages waiting in claude-mux's own send queue, next out first. */
+		queue?: QueuedMessageInfo[];
 		/** Messages waiting in Claude Code's own queue, typed into the terminal. */
 		paneQueue?: string[];
 		/** Claude Code's own ghost-text proposal for the next prompt. */
@@ -786,17 +780,18 @@
 
 	<!-- Live status: driven by hooks, which fire the instant a tool starts;
 	     the JSONL itself is written in batches and lags by seconds. -->
-	{#if queueCount > 0}
+	{#if queue.length > 0}
+		{@const head = queue[0]}
 		<div class="live-row queue-note">
-			<iconify-icon icon={queueHeadKind === 'control' ? 'mdi:cog-outline' : 'mdi:tray-full'}
+			<iconify-icon icon={head.kind === 'control' ? 'mdi:cog-outline' : 'mdi:tray-full'}
 			></iconify-icon>
 			<span class="live-text">
-				{#if queueHeadKind === 'control'}
-					Dashboard command waiting for the prompt: <code>{queueHeadText}</code>
+				{#if head.kind === 'control'}
+					Dashboard command waiting for the prompt: <code>{head.text}</code>
 				{:else}
-					Queued for when this session is idle: {queueHeadText}
+					Queued for when this session is idle: {head.text}
 				{/if}
-				{#if queueCount > 1}<span class="queue-more">+{queueCount - 1} more</span>{/if}
+				{#if queue.length > 1}<span class="queue-more">+{queue.length - 1} more</span>{/if}
 			</span>
 		</div>
 	{/if}
