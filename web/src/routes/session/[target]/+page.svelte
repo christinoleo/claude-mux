@@ -38,7 +38,6 @@
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { attachmentsStore, type Attachment } from '$lib/stores/attachments.svelte';
 	import { untrack } from 'svelte';
-	import { longPress } from '$lib/actions/longPress';
 	import { swipe } from '$lib/actions/swipe';
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { useGamepad, STICK_DEADZONE } from '$lib/gamepad.svelte';
@@ -893,24 +892,19 @@
 		return () => ro.disconnect();
 	});
 
-	async function sendKeys(keys: string) {
+	async function postToPane(body: Record<string, unknown>) {
 		if (!target) return;
 		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ keys })
+			body: JSON.stringify(body)
 		});
 	}
 
+	const sendKeys = (keys: string) => postToPane({ keys });
+
 	/** Types text into the pane as it is, with no Enter: a dialog's own text field. */
-	async function sendPaneText(text: string) {
-		if (!target) return;
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text, raw: true })
-		});
-	}
+	const sendPaneText = (text: string) => postToPane({ text, raw: true });
 
 	// Send button with empty input: single tap → Enter, double tap → Tab+Enter
 	// (accept suggestion). The single Enter is delayed briefly so a second tap

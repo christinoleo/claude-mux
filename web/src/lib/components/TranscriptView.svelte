@@ -568,7 +568,7 @@
 					<div class="ask-detail">
 						{#each entry.questions as q (q.question)}
 							<div class="ask-q-review">
-								<span class="ask-header-chip done">{q.header}</span>
+								<span class="ask-header-chip">{q.header}</span>
 								<p class="ask-question">{q.question}</p>
 								{#each q.options as opt (opt.label)}
 									<div class="ask-opt-review" class:chosen={entry.answers?.[q.question] === opt.label}>
@@ -1634,20 +1634,16 @@
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
-		color: #fca5a5;
-		background: #3b1a18;
+		color: #a8a29e;
+		background: #262220;
 		border-radius: 4px;
 		padding: 1px 7px;
 		margin-bottom: 4px;
 	}
-	.ask-header-chip.done {
-		color: #a8a29e;
-		background: #262220;
-	}
 	.ask-question {
-		margin: 0 0 8px;
-		color: #f5f0ee;
-		font-weight: 600;
+		font-weight: 500;
+		color: #d6d3d1;
+		margin: 4px 0 6px;
 	}
 	/* Answered question: review layout inside the collapsed row */
 	.ask-detail {
@@ -1657,11 +1653,6 @@
 		margin-top: 10px;
 		padding-top: 8px;
 		border-top: 1px solid #262220;
-	}
-	.ask-q-review .ask-question {
-		font-weight: 500;
-		color: #d6d3d1;
-		margin: 4px 0 6px;
 	}
 	.ask-opt-review {
 		font-size: 12.5px;

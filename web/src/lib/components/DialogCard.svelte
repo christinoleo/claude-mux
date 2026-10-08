@@ -115,7 +115,8 @@
 			if (blind) {
 				const q = ask!.questions[sentCount];
 				// The text row sits under the options; the cursor starts on the first.
-				await onKeys(Array(q.options.length).fill('Down').join(' '));
+				const n = q.options.length;
+				await onKeys(keysForOptionMove(0, n, n + 1) ?? '');
 				await onText(text);
 				await onKeys('Enter');
 				advanceBlind();
@@ -168,13 +169,7 @@
 	 * typing the number, so it works whether or not the dialog takes digits.
 	 */
 	async function pick(row: Row) {
-		if (!choice) return;
-		const opts = choice.options;
-		const keys = keysForOptionPick(
-			opts.findIndex((o) => o.selected),
-			opts.findIndex((o) => o.n === row.n),
-			opts.length
-		);
+		const keys = walkTo(row, keysForOptionPick);
 		// A text field is open: the arrows have to leave it first.
 		if (keys) await onKeys(typing ? `Up ${keys}` : keys);
 	}
@@ -185,14 +180,19 @@
 	 * question's notes.
 	 */
 	async function highlight(row: Row) {
-		if (!choice) return;
+		const keys = walkTo(row, keysForOptionMove);
+		if (keys) await onKeys(keys);
+	}
+
+	/** Keys from the pane's highlighted row to `row`, by the given walk. */
+	function walkTo(row: Row, walk: typeof keysForOptionMove): string | null {
+		if (!choice) return null;
 		const opts = choice.options;
-		const keys = keysForOptionMove(
+		return walk(
 			opts.findIndex((o) => o.selected),
 			opts.findIndex((o) => o.n === row.n),
 			opts.length
 		);
-		if (keys) await onKeys(keys);
 	}
 
 	function advanceBlind() {
@@ -245,8 +245,6 @@
 
 	/** A hint segment naming a key and what it does: "s to use this session only". */
 	const KEY_SEGMENT = /^(\S+) to (.+)$/;
-	/** Keys the card already drives with its rows and its own buttons. */
-	const DRIVEN_KEYS = new Set(['Enter', 'Esc', '↑/↓', '←/→', 'ctrl+g']);
 	/** A note the dialog adjusts with the horizontal arrows. */
 	const ARROW_NOTE = /←\/→/;
 
@@ -260,8 +258,8 @@
 		const out: { key: string; label: string }[] = [];
 		for (const segment of (choice?.keys ?? '').split('·')) {
 			const m = segment.trim().match(KEY_SEGMENT);
-			if (!m || DRIVEN_KEYS.has(m[1])) continue;
-			if (!/^[a-z]$/i.test(m[1]) && m[1] !== 'Tab' && m[1] !== 'Space') continue;
+			// Only keys the card does not already drive with its rows and buttons.
+			if (!m || (!/^[a-z]$/i.test(m[1]) && m[1] !== 'Tab' && m[1] !== 'Space')) continue;
 			out.push({ key: m[1], label: m[2] });
 		}
 		return out;
@@ -281,13 +279,14 @@
 		requestAnimationFrame(() => el.scrollIntoView({ block: 'nearest' }));
 	}
 
-	const title = $derived(permission && !ask ? 'Permission needed' : 'Claude is asking');
+	const isPermission = $derived(permission && !ask);
+	const title = $derived(isPermission ? 'Permission needed' : 'Claude is asking');
 </script>
 
 {#snippet liveRows(qi: number)}
 	<div class="rows" role="group">
 		{#each rows as row (row.n)}
-			{@const preview = qi >= 0 ? previewFor(qi, row.label) : undefined}
+			{@const preview = previewFor(qi, row.label)}
 			<button
 				type="button"
 				class="row"
@@ -347,6 +346,15 @@
 	</form>
 {/snippet}
 
+{#snippet paneFreeText(answerLabel: string)}
+	{#if textRow || noting}
+		{@render freeText(
+			noting ? `Note on ${notingOn}` : 'Type something else',
+			noting ? 'Note' : answerLabel
+		)}
+	{/if}
+{/snippet}
+
 {#snippet keysBar()}
 	{#each choice?.notes ?? [] as note (note)}
 		<p class="note">
@@ -396,7 +404,7 @@
 	use:reveal
 >
 	<header class="title">
-		<iconify-icon icon={permission && !ask ? 'mdi:shield-alert-outline' : 'mdi:chat-question'}></iconify-icon>
+		<iconify-icon icon={isPermission ? 'mdi:shield-alert-outline' : 'mdi:chat-question'}></iconify-icon>
 		<span>{closed ? 'Answered' : title}</span>
 		{#if closed}<iconify-icon class="ok" icon="mdi:check"></iconify-icon>{/if}
 	</header>
@@ -405,19 +413,14 @@
 		{#each ask.questions as q, qi (q.question)}
 			{@const sent = closed || (current >= 0 && qi < current)}
 			{@const active = !closed && qi === current}
-			<div class="q" class:inactive={!active && !sent}>
+			<div class="ask-q" class:inactive={!active && !sent}>
 				<span class="chip" class:done={sent}>{q.header}</span>
 				<p class="question">{q.question}</p>
 				{#if sent}
 					<div class="sent">answer sent ✓</div>
 				{:else if active && choice && !reviewing}
 					{@render liveRows(qi)}
-					{#if textRow || noting}
-						{@render freeText(
-							noting ? `Note on ${notingOn}` : 'Type something else',
-							noting ? 'Note' : `Your own answer to: ${q.question}`
-						)}
-					{/if}
+					{@render paneFreeText(`Your own answer to: ${q.question}`)}
 				{:else}
 					<!-- Not open in the pane yet, or no pane read: the entry's own options. -->
 					<div class="rows">
@@ -469,7 +472,7 @@
 
 		{#if liveIndex < 0 && choice && !closed}
 			<!-- The pane shows something the entry does not name: draw it as it is. -->
-			<div class="q">
+			<div class="ask-q">
 				{#if choice.question}<p class="question">{choice.question}</p>{/if}
 				{@render liveRows(-1)}
 				{#if textRow || noting}{@render freeText('Type something else', 'Your own answer')}{/if}
@@ -501,15 +504,10 @@
 		{/if}
 		{#if choice && !closed}{@render keysBar()}{/if}
 	{:else if choice && !closed}
-		<div class="q">
+		<div class="ask-q">
 			{#if choice.question}<p class="question">{choice.question}</p>{/if}
 			{@render liveRows(-1)}
-			{#if textRow || noting}
-				{@render freeText(
-					noting ? `Note on ${notingOn}` : 'Type something else',
-					noting ? 'Note' : 'Your own answer'
-				)}
-			{/if}
+			{@render paneFreeText('Your own answer')}
 		</div>
 		{@render keysBar()}
 	{:else if !closed}
@@ -548,12 +546,12 @@
 	.closed .title {
 		color: #86b898;
 	}
-	.q + .q {
+	.ask-q + .ask-q {
 		margin-top: 12px;
 		padding-top: 10px;
 		border-top: 1px solid #2c2416;
 	}
-	.q.inactive {
+	.ask-q.inactive {
 		opacity: 0.45;
 	}
 	.chip {
