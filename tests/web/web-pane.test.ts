@@ -36,7 +36,7 @@ describe("resolveEmbed", () => {
     const u = new URL(page);
     return {
       page: { protocol: u.protocol, hostname: u.hostname },
-      tailnet: { host: "box.ts.net", serves: {} },
+      serves: {},
       detected: [],
       ...over,
     };
@@ -57,7 +57,7 @@ describe("resolveEmbed", () => {
   it("frames a local server through its tailscale serve mapping, keeping the path", () => {
     const e = resolveEmbed(
       "http://localhost:5173/app?q=1",
-      ctx("https://box.ts.net:3456", { tailnet: { host: "box.ts.net", serves: { 5173: "https://box.ts.net:5173" } } })
+      ctx("https://box.ts.net:3456", { serves: { 5173: "https://box.ts.net:5173" } })
     );
     expect(e).toEqual({ kind: "frame", src: "https://box.ts.net:5173/app?q=1" });
   });
@@ -82,6 +82,13 @@ describe("resolveEmbed", () => {
     const e = resolveEmbed("http://localhost:5173/", ctx("http://box.ts.net:3434", { detected: [server(5173, true)] }));
     expect(e).toMatchObject({ kind: "card", command: "tailscale serve --bg --https=5173 http://localhost:5173" });
     expect(e.kind === "card" && e.reason).toMatch(/127\.0\.0\.1 only/);
+  });
+
+  it("rewrites localhost to the name the device reached claude-mux by", () => {
+    expect(resolveEmbed("http://localhost:5173/a", ctx("http://192.168.1.10:3434"))).toEqual({
+      kind: "frame",
+      src: "http://192.168.1.10:5173/a",
+    });
   });
 
   it("frames a rewritten local server from a plain-HTTP page on another device", () => {

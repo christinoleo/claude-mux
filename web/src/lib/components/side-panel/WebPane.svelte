@@ -78,7 +78,7 @@
 	// No URL in the address: put the one last shown here back.
 	let restored = false;
 	$effect(() => {
-		if (!active || restored) return;
+		if (!active || restored || !sessionId) return;
 		restored = true;
 		const last = untrack(() => webPaneStore.get(sessionId));
 		if (!params.url && last) setParams({ url: last });
@@ -88,19 +88,24 @@
 		if (params.url) webPaneStore.set(sessionId, params.url);
 	});
 
-	/** In-frame navigations and choices pushed from here, which Back may undo. */
-	let backSteps = $state(0);
+	/**
+	 * The choices shown before this one, newest last, for Back. A frame on
+	 * another origin keeps its own history out of reach, so Back steps
+	 * through what was picked here rather than through the page's links.
+	 */
+	let trail = $state<string[]>([]);
 
 	function choose(next: string) {
 		if (next === choice) return;
-		setParams({ url: next }, { push: true });
-		backSteps++;
+		if (choice) trail = [...trail, choice];
+		setParams({ url: next });
 	}
 
 	function goBack() {
-		if (backSteps === 0) return;
-		backSteps--;
-		history.back();
+		const prev = trail.at(-1);
+		if (!prev) return;
+		trail = trail.slice(0, -1);
+		setParams({ url: prev });
 	}
 
 	// ── the bar ──────────────────────────────────────────────────────────
@@ -117,7 +122,10 @@
 			toast.error('Not an http(s) URL', { description: typed });
 			return;
 		}
-		const named = (['prod', 'dev'] as const).find((c) => choiceUrl(c, info) === url);
+		const named = (['prod', 'dev'] as const).find((c) => {
+			const configured = choiceUrl(c, info);
+			return configured !== null && normalizeTyped(configured) === url;
+		});
 		choose(named ?? url);
 	}
 
@@ -126,13 +134,15 @@
 	const embed = $derived.by(() => {
 		if (!target || !info) return null;
 		try {
-			return resolveEmbed(target, { page: location, tailnet: info.tailnet, detected: info.detected });
+			return resolveEmbed(target, { page: location, serves: info.serves, detected: info.detected });
 		} catch {
-			return null;
+			return 'invalid' as const;
 		}
 	});
-	const frameSrc = $derived(embed?.kind === 'frame' ? embed.src : null);
-	const openUrl = $derived(embed ? (embed.kind === 'frame' ? embed.src : embed.open) : target);
+	const frameSrc = $derived(embed !== 'invalid' && embed?.kind === 'frame' ? embed.src : null);
+	const openUrl = $derived(
+		embed === 'invalid' ? null : embed ? (embed.kind === 'frame' ? embed.src : embed.open) : target
+	);
 
 	/** The frame check for the frame's URL; until it lands the frame is not drawn. */
 	let check = $state<{ src: string; result: FrameCheck } | null>(null);
@@ -152,6 +162,7 @@
 	const verdict = $derived(check && check.src === frameSrc ? check.result : null);
 	/** Why the target is shown as a card rather than framed, or null to frame it. */
 	const blocked = $derived.by((): { reason: string; open: string; command?: string } | null => {
+		if (embed === 'invalid') return null;
 		if (embed?.kind === 'card') return embed;
 		if (embed && verdict?.embeddable === false) {
 			return { reason: `The site forbids framing. ${verdict.reason}`, open: embed.src };
@@ -160,17 +171,6 @@
 	});
 
 	let reloads = $state(0);
-	/** Loads of the current frame; every one after the first is a navigation inside it. */
-	let frameLoads = 0;
-	$effect(() => {
-		void frameSrc;
-		void reloads;
-		frameLoads = 0;
-	});
-
-	function onFrameLoad() {
-		if (frameLoads++ > 0) backSteps++;
-	}
 
 	function reload() {
 		if (frameSrc) reloads++;
@@ -188,7 +188,7 @@
 
 	$effect(() => {
 		setActions([
-			{ icon: 'mdi:arrow-left', label: 'Back', disabled: backSteps === 0, run: goBack },
+			{ icon: 'mdi:arrow-left', label: 'Back', disabled: trail.length === 0, run: goBack },
 			{ icon: 'mdi:refresh', label: 'Reload', disabled: !sessionId, run: reload },
 			{
 				icon: 'mdi:open-in-new',
@@ -281,6 +281,8 @@
 				{/if}
 				{#if info?.configError}<p class="err">.claude-mux.json: {info.configError}</p>{/if}
 			</div>
+		{:else if embed === 'invalid'}
+			<p class="msg err">Not a URL: {target}</p>
 		{:else if !embed}
 			<p class="msg dim">Resolving {target}…</p>
 		{:else if blocked}
@@ -296,9 +298,9 @@
 					<p class="dim">To show it here, map the port over HTTPS on this machine:</p>
 					<div class="cmd">
 						<code>{command}</code>
-						<button type="button" class="icon" title="Copy command" aria-label="Copy command" onclick={() => copy(command)}>
+						<Button variant="ghost" size="icon-sm" title="Copy command" aria-label="Copy command" onclick={() => copy(command)}>
 							<iconify-icon icon="mdi:content-copy"></iconify-icon>
-						</button>
+						</Button>
 					</div>
 				{/if}
 			</div>
@@ -306,7 +308,7 @@
 			<p class="msg dim">Checking {hostLabel(frameSrc)}…</p>
 		{:else if frameSrc}
 			{#key `${frameSrc}\0${reloads}`}
-				<iframe src={frameSrc} title="Web preview" allow="clipboard-read; clipboard-write; fullscreen" onload={onFrameLoad}></iframe>
+				<iframe src={frameSrc} title="Web preview" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
 			{/key}
 		{/if}
 	</div>
@@ -471,23 +473,6 @@
 	.cmd code {
 		color: #e7e5e4;
 		overflow-wrap: anywhere;
-	}
-	.icon {
-		flex: none;
-		width: 28px;
-		height: 28px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border: 0;
-		border-radius: 6px;
-		background: transparent;
-		color: #a8a29e;
-		cursor: pointer;
-	}
-	.icon:hover {
-		background: #262626;
-		color: #f5f5f4;
 	}
 	.dim {
 		color: #78716c;

@@ -9,7 +9,7 @@
  * and otherwise offered in a new tab with the command that would map it.
  */
 import { isLoopback } from '$shared/utils/loopback.js';
-import type { DevServer, TailnetInfo, WebInfo } from '$shared/server/web-preview.js';
+import type { DevServer, WebInfo } from '$shared/server/web-preview.js';
 
 export type { DevServer, FrameCheck, WebInfo } from '$shared/server/web-preview.js';
 
@@ -68,7 +68,7 @@ export type Embed =
 export interface EmbedContext {
 	/** Where this page is open: `location`. */
 	page: { protocol: string; hostname: string };
-	tailnet: TailnetInfo;
+	serves: WebInfo['serves'];
 	detected: DevServer[];
 }
 
@@ -88,7 +88,7 @@ export function resolveEmbed(target: string, ctx: EmbedContext): Embed {
 	}
 
 	const port = portOf(u);
-	const served = ctx.tailnet.serves[port];
+	const served = ctx.serves[port];
 	if (served) {
 		return { kind: 'frame', src: `${served}${u.pathname}${u.search}${u.hash}` };
 	}
@@ -97,9 +97,9 @@ export function resolveEmbed(target: string, ctx: EmbedContext): Embed {
 		return { kind: 'frame', src: u.href.replace('//0.0.0.0', '//localhost') };
 	}
 
-	const host = ctx.tailnet.host ?? ctx.page.hostname;
+	// Whatever name the device reached claude-mux by reaches this machine's other ports too.
 	const remote = new URL(u.href);
-	remote.hostname = host;
+	remote.hostname = ctx.page.hostname;
 	const card = { kind: 'card' as const, open: remote.href, command: `tailscale serve --bg --https=${port} http://localhost:${port}` };
 	if (ctx.detected.find((d) => d.port === port)?.loopbackOnly) {
 		return {

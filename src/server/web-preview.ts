@@ -18,6 +18,8 @@ const execFileAsync = promisify(execFile);
 
 /** How long a candidate dev server gets to answer the HTML probe. */
 const PROBE_TIMEOUT_MS = 1_000;
+/** How long a listener that did not answer with HTML is left alone. */
+const NOT_HTML_RETRY_MS = 60_000;
 /** How long the frame check waits for a page's headers. */
 const FRAME_CHECK_TIMEOUT_MS = 4_000;
 /** Tailscale's answers change rarely; the pane polls every few seconds. */
@@ -42,13 +44,6 @@ export interface DevServer {
 	loopbackOnly: boolean;
 }
 
-export interface TailnetInfo {
-	/** This machine's tailnet name, e.g. `box.tail1234.ts.net`, or null without tailscale. */
-	host: string | null;
-	/** Local port → the HTTPS URL tailscale serve proxies to it. */
-	serves: Record<number, string>;
-}
-
 /** What `GET /api/sessions/<id>/web` answers. */
 export interface WebInfo {
 	root: string;
@@ -56,7 +51,8 @@ export interface WebInfo {
 	urls: Record<string, string>;
 	configError: string | null;
 	detected: DevServer[];
-	tailnet: TailnetInfo;
+	/** Local port → the HTTPS URL tailscale serve proxies to it. */
+	serves: Record<number, string>;
 }
 
 export type FrameCheck =
@@ -93,8 +89,23 @@ function isWildcard(address: string): boolean {
 /** Where to reach a server bound to `addresses` from this machine. */
 function localUrl(port: number, addresses: string[]): string {
 	if (addresses.some((a) => isWildcard(a) || isLoopback(a))) return `http://localhost:${port}/`;
-	const a = addresses[0];
-	return `http://${a.includes(':') ? `[${a}]` : a}:${port}/`;
+	return hostUrl(addresses[0], port);
+}
+
+function hostUrl(address: string, port: number): string {
+	return `http://${address.includes(':') ? `[${address}]` : address}:${port}/`;
+}
+
+/**
+ * Where this server can reach the listener, by the address it is bound to:
+ * `localhost` may resolve to the one loopback (IPv4 or IPv6) it is not on.
+ */
+function probeUrl(port: number, addresses: string[]): string {
+	if (addresses.some((a) => a === '*' || a === '0.0.0.0' || /^(::ffff:)?127\./.test(a))) {
+		return hostUrl('127.0.0.1', port);
+	}
+	if (addresses.some((a) => a === '::' || a === '::1')) return hostUrl('::1', port);
+	return hostUrl(addresses[0], port);
 }
 
 /** `url`'s response with redirects followed and the body left unread. */
@@ -105,11 +116,12 @@ async function fetchHeaders(url: string, timeoutMs: number): Promise<Response> {
 }
 
 /**
- * `pid:port` pairs that have answered the probe with HTML. A process that
- * serves HTML keeps doing so, so each is probed once rather than on every
- * poll; entries go when their listener does.
+ * What the probe found per listener (`pid:port`): a listener that serves HTML
+ * keeps doing so, so it is probed once; one that does not (a database, a JSON
+ * API) is asked again only after NOT_HTML_RETRY_MS, rather than on every
+ * poll. Entries go when their listener does.
  */
-const servingHtml = new Set<string>();
+const probed = new Map<string, { html: boolean; at: number }>();
 
 /** Whether `url` answers with an HTML page within the probe timeout. */
 async function servesHtml(url: string): Promise<boolean> {
@@ -140,7 +152,7 @@ export async function detectDevServers(root: string): Promise<DevServer[]> {
 		byPort.set(l.port, [...(byPort.get(l.port) ?? []), l]);
 		live.add(`${l.pid}:${l.port}`);
 	}
-	for (const key of servingHtml) if (!live.has(key)) servingHtml.delete(key);
+	for (const key of probed.keys()) if (!live.has(key)) probed.delete(key);
 	const cwds = new Map<number, Promise<string | null>>();
 	const cwdOf = (pid: number) => {
 		if (!cwds.has(pid)) cwds.set(pid, readlink(`/proc/${pid}/cwd`).catch(() => null));
@@ -151,12 +163,14 @@ export async function detectDevServers(root: string): Promise<DevServer[]> {
 			const cwd = await cwdOf(socks[0].pid);
 			if (!cwd || !isInside(root, cwd)) return null;
 			const addresses = socks.map((s) => s.address);
-			const url = localUrl(port, addresses);
 			const key = `${socks[0].pid}:${port}`;
-			if (!servingHtml.has(key)) {
-				if (!(await servesHtml(url))) return null;
-				servingHtml.add(key);
+			let seen = probed.get(key);
+			if (!seen || (!seen.html && Date.now() - seen.at > NOT_HTML_RETRY_MS)) {
+				seen = { html: await servesHtml(probeUrl(port, addresses)), at: Date.now() };
+				probed.set(key, seen);
 			}
+			if (!seen.html) return null;
+			const url = localUrl(port, addresses);
 			return {
 				port,
 				url,
@@ -202,28 +216,18 @@ export function parseServeStatus(status: ServeStatus): Record<number, string> {
 	return serves;
 }
 
-let tailnetCache: { at: number; info: Promise<TailnetInfo> } | null = null;
+let servesCache: { at: number; serves: Promise<Record<number, string>> } | null = null;
 
-async function readTailnet(): Promise<TailnetInfo> {
-	const run = (args: string[]) =>
-		execFileAsync('tailscale', args, { timeout: 3_000, maxBuffer: 4 * 1024 * 1024 })
-			.then(({ stdout }) => JSON.parse(stdout) as unknown)
-			.catch(() => null);
-	const [status, serve] = await Promise.all([run(['status', '--json']), run(['serve', 'status', '--json'])]);
-	const dns = (status as { Self?: { DNSName?: string } } | null)?.Self?.DNSName;
-	return {
-		host: dns ? dns.replace(/\.$/, '') : null,
-		serves: serve ? parseServeStatus(serve as ServeStatus) : {}
-	};
-}
-
-/** This machine's tailnet name and serve mappings, empty without tailscale. */
-export function tailnetInfo(): Promise<TailnetInfo> {
+/** This machine's tailscale serve mappings, empty without tailscale. */
+export function tailscaleServes(): Promise<Record<number, string>> {
 	const now = Date.now();
-	if (!tailnetCache || now - tailnetCache.at > TAILNET_CACHE_MS) {
-		tailnetCache = { at: now, info: readTailnet() };
+	if (!servesCache || now - servesCache.at > TAILNET_CACHE_MS) {
+		const serves = execFileAsync('tailscale', ['serve', 'status', '--json'], { timeout: 3_000 })
+			.then(({ stdout }) => parseServeStatus(JSON.parse(stdout) as ServeStatus))
+			.catch(() => ({}));
+		servesCache = { at: now, serves };
 	}
-	return tailnetCache.info;
+	return servesCache.serves;
 }
 
 const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443' };
@@ -283,8 +287,9 @@ export async function checkFraming(url: string, origin: string): Promise<FrameCh
 	let res: Response;
 	try {
 		res = await fetchHeaders(url, FRAME_CHECK_TIMEOUT_MS);
-	} catch (err) {
-		return { embeddable: null, reason: err instanceof Error ? err.message : String(err) };
+	} catch {
+		// Why it failed stays here: the answer should not map what this machine can reach.
+		return { embeddable: null, reason: 'Could not reach the page to check it.' };
 	}
 	return framingVerdict(res.headers, new URL(res.url || url), new URL(origin));
 }
