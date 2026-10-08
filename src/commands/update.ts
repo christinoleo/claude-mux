@@ -118,7 +118,7 @@ function restartUnit(): void {
     systemctlUser("start", SYSTEMD_UNIT);
     return;
   }
-  systemctlUser("kill", "--kill-whom=main", "--signal=SIGTERM", SYSTEMD_UNIT);
+  systemctlUser("kill", "--kill-who=main", "--signal=SIGTERM", SYSTEMD_UNIT);
 }
 
 /**

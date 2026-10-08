@@ -11,12 +11,6 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
 	},
-	"dependencies": {
-		"ansi_up": "^6.0.6",
-		"highlight.js": "^11.11.1",
-		"marked": "^18.0.11",
-		"shiki": "^3.23.0"
-	},
 	"devDependencies": {
 		"@internationalized/date": "^3.12.3",
 		"@lucide/svelte": "^0.561.0",
@@ -25,8 +19,12 @@
 		"@tailwindcss/vite": "^4.3.3",
 		"@types/web-push": "^3.6.4",
 		"@types/ws": "^8.18.1",
+		"ansi_up": "^6.0.6",
 		"bits-ui": "^2.18.1",
 		"clsx": "^2.1.1",
+		"highlight.js": "^11.11.1",
+		"marked": "^18.0.11",
+		"shiki": "^3.23.0",
 		"svelte": "^5.56.9",
 		"svelte-adapter-bun": "^1.0.1",
 		"svelte-check": "^4.7.6",
