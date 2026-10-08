@@ -20,8 +20,8 @@ export interface NotifiableSession {
 }
 
 export interface SeenSession {
-  /** Whether the session was waiting on a person. */
-  needsYou: boolean;
+  /** What the session was waiting on a person for, if anything. */
+  needsYou: "input" | "approval" | null;
   /** The latest completion seen. Sticky: the hook clears it when the next turn starts. */
   completion: number | null;
 }
@@ -39,8 +39,10 @@ export const NOTIFICATION_TITLES: Record<NotificationKind, string> = {
 
 /**
  * Compare a broadcast with what was seen before it. A session raises at most
- * one event per change: one when it starts waiting (a permission dialog that
- * reports as `waiting` and then `permission` is one wait, not two), and one
+ * one event per change: one when it starts waiting or what it waits for
+ * changes (a permission dialog that reports as `waiting` and then `permission`
+ * is one wait, not two, but a question answered straight into a permission
+ * dialog between two polls is two), and one
  * per completion stamp. A session seen for the first time raises nothing, so
  * opening the page does not replay what already happened.
  */
@@ -54,9 +56,9 @@ export function detectNotifications<S extends NotifiableSession>(
     const prior = previous.get(session.id);
     const kind = needsYouKind(session);
     const completion = session.turn_completed_at ?? prior?.completion ?? null;
-    seen.set(session.id, { needsYou: kind !== null, completion });
+    seen.set(session.id, { needsYou: kind, completion });
     if (!prior || session.pane_alive === false) continue;
-    if (kind && !prior.needsYou) {
+    if (kind && kind !== prior.needsYou) {
       events.push({ session, kind });
     } else if (completion !== null && (prior.completion === null || completion > prior.completion)) {
       events.push({ session, kind: "completion" });

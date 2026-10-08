@@ -421,8 +421,10 @@ export function wantsHuman(session: Session): boolean {
 
 /** What a waiting session is asking, in the fewest words the poll has. */
 export function asking(s: Session): string {
-	if (s.state === 'waiting') return s.pane_choice?.question || s.current_action || 'Asking you a question';
-	return s.current_action || 'Asking permission to go on';
+	if (needsYouKind(s) === 'input') return s.pane_choice?.question || s.current_action || 'Asking you a question';
+	// A permission dialog's action is only "Waiting..." or "Waiting for
+	// permission", which says less than the dialog's own question.
+	return s.pane_choice?.question || 'Asking permission to go on';
 }
 
 /**

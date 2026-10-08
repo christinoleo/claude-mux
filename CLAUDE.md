@@ -237,6 +237,18 @@ posts `{ unread: true }`, which rewinds the watermark to just before the turn
 ended. `isUnread()` compares the two, and a session nobody ever opened counts
 as read. Both tab titles count the sessions that want a person or are done.
 
+Alerts come from `NotificationCoordinator.svelte`, mounted once in the layout
+(never in a split's frames). `detectNotifications()` in
+`src/session-notifications.ts` compares each broadcast with the last one and
+raises an event when a session starts waiting on a person (or switches between
+a question and an approval) and when `turn_completed_at` advances; sessions
+seen for the first time raise nothing. In the background that becomes a
+system notification tagged with the session id; in front, a svelte-sonner
+toast. The sidebar foot holds the per-browser settings (mode
+`off | notifications | sound | both`, in-page toasts), and the favicon carries
+a red count of sessions that want a person. The sounds are synthesised with
+WebAudio in `web/src/lib/notifications.ts`, so there are no audio assets.
+
 The sidebar row is `SessionRow.svelte`: a `meta` slot on line 1 after the time,
 for badges that come later, and a `children` snippet for rows nested under it.
 

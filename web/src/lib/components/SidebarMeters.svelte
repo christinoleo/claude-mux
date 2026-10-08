@@ -105,6 +105,15 @@
 
 	/** Why the last choice did not take, shown under the control. */
 	let alertProblem = $state<string | null>(null);
+	// A permission revoked since the choice was made silences the alerts, so say so.
+	$effect(() => {
+		if (
+			hasDesktopNotifications(preferences.notificationMode) &&
+			typeof Notification !== 'undefined' &&
+			Notification.permission !== 'granted'
+		)
+			alertProblem = 'Notifications are blocked. Allow them in the browser’s site settings, then choose again.';
+	});
 	let requesting = $state(false);
 
 	async function chooseMode(value: NotificationMode): Promise<void> {

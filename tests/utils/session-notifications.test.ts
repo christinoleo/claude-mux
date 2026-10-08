@@ -47,6 +47,18 @@ describe("detectNotifications", () => {
     ]);
   });
 
+  it("raises again when a question gives way to a permission dialog between polls", () => {
+    const events = run([
+      [busy],
+      [{ ...busy, state: "waiting", current_action: ASKING }],
+      [{ ...busy, state: "waiting", current_action: "Waiting..." }],
+    ]);
+    expect(events).toEqual([
+      ["a", "input"],
+      ["a", "approval"],
+    ]);
+  });
+
   it("raises a completion once per finished turn", () => {
     const events = run([
       [busy],
