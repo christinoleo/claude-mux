@@ -57,6 +57,7 @@
 - **Remote Control** &mdash; auto-detects Claude's `/rc` and opens it in a new window
 - **Phone notifications** &mdash; Web Push when a session needs you or finishes, with claude-mux closed (see [Push notifications](#push-notifications-phone))
 - **Mobile-first** &mdash; touch toolbar, hamburger sidebar, swipe gestures
+- **Side panel** &mdash; beside a session: what it changed, the project's files, and its site in a frame (see [Project URLs](#project-urls-claude-muxjson))
 - **Screenshots panel** &mdash; view and dismiss captured screenshots
 - **Dead pane detection** &mdash; visual indication when a tmux pane closes
 - **Other tmux panes** &mdash; browse and view non-Claude panes too
@@ -163,6 +164,26 @@ To turn it on for a device, open claude-mux there and choose **Push → This dev
 Tapping a notification opens that session. A device with claude-mux open in front gets no push, because the page alerts for itself there (a toast, per the sidebar's settings).
 
 The server keeps its VAPID key pair in `~/.claude-mux/vapid.json` (made on first use) and the devices in `~/.claude-mux/push-subscriptions.json`. Deleting the key file orphans every subscription; turn push off and on again on each device. A device the push service reports as gone (HTTP 404/410) is dropped automatically. Each claude-mux server pushes for its own sessions, so with several machines on the tailnet, turn push on once per machine's address.
+
+---
+
+## Project URLs (`.claude-mux.json`)
+
+The session side panel's **Web** tab shows a project's site in a frame. Name the URLs in a `.claude-mux.json` committed at the repo root, so every machine sees the same:
+
+```json
+{ "urls": { "prod": "https://example.com", "dev": "http://localhost:5173" } }
+```
+
+Both keys are optional, and only `http(s)` URLs are read. With no `dev`, the tab looks for dev servers itself: TCP listeners whose process runs inside the project and answer HTTP with an HTML page (Linux only, through `ss` and `/proc`). Any URL can also be typed into the tab's bar.
+
+A `localhost` URL means the phone itself when opened on the phone, and an HTTPS page cannot frame plain HTTP. So a dev server on this machine is framed through its `tailscale serve` HTTPS mapping when it has one; otherwise the tab offers it in a new tab, with the command that would make it embeddable:
+
+```bash
+tailscale serve --bg --https=5173 http://localhost:5173
+```
+
+A site that forbids framing (`X-Frame-Options`, or a CSP `frame-ancestors` that leaves claude-mux out) gets an "Open in new tab" card rather than a blank frame.
 
 ---
 

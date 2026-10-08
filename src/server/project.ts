@@ -64,7 +64,7 @@ export async function projectInfo(cwd: string): Promise<ProjectInfo> {
 }
 
 /** The config at `root`: null with no error when the file is absent. */
-async function readProjectConfig(
+export async function readProjectConfig(
 	root: string
 ): Promise<Pick<ProjectInfo, 'config' | 'configError'>> {
 	try {

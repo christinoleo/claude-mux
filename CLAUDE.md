@@ -240,6 +240,21 @@ cache is re-read when a session in the repo writes its JSON, at most every
 2s, never on a timer. The live field `changes` carries the count: git's when
 the session is in a repo, the log's otherwise.
 
+### 8. What a project serves
+
+The side panel's Web pane frames the project's site. `src/server/web-preview.ts`
+finds dev servers by reading `ss -ltnpH` and keeping the listeners whose
+`/proc/<pid>/cwd` sits inside the project and that answer with HTML within a
+second (Linux only; elsewhere it finds nothing). It reads `tailscale serve
+status --json` for which local ports already have an HTTPS mapping, and
+`checkFraming()` fetches a page's headers to read `X-Frame-Options` and CSP
+`frame-ancestors` before the pane draws a frame. Where a URL can be shown from
+is decided in the browser (`resolveEmbed()` in `web/src/lib/side-panel/web.ts`),
+because only the page knows whether it was opened over HTTPS or on this
+machine: a `localhost` URL is framed through its tailscale serve mapping, as it
+is when the page itself is on localhost, and otherwise becomes a card with
+"Open in new tab" and the `tailscale serve` command that would map it.
+
 ## Key Data Flow
 
 ```

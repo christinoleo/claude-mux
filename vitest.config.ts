@@ -1,6 +1,11 @@
+import { fileURLToPath } from "url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  resolve: {
+    // The web app's alias for the shared code, so tests can load its modules.
+    alias: { $shared: fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   test: {
     globals: true,
     environment: "node",
