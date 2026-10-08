@@ -627,34 +627,56 @@
 	);
 	const railShowing = $derived(railAgents.some((a) => a.running));
 
-	function findCard(toolUseId: string): HTMLDetailsElement | null {
-		return (
-			outputElement?.querySelector<HTMLDetailsElement>(
-				`[data-entry-id="${CSS.escape(toolUseId)}"]`
-			) ?? null
-		);
+	function findEntry(id: string): HTMLElement | null {
+		return outputElement?.querySelector<HTMLElement>(`[data-entry-id="${CSS.escape(id)}"]`) ?? null;
 	}
 
-	/** How many older slices to pull in looking for a card before giving up. */
+	/** How many older slices to pull in looking for an entry before giving up. */
 	const REVEAL_PAGES = 40;
 
 	/**
-	 * Scroll the transcript to an agent's Task card and open it. A long
-	 * session holds only its tail, so a card the socket never sent is asked
-	 * for, slice by slice, until it is on the page or the history runs out.
+	 * Scroll the transcript to an entry (an agent's Task card, a turn's
+	 * prompt) and open it if it folds. A long session holds only its tail, so
+	 * an entry the socket never sent is asked for, slice by slice, until it is
+	 * on the page or the history runs out.
 	 */
-	async function revealAgent(toolUseId: string) {
-		let card = findCard(toolUseId);
-		for (let i = 0; !card && i < REVEAL_PAGES && transcriptStore.firstIndex > 0; i++) {
+	async function revealEntry(id: string) {
+		let el = findEntry(id);
+		for (let i = 0; !el && i < REVEAL_PAGES && transcriptStore.firstIndex > 0; i++) {
 			await transcriptStore.loadEarlier();
 			await tick();
-			card = findCard(toolUseId);
+			el = findEntry(id);
 		}
-		if (!card) return;
-		card.open = true;
+		if (!el) return;
+		if (el instanceof HTMLDetailsElement) el.open = true;
 		userScrolledUp = true;
-		card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		el.scrollIntoView({ block: 'center', behavior: 'smooth' });
 	}
+
+	/**
+	 * A pane asked to show an entry in the transcript (the Changes pane's
+	 * "Show in transcript"). From the terminal, switch to the transcript; a
+	 * sheet over the transcript gets out of the way. The entry is revealed
+	 * once the transcript has its first snapshot.
+	 */
+	let pendingReveal = $state<string | null>(null);
+	$effect(() => {
+		function onReveal(e: Event) {
+			const id = (e as CustomEvent<{ id: string }>).detail?.id;
+			if (!id || !canTranscript) return;
+			if (!panelInline && panelKind) openPanel(null);
+			if (viewMode !== 'transcript') toggleView();
+			pendingReveal = id;
+		}
+		window.addEventListener('claude-mux:reveal-entry', onReveal);
+		return () => window.removeEventListener('claude-mux:reveal-entry', onReveal);
+	});
+	$effect(() => {
+		const id = pendingReveal;
+		if (!id || viewMode !== 'transcript' || !transcriptStore.receivedData) return;
+		pendingReveal = null;
+		void tick().then(() => revealEntry(id));
+	});
 
 	/** The transcript's live status row is showing (its height affects scroll). */
 	const liveRowVisible = $derived(
@@ -2169,7 +2191,7 @@
 			</div>
 			<AgentRail
 				agents={railAgents}
-				onReveal={revealAgent}
+				onReveal={revealEntry}
 				agentHref={(id) => `/session/${encodeURIComponent(target ?? '')}/agent/${encodeURIComponent(id)}`}
 			/>
 			{#if userScrolledUp}

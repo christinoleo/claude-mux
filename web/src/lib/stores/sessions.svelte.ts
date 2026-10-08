@@ -9,7 +9,8 @@ import {
 	type InboxTicket,
 	type QueuedMessageInfo,
 	type DeliveryInfo,
-	type SubagentInfo
+	type SubagentInfo,
+	type ChangesInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
 import { indicatorStateOf, needsYouKind } from '$shared/session-state.js';
@@ -75,6 +76,8 @@ export interface Session {
 	subagents?: SubagentInfo[];
 	/** The issue that worker owns, as GitHub last described it. */
 	issue?: IssueInfo | null;
+	/** Files changed, with line counts: git's when in a repo, else the session log's. */
+	changes?: ChangesInfo | null;
 }
 
 /** Fields that change frequently and should trigger a session object replacement */
@@ -115,6 +118,7 @@ function sessionChanged(a: Session, b: Session): boolean {
 	if (JSON.stringify(a.subagents ?? []) !== JSON.stringify(b.subagents ?? [])) return true;
 	// The issue arrives fresh each tick and changes only when GitHub's answer does.
 	if (JSON.stringify(a.issue ?? null) !== JSON.stringify(b.issue ?? null)) return true;
+	if (JSON.stringify(a.changes ?? null) !== JSON.stringify(b.changes ?? null)) return true;
 	// Screenshots: compare by length + last timestamp (avoids deep comparison)
 	const aShots = a.screenshots;
 	const bShots = b.screenshots;

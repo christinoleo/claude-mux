@@ -68,6 +68,7 @@ describe("ChangesCollector on a real-shaped log", () => {
     expect(turns).toEqual([
       {
         id: "p1",
+        n: 1,
         ts: Date.parse("2026-10-08T01:40:00.000Z"),
         prompt: "document the subagents in CLAUDE.md",
         files: [
@@ -77,6 +78,7 @@ describe("ChangesCollector on a real-shaped log", () => {
       },
       {
         id: "p2",
+        n: 2,
         ts: Date.parse("2026-10-08T01:44:00.000Z"),
         prompt: "/simplify the store",
         files: [

@@ -36,6 +36,8 @@ export type FileChangeCount = Omit<FileChange, "hunks">;
 export interface TurnChanges {
   /** The prompt line's uuid, or null for changes logged before any prompt. */
   id: string | null;
+  /** The turn's place in the session, counting every prompt from 1; 0 before the first. */
+  n: number;
   ts: number;
   /** The prompt, cut to a line, so a list can say which turn this was. */
   prompt: string;
@@ -136,6 +138,7 @@ function parseTs(value: unknown): number {
 
 interface Turn {
   id: string | null;
+  n: number;
   ts: number;
   prompt: string;
   /** Per file, every change in order. */
@@ -195,7 +198,7 @@ export class ChangesCollector {
       }
       let turn = this.turns[this.turns.length - 1];
       if (!turn) {
-        turn = { id: null, ts: parseTs(record.timestamp), prompt: "", changes: new Map() };
+        turn = { id: null, n: 0, ts: parseTs(record.timestamp), prompt: "", changes: new Map() };
         this.turns.push(turn);
       }
       const list = turn.changes.get(change.file);
@@ -208,6 +211,7 @@ export class ChangesCollector {
     if (prompt === null) return;
     this.turns.push({
       id: readString(record.uuid),
+      n: (this.turns[this.turns.length - 1]?.n ?? 0) + 1,
       ts: parseTs(record.timestamp),
       prompt,
       changes: new Map(),
@@ -220,6 +224,7 @@ export class ChangesCollector {
       .filter((turn) => turn.changes.size > 0)
       .map((turn) => ({
         id: turn.id,
+        n: turn.n,
         ts: turn.ts,
         prompt: turn.prompt,
         files: [...turn.changes].map(([file, list]) => count(file, list)),

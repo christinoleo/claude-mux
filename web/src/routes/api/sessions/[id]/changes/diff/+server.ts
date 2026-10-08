@@ -8,7 +8,8 @@ import { confinePath, gitFileDiff, repoRoot } from '$shared/server/git.js';
  * One file's diff. `source=git` diffs the working tree against HEAD, and
  * only for a file inside the repo that git lists as changed. `source=session`
  * returns the hunks the session's log recorded for the file — over the whole
- * session, or within one turn when `turn` names its prompt's id.
+ * session, or within one turn when `turn` names its prompt's id (empty for
+ * the changes made before the first prompt).
  */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const id = decodeURIComponent(params.id);
@@ -32,8 +33,9 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		return json({ source, ...diff });
 	}
 
+	// An empty `turn` names the changes logged before the first prompt.
 	const turn = url.searchParams.get('turn');
-	const change = sessionChanges(session)?.file(file, turn ?? undefined);
+	const change = sessionChanges(session)?.file(file, turn === null ? undefined : turn || null);
 	if (!change) return json({ error: 'No change to that file', file }, { status: 404 });
 	return json({ source, file: change.file, kind: change.kind, binary: false, hunks: change.hunks });
 };

@@ -484,7 +484,7 @@
 	{/snippet}
 	{#snippet row(entry: TranscriptEntry)}
 		{#if entry.kind === 'user'}
-			<div class="user-block" class:dictated={entry.dictated}>
+			<div class="user-block" class:dictated={entry.dictated} data-entry-id={entry.id}>
 				{@render turnGlyph(entry.dictated ?? false)}
 				<!-- A slash command is a different kind of turn: not prose the agent
 				     read, but an instruction to the harness. Show the command as a
@@ -509,7 +509,7 @@
 			</div>
 		{:else if entry.kind === 'queued'}
 			{#if !entry.delivered}
-				<div class="user-block" class:dictated={entry.dictated}>
+				<div class="user-block" class:dictated={entry.dictated} data-entry-id={entry.id}>
 					{@render turnGlyph(entry.dictated ?? false)}
 					<div class="user-text">{entry.text}</div>
 					<span class="time" title="sent while the agent was working">
