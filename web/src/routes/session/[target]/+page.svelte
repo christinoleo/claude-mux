@@ -35,6 +35,7 @@
 	import RenameSessionDialog from '$lib/components/RenameSessionDialog.svelte';
 	import { voiceStore } from '$lib/stores/voice.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
+	import { attachmentsStore, type Attachment } from '$lib/stores/attachments.svelte';
 	import { untrack } from 'svelte';
 	import { longPress } from '$lib/actions/longPress';
 	import { swipe } from '$lib/actions/swipe';
@@ -279,21 +280,7 @@
 		return out;
 	}
 
-	// File attachments staged for the next send (see docs/adr/0001, 0002).
-	type AttachmentStatus = 'uploading' | 'ready' | 'failed';
-	interface Attachment {
-		localId: string;
-		file: File;
-		name: string;
-		size: number;
-		mime: string;
-		status: AttachmentStatus;
-		path?: string;
-		error?: string;
-		thumb?: string;
-		abort?: AbortController;
-	}
-	let attachments = $state<Attachment[]>([]);
+	const attachments = $derived(attachmentsStore.get(target));
 	let cameraInput: HTMLInputElement | null = $state(null);
 	let galleryInput: HTMLInputElement | null = $state(null);
 	let filesInput: HTMLInputElement | null = $state(null);
@@ -1061,10 +1048,11 @@
 			await sendKeys('Enter');
 			return;
 		}
-		const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+		const sent = composed(target);
+		const res = await fetch(`/api/sessions/${encodeURIComponent(sent.target)}/send`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: textInput, attachments: paths })
+			body: JSON.stringify({ text: sent.text, attachments: paths })
 		});
 		if (!res.ok) {
 			// The draft stays put, so nothing typed is lost on a failed send.
@@ -1072,12 +1060,35 @@
 			alert(`Could not send: ${body.error ?? res.statusText}`);
 			return;
 		}
-		textInput = '';
-		clearAttachments();
-		// Reset textarea height after sending
-		if (textareaElement) {
-			textareaElement.style.height = 'auto';
+		clearSent(sent);
+	}
+
+	interface Composed {
+		target: string;
+		text: string;
+		chipIds: string[];
+	}
+
+	/** What a send is about to deliver, taken before it awaits the server. */
+	function composed(t: string): Composed {
+		return { target: t, text: textInput, chipIds: attachments.map((a) => a.localId) };
+	}
+
+	/**
+	 * Take a delivered message out of its session's composer. The send awaited
+	 * the server, so the user may be on another session by now, or have added to
+	 * this one: only the text and chips that went out are cleared, and in the
+	 * session they went to.
+	 */
+	function clearSent(sent: Composed) {
+		for (const id of sent.chipIds) attachmentsStore.remove(sent.target, id);
+		if (sent.target !== target) {
+			if (draftsStore.get(sent.target) === sent.text) draftsStore.set(sent.target, '');
+			return;
 		}
+		if (textInput !== sent.text) return;
+		textInput = '';
+		if (textareaElement) textareaElement.style.height = 'auto';
 	}
 
 	/** A message composed elsewhere on the page — a grilling round's answers. */
@@ -1101,14 +1112,13 @@
 		if (!canSend) return;
 		const paths = readyPaths;
 		if (!textInput && paths.length === 0) return;
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+		const sent = composed(target);
+		const res = await fetch(`/api/sessions/${encodeURIComponent(sent.target)}/send`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: textInput, raw: true, attachments: paths })
+			body: JSON.stringify({ text: sent.text, raw: true, attachments: paths })
 		});
-		textInput = '';
-		clearAttachments();
-		if (textareaElement) textareaElement.style.height = 'auto';
+		if (res.ok) clearSent(sent);
 	}
 
 	/** Ask the session to turn Remote Control on; the poll picks up the URL. */
@@ -1124,16 +1134,13 @@
 	async function queueText() {
 		if (!target || !textInput.trim()) return;
 		if (!canSend) return;
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/queue`, {
+		const sent = composed(target);
+		const res = await fetch(`/api/sessions/${encodeURIComponent(sent.target)}/queue`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: textInput, attachments: readyPaths })
+			body: JSON.stringify({ text: sent.text, attachments: readyPaths })
 		});
-		textInput = '';
-		clearAttachments();
-		if (textareaElement) {
-			textareaElement.style.height = 'auto';
-		}
+		if (res.ok) clearSent(sent);
 	}
 
 
@@ -1145,12 +1152,10 @@
 			: `att-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 	}
 
-	async function doUpload(localId: string, file: File, signal: AbortSignal) {
+	async function doUpload(owner: string, localId: string, file: File, signal: AbortSignal) {
 		const sessionId = currentSession?.id;
 		if (!sessionId) {
-			attachments = attachments.map((a) =>
-				a.localId === localId ? { ...a, status: 'failed', error: 'No active session' } : a
-			);
+			attachmentsStore.patch(owner, localId, { status: 'failed', error: 'No active session' });
 			return;
 		}
 		const form = new FormData();
@@ -1166,19 +1171,16 @@
 				throw new Error(body.error || `HTTP ${res.status}`);
 			}
 			const data = (await res.json()) as { path: string; name: string; size: number; mime: string };
-			attachments = attachments.map((a) =>
-				a.localId === localId ? { ...a, status: 'ready', path: data.path, abort: undefined } : a
-			);
+			attachmentsStore.patch(owner, localId, { status: 'ready', path: data.path, abort: undefined });
 		} catch (err) {
 			if (signal.aborted) return;
 			const msg = err instanceof Error ? err.message : String(err);
-			attachments = attachments.map((a) =>
-				a.localId === localId ? { ...a, status: 'failed', error: msg, abort: undefined } : a
-			);
+			attachmentsStore.patch(owner, localId, { status: 'failed', error: msg, abort: undefined });
 		}
 	}
 
 	function uploadAttachment(file: File) {
+		if (!target) return;
 		const localId = makeLocalId();
 		const thumb = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
 		const abort = new AbortController();
@@ -1192,8 +1194,8 @@
 			thumb,
 			abort
 		};
-		attachments = [...attachments, chip];
-		void doUpload(localId, file, abort.signal);
+		attachmentsStore.add(target, chip);
+		void doUpload(target, localId, file, abort.signal);
 	}
 
 	function uploadFiles(files: FileList | File[] | null | undefined) {
@@ -1203,37 +1205,21 @@
 
 	function retryAttachment(localId: string) {
 		const chip = attachments.find((a) => a.localId === localId);
-		if (!chip || chip.status !== 'failed') return;
+		if (!target || !chip || chip.status !== 'failed') return;
 		const abort = new AbortController();
-		attachments = attachments.map((a) =>
-			a.localId === localId
-				? { ...a, status: 'uploading', error: undefined, abort }
-				: a
-		);
-		void doUpload(localId, chip.file, abort.signal);
+		attachmentsStore.patch(target, localId, { status: 'uploading', error: undefined, abort });
+		void doUpload(target, localId, chip.file, abort.signal);
 	}
 
 	function removeAttachment(localId: string) {
-		const chip = attachments.find((a) => a.localId === localId);
-		if (!chip) return;
-		chip.abort?.abort();
-		if (chip.thumb) URL.revokeObjectURL(chip.thumb);
-		if (chip.status === 'ready' && chip.path && currentSession?.id) {
+		const chip = attachmentsStore.remove(target, localId);
+		if (chip?.status === 'ready' && chip.path && currentSession?.id) {
 			// Best-effort server cleanup; chip is gone either way.
 			void fetch(
 				`/api/sessions/${encodeURIComponent(currentSession.id)}/attach?path=${encodeURIComponent(chip.path)}`,
 				{ method: 'DELETE' }
 			);
 		}
-		attachments = attachments.filter((a) => a.localId !== localId);
-	}
-
-	function clearAttachments() {
-		for (const a of attachments) {
-			a.abort?.abort();
-			if (a.thumb) URL.revokeObjectURL(a.thumb);
-		}
-		attachments = [];
 	}
 
 	function handlePaste(e: ClipboardEvent) {
@@ -1257,12 +1243,6 @@
 		// Tick so popover close doesn't swallow the click on iOS.
 		setTimeout(() => el?.click(), 0);
 	}
-
-	// Clear chips on session change (revoke blob URLs, abort in-flight uploads).
-	$effect.pre(() => {
-		const _t = target;
-		untrack(clearAttachments);
-	});
 
 	// Touch detection + window-level drag-drop wiring.
 	onMount(() => {
@@ -2287,7 +2267,7 @@
 												{/each}
 											</div>
 											{#if attachments.length > 1}
-												<button type="button" class="attach-clear" onclick={clearAttachments}>
+												<button type="button" class="attach-clear" onclick={() => attachmentsStore.clear(target)}>
 													Remove all
 												</button>
 											{/if}

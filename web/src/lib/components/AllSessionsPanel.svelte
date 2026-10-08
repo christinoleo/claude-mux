@@ -17,6 +17,7 @@
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
+	import { attachmentsStore } from '$lib/stores/attachments.svelte';
 	import { AGENTS, AGENT_IDS } from '$shared/agents.js';
 	import type { SessionAgent } from '$shared/db/index.js';
 	import type { TmuxPane } from '$lib/types/tmux';
@@ -613,6 +614,7 @@
 	{@const s = row.session}
 	{@const isActive = machine.local && s.tmux_target === currentTarget}
 	{@const draft = machine.local && !isActive && s.tmux_target ? draftsStore.get(s.tmux_target) : ''}
+	{@const staged = machine.local && !isActive && s.tmux_target ? attachmentsStore.count(s.tmux_target) : 0}
 	{@const wants = wantsHuman(s)}
 	{@const tag = paneTag(machine, s.tmux_target)}
 	<a
@@ -655,6 +657,11 @@
 			</button>
 		{/if}
 		<span class="sub" class:draft={!!draft} title={draft || s.current_action || s.state}>
+			{#if staged}
+				<span class="staged" title="{staged} attachment{staged === 1 ? '' : 's'} staged"
+					><iconify-icon icon="mdi:paperclip"></iconify-icon>{staged}</span
+				>
+			{/if}
 			{#if draft}
 				<iconify-icon icon="mdi:pencil-outline"></iconify-icon>{draftsStore.preview(s.tmux_target!)}
 			{:else}
@@ -1439,6 +1446,13 @@
 		font-size: 11px;
 		vertical-align: -1px;
 		margin-right: 3px;
+	}
+	.row .sub .staged {
+		color: var(--amber);
+		margin-right: 6px;
+	}
+	.row .sub .staged iconify-icon {
+		margin-right: 1px;
 	}
 	.row.tmux {
 		padding-top: 5px;
