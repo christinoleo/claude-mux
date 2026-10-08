@@ -120,7 +120,8 @@ const SubagentSchema = z.object({
 	started_at: z.number(),
 	ended_at: z.number().nullable(),
 	transcript_path: z.string().nullable(),
-	tool_use_id: z.string().nullable().optional()
+	tool_use_id: z.string().nullable().optional(),
+	current_tool: z.string().nullable().optional()
 });
 
 /** A subagent a session spawned, as the hook last recorded it. */

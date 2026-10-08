@@ -78,8 +78,13 @@ else from the parent's `Agent` call in `PreToolUse`, parked in `agent_calls`
 until its start claims it; `SubagentStop` reads the meta again, since that
 pairing goes by agent type alone. A failed `Agent` call marks its agent
 `failed`, a Stop that really ends the turn closes any agent still marked
-running (Escape never sends its `SubagentStop`), and finished agents are pruned
-ten minutes after they end.
+running (Escape never sends its `SubagentStop`). A subagent's own tool calls
+arrive under the parent's session id with `agent_id` set, and the latest one
+rides on the agent as `current_tool`. Finished agents stay an hour and failed
+ones a day: the sidebar (`agentView()` in `src/subagents.ts`) draws a finished
+agent as a dimmed row for ten minutes and then only counts it ("3 agents done"
+on the parent), while a failed one keeps its red row until it is opened from
+this browser.
 
 ### 2. SvelteKit Web Server + WebSocket
 The web server (`web/`) is built with SvelteKit and svelte-adapter-bun:
@@ -199,7 +204,12 @@ unblocked. Anything labelled `hold` (maestro's "not the daemon's") is left out. 
 empty.
 
 The sidebar nests a worker under the session that runs its daemon (the one
-non-worker in the same tmux session) and names it after its issue.
+non-worker in the same tmux session) and names it after its issue. Two kinds
+of child hang off a row and must read differently: a worker (a whole session)
+on a solid violet thread with a terminal tile and an issue chip, and a
+subagent (`SubagentRow.svelte`, no pane of its own) on a dashed teal thread
+with a diamond and its agent type, linking to `/session/<target>/agent/<id>`.
+A worker's subagents ride inside the worker's thread.
 `NeedsYou.svelte` lists everything waiting on a person, oldest wait first:
 dialogs in panes, workers asking for help, then wayfinder tickets with a Start
 button that opens a session on the ticket. `src/transcript/grilling.ts` reads

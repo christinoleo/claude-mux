@@ -207,8 +207,13 @@ function readSession(id: string): Session | null {
   }
 }
 
-/** How long a finished subagent stays listed before it is pruned from the JSON. */
-const FINISHED_SUBAGENT_TTL_MS = 10 * 60 * 1000;
+/**
+ * How long a finished subagent stays in the JSON. The sidebar lists one as a
+ * row for ten minutes and then counts it as "N agents done" on the parent, so
+ * it has to outlive that; a failed one waits for someone to open it.
+ */
+const DONE_SUBAGENT_TTL_MS = 60 * 60 * 1000;
+const FAILED_SUBAGENT_TTL_MS = 24 * 60 * 60 * 1000;
 
 function writeSession(session: Session): void {
   ensureSessionsDir();
@@ -217,8 +222,12 @@ function writeSession(session: Session): void {
     session.screenshots = session.screenshots.filter(s => existsSync(s.path));
   }
   if (session.subagents?.length) {
-    const cutoff = Date.now() - FINISHED_SUBAGENT_TTL_MS;
-    session.subagents = session.subagents.filter(a => a.ended_at === null || a.ended_at > cutoff);
+    const now = Date.now();
+    session.subagents = session.subagents.filter(
+      a =>
+        a.ended_at === null ||
+        a.ended_at > now - (a.state === "failed" ? FAILED_SUBAGENT_TTL_MS : DONE_SUBAGENT_TTL_MS)
+    );
   }
   const path = getSessionPath(session.id);
   const tmpPath = path + ".tmp";
@@ -676,8 +685,13 @@ function handlePreToolUse(input: HookInput): void {
   session.last_update = Date.now();
   if (input.agent_id) {
     // A subagent's tool calls arrive under the parent's session id. The parent
-    // is busy, but what it is doing is waiting on the agent, not reading foo.ts.
+    // is busy, but what it is doing is waiting on the agent, not reading foo.ts;
+    // the tool is the agent's own current step.
     session.state = "busy";
+    const agent = session.subagents?.find(a => a.id === input.agent_id);
+    if (agent && input.tool_name) {
+      agent.current_tool = parseMcpToolName(input.tool_name)?.tool ?? input.tool_name;
+    }
   } else if (input.tool_name === "AskUserQuestion") {
     // The tool's whole job is to wait for the user, so the session is waiting
     // from the moment it is called. The permission notification says the
@@ -849,6 +863,7 @@ function handleSubagentStop(input: HookInput): void {
   }
   if (agent.state === "running") agent.state = "done";
   agent.ended_at ??= Date.now();
+  agent.current_tool = null;
   agent.transcript_path = transcriptPath;
   agent.description = meta.description ?? agent.description;
   agent.tool_use_id = meta.toolUseId ?? agent.tool_use_id;

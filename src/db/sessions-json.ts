@@ -68,6 +68,8 @@ export interface Subagent {
   transcript_path: string | null;
   /** The parent's Agent tool call that spawned it. */
   tool_use_id?: string | null;
+  /** The tool the agent last called while running; cleared at its stop. */
+  current_tool?: string | null;
 }
 
 export interface Session {

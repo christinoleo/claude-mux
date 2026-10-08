@@ -141,15 +141,32 @@ describe("hook: subagents", () => {
     expect(() => readFileSync(join(home, ".claude-mux", "sessions", "ghost.json"))).toThrow();
   });
 
-  it("prunes agents that finished more than ten minutes ago", () => {
+  it("records the tool a running agent last called, and clears it at its stop", () => {
+    runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });
+    runHook({ hook_event_name: "PreToolUse", agent_id: "a1", tool_name: "Grep", tool_input: { pattern: "x" } });
+    expect(session().subagents[0].current_tool).toBe("Grep");
+    runHook({ hook_event_name: "PreToolUse", agent_id: "a1", tool_name: "mcp__svelte__get-documentation" });
+    expect(session().subagents[0].current_tool).toBe("get-documentation");
+
+    runHook({ hook_event_name: "SubagentStop", agent_id: "a1", agent_type: "Explore" });
+    expect(session().subagents[0].current_tool).toBeNull();
+  });
+
+  it("keeps finished agents for an hour, failed ones for a day, so the sidebar can fold them", () => {
     const s = session();
-    const old = Date.now() - 11 * 60 * 1000;
+    const at = (min: number) => Date.now() - min * 60 * 1000;
+    const agent = (id: string, state: Subagent["state"], ended: number | null): Subagent => ({
+      id, type: "Explore", description: null, state, started_at: at(2000), ended_at: ended, transcript_path: null,
+    });
     s.subagents = [
-      { id: "old", type: "Explore", description: null, state: "done", started_at: old, ended_at: old, transcript_path: null },
-      { id: "long", type: "Explore", description: null, state: "running", started_at: old, ended_at: null, transcript_path: null },
+      agent("recent", "done", at(11)),
+      agent("old", "done", at(61)),
+      agent("failed", "failed", at(61)),
+      agent("ancient-failure", "failed", at(25 * 60)),
+      agent("long", "running", null),
     ];
     writeFileSync(join(home, ".claude-mux", "sessions", "s1.json"), JSON.stringify(s));
     runHook({ hook_event_name: "SubagentStart", agent_id: "new", agent_type: "Plan" });
-    expect(session().subagents.map((a) => a.id)).toEqual(["long", "new"]);
+    expect(session().subagents.map((a) => a.id)).toEqual(["recent", "failed", "long", "new"]);
   });
 });
