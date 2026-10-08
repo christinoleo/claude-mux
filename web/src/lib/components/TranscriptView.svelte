@@ -242,6 +242,8 @@
 			submitted = null;
 		} else if (paneChoice) {
 			seenLive = dialogKey;
+			// The pane still draws it, whatever keys the card sent blind.
+			submitted = null;
 		}
 	});
 	/** Answered and gone from the pane, while the hooks may still say it is open. */
@@ -255,8 +257,15 @@
 	 * back to open in between.
 	 */
 	let answeredAsks = $state<Record<string, true>>({});
+	let lastLiveAsk: { id: string; seen: boolean } | null = null;
 	$effect(() => {
 		if (liveAskId && dialogClosed) answeredAsks[liveAskId] = true;
+		// The hooks can leave `waiting` on the same tick the pane drops the
+		// dialog, so a question seen live that stops being live was answered.
+		if (lastLiveAsk && lastLiveAsk.id !== liveAskId && lastLiveAsk.seen) {
+			answeredAsks[lastLiveAsk.id] = true;
+		}
+		lastLiveAsk = liveAskId ? { id: liveAskId, seen: seenLive === liveAskId } : null;
 	});
 	/** The pane's dialog at the foot, when it is not the live question's. */
 	const footDialog = $derived(liveAskId === null && paneChoice !== null);

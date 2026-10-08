@@ -132,8 +132,11 @@
 						opts.length
 					);
 					if (move === null) return;
-					// Highlighting the row is what opens it for typing.
+					// Highlighting the row is what opens it for typing. Until the pane
+					// says it is open, letters would drive the list ("n" opens notes)
+					// and the Enter would pick whatever row is highlighted.
 					if (move) await onKeys(move);
+					if (!(await paneTyping())) return;
 				}
 				await onText(text);
 				// A note closes with Escape, which keeps it and brings the rows back;
@@ -146,6 +149,19 @@
 		} finally {
 			sending = false;
 		}
+	}
+
+	/** How long the free-text row may take to open before the card gives up and keeps the text. */
+	const OPEN_TIMEOUT_MS = 3000;
+
+	/** Waits for the pane's next reads to show the text row open. */
+	async function paneTyping(): Promise<boolean> {
+		const until = Date.now() + OPEN_TIMEOUT_MS;
+		while (Date.now() < until) {
+			if (choice?.typing === true) return true;
+			await new Promise((r) => setTimeout(r, 100));
+		}
+		return false;
 	}
 
 	function freeKeydown(e: KeyboardEvent) {
@@ -169,9 +185,9 @@
 	 * typing the number, so it works whether or not the dialog takes digits.
 	 */
 	async function pick(row: Row) {
+		// An open text field is the selected row, so the walk starts from it.
 		const keys = walkTo(row, keysForOptionPick);
-		// A text field is open: the arrows have to leave it first.
-		if (keys) await onKeys(typing ? `Up ${keys}` : keys);
+		if (keys) await onKeys(keys);
 	}
 
 	/**

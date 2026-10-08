@@ -946,6 +946,12 @@
 			await sendKeys('Enter');
 			return;
 		}
+		// An idle pane drawing a dialog (a local command's picker) would take
+		// the text as keys and the Enter as a pick; the draft waits instead.
+		if (isIdle && paneChoice) {
+			editNotice = 'A dialog is open in the pane. Answer it in the card above, then send.';
+			return;
+		}
 		// Busy, or a dialog open: the message waits in the queue for its own turn.
 		if (!isIdle) {
 			await queueText();
@@ -1956,6 +1962,8 @@
 			onchange={handlePickerInput}
 		/>
 		{#if viewMode === 'transcript'}
+				<!-- Keyed by session: what a card saw of one pane's dialog says nothing about the next. -->
+				{#key target}
 					<TranscriptView
 						entries={transcriptStore.entries}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
@@ -1976,6 +1984,7 @@
 						onLoadEarlier={() => holdPlaceThrough(transcriptStore.loadEarlier())}
 						onSendReply={sendReply}
 					/>
+				{/key}
 				{:else}
 					<TerminalView
 						history={terminalStore.history}
