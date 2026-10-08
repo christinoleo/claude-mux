@@ -25,18 +25,27 @@ export function paneForTarget(target: string): { pane: string; state: Session['s
 }
 
 /**
- * The text to deliver, with any attachments folded in. Attachments are keyed
- * by session id, so a pane no session claims can take none.
+ * The attachment paths a request names, checked to sit under the session's
+ * own attachments dir. Attachments are keyed by session id, so a pane no
+ * session claims can take none.
  */
+export function attachmentPaths(
+	target: string,
+	attachments: unknown
+): { ok: true; paths: string[] } | { ok: false; error: string } {
+	if (!Array.isArray(attachments) || attachments.length === 0) return { ok: true, paths: [] };
+	const session = sessionForTarget(target);
+	if (!session) return { ok: false, error: 'attachments require a known session' };
+	return validateAttachmentPaths(session.id, attachments as string[]);
+}
+
+/** The text to deliver, with any attachments folded in. */
 export function composePrompt(
 	target: string,
 	text: string,
 	attachments: unknown
 ): { ok: true; text: string } | { ok: false; error: string } {
-	if (!Array.isArray(attachments) || attachments.length === 0) return { ok: true, text };
-	const session = sessionForTarget(target);
-	if (!session) return { ok: false, error: 'attachments require a known session' };
-	const result = validateAttachmentPaths(session.id, attachments as string[]);
-	if (!result.ok) return { ok: false, error: result.error };
+	const result = attachmentPaths(target, attachments);
+	if (!result.ok) return result;
 	return { ok: true, text: composePromptWithAttachments(text, result.paths) };
 }

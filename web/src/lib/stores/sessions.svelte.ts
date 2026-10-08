@@ -7,7 +7,8 @@ import {
 	type PaneActivity,
 	type IssueInfo,
 	type InboxTicket,
-	type QueuedMessageInfo
+	type QueuedMessageInfo,
+	type DeliveryInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
 
@@ -39,6 +40,8 @@ export interface Session {
 	rc_url?: string | null;
 	/** Messages claude-mux holds for the pane, next out first. */
 	queue?: QueuedMessageInfo[];
+	/** What the queue and steers handed the pane lately, newest last. */
+	delivered?: DeliveryInfo[];
 	display_name?: string | null;
 	/** Text in the pane's prompt box right now (live, never persisted). */
 	draft_input?: string | null;
@@ -80,15 +83,12 @@ function sessionChanged(a: Session, b: Session): boolean {
 	if ((aQueue?.length ?? 0) !== (bQueue?.length ?? 0)) return true;
 	if (aQueue && bQueue && aQueue.some((msg, i) => msg !== bQueue[i])) return true;
 	// The server queue: likewise fresh each tick, and almost always empty.
-	const aSent = a.queue ?? [];
-	const bSent = b.queue ?? [];
-	if (aSent.length !== bSent.length) return true;
-	if (
-		aSent.some(
-			(m, i) => m.text !== bSent[i].text || m.queuedAt !== bSent[i].queuedAt || m.kind !== bSent[i].kind
-		)
-	)
-		return true;
+	// Whole, since an edit changes one item's text and a reorder only its ids.
+	if ((a.queue?.length ?? 0) !== (b.queue?.length ?? 0)) return true;
+	if (a.queue?.length && JSON.stringify(a.queue) !== JSON.stringify(b.queue)) return true;
+	// The delivery log only ever grows at the end.
+	if ((a.delivered?.length ?? 0) !== (b.delivered?.length ?? 0)) return true;
+	if (a.delivered?.length && a.delivered.at(-1)!.at !== b.delivered?.at(-1)?.at) return true;
 	// Pane choice: likewise a fresh object each tick, and it only changes when
 	// the dialog does. Every field counts — a ticked checkbox, a row turning
 	// into a text field, a note the dialog adds — so compare the whole thing

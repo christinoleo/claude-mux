@@ -47,13 +47,15 @@ type LivePaneFields = {
 	issue: IssueInfo | null;
 	/** Every message claude-mux holds for the pane, next out first. */
 	queue: QueuedMessageInfo[];
+	/** What the queue and steers handed the pane lately, so the transcript can label it. */
+	delivered: DeliveryInfo[];
 };
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
-import { getQueue, enqueue } from './message-queue.js';
+import { getQueue, enqueue, getDeliveries } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
-import type { IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
+import type { DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 import { inboxTickets, issueFor, watchRepos } from './github.js';
 
 // ============================================================================
@@ -476,8 +478,15 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 			issue: issueFor(s.git_root, s.maestro_issue),
 			// Whole, so the composer can draw and edit it without polling the queue route.
 			queue: s.tmux_target
-				? getQueue(s.tmux_target).map(({ id, text, queuedAt, kind }) => ({ id, text, queuedAt, kind }))
+				? getQueue(s.tmux_target).map(({ id, text, queuedAt, kind, attachments }) => ({
+						id,
+						text,
+						queuedAt,
+						kind,
+						attachments
+					}))
 				: [],
+			delivered: s.tmux_target ? getDeliveries(s.tmux_target) : [],
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {

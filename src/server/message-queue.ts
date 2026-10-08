@@ -19,7 +19,8 @@ import { CLAUDE_MUX_DIR } from '../utils/paths.js';
 import { writeFileAtomic } from '../utils/atomic-write.js';
 import { isPidAlive } from '../utils/pid.js';
 import { capturePaneContentAsync, readPromptBox } from '../tmux/pane.js';
-import type { QueuedMessageInfo } from '../types/ws-messages.js';
+import { composePromptWithAttachments } from './attachments.js';
+import type { DeliveryInfo, QueuedMessageInfo } from '../types/ws-messages.js';
 
 // ============================================================================
 // Types
@@ -36,6 +37,11 @@ export type QueuedMessageKind = QueuedMessageInfo['kind'];
 export interface QueuedMessage extends QueuedMessageInfo {
 	/** Failed send attempts, so a message aimed at a dead pane gives up. */
 	attempts?: number;
+}
+
+/** What the pane is given for a queued message: its attachments folded into the text. */
+export function promptOf(message: QueuedMessageInfo): string {
+	return composePromptWithAttachments(message.text, message.attachments ?? []);
 }
 
 interface SessionLike {
@@ -123,6 +129,7 @@ export async function steerIntoPane(target: string, text: string, busy: boolean)
 	sendTextToPane(target, text);
 	if (!(await confirmSubmitted(target))) return false;
 	if (busy) sendNowInPane(target);
+	recordDelivery(target, text, 'steer');
 	return true;
 }
 
@@ -138,6 +145,8 @@ interface QueueGlobalState {
 	recentlySent: Map<string, number>;
 	/** target → first tick at which no session claimed it, for orphan expiry */
 	missingSince: Map<string, number>;
+	/** target → what the queue and steer handed the pane lately, newest last */
+	deliveries: Map<string, DeliveryInfo[]>;
 	drainTimer: ReturnType<typeof setInterval> | null;
 	/** Whether this process owns ~/.claude-mux/queue.json and may write to it. */
 	persist: boolean;
@@ -220,6 +229,7 @@ function getGlobalState(): QueueGlobalState {
 			pendingDrain: new Map<string, number>(),
 			recentlySent: new Map<string, number>(),
 			missingSince: new Map<string, number>(),
+			deliveries: new Map<string, DeliveryInfo[]>(),
 			drainTimer: null,
 			persist: restored.persist
 		};
@@ -228,13 +238,38 @@ function getGlobalState(): QueueGlobalState {
 	// Backfill fields added after an older module instance created the state (dev HMR)
 	state.recentlySent ??= new Map<string, number>();
 	state.missingSince ??= new Map<string, number>();
+	state.deliveries ??= new Map<string, DeliveryInfo[]>();
 	state.drainTimer ??= null;
 	state.persist ??= true;
 	return state as QueueGlobalState;
 }
 
 const globalState = getGlobalState();
-const { queues, pendingDrain, recentlySent, missingSince } = globalState;
+const { queues, pendingDrain, recentlySent, missingSince, deliveries } = globalState;
+
+// ============================================================================
+// Delivery log
+// ============================================================================
+
+/** How many deliveries a pane remembers, and for how long. */
+const DELIVERY_LOG_SIZE = 20;
+const DELIVERY_LOG_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Remember that the queue or a steer handed this text to the pane, so the
+ * transcript can label the user turn it becomes. In memory only: the label is
+ * a courtesy, and a restart forgetting it costs nothing.
+ */
+export function recordDelivery(target: string, text: string, via: DeliveryInfo['via']): void {
+	const now = Date.now();
+	const log = (deliveries.get(target) ?? []).filter((d) => now - d.at < DELIVERY_LOG_TTL_MS);
+	log.push({ text, via, at: now });
+	deliveries.set(target, log.slice(-DELIVERY_LOG_SIZE));
+}
+
+export function getDeliveries(target: string): DeliveryInfo[] {
+	return deliveries.get(target) ?? [];
+}
 
 // ============================================================================
 // Queue operations
@@ -246,9 +281,16 @@ function queueFor(target: string): QueuedMessage[] {
 	return queue;
 }
 
-export function enqueue(target: string, text: string, kind: QueuedMessageKind = 'user'): QueuedMessage[] {
+export function enqueue(
+	target: string,
+	text: string,
+	kind: QueuedMessageKind = 'user',
+	attachments: string[] = []
+): QueuedMessage[] {
 	const queue = queueFor(target);
-	queue.push({ id: randomUUID(), text, queuedAt: Date.now(), kind });
+	const message: QueuedMessage = { id: randomUUID(), text, queuedAt: Date.now(), kind };
+	if (attachments.length > 0) message.attachments = attachments;
+	queue.push(message);
 	missingSince.delete(target);
 	persistQueues();
 	ensureDrainLoop();
@@ -312,7 +354,7 @@ export async function promoteToSteer(target: string, id: string, busy: boolean):
 	if (queue.length === 0) queues.delete(target);
 	persistQueues();
 	try {
-		return (await steerIntoPane(target, message.text, busy)) ? 'sent' : 'in-box';
+		return (await steerIntoPane(target, promptOf(message), busy)) ? 'sent' : 'in-box';
 	} catch (err) {
 		const restored = queueFor(target);
 		restored.splice(Math.min(index, restored.length), 0, message);
@@ -455,8 +497,10 @@ export function drainQueues(sessions: SessionLike[]): void {
 		// re-insert (and two writes of the persisted file).
 		const message = queue[0];
 		try {
-			sendTextToPane(target, message.text);
+			const prompt = promptOf(message);
+			sendTextToPane(target, prompt);
 			dequeue(target);
+			recordDelivery(target, prompt, 'queue');
 			recentlySent.set(target, now);
 			console.log(`[queue] Auto-sent queued message to ${target}`);
 		} catch (err) {

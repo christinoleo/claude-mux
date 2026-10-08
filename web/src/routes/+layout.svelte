@@ -12,7 +12,6 @@
 	import { voiceStore } from '$lib/stores/voice.svelte';
 	import AllSessionsPanel from '$lib/components/AllSessionsPanel.svelte';
 	import ScreenshotsPanel from '$lib/components/ScreenshotsPanel.svelte';
-	import MessageQueuePanel from '$lib/components/MessageQueuePanel.svelte';
 	import SidebarMeters from '$lib/components/SidebarMeters.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
 	import SplitView from '$lib/components/SplitView.svelte';
@@ -222,14 +221,8 @@
 				<AllSessionsPanel compact onSessionSelect={closeDrawer} />
 			</div>
 			<!-- The foot is one card, the way the composer is: what belongs to the
-			     session you are on (its queue, its screenshots), then the meters. -->
+			     session you are on (its screenshots), then the meters. -->
 			<div class="sidebar-foot">
-				{#if currentTarget}
-					<div class="sidebar-panel">
-						<MessageQueuePanel target={currentTarget} />
-					</div>
-				{/if}
-
 				{#if currentSession}
 					<div class="sidebar-panel">
 						<ScreenshotsPanel
@@ -379,7 +372,6 @@
 		border-radius: 14px;
 		overflow: hidden;
 	}
-	.sidebar-foot .sidebar-panel + .sidebar-panel,
 	.sidebar-foot .sidebar-panel + :global(*) {
 		border-top: 1px solid #1f1f21;
 	}

@@ -21,6 +21,8 @@
 	import RailStats from '$lib/components/RailStats.svelte';
 	import VoiceMeter from '$lib/components/VoiceMeter.svelte';
 	import PaneDraftBar from '$lib/components/PaneDraftBar.svelte';
+	import QueueStrip from '$lib/components/QueueStrip.svelte';
+	import type { QueuedMessageInfo } from '$shared/types/ws-messages.js';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
 	import KeyTray from '$lib/components/KeyTray.svelte';
 	import SessionSheet from '$lib/components/SessionSheet.svelte';
@@ -305,14 +307,20 @@
 		// A dialog's text row is open: the draft is its answer, not a prompt to
 		// queue behind the turn — queued, it would land after the dialog closed.
 		if (answering) return paneChoice?.noting ? ('note' as const) : ('answer' as const);
-		return (currentSession?.state ?? 'idle') === 'idle' ? ('send' as const) : ('queue' as const);
+		if (editing) return 'save' as const;
+		if ((currentSession?.state ?? 'idle') === 'idle') return 'send' as const;
+		// Holding Ctrl/⌘ turns the button into what Ctrl/⌘+Enter does.
+		return isBusy && steerHeld ? ('steer' as const) : ('queue' as const);
 	});
+
 	const ACTIONS = {
 		keys: { label: 'Keys', icon: 'mdi:arrow-up-bold' },
 		accept: { label: 'Accept', icon: 'mdi:keyboard-tab' },
 		enter: { label: 'Enter', icon: 'mdi:keyboard-return' },
 		send: { label: 'Send', icon: 'mdi:arrow-up' },
-		queue: { label: 'Queue', icon: 'mdi:tray-arrow-down' },
+		queue: { label: 'Queue', icon: 'mdi:playlist-plus' },
+		steer: { label: 'Steer', icon: 'mdi:arrow-right-top' },
+		save: { label: 'Save', icon: 'mdi:content-save-outline' },
 		answer: { label: 'Answer', icon: 'mdi:message-reply-text-outline' },
 		note: { label: 'Save note', icon: 'mdi:note-check-outline' }
 	} as const;
@@ -816,6 +824,13 @@
 	$effect.pre(() => {
 		const t = target;
 		untrack(() => {
+			// An edit belongs to its session: leaving it gives that session its
+			// own draft back, and the queued message keeps its text.
+			if (editing && editing.target !== t) {
+				draftsStore.set(editing.target, editing.draft);
+				editing = null;
+			}
+			editNotice = null;
 			textInput = draftsStore.get(t);
 		});
 		void tick().then(autoResize);
@@ -1048,6 +1063,15 @@
 			await sendKeys('Enter');
 			return;
 		}
+		if (editing) {
+			await saveEdit();
+			return;
+		}
+		// Busy, or a dialog open: the message waits in the queue for its own turn.
+		if ((currentSession?.state ?? 'idle') !== 'idle') {
+			await queueText();
+			return;
+		}
 		const sent = composed(target);
 		const res = await fetch(`/api/sessions/${encodeURIComponent(sent.target)}/send`, {
 			method: 'POST',
@@ -1131,17 +1155,106 @@
 		await sendKeys('Tab Enter');
 	}
 
-	async function queueText() {
-		if (!target || !textInput.trim()) return;
-		if (!canSend) return;
+	/** Post the draft to a route that delivers it; it leaves the composer only once taken. */
+	async function deliver(route: 'queue' | 'steer') {
+		if (!target || !canSend || !hasDraft) return;
 		const sent = composed(target);
-		const res = await fetch(`/api/sessions/${encodeURIComponent(sent.target)}/queue`, {
+		const res = await fetch(`/api/sessions/${encodeURIComponent(sent.target)}/${route}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ text: sent.text, attachments: readyPaths })
 		});
-		if (res.ok) clearSent(sent);
+		if (!res.ok) {
+			const body = (await res.json().catch(() => ({}))) as { error?: string };
+			alert(`Could not ${route}: ${body.error ?? res.statusText}`);
+			return;
+		}
+		clearSent(sent);
 	}
+	const queueText = () => deliver('queue');
+	const steerText = () => deliver('steer');
+
+	// ─── Editing a queued message ───────────────────────────────────────────
+
+	/**
+	 * A queued message loaded into the composer. What was typed before is put
+	 * aside and comes back once the edit is saved or cancelled.
+	 */
+	let editing = $state<{ target: string; id: string; draft: string } | null>(null);
+	/** Said once, when an edit outlived the message it was editing. */
+	let editNotice = $state<string | null>(null);
+
+	function startEdit(item: QueuedMessageInfo) {
+		if (!target) return;
+		if (editing) cancelEdit();
+		editing = { target, id: item.id, draft: textInput };
+		editNotice = null;
+		textInput = item.text;
+		void tick().then(() => {
+			autoResize();
+			textareaElement?.focus();
+		});
+	}
+
+	function endEdit() {
+		if (!editing) return;
+		textInput = editing.draft;
+		editing = null;
+		void tick().then(autoResize);
+	}
+	const cancelEdit = endEdit;
+
+	/**
+	 * The message left the queue while it was being edited — delivered, or
+	 * removed elsewhere. The edited text stays in the composer as a draft of
+	 * its own, ahead of whatever was put aside, so neither is lost.
+	 */
+	function orphanEdit() {
+		if (!editing) return;
+		const aside = editing.draft.trim();
+		editing = null;
+		if (aside) textInput = `${textInput}\n\n${aside}`;
+		editNotice = 'That message was already sent, so your edit is kept here as a new draft.';
+	}
+
+	async function saveEdit() {
+		if (!editing || !textInput.trim()) return;
+		const { target: t, id } = editing;
+		const res = await fetch(`/api/sessions/${encodeURIComponent(t)}/queue`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ id, text: textInput })
+		});
+		if (editing?.id !== id) return;
+		if (res.ok) endEdit();
+		else if (res.status === 404) orphanEdit();
+		else {
+			const body = (await res.json().catch(() => ({}))) as { error?: string };
+			alert(`Could not save: ${body.error ?? res.statusText}`);
+		}
+	}
+
+	// The broadcast drops an item the moment the drain sends it.
+	$effect(() => {
+		if (editing && editing.target === target && !queue.some((m) => m.id === editing!.id)) {
+			untrack(orphanEdit);
+		}
+	});
+
+	/** Ctrl/⌘ is held, so the primary button shows what Ctrl/⌘+Enter would do. */
+	let steerHeld = $state(false);
+	onMount(() => {
+		const sync = (e: KeyboardEvent) => (steerHeld = e.ctrlKey || e.metaKey);
+		const release = () => (steerHeld = false);
+		window.addEventListener('keydown', sync);
+		window.addEventListener('keyup', sync);
+		window.addEventListener('blur', release);
+		return () => {
+			window.removeEventListener('keydown', sync);
+			window.removeEventListener('keyup', sync);
+			window.removeEventListener('blur', release);
+		};
+	});
 
 
 	// ─── Attachments ────────────────────────────────────────────────────────
@@ -1317,6 +1430,8 @@
 		altCount = (altCount + 1) % 3;
 	}
 	const modArmed = $derived(ctrlCount > 0 || altCount > 0);
+	/** Steer is offered as its own control whenever there is a turn to steer into. */
+	const canSteer = $derived(isBusy && hasDraft && !answering && !editing && !modArmed);
 
 
 	/** One line, and it never doubles: the most important thing right now. */
@@ -1580,6 +1695,10 @@
 
 		if (e.key === 'Escape') {
 			e.preventDefault();
+			if (editing) {
+				cancelEdit();
+				return;
+			}
 			if (voiceStore.isOwnedBy(target)) {
 				await voiceStore.cancel();
 				return;
@@ -1607,14 +1726,13 @@
 			sendKeys('Tab');
 			return;
 		}
-		if (e.key === 'Enter' && e.ctrlKey && e.shiftKey) {
-			e.preventDefault();
-			queueText();
-		} else if (e.key === 'Enter' && !e.shiftKey) {
+		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
 			if (await finishVoiceIfRecording()) return;
 			if (modArmed) {
 				sendModSequence();
+			} else if ((e.ctrlKey || e.metaKey) && canSteer) {
+				steerText();
 			} else {
 				sendText();
 			}
@@ -1981,8 +2099,7 @@
 						sessionState={currentSession?.state ?? null}
 						currentAction={currentSession?.current_action ?? null}
 						activity={currentSession?.pane_activity ?? null}
-						{queue}
-						paneQueue={currentSession?.pane_queue ?? []}
+						delivered={currentSession?.delivered ?? []}
 						{suggestion}
 						onAcceptSuggestion={() => void acceptSuggestion()}
 						choiceOffered={choice !== null || answering}
@@ -2012,6 +2129,18 @@
 				</button>
 			{/if}
 		</div>
+
+		{#if target}
+		<QueueStrip
+			{target}
+			sessionId={currentSession?.id ?? null}
+			{queue}
+			paneQueue={currentSession?.pane_queue ?? []}
+			busy={isBusy}
+			editingId={editing?.target === target ? editing.id : null}
+			onEdit={startEdit}
+		/>
+		{/if}
 
 		{#if viewMode === 'transcript'}
 			<PaneDraftBar
@@ -2274,6 +2403,19 @@
 										</Popover.Content>
 									</Popover.Root>
 								{/if}
+								{#if editing?.target === target}
+									<div class="editbar">
+										<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
+										<span>Editing a queued message. Enter saves it in place.</span>
+										<button type="button" onclick={cancelEdit}>Cancel</button>
+									</div>
+								{:else if editNotice}
+									<div class="editbar notice" role="status">
+										<iconify-icon icon="mdi:information-outline"></iconify-icon>
+										<span>{editNotice}</span>
+										<button type="button" onclick={() => (editNotice = null)}>Dismiss</button>
+									</div>
+								{/if}
 								{@render composerField()}
 							{/if}
 						</div>
@@ -2378,12 +2520,24 @@
 									if (modArmed) await sendModSequence();
 									else await sendFromButton();
 								}}
-								use:longPress={{ onTrigger: () => void queueText() }}
 							>
 								<iconify-icon icon={actionIcon}></iconify-icon>
 							</button>
-							{#if queueCount > 0}<span class="act-badge">{queueCount}</span>{/if}
 						</div>
+						{#if canSteer}
+							<!-- Its own button, so a phone has a way to steer that is not a
+							     held key or a long press. -->
+							<button
+								type="button"
+								class="act steer"
+								disabled={!canSend}
+								aria-label="Steer"
+								title={`Steer: make Claude read this now (${MOD_LABEL}+Enter)`}
+								onclick={() => void steerText()}
+							>
+								<iconify-icon icon={ACTIONS.steer.icon}></iconify-icon>
+							</button>
+						{/if}
 					</div>
 				</div>
 			</div>
@@ -3473,21 +3627,44 @@
 		opacity: 0.5;
 		cursor: default;
 	}
-	.act-badge {
-		position: absolute;
-		top: -4px;
-		right: -4px;
-		min-width: 16px;
-		height: 16px;
-		padding: 0 4px;
-		border-radius: 8px;
-		background: #f59e0b;
-		color: #111;
-		font-family: var(--font-mono);
-		font-size: 9.5px;
-		display: inline-flex;
+	/* Steer sits beside the green send in the card's own grey: the second way
+	   in, not a rival to the first. */
+	.act.steer {
+		background: #292524;
+		border-color: #3a3532;
+		color: #e7e5e4;
+	}
+	.act.steer:hover:not(:disabled) {
+		background: #3a3532;
+	}
+
+	.editbar {
+		flex-basis: 100%;
+		display: flex;
 		align-items: center;
-		justify-content: center;
+		gap: 8px;
+		font-size: 12px;
+		color: #86efac;
+	}
+	.editbar.notice {
+		color: #a8a29e;
+	}
+	.editbar span {
+		flex: 1;
+		min-width: 0;
+	}
+	.editbar button {
+		height: 26px;
+		padding: 0 10px;
+		border: 0;
+		border-radius: 6px;
+		background: #292524;
+		color: #e7e5e4;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.editbar button:hover {
+		background: #3a3532;
 	}
 
 
