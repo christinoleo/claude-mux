@@ -225,6 +225,21 @@ button that opens a session on the ticket. `src/transcript/grilling.ts` reads
 a grilling round (`❓ **Qn**` … `➡️`) out of Claude's last reply, so the
 transcript can draw it as a form and write the reply.
 
+### 7. What a session changed
+
+Two sources, both served by `GET /api/sessions/<id>/changes?source=session|git`
+and, one file at a time, `/changes/diff?source=…&file=…`. The session source
+(`src/transcript/changes.ts`) reads only the log: every Edit/Write/MultiEdit/
+NotebookEdit result carries `structuredPatch`, and a Write with `type: "create"`
+counts its whole content as added. It covers files outside any repo, groups
+them by the turn (prompt uuid) that made them, and misses whatever Bash did.
+The git source (`src/server/git.ts`) runs `status --porcelain=v2 -z` and
+`diff --numstat` through `execFile`, untracked files included, and diffs a
+file only when it sits inside the repo root and git lists it as changed. Its
+cache is re-read when a session in the repo writes its JSON, at most every
+2s, never on a timer. The live field `changes` carries the count: git's when
+the session is in a repo, the log's otherwise.
+
 ## Key Data Flow
 
 ```

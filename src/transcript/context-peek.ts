@@ -50,7 +50,11 @@ export function resetContextPeekCache(): void {
  * scan of the projects directory does not run every tick for a session
  * that has not written a file yet.
  */
-function transcriptPathFor(session: { id: string; cwd: string; transcript_path?: string | null }): string | null {
+export function peekTranscriptPath(session: {
+  id: string;
+  cwd: string;
+  transcript_path?: string | null;
+}): string | null {
   const memo = paths.get(session.id);
   if (memo && (memo.path !== null || memo.age < RESOLVE_RETRY_POLLS)) {
     if (memo.path === null) memo.age++;
@@ -122,7 +126,7 @@ function fileMemoFor(session: {
   cwd: string;
   transcript_path?: string | null;
 }): FileMemo | null {
-  const path = transcriptPathFor(session);
+  const path = peekTranscriptPath(session);
   if (!path) return null;
   let stat: { mtimeMs: number; size: number };
   try {
