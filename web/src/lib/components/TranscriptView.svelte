@@ -5,6 +5,7 @@
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { toolIcon } from '$lib/tool-icons';
 	import ToolLabel from '$lib/components/ToolLabel.svelte';
+	import { toolFileTarget } from '$lib/side-panel/files';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { DeliveryInfo } from '$shared/types/ws-messages.js';
@@ -37,7 +38,8 @@
 		olderCount = 0,
 		loadingEarlier = false,
 		onLoadEarlier,
-		onSendReply
+		onSendReply,
+		fileLink
 	}: {
 		entries: TranscriptEntry[];
 		available: boolean;
@@ -78,6 +80,8 @@
 		 * resolves false when the pane did not take it.
 		 */
 		onSendReply?: (text: string) => Promise<boolean>;
+		/** The link that opens a file a tool row touched, at a line; without it the rows draw none. */
+		fileLink?: (path: string, line: number | null) => string;
 	} = $props();
 
 	// ── live activity line ───────────────────────────────────────────────
@@ -653,6 +657,20 @@
 						</span>
 					{:else}
 						<span class="row-summary mono"><ToolLabel name={entry.name} summary={entry.summary} /></span>
+						{@const opens = fileLink ? toolFileTarget(entry) : null}
+						{#if opens && fileLink}
+							<a
+								class="tool-open"
+								href={fileLink(opens.path, opens.line)}
+								title="Open in Files{opens.line ? ` at line ${opens.line}` : ''}"
+								aria-label="Open in Files"
+								data-sveltekit-noscroll
+								data-sveltekit-keepfocus
+								onclick={(e) => e.stopPropagation()}
+							>
+								<iconify-icon icon="mdi:file-eye-outline"></iconify-icon>
+							</a>
+						{/if}
 					{/if}
 					{#if entry.result}
 						<iconify-icon
@@ -1115,97 +1133,6 @@
 		word-break: break-word;
 	}
 
-	/* Vertical rhythm: one 7px step between blocks, nothing compounds.
-	   Tailwind's preflight strips list markers and margins — restore them. */
-	.markdown :global(p) {
-		margin: 0 0 7px;
-	}
-	.markdown :global(p:last-child) {
-		margin-bottom: 0;
-	}
-	.markdown :global(h1),
-	.markdown :global(h2),
-	.markdown :global(h3),
-	.markdown :global(h4) {
-		font-size: 1em;
-		font-weight: 700;
-		color: #fafaf9;
-		margin: 12px 0 5px;
-	}
-	.markdown :global(ul),
-	.markdown :global(ol) {
-		margin: 0 0 7px;
-		padding-left: 20px;
-	}
-	.markdown :global(ul) {
-		list-style: disc outside;
-	}
-	.markdown :global(ol) {
-		list-style: decimal outside;
-	}
-	.markdown :global(ul ul),
-	.markdown :global(ol ol),
-	.markdown :global(ul ol),
-	.markdown :global(ol ul) {
-		margin-bottom: 0;
-	}
-	.markdown :global(li) {
-		margin: 1px 0;
-		line-height: 1.55;
-	}
-	.markdown :global(li)::marker {
-		color: #78716c;
-	}
-	.markdown :global(li p) {
-		margin: 0;
-	}
-	.markdown :global(hr) {
-		border: none;
-		border-top: 1px solid #292524;
-		margin: 12px 0;
-	}
-	.markdown :global(code) {
-		font-family: var(--mono);
-		font-size: 12px;
-		background: #292524;
-		border-radius: 4px;
-		padding: 1px 5px;
-		overflow-wrap: break-word;
-	}
-	.markdown :global(pre) {
-		background: #17140f;
-		border: 1px solid #292524;
-		border-radius: 8px;
-		padding: 10px 12px;
-		overflow-x: auto;
-		margin: 6px 0 10px;
-	}
-	.markdown :global(pre code) {
-		background: none;
-		padding: 0;
-	}
-	.markdown :global(blockquote) {
-		border-left: 3px solid #44403c;
-		margin: 6px 0;
-		padding-left: 10px;
-		color: #a8a29e;
-	}
-	.markdown :global(table) {
-		border-collapse: collapse;
-		margin: 6px 0 10px;
-		display: block;
-		overflow-x: auto;
-	}
-	.markdown :global(th),
-	.markdown :global(td) {
-		border: 1px solid #3a342c;
-		padding: 4px 8px;
-		font-size: 13px;
-	}
-	.markdown :global(a) {
-		color: #93c5fd;
-	}
-
 	/* --- Collapsible rows (tools + thinking): closed, they read as slim log
 	   lines — no box, dimmed, clearly "machine activity" next to the prose.
 	   The card chrome only appears when a row is opened. --- */
@@ -1279,6 +1206,22 @@
 	.tool-status {
 		flex-shrink: 0;
 		font-size: 14px;
+	}
+	.tool-open {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		margin: -4px 0;
+		border-radius: 6px;
+		color: #78716c;
+		font-size: 14px;
+	}
+	.tool-open:hover {
+		background: #262626;
+		color: #e7e5e4;
 	}
 	.tool-status.ok {
 		color: #4d7c5f;

@@ -167,3 +167,95 @@
     animation: none;
   }
 }
+
+/* Rendered Markdown (renderMarkdown in $lib/markdown), in the transcript and
+   the Files pane. Vertical rhythm: one 7px step between blocks, nothing
+   compounds. Tailwind's preflight strips list markers and margins — restore them. */
+.markdown p {
+	margin: 0 0 7px;
+}
+.markdown p:last-child {
+	margin-bottom: 0;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+	font-size: 1em;
+	font-weight: 700;
+	color: #fafaf9;
+	margin: 12px 0 5px;
+}
+.markdown ul,
+.markdown ol {
+	margin: 0 0 7px;
+	padding-left: 20px;
+}
+.markdown ul {
+	list-style: disc outside;
+}
+.markdown ol {
+	list-style: decimal outside;
+}
+.markdown ul ul,
+.markdown ol ol,
+.markdown ul ol,
+.markdown ol ul {
+	margin-bottom: 0;
+}
+.markdown li {
+	margin: 1px 0;
+	line-height: 1.55;
+}
+.markdown li::marker {
+	color: #78716c;
+}
+.markdown li p {
+	margin: 0;
+}
+.markdown hr {
+	border: none;
+	border-top: 1px solid #292524;
+	margin: 12px 0;
+}
+.markdown code {
+	font-family: var(--mono);
+	font-size: 12px;
+	background: #292524;
+	border-radius: 4px;
+	padding: 1px 5px;
+	overflow-wrap: break-word;
+}
+.markdown pre {
+	background: #17140f;
+	border: 1px solid #292524;
+	border-radius: 8px;
+	padding: 10px 12px;
+	overflow-x: auto;
+	margin: 6px 0 10px;
+}
+.markdown pre code {
+	background: none;
+	padding: 0;
+}
+.markdown blockquote {
+	border-left: 3px solid #44403c;
+	margin: 6px 0;
+	padding-left: 10px;
+	color: #a8a29e;
+}
+.markdown table {
+	border-collapse: collapse;
+	margin: 6px 0 10px;
+	display: block;
+	overflow-x: auto;
+}
+.markdown th,
+.markdown td {
+	border: 1px solid #3a342c;
+	padding: 4px 8px;
+	font-size: 13px;
+}
+.markdown a {
+	color: #93c5fd;
+}

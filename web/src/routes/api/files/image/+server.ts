@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { existsSync, readFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
 import { imageMimeFor } from '$shared/utils/image-types.js';
 
 export const GET: RequestHandler = async ({ url }) => {
@@ -10,7 +10,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		return json({ error: 'path parameter required' }, { status: 400 });
 	}
 
-	// Basic security: don't allow path traversal
+	// Basic security: don't allow path traversal. The images this serves (tool
+	// results, screenshots, attachments) live in no one directory, so there is
+	// no root to confine to; the type is judged on the real path instead, so a
+	// link named `.png` cannot hand out whatever it points at.
 	if (path.includes('..')) {
 		return json({ error: 'Invalid path' }, { status: 400 });
 	}
@@ -20,7 +23,8 @@ export const GET: RequestHandler = async ({ url }) => {
 			return json({ error: 'File not found' }, { status: 404 });
 		}
 
-		const stat = statSync(path);
+		const real = realpathSync(path);
+		const stat = statSync(real);
 		if (!stat.isFile()) {
 			return json({ error: 'Not a file' }, { status: 400 });
 		}
@@ -30,13 +34,13 @@ export const GET: RequestHandler = async ({ url }) => {
 			return json({ error: 'File too large' }, { status: 413 });
 		}
 
-		const mimeType = imageMimeFor(path);
+		const mimeType = imageMimeFor(real);
 
 		if (!mimeType) {
 			return json({ error: 'Unsupported image format' }, { status: 400 });
 		}
 
-		const content = readFileSync(path);
+		const content = readFileSync(real);
 
 		return new Response(content, {
 			headers: {

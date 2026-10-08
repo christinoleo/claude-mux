@@ -10,6 +10,7 @@ import type { Session } from '$lib/stores/sessions.svelte';
 import type { ChangesInfo } from '$shared/types/ws-messages.js';
 import ProjectPane from '$lib/components/side-panel/ProjectPane.svelte';
 import ChangesPane from '$lib/components/side-panel/ChangesPane.svelte';
+import FilesPane from '$lib/components/side-panel/FilesPane.svelte';
 import { IS_MAC } from '$lib/constants';
 
 export interface PaneAction {
@@ -32,6 +33,8 @@ export interface PaneBodyProps {
 	setActions: (actions: PaneAction[]) => void;
 	/** The pane is the one showing; a hidden pane stays mounted but may idle. */
 	active: boolean;
+	/** Put `text` into the session's composer, at the end of the draft. */
+	mention: (text: string) => void;
 }
 
 export interface PaneDef {
@@ -59,6 +62,15 @@ export const PANES: readonly PaneDef[] = [
 		body: ChangesPane,
 		unavailable: (s) => (s ? null : 'Not a Claude session'),
 		count: (s) => s?.changes ?? null
+	},
+	{
+		kind: 'files',
+		label: 'Files',
+		icon: 'mdi:file-tree-outline',
+		key: 'F',
+		params: ['file', 'line'],
+		body: FilesPane,
+		unavailable: (s) => (s ? null : 'Not a Claude session')
 	},
 	{
 		kind: 'project',

@@ -264,6 +264,23 @@
 		navigateQuery(panelQuery($page.url.searchParams, kind, PANE_PARAMS, own), !opts?.push);
 	}
 
+	/** A pane's "Mention": the text joins the end of the draft, and a sheet steps aside so the composer shows. */
+	function mentionInComposer(text: string) {
+		const gap = textInput && !/\s$/.test(textInput) ? ' ' : '';
+		textInput = `${textInput}${gap}${text} `;
+		if (!panelInline && panelKind) openPanel(null);
+		void tick().then(() => {
+			autoResize();
+			textareaElement?.focus();
+		});
+	}
+
+	/** Where a transcript tool row opens the file it touched: the Files pane, at that line. */
+	function fileLink(path: string, line: number | null): string {
+		const own = { file: path, line: line ? String(line) : null };
+		return `${$page.url.pathname}?${panelQuery($page.url.searchParams, 'files', PANE_PARAMS, own)}`;
+	}
+
 	/** Returns whether it did anything. */
 	function toggleMaximize(): boolean {
 		if (!panelInline || !panelKind) return false;
@@ -2161,6 +2178,7 @@
 					<TranscriptView
 						entries={transcriptStore.entries}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
+						{fileLink}
 						available={transcriptStore.available}
 						loaded={transcriptStore.receivedData}
 						sessionState={currentSession?.state ?? null}
@@ -2493,6 +2511,7 @@
 			onSetParams={setPaneParams}
 			onToggleMaximize={toggleMaximize}
 			onClose={() => openPanel(null)}
+			onMention={mentionInComposer}
 		/>
 	{/key}
 {/snippet}

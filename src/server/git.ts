@@ -63,7 +63,8 @@ const COUNT_LIMIT_BYTES = 2 * 1024 * 1024;
 /** What git writes for an empty tree, to diff against in a repo with no commits yet. */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
-function git(
+/** Run git in `cwd` with paths unquoted; null on an exit code outside `okCodes`. */
+export function git(
 	args: string[],
 	cwd: string,
 	okCodes: number[] = [0]
