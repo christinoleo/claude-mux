@@ -4,11 +4,14 @@
  * a file's hunks as the rows of a unified diff, line numbers and all.
  */
 
+import type { PatchHunk } from '$shared/transcript/parser.js';
+import type { TurnChanges } from '$shared/transcript/changes.js';
+import type { GitDiff } from '$shared/server/git.js';
+
 /** A hunk as the API sends it: its `@@` header and unified-diff lines. */
-export interface Hunk {
-	header: string;
-	lines: string[];
-}
+export type Hunk = PatchHunk;
+
+export type Source = 'git' | 'session';
 
 /** One file in the list, from either source. */
 export interface ChangedFile {
@@ -19,6 +22,31 @@ export interface ChangedFile {
 	binary?: boolean;
 	additions: number;
 	deletions: number;
+}
+
+/** A turn of the session source, its files read as the list reads any file. */
+export type Turn = Omit<TurnChanges, 'files'> & { files: ChangedFile[] };
+
+/** What `/changes` answers: the files, and from the session source its turns too. */
+export interface Listing {
+	source: Source;
+	root?: string;
+	files: ChangedFile[];
+	turns?: Turn[];
+}
+
+/** What `/changes/diff` answers, from either source. */
+export type Diff = GitDiff;
+
+/** Line totals over a list of files. */
+export function sumCounts(files: readonly { additions: number; deletions: number }[]) {
+	let additions = 0;
+	let deletions = 0;
+	for (const f of files) {
+		additions += f.additions;
+		deletions += f.deletions;
+	}
+	return { additions, deletions };
 }
 
 /**
@@ -71,13 +99,15 @@ export function diffRows(hunks: Hunk[]): DiffRow[] {
 	let nextOld = 1;
 	for (const hunk of hunks) {
 		const m = HUNK_HEADER.exec(hunk.header);
-		let oldLine = m ? Number(m[1]) : null;
-		let newLine = m ? Number(m[3]) : null;
-		if (oldLine !== null) {
+		let oldLine: number | null = null;
+		let newLine: number | null = null;
+		if (m) {
+			oldLine = Number(m[1]);
+			newLine = Number(m[3]);
 			// A hunk that only adds to an empty file starts at 0.
 			const start = Math.max(oldLine, 1);
 			if (start > nextOld) rows.push({ type: 'gap', count: start - nextOld });
-			nextOld = start + Number(m![2] ?? 1);
+			nextOld = start + Number(m[2] ?? 1);
 		}
 		rows.push({ type: 'hunk', header: hunk.header });
 		for (const line of hunk.lines) {

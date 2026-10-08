@@ -37,18 +37,15 @@ const LOADERS: Record<string, () => Promise<{ default: LanguageFn }>> = {
 	makefile: () => import('highlight.js/lib/languages/makefile')
 };
 
-async function core(): Promise<HLJSApi> {
-	loading ??= import('highlight.js/lib/core').then((m) => m.default);
-	return loading;
-}
+const core = () => (loading ??= import('highlight.js/lib/core').then((m) => m.default));
 
 /**
  * Each line as escaped HTML with highlight.js's token spans, or null when the
  * language is unknown (the caller then draws the text as is).
  */
 export async function highlightLines(lines: string[], language: string | null): Promise<string[] | null> {
-	const load = language ? LOADERS[language] : undefined;
-	if (!language || !load) return null;
+	if (!language || !LOADERS[language]) return null;
+	const load = LOADERS[language];
 	const hljs = await core();
 	if (!hljs.getLanguage(language)) hljs.registerLanguage(language, (await load()).default);
 	return lines.map((line) => hljs.highlight(line, { language, ignoreIllegals: true }).value);

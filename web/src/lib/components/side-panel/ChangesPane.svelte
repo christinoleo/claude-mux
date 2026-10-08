@@ -10,6 +10,7 @@
 	 * the session) and the source (`source`), so a link can open any of it.
 	 * While shown, the pane re-reads whenever the session's hooks report in.
 	 */
+	import { untrack } from 'svelte';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
 	import { Toggle } from '$lib/components/ui/toggle';
 	import {
@@ -18,33 +19,13 @@
 		isGenerated,
 		languageFor,
 		statusLetter,
-		type ChangedFile,
+		sumCounts,
+		type Diff,
 		type DiffRow,
-		type Hunk
+		type Listing,
+		type Source
 	} from '$lib/side-panel/changes';
 	import { highlightLines } from '$lib/side-panel/highlight';
-
-	type Source = 'git' | 'session';
-
-	interface Turn {
-		id: string | null;
-		n: number;
-		prompt: string;
-		files: ChangedFile[];
-	}
-
-	interface Listing {
-		source: Source;
-		root?: string;
-		files: ChangedFile[];
-		turns?: Turn[];
-	}
-
-	interface Diff {
-		file: string;
-		binary: boolean;
-		hunks: Hunk[];
-	}
 
 	let { session, params, setParams, setActions, active }: PaneBodyProps = $props();
 
@@ -53,15 +34,10 @@
 	const inRepo = $derived(!!session?.git_root || session?.changes?.source === 'git');
 	/** Set once git answered that the session is not in a work tree. */
 	let gitMissing = $state(false);
-	const source = $derived<Source>(
-		params.source === 'session' || params.source === 'git'
-			? gitMissing && params.source === 'git'
-				? 'session'
-				: params.source
-			: inRepo && !gitMissing
-				? 'git'
-				: 'session'
+	const wanted = $derived<Source>(
+		params.source === 'session' || params.source === 'git' ? params.source : inRepo ? 'git' : 'session'
 	);
+	const source = $derived<Source>(gitMissing && wanted === 'git' ? 'session' : wanted);
 
 	let listing = $state<Listing | null>(null);
 	let listError = $state<string | null>(null);
@@ -111,14 +87,18 @@
 	);
 	const files = $derived(turn ? turn.files : (current?.files ?? []));
 	const root = $derived(current?.root ?? session?.git_root ?? session?.cwd ?? null);
-	const totals = $derived({
-		additions: files.reduce((n, f) => n + f.additions, 0),
-		deletions: files.reduce((n, f) => n + f.deletions, 0)
-	});
+	const totals = $derived(sumCounts(files));
+	/** Newest first, each with its own totals. */
+	const chips = $derived(turns.map((t) => ({ ...t, ...sumCounts(t.files) })).reverse());
 
 	let showGenerated = $state(false);
-	const generated = $derived(files.filter((f) => isGenerated(f.file)));
-	const shown = $derived(showGenerated ? files : files.filter((f) => !isGenerated(f.file)));
+	const split = $derived.by(() => {
+		const generated: typeof files = [];
+		const kept: typeof files = [];
+		for (const f of files) (isGenerated(f.file) ? generated : kept).push(f);
+		return { generated, kept };
+	});
+	const shown = $derived(showGenerated ? files : split.kept);
 
 	/** The file the URL names, else the first one listed, so a wide pane never sits empty. */
 	const selected = $derived(
@@ -138,9 +118,11 @@
 		setParams({ turn: n === null ? null : String(n), file: null });
 	}
 
+	const NO_PROMPT = 'Before the first prompt';
+
 	/** Scroll the transcript to the prompt that opened a turn; the page does the scrolling. */
-	function revealTurn(t: Turn) {
-		if (t.id) window.dispatchEvent(new CustomEvent('claude-mux:reveal-entry', { detail: { id: t.id } }));
+	function revealTurn(id: string) {
+		window.dispatchEvent(new CustomEvent('claude-mux:reveal-entry', { detail: { id } }));
 	}
 
 	// ── the selected file's diff ─────────────────────────────────────────
@@ -177,22 +159,27 @@
 			: null
 	);
 	$effect(() => {
-		if (!diffKey || !sessionId || !active || !selected) return;
-		void loadDiff(sessionId, source, selected.file, turn?.id ?? null);
+		if (!diffKey || !sessionId || !active) return;
+		// Only the key decides: a reloaded list hands back new objects for the same file.
+		const id = sessionId;
+		untrack(() => void loadDiff(id, source, selected!.file, turn?.id ?? null));
 	});
 
-	const rows = $derived<DiffRow[]>(diff && diff.file === selected?.file ? diffRows(diff.hunks) : []);
-	const hunkCount = $derived(rows.filter((r) => r.type === 'hunk').length);
+	const shownDiff = $derived(diff && diff.file === selected?.file ? diff : null);
+	const rows = $derived<DiffRow[]>(shownDiff ? diffRows(shownDiff.hunks) : []);
+	const hunkCount = $derived(shownDiff?.hunks.length ?? 0);
+
+	const SIGN = { add: '+', del: '−', context: ' ' } as const;
 
 	/** Rows past this many are drawn plain: colouring them costs more than it gives. */
 	const PAINT_LIMIT = 4000;
 	$effect(() => {
-		const current = rows;
 		painted = null;
-		if (current.length === 0 || current.length > PAINT_LIMIT || !selected) return;
-		const lines = current.map((r) => (r.type === 'add' || r.type === 'del' || r.type === 'context' ? r.text : ''));
+		if (rows.length === 0 || rows.length > PAINT_LIMIT) return;
+		const lines = rows.map((r) => ('text' in r ? r.text : ''));
+		const language = untrack(() => languageFor(selected!.file));
 		let stale = false;
-		void highlightLines(lines, languageFor(selected.file)).then((html) => {
+		void highlightLines(lines, language).then((html) => {
 			if (!stale && html) painted = html;
 		});
 		return () => (stale = true);
@@ -227,7 +214,6 @@
 			?.scrollIntoView({ block: 'nearest' });
 	}
 
-	const lineCount = (n: number) => `${n} ${n === 1 ? 'file' : 'files'} changed`;
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -236,7 +222,7 @@
 	<div class="bar">
 		<span class="title">
 			{#if current}
-				{lineCount(files.length)}
+				{files.length} {files.length === 1 ? 'file' : 'files'} changed
 				{#if totals.additions || totals.deletions}
 					<span class="mono"><span class="add">+{totals.additions}</span> <span class="del">−{totals.deletions}</span></span>
 				{/if}
@@ -267,28 +253,27 @@
 			<button type="button" class="chip" class:on={!turn} aria-pressed={!turn} onclick={() => setTurn(null)}>
 				All turns
 			</button>
-			{#each [...turns].reverse() as t (t.n)}
-				{@const add = t.files.reduce((n, f) => n + f.additions, 0)}
-				{@const del = t.files.reduce((n, f) => n + f.deletions, 0)}
+			{#each chips as t (t.n)}
 				<button
 					type="button"
 					class="chip"
 					class:on={turn?.n === t.n}
 					aria-pressed={turn?.n === t.n}
-					title={t.prompt || 'Before the first prompt'}
+					title={t.prompt || NO_PROMPT}
 					onclick={() => setTurn(t.n)}
 				>
 					{t.n === 0 ? 'Start' : `Turn ${t.n}`}
-					{#if add}<span class="add">+{add}</span>{/if}
-					{#if del}<span class="del">−{del}</span>{/if}
+					{#if t.additions}<span class="add">+{t.additions}</span>{/if}
+					{#if t.deletions}<span class="del">−{t.deletions}</span>{/if}
 				</button>
 			{/each}
 		</div>
 		{#if turn}
 			<div class="turn-note">
-				<span class="prompt" title={turn.prompt}>{turn.prompt || 'Before the first prompt'}</span>
+				<span class="prompt" title={turn.prompt}>{turn.prompt || NO_PROMPT}</span>
 				{#if turn.id}
-					<button type="button" class="link" onclick={() => revealTurn(turn)}>Show in transcript</button>
+					{@const id = turn.id}
+					<button type="button" class="link" onclick={() => revealTurn(id)}>Show in transcript</button>
 				{/if}
 			</div>
 		{/if}
@@ -318,7 +303,8 @@
 						onclick={() => pick(f.file)}
 					>
 						<span class="st st-{letter === '?' ? 'u' : letter.toLowerCase()}">{letter}</span>
-						<span class="path">{displayPath(f.file, root)}</span>
+						<!-- rtl puts the ellipsis on the left; bdi keeps the path itself left to right. -->
+						<span class="path"><bdi>{displayPath(f.file, root)}</bdi></span>
 						{#if f.binary}
 							<span class="dim">bin</span>
 						{:else}
@@ -327,9 +313,9 @@
 						{/if}
 					</button>
 				{/each}
-				{#if generated.length > 0}
+				{#if split.generated.length > 0}
 					<button type="button" class="more" onclick={() => (showGenerated = !showGenerated)}>
-						{showGenerated ? 'Hide generated' : `+ ${generated.length} generated (show)`}
+						{showGenerated ? 'Hide generated' : `+ ${split.generated.length} generated (show)`}
 					</button>
 				{/if}
 			</nav>
@@ -358,9 +344,9 @@
 								{:else}
 									<div class="ln {row.type}">
 										<span class="no">{row.old ?? ''}</span><span class="no">{row.new ?? ''}</span><span
-											class="sign">{row.type === 'add' ? '+' : row.type === 'del' ? '−' : ' '}</span
+											class="sign">{SIGN[row.type]}</span
 										><!-- eslint-disable-next-line svelte/no-at-html-tags -- highlight.js escapes the text it colours --><span
-											class="code hljs">{#if painted?.[i] != null}{@html painted[i]}{:else}{row.text}{/if}</span
+											class="code">{#if painted?.[i] != null}{@html painted[i]}{:else}{row.text}{/if}</span
 										>
 									</div>
 								{/if}
@@ -475,12 +461,16 @@
 		color: #a8a29e;
 		flex: none;
 	}
-	.prompt {
-		flex: 1;
+	.prompt,
+	.file .path,
+	.diff-head .path {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.prompt {
+		flex: 1;
 	}
 	.link {
 		flex: none;
@@ -544,10 +534,6 @@
 	}
 	.file .path {
 		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 		direction: rtl;
 		text-align: left;
 	}
@@ -606,14 +592,9 @@
 		border-bottom: 1px solid #222;
 		flex: none;
 	}
-	.diff-head .path {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
 	.back {
 		display: none;
+		flex: none;
 		width: 44px;
 		height: 44px;
 		margin: -8px 0 -8px -12px;
@@ -757,14 +738,10 @@
 		.foot {
 			display: none;
 		}
-	}
-	/* A finger needs room. */
-	@container (max-width: 38rem) {
+		/* A finger needs room. */
 		.file,
 		.more,
-		.chip {
-			min-height: 44px;
-		}
+		.chip,
 		.link {
 			min-height: 44px;
 		}

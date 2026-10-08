@@ -655,21 +655,27 @@
 
 	/**
 	 * A pane asked to show an entry in the transcript (the Changes pane's
-	 * "Show in transcript"). From the terminal, switch to the transcript and
-	 * wait for its first snapshot; a sheet over the transcript gets out of the way.
+	 * "Show in transcript"). From the terminal, switch to the transcript; a
+	 * sheet over the transcript gets out of the way. The entry is revealed
+	 * once the transcript has its first snapshot.
 	 */
+	let pendingReveal = $state<string | null>(null);
 	$effect(() => {
-		async function onReveal(e: Event) {
+		function onReveal(e: Event) {
 			const id = (e as CustomEvent<{ id: string }>).detail?.id;
 			if (!id || !canTranscript) return;
 			if (!panelInline && panelKind) openPanel(null);
 			if (viewMode !== 'transcript') toggleView();
-			for (let i = 0; i < 50 && !transcriptStore.receivedData; i++) await new Promise((r) => setTimeout(r, 100));
-			await tick();
-			await revealEntry(id);
+			pendingReveal = id;
 		}
 		window.addEventListener('claude-mux:reveal-entry', onReveal);
 		return () => window.removeEventListener('claude-mux:reveal-entry', onReveal);
+	});
+	$effect(() => {
+		const id = pendingReveal;
+		if (!id || viewMode !== 'transcript' || !transcriptStore.receivedData) return;
+		pendingReveal = null;
+		void tick().then(() => revealEntry(id));
 	});
 
 	/** The transcript's live status row is showing (its height affects scroll). */
