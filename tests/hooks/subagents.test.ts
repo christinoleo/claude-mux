@@ -136,12 +136,24 @@ describe("hook: subagents", () => {
     expect(after.agent_calls).toEqual([]);
   });
 
+  it("drops an agent no Agent call spawned that leaves no transcript", () => {
+    runHook({ hook_event_name: "SubagentStop", agent_id: "internal", agent_type: "general-purpose", agent_transcript_path: agentPath("internal", "jsonl") });
+    expect(session().subagents ?? []).toEqual([]);
+  });
+
+  it("keeps an agent no call was paired with when its transcript is on disk", () => {
+    writeFileSync(agentPath("loose", "jsonl"), "");
+    runHook({ hook_event_name: "SubagentStop", agent_id: "loose", agent_type: "Explore", agent_transcript_path: agentPath("loose", "jsonl") });
+    expect(session().subagents.map(a => a.id)).toEqual(["loose"]);
+  });
+
   it("ignores a subagent event without an agent id", () => {
     runHook({ session_id: "ghost", hook_event_name: "SubagentStart", agent_type: "Explore" });
     expect(() => readFileSync(join(home, ".claude-mux", "sessions", "ghost.json"))).toThrow();
   });
 
   it("records the tool a running agent last called, and clears it at its stop", () => {
+    writeFileSync(agentPath("a1", "jsonl"), "");
     runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });
     runHook({ hook_event_name: "PreToolUse", agent_id: "a1", tool_name: "Grep", tool_input: { pattern: "x" } });
     expect(session().subagents[0].current_tool).toBe("Grep");

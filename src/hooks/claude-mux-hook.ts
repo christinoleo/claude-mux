@@ -866,6 +866,12 @@ function handleSubagentStop(input: HookInput): void {
   agent.transcript_path = transcriptPath;
   agent.description = meta.description ?? agent.description;
   agent.tool_use_id = meta.toolUseId ?? agent.tool_use_id;
+  // Claude Code also reports agents of its own (an agent-type hook, say) that
+  // no Agent call spawned and that leave no transcript: nothing to open, and a
+  // row per turn of "general-purpose". An Agent call's agent has one or both.
+  if (!agent.tool_use_id && !(transcriptPath && existsSync(transcriptPath))) {
+    session.subagents = (session.subagents ?? []).filter(a => a.id !== agent.id);
+  }
   session.last_update = Date.now();
   writeSession(session);
 }
