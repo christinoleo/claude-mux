@@ -13,6 +13,7 @@
 	import { untrack } from 'svelte';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
 	import { Toggle } from '$lib/components/ui/toggle';
+	import { Button } from '$lib/components/ui/button';
 	import {
 		diffRows,
 		displayPath,
@@ -42,9 +43,17 @@
 	let listing = $state<Listing | null>(null);
 	let listError = $state<string | null>(null);
 	let loadingList = $state(false);
+	/** Bumped by each listing read, so the diff is read again with it. */
+	let listStamp = $state(0);
 	let listSeq = 0;
+	/** A reload asked for while one was in flight: run once more when it lands. */
+	let again: { id: string; src: Source } | null = null;
 
 	async function loadList(id: string, src: Source) {
+		if (loadingList) {
+			again = { id, src };
+			return;
+		}
 		const mine = ++listSeq;
 		loadingList = true;
 		try {
@@ -57,11 +66,15 @@
 			}
 			if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
 			listing = body as Listing;
+			listStamp++;
 			listError = null;
 		} catch (err) {
 			if (mine === listSeq) listError = err instanceof Error ? err.message : String(err);
 		} finally {
 			if (mine === listSeq) loadingList = false;
+			const next = again;
+			again = null;
+			if (next) void loadList(next.id, next.src);
 		}
 	}
 
@@ -87,7 +100,7 @@
 	);
 	const files = $derived(turn ? turn.files : (current?.files ?? []));
 	const root = $derived(current?.root ?? session?.git_root ?? session?.cwd ?? null);
-	const totals = $derived(sumCounts(files));
+	const totals = $derived(turn ? sumCounts(files) : (current?.totals ?? sumCounts(files)));
 	/** Newest first, each with its own totals. */
 	const chips = $derived(turns.map((t) => ({ ...t, ...sumCounts(t.files) })).reverse());
 
@@ -95,7 +108,8 @@
 	const split = $derived.by(() => {
 		const generated: typeof files = [];
 		const kept: typeof files = [];
-		for (const f of files) (isGenerated(f.file) ? generated : kept).push(f);
+		// Relative to the root, so a repo that sits under a `build/` is not all generated.
+		for (const f of files) (isGenerated(displayPath(f.file, root)) ? generated : kept).push(f);
 		return { generated, kept };
 	});
 	const shown = $derived(showGenerated ? files : split.kept);
@@ -128,15 +142,16 @@
 	// ── the selected file's diff ─────────────────────────────────────────
 
 	let diff = $state<Diff | null>(null);
-	let diffError = $state<string | null>(null);
+	let diffError = $state<{ file: string; message: string } | null>(null);
 	let diffSeq = 0;
 	/** Highlighted HTML per row index, filled in once highlight.js has loaded. */
 	let painted = $state<(string | null)[] | null>(null);
 
-	async function loadDiff(id: string, src: Source, file: string, turnId: string | null) {
+	async function loadDiff(id: string, src: Source, file: string, turnId: string | null | undefined) {
 		const mine = ++diffSeq;
 		const q = new URLSearchParams({ source: src, file });
-		if (turnId) q.set('turn', turnId);
+		// An empty turn is the one before the first prompt; no turn at all is every turn.
+		if (turnId !== undefined) q.set('turn', turnId ?? '');
 		try {
 			const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/changes/diff?${q}`);
 			const body = await res.json();
@@ -147,25 +162,24 @@
 		} catch (err) {
 			if (mine === diffSeq) {
 				diff = null;
-				diffError = err instanceof Error ? err.message : String(err);
+				diffError = { file, message: err instanceof Error ? err.message : String(err) };
 			}
 		}
 	}
 
-	/** What the diff depends on: a new count for the file means a new diff. */
+	/** What the diff depends on: the file, the turn, and each fresh read of the list. */
 	const diffKey = $derived(
-		selected
-			? `${source}\0${selected.file}\0${turn?.id ?? ''}\0${selected.additions}\0${selected.deletions}`
-			: null
+		selected ? `${source}\0${selected.file}\0${turn ? `t${turn.n}` : ''}\0${listStamp}` : null
 	);
 	$effect(() => {
 		if (!diffKey || !sessionId || !active) return;
 		// Only the key decides: a reloaded list hands back new objects for the same file.
 		const id = sessionId;
-		untrack(() => void loadDiff(id, source, selected!.file, turn?.id ?? null));
+		untrack(() => void loadDiff(id, source, selected!.file, turn ? turn.id : undefined));
 	});
 
 	const shownDiff = $derived(diff && diff.file === selected?.file ? diff : null);
+	const shownError = $derived(diffError?.file === selected?.file ? diffError!.message : null);
 	const rows = $derived<DiffRow[]>(shownDiff ? diffRows(shownDiff.hunks) : []);
 	const hunkCount = $derived(shownDiff?.hunks.length ?? 0);
 
@@ -234,38 +248,38 @@
 		<div class="seg" role="group" aria-label="Source">
 			<Toggle
 				size="sm"
-				pressed={source === 'git'}
+				bind:pressed={() => source === 'git', (on) => on && setSource('git')}
 				disabled={gitMissing}
-				title={gitMissing ? 'Not a git repository' : 'What git sees in the working tree now'}
-				onPressedChange={() => setSource('git')}>Current · git</Toggle
+				title={gitMissing ? 'Not a git repository' : 'What git sees in the working tree now'}>Current · git</Toggle
 			>
 			<Toggle
 				size="sm"
-				pressed={source === 'session'}
-				title="The edits this session's tools made"
-				onPressedChange={() => setSource('session')}>Session</Toggle
+				bind:pressed={() => source === 'session', (on) => on && setSource('session')}
+				title="The edits this session's tools made">Session</Toggle
 			>
 		</div>
 	</div>
 
 	{#if source === 'session' && turns.length > 0}
 		<div class="turns" role="group" aria-label="Turn">
-			<button type="button" class="chip" class:on={!turn} aria-pressed={!turn} onclick={() => setTurn(null)}>
-				All turns
-			</button>
+			<Toggle
+				variant="outline"
+				size="sm"
+				class="chip"
+				bind:pressed={() => !turn, (on) => on && setTurn(null)}>All turns</Toggle
+			>
 			{#each chips as t (t.n)}
-				<button
-					type="button"
+				<Toggle
+					variant="outline"
+					size="sm"
 					class="chip"
-					class:on={turn?.n === t.n}
-					aria-pressed={turn?.n === t.n}
 					title={t.prompt || NO_PROMPT}
-					onclick={() => setTurn(t.n)}
+					bind:pressed={() => turn?.n === t.n, (on) => on && setTurn(t.n)}
 				>
 					{t.n === 0 ? 'Start' : `Turn ${t.n}`}
 					{#if t.additions}<span class="add">+{t.additions}</span>{/if}
 					{#if t.deletions}<span class="del">−{t.deletions}</span>{/if}
-				</button>
+				</Toggle>
 			{/each}
 		</div>
 		{#if turn}
@@ -273,7 +287,7 @@
 				<span class="prompt" title={turn.prompt}>{turn.prompt || NO_PROMPT}</span>
 				{#if turn.id}
 					{@const id = turn.id}
-					<button type="button" class="link" onclick={() => revealTurn(id)}>Show in transcript</button>
+					<Button variant="link" size="sm" class="link" onclick={() => revealTurn(id)}>Show in transcript</Button>
 				{/if}
 			</div>
 		{/if}
@@ -314,9 +328,9 @@
 					</button>
 				{/each}
 				{#if split.generated.length > 0}
-					<button type="button" class="more" onclick={() => (showGenerated = !showGenerated)}>
+					<Button variant="ghost" size="sm" class="more" onclick={() => (showGenerated = !showGenerated)}>
 						{showGenerated ? 'Hide generated' : `+ ${split.generated.length} generated (show)`}
-					</button>
+					</Button>
 				{/if}
 			</nav>
 
@@ -330,9 +344,9 @@
 						<span class="sp"></span>
 						{#if hunkCount}<span class="dim">{hunkCount} {hunkCount === 1 ? 'hunk' : 'hunks'}</span>{/if}
 					</div>
-					{#if diffError}
-						<p class="msg err">{diffError}</p>
-					{:else if diff?.binary}
+					{#if shownError}
+						<p class="msg err">{shownError}</p>
+					{:else if shownDiff?.binary}
 						<p class="msg">Binary file; no text diff.</p>
 					{:else if rows.length > 0}
 						<div class="lines">
@@ -429,7 +443,7 @@
 		font-size: 11.5px;
 		scrollbar-width: thin;
 	}
-	.chip {
+	.turns :global(.chip) {
 		flex: none;
 		display: inline-flex;
 		align-items: center;
@@ -443,10 +457,10 @@
 		font: inherit;
 		cursor: pointer;
 	}
-	.chip:hover {
+	.turns :global(.chip:hover) {
 		color: #f5f5f4;
 	}
-	.chip.on {
+	.turns :global(.chip[data-state='on']) {
 		border-color: #3f3f46;
 		background: #232326;
 		color: #f5f5f4;
@@ -472,7 +486,7 @@
 	.prompt {
 		flex: 1;
 	}
-	.link {
+	.turn-note :global(.link) {
 		flex: none;
 		border: 0;
 		background: none;
@@ -481,7 +495,7 @@
 		font: inherit;
 		cursor: pointer;
 	}
-	.link:hover {
+	.turn-note :global(.link:hover) {
 		text-decoration: underline;
 	}
 	.msg {
@@ -554,7 +568,7 @@
 	.st-u {
 		color: #78716c;
 	}
-	.more {
+	nav :global(.more) {
 		border: 0;
 		background: none;
 		text-align: left;
@@ -565,7 +579,7 @@
 		font-size: 11.5px;
 		cursor: pointer;
 	}
-	.more:hover {
+	nav :global(.more:hover) {
 		color: #d6d3d1;
 	}
 	.add {
@@ -740,17 +754,17 @@
 		}
 		/* A finger needs room. */
 		.file,
-		.more,
-		.chip,
-		.link {
+		nav :global(.more),
+		.turns :global(.chip),
+		.turn-note :global(.link) {
 			min-height: 44px;
 		}
 	}
 	@media (pointer: coarse) {
 		.file,
-		.more,
-		.chip,
-		.link {
+		nav :global(.more),
+		.turns :global(.chip),
+		.turn-note :global(.link) {
 			min-height: 44px;
 		}
 		.seg :global([data-slot='toggle']) {

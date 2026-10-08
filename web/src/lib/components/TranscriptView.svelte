@@ -509,7 +509,7 @@
 			</div>
 		{:else if entry.kind === 'queued'}
 			{#if !entry.delivered}
-				<div class="user-block" class:dictated={entry.dictated}>
+				<div class="user-block" class:dictated={entry.dictated} data-entry-id={entry.id}>
 					{@render turnGlyph(entry.dictated ?? false)}
 					<div class="user-text">{entry.text}</div>
 					<span class="time" title="sent while the agent was working">

@@ -33,6 +33,7 @@ export interface Listing {
 	root?: string;
 	files: ChangedFile[];
 	turns?: Turn[];
+	totals: { files: number; additions: number; deletions: number };
 }
 
 /** What `/changes/diff` answers, from either source. */
@@ -104,10 +105,11 @@ export function diffRows(hunks: Hunk[]): DiffRow[] {
 		if (m) {
 			oldLine = Number(m[1]);
 			newLine = Number(m[3]);
-			// A hunk that only adds to an empty file starts at 0.
-			const start = Math.max(oldLine, 1);
+			// A hunk that removes no lines names the line it inserts after.
+			const oldCount = Number(m[2] ?? 1);
+			const start = oldCount === 0 ? oldLine + 1 : oldLine;
 			if (start > nextOld) rows.push({ type: 'gap', count: start - nextOld });
-			nextOld = start + Number(m[2] ?? 1);
+			nextOld = start + oldCount;
 		}
 		rows.push({ type: 'hunk', header: hunk.header });
 		for (const line of hunk.lines) {

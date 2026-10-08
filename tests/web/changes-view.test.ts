@@ -73,6 +73,17 @@ describe("Changes pane: a diff's rows", () => {
     expect(rows[2]).toMatchObject({ new: 2 });
   });
 
+  it("counts the gaps around a hunk that only inserts after a line", () => {
+    const rows = diffRows([
+      { header: "@@ -3,0 +4,2 @@", lines: ["+x", "+y"] },
+      { header: "@@ -10,2 +12,2 @@", lines: ["-a", "+b", " c"] },
+    ]);
+    expect(rows.filter((r) => r.type === "gap")).toEqual([
+      { type: "gap", count: 3 },
+      { type: "gap", count: 6 },
+    ]);
+  });
+
   it("still draws a hunk whose header it cannot read, without numbers", () => {
     const rows = diffRows([{ header: "@@ weird @@", lines: [" a", "+b"] }]);
     expect(rows).toEqual([
