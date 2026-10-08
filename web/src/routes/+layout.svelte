@@ -17,6 +17,8 @@
 	import SplitView from '$lib/components/SplitView.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
 	import { parseRef } from '$lib/split-refs';
+	import NotificationCoordinator from '$lib/components/NotificationCoordinator.svelte';
+	import { Toaster } from '$lib/components/ui/sonner';
 
 	let { children } = $props();
 
@@ -73,6 +75,15 @@
 		$page.url.pathname.startsWith('/session/')
 			? decodeURIComponent($page.url.pathname.split('/session/')[1])
 			: null
+	);
+
+	/** The sessions on screen, which need no alert while the window is in front. */
+	const viewing = $derived(
+		splitOn
+			? [splitA, splitB].filter((r) => r && !r.host).map((r) => r!.target)
+			: currentTarget
+				? [currentTarget]
+				: []
 	);
 
 	const currentSession = $derived(
@@ -204,6 +215,12 @@
 </svelte:head>
 
 <svelte:window onkeydown={handleSidebarKey} />
+
+{#if !embed}
+	<!-- A split's panes are this layout in frames; only the outer page alerts. -->
+	<NotificationCoordinator {viewing} />
+	<Toaster position="top-right" closeButton />
+{/if}
 
 {#if showSidebar && !embed}
 	<div class="app-shell" class:resizing-any={isResizing}>

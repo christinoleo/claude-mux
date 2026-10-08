@@ -11,7 +11,7 @@ import {
 	type DeliveryInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
-import { indicatorStateOf } from '$shared/session-state.js';
+import { indicatorStateOf, needsYouKind } from '$shared/session-state.js';
 
 const savedProjectsStore = createPersisted<string[]>('claude-mux-projects', []);
 
@@ -416,7 +416,15 @@ export function needsHelp(session: Session): boolean {
 
 /** Whether a session is waiting on a person: a dialog in the pane, or a worker asking on GitHub. */
 export function wantsHuman(session: Session): boolean {
-	return session.state === 'waiting' || session.state === 'permission' || needsHelp(session);
+	return needsYouKind(session) !== null || needsHelp(session);
+}
+
+/** What a waiting session is asking, in the fewest words the poll has. */
+export function asking(s: Session): string {
+	if (needsYouKind(s) === 'input') return s.pane_choice?.question || s.current_action || 'Asking you a question';
+	// A permission dialog's action is only "Waiting..." or "Waiting for
+	// permission", which says less than the dialog's own question.
+	return s.pane_choice?.question || 'Asking permission to go on';
 }
 
 /**
