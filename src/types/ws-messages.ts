@@ -127,6 +127,17 @@ const SubagentSchema = z.object({
 /** A subagent a session spawned, as the hook last recorded it. */
 export type SubagentInfo = z.infer<typeof SubagentSchema>;
 
+const ChangesInfoSchema = z.object({
+	files: z.number(),
+	additions: z.number(),
+	deletions: z.number(),
+	/** `git` counts the repo's working tree; `session` counts the edits in the session's log. */
+	source: z.enum(['git', 'session'])
+});
+
+/** How much a session has changed, as the sidebar shows it. */
+export type ChangesInfo = z.infer<typeof ChangesInfoSchema>;
+
 const EnrichedSessionSchema = z.object({
 	v: z.number(),
 	id: z.string(),
@@ -183,7 +194,9 @@ const EnrichedSessionSchema = z.object({
 	/** Subagents running now, those done in the last hour, and those failed in the last day. */
 	subagents: z.array(SubagentSchema).optional(),
 	/** The issue that worker owns, as GitHub last described it — live only. */
-	issue: IssueInfoSchema.nullable().optional()
+	issue: IssueInfoSchema.nullable().optional(),
+	/** Files changed, with line counts: git's when in a repo, else the session log's — live only. */
+	changes: ChangesInfoSchema.nullable().optional()
 });
 
 // ============================================================================

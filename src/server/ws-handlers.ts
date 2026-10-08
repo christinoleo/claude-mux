@@ -51,14 +51,18 @@ type LivePaneFields = {
 	delivered: DeliveryInfo[];
 	/** When anyone last had the session open, from `visits.json`; null when nobody has. */
 	last_visited_at: number | null;
+	/** What the session has changed: git's count when it is in a repo, else its log's; null until known. */
+	changes: ChangesInfo | null;
 };
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
 import { getQueue, enqueue, getDeliveries } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
-import type { DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
+import type { ChangesInfo, DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 import { inboxTickets, issueFor, watchSessionRepos } from './github.js';
+import { peekGitSummary } from './git.js';
+import { sessionChanges } from '../transcript/changes.js';
 
 // ============================================================================
 // Configuration
@@ -372,6 +376,19 @@ function syncTranscriptTitle(s: Session): void {
 	s.display_name = name;
 }
 
+/**
+ * The change count the sidebar shows: git's when the session is in a repo,
+ * since git sees Bash edits too; the session's own log otherwise. Neither
+ * waits: git is read in the background and answers on a later tick.
+ */
+function liveChanges(s: Session): ChangesInfo | null {
+	const git = peekGitSummary(s.cwd);
+	if (git) return { ...git, source: 'git' };
+	if (git === undefined) return null;
+	const summary = sessionChanges(s)?.summary();
+	return summary ? { ...summary, source: 'session' } : null;
+}
+
 export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFields)[]> {
 	const [{ captures, rawCaptures, sessions }, paneTitles] = await Promise.all([
 		captureAndSyncSessions(),
@@ -478,6 +495,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 				: [],
 			delivered: s.tmux_target ? getDeliveries(s.tmux_target) : [],
 			last_visited_at: visits[s.id] ?? null,
+			changes: liveChanges(s),
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {

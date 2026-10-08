@@ -105,7 +105,7 @@ const COMMAND_TAG = /<command-(name|message|args)>([\s\S]*?)<\/command-\1>/g;
  * command out of it so the transcript shows "/simplify e push" instead of the
  * raw markup.
  */
-function parseSlashCommand(content: string): { name: string; args?: string } | null {
+export function parseSlashCommand(content: string): { name: string; args?: string } | null {
   const trimmed = content.trim();
   // Cheap reject first: every other prompt in the file skips the regex.
   if (!trimmed.startsWith("<command-")) return null;
@@ -140,7 +140,7 @@ const LOCAL_CAVEAT = /^<local-command-caveat>/;
 const INTERRUPT_MARKER = /^\[Request interrupted (by user[^\]]*)\]$/;
 
 /** The note an interrupt marker reads as, or null when the text is not one. */
-function interruptNote(text: string): string | null {
+export function interruptNote(text: string): string | null {
   const m = INTERRUPT_MARKER.exec(text.trim());
   return m ? `Interrupted ${m[1]}` : null;
 }
@@ -208,10 +208,12 @@ export interface PatchHunk {
 
 const PATCH_LINE_LIMIT = 400;
 
-function extractPatch(sidecar: unknown): { file: string; hunks: PatchHunk[] } | undefined {
-  const sc = asRecord(sidecar);
-  const raw = sc?.structuredPatch;
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+/**
+ * A sidecar's `structuredPatch` as hunks, with at most `limit` lines kept
+ * across them and a note standing in for the rest.
+ */
+export function readStructuredPatch(raw: unknown, limit = Infinity): PatchHunk[] {
+  if (!Array.isArray(raw)) return [];
   const hunks: PatchHunk[] = [];
   let total = 0;
   for (const entry of raw) {
@@ -219,15 +221,21 @@ function extractPatch(sidecar: unknown): { file: string; hunks: PatchHunk[] } | 
     if (!hunk || !Array.isArray(hunk.lines)) continue;
     const lines = hunk.lines.filter((line): line is string => typeof line === "string");
     if (lines.length === 0) continue;
-    const kept = lines.slice(0, Math.max(0, PATCH_LINE_LIMIT - total));
+    const kept = lines.slice(0, Math.max(0, limit - total));
     if (kept.length < lines.length) kept.push(`… ${lines.length - kept.length} more lines`);
     total += kept.length;
     hunks.push({
       header: `@@ -${hunk.oldStart ?? "?"},${hunk.oldLines ?? "?"} +${hunk.newStart ?? "?"},${hunk.newLines ?? "?"} @@`,
       lines: kept,
     });
-    if (total >= PATCH_LINE_LIMIT) break;
+    if (total >= limit) break;
   }
+  return hunks;
+}
+
+function extractPatch(sidecar: unknown): { file: string; hunks: PatchHunk[] } | undefined {
+  const sc = asRecord(sidecar);
+  const hunks = readStructuredPatch(sc?.structuredPatch, PATCH_LINE_LIMIT);
   if (hunks.length === 0) return undefined;
   return { file: readString(sc?.filePath) ?? "", hunks };
 }
