@@ -600,7 +600,7 @@
 		staged={draftable ? attachmentsStore.count(s.tmux_target!) : 0}
 		draggable={canDrag && !!s.tmux_target}
 		onkill={machine.local && !compact ? () => killSession(machine, s) : null}
-		onmarkunread={isActive ? null : () => postVisit(apiBase(machine), s.id, true)}
+		onmarkunread={isActive || paneTag(machine, s.tmux_target) ? null : () => postVisit(apiBase(machine), s.id, true)}
 		onclick={(e) => handleRowClick(e, machine, s)}
 		onlongpress={() => { if (machine.local) renameId = s.id; }}
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}

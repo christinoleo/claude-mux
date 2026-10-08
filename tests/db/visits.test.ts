@@ -62,6 +62,15 @@ describe("visits watermark (JSON file)", () => {
     expect(Object.keys(getVisits())).toEqual(["b"]);
   });
 
+  it("keeps the other watermarks when the file turns unreadable", () => {
+    const t = Date.now();
+    recordVisit("a", t);
+    recordVisit("b", t + 1);
+    writeFileSync(path, "{cut off");
+    recordVisit("c", t + 2);
+    expect(getVisits()).toEqual({ a: t, b: t + 1, c: t + 2 });
+  });
+
   it("survives a corrupt file", () => {
     writeFileSync(path, "{not json");
     setVisitsPath(path);

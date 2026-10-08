@@ -522,6 +522,9 @@ function handleUserPromptSubmit(input: HookInput): void {
   session.current_action = "Thinking...";
   session.background_tasks = 0;
   session.turn_started_at = Date.now();
+  // A new turn retires the last one's ending; one cut short by Escape never
+  // gets a Stop, and must not come back as the old turn's unread "Done".
+  session.turn_completed_at = null;
   // Capture the first user prompt as session name and set pane title.
   // Slash commands are control input, not a description of the work — and one of
   // them (`/rename`) is injected by the dashboard, which would otherwise title the

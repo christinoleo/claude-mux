@@ -41,7 +41,7 @@ describe("hook: turn timestamps", () => {
     runHook({ ...base, hook_event_name: "UserPromptSubmit", prompt: "do the thing" });
     const started = session("s1");
     expect(started.turn_started_at).toBeGreaterThanOrEqual(before);
-    expect(started.turn_completed_at).toBeUndefined();
+    expect(started.turn_completed_at).toBeNull();
 
     runHook({ ...base, hook_event_name: "Stop" });
     const done = session("s1");
@@ -60,19 +60,19 @@ describe("hook: turn timestamps", () => {
     });
     const paused = session("s2");
     expect(paused.state).toBe("busy");
-    expect(paused.turn_completed_at).toBeUndefined();
+    expect(paused.turn_completed_at).toBeNull();
 
     runHook({ ...base, hook_event_name: "Stop", background_tasks: [] });
     expect(session("s2").turn_completed_at).toEqual(expect.any(Number));
   });
 
-  it("keeps the last completion when the next turn starts", () => {
+  it("retires the last completion when the next turn starts", () => {
     const path = join(home, ".claude-mux", "sessions", "s3.json");
     writeFileSync(
       path,
       JSON.stringify({ v: 1, id: "s3", pid: 0, cwd: home, git_root: null, tmux_target: null, state: "idle", current_action: null, prompt_text: null, last_update: 1, turn_completed_at: 1234 })
     );
     runHook({ session_id: "s3", cwd: home, hook_event_name: "UserPromptSubmit", prompt: "again" });
-    expect(session("s3").turn_completed_at).toBe(1234);
+    expect(session("s3").turn_completed_at).toBeNull();
   });
 });

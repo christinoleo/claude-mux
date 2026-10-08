@@ -11,7 +11,7 @@ import {
 	type DeliveryInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
-import { isUnread } from '$shared/session-state.js';
+import { indicatorStateOf } from '$shared/session-state.js';
 
 const savedProjectsStore = createPersisted<string[]>('claude-mux-projects', []);
 
@@ -424,7 +424,7 @@ export function wantsHuman(session: Session): boolean {
  * or whose last turn finished unseen, or nothing when there are none.
  */
 export function attentionPrefix(sessions: Session[]): string {
-	const n = sessions.filter((s) => s.pane_alive !== false && (wantsHuman(s) || isUnread(s))).length;
+	const n = sessions.filter((s) => s.pane_alive !== false && (wantsHuman(s) || indicatorStateOf(s) === 'done')).length;
 	return n > 0 ? `(${n}) ` : '';
 }
 

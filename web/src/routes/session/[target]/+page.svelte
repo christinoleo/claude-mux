@@ -89,14 +89,19 @@
 		document.addEventListener('visibilitychange', onVisibility);
 		return () => document.removeEventListener('visibilitychange', onVisibility);
 	});
-	/** The session this page last stamped, and when: one post per change, not per broadcast. */
-	let lastVisit: { id: string; at: number } | null = null;
+	/**
+	 * The session this page last stamped, and the finished turn it had then:
+	 * one post per completion, not per broadcast. A "Mark unread" from another
+	 * browser leaves the turn as it was, so this page does not undo it.
+	 */
+	let lastVisit: { id: string; turn: number | null } | null = null;
 	$effect(() => {
 		const s = currentSession;
 		if (!s || !pageVisible) return;
+		const turn = s.turn_completed_at ?? null;
 		const fresh = lastVisit?.id !== s.id;
-		if (!fresh && (!isUnread(s) || Date.now() - lastVisit!.at < 2000)) return;
-		lastVisit = { id: s.id, at: Date.now() };
+		if (!fresh && (!isUnread(s) || lastVisit!.turn === turn)) return;
+		lastVisit = { id: s.id, turn };
 		postVisit('', s.id);
 	});
 	// Inline status next to the title. Skip bare states (idle/busy/etc.)

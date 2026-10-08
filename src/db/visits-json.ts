@@ -8,7 +8,7 @@
  * session, and the server compares the two.
  */
 
-import { readFileSync, statSync } from "fs";
+import { existsSync, readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
 import { getSessionsDir } from "./sessions-json.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
@@ -16,7 +16,7 @@ import { writeFileAtomic } from "../utils/atomic-write.js";
 /** Session id → last visit (epoch ms). */
 export type Visits = Record<string, number>;
 
-/** Entries older than this are for sessions long gone; dropped on the next write. */
+/** An entry this old whose session file is gone is dropped on the next write. */
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 
 let visitsPath: string | null = null;
@@ -48,7 +48,10 @@ export function getVisits(): Visits {
     cache = { mtimeMs, visits };
     return visits;
   } catch {
-    return {};
+    // Missing is empty. Unreadable (a hand edit, a cut-off write) keeps the
+    // last good copy, so the next visit does not write every other
+    // session's watermark away.
+    return cache?.visits ?? {};
   }
 }
 
@@ -57,7 +60,8 @@ export function recordVisit(id: string, at: number = Date.now()): void {
   const now = Date.now();
   const next: Visits = {};
   for (const [other, when] of Object.entries(getVisits())) {
-    if (now - when < KEEP_MS) next[other] = when;
+    // A session can live for months without being opened; only a gone one goes.
+    if (now - when < KEEP_MS || existsSync(join(getSessionsDir(), `${other}.json`))) next[other] = when;
   }
   next[id] = at;
   const path = resolveVisitsPath();
