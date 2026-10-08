@@ -112,6 +112,20 @@ const InboxTicketSchema = z.object({
 /** A ticket on GitHub that is waiting on a person rather than an agent. */
 export type InboxTicket = z.infer<typeof InboxTicketSchema>;
 
+const SubagentSchema = z.object({
+	id: z.string(),
+	type: z.string(),
+	description: z.string().nullable(),
+	state: z.enum(['running', 'done', 'failed']),
+	started_at: z.number(),
+	ended_at: z.number().nullable(),
+	transcript_path: z.string().nullable(),
+	tool_use_id: z.string().nullable().optional()
+});
+
+/** A subagent a session spawned, as the hook last recorded it. */
+export type SubagentInfo = z.infer<typeof SubagentSchema>;
+
 const EnrichedSessionSchema = z.object({
 	v: z.number(),
 	id: z.string(),
@@ -165,6 +179,8 @@ const EnrichedSessionSchema = z.object({
 	/** Set when the maestro daemon started the session. */
 	maestro_role: z.string().nullable().optional(),
 	maestro_issue: z.number().nullable().optional(),
+	/** Subagents running now, and those that finished in the last few minutes. */
+	subagents: z.array(SubagentSchema).optional(),
 	/** The issue that worker owns, as GitHub last described it — live only. */
 	issue: IssueInfoSchema.nullable().optional()
 });

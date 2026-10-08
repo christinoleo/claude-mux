@@ -102,6 +102,8 @@ export function getClaudeWatchHooks(): HooksConfig {
     PostToolUse: [matcher("post-tool-use")],
     PostToolUseFailure: [matcher("post-tool-use-failure")],
     SessionEnd: [matcher("session-end")],
+    SubagentStart: [matcher("subagent-start")],
+    SubagentStop: [matcher("subagent-stop")],
   };
 }
 

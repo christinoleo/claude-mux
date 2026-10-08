@@ -19,6 +19,16 @@ describe("setup/hooks", () => {
       expect(hooks.SessionEnd).toBeDefined();
     });
 
+    it("registers both subagent events, so an update brings them to existing hosts", () => {
+      const hooks = getClaudeWatchHooks();
+
+      expect(hooks.SubagentStart[0].hooks[0].command).toMatch(/claude-mux-hook\S* subagent-start$/);
+      expect(hooks.SubagentStop[0].hooks[0].command).toMatch(/claude-mux-hook\S* subagent-stop$/);
+      const merged = mergeHooks({ Stop: getClaudeWatchHooks().Stop }, hooks);
+      expect(merged.SubagentStart).toHaveLength(1);
+      expect(merged.SubagentStop).toHaveLength(1);
+    });
+
     it("should include claude-mux-hook command in all hooks", () => {
       const hooks = getClaudeWatchHooks();
 
