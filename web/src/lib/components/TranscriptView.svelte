@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { renderMarkdown } from '$lib/markdown';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
-	import { keysForAnswer } from '$shared/tmux/answer-keys.js';
+	import DialogCard from '$lib/components/DialogCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { toolIcon } from '$lib/tool-icons';
 	import ToolLabel from '$lib/components/ToolLabel.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { DeliveryInfo } from '$shared/types/ws-messages.js';
-	import type { PaneActivity } from '$shared/types/ws-messages.js';
+	import type { PaneActivity, PaneChoice } from '$shared/types/ws-messages.js';
 	import { formatSpinnerElapsed } from '$lib/format';
 	import { Badge } from '$lib/components/ui/badge';
 	import {
@@ -18,8 +18,6 @@
 		type GrillRound
 	} from '$shared/transcript/grilling.js';
 	import { groupToolRuns } from '$shared/transcript/tool-groups.js';
-
-	type AskEntry = Extract<TranscriptEntry, { kind: 'ask' }>;
 
 	let {
 		entries,
@@ -31,11 +29,11 @@
 		delivered = [],
 		suggestion = null,
 		onAcceptSuggestion,
-		choiceOffered = false,
+		paneChoice = null,
 		subagents = {},
 		onLoadSubagent,
 		onSendKeys,
-		onOpenTerminal,
+		onSendPaneText,
 		olderCount = 0,
 		loadingEarlier = false,
 		onLoadEarlier,
@@ -56,16 +54,12 @@
 		suggestion?: string | null;
 		/** Accepts the suggestion (Tab then Enter in the pane). */
 		onAcceptSuggestion?: () => void;
-		/**
-		 * Whether the composer is offering the dialog's own rows. When it is,
-		 * the status row must not send you to the terminal for an answer that
-		 * is already a tap away.
-		 */
-		choiceOffered?: boolean;
-		/** Sends a tmux key sequence (space-separated) to answer a question dialog. */
-		onSendKeys?: (keys: string) => void;
-		/** Switches to the terminal view (for "Other" / free-text answers). */
-		onOpenTerminal?: () => void;
+		/** The dialog the pane is drawing, as the poll read it; drawn as a card here. */
+		paneChoice?: PaneChoice | null;
+		/** Sends a tmux key sequence (space-separated) to answer a dialog. */
+		onSendKeys?: (keys: string) => Promise<void> | void;
+		/** Types text into the pane as-is, for a dialog's free-text row or notes. */
+		onSendPaneText?: (text: string) => Promise<void> | void;
 		/** Subagent work, keyed by the Task tool_use id that spawned it. */
 		subagents?: Record<string, SubagentPayload>;
 		/** A reader opened an agent's card: fetch everything it ran and reported. */
@@ -215,10 +209,6 @@
 		return { destroy: () => el.removeEventListener('input', fit) };
 	}
 
-	/** Local multi-select staging + sequential-question progress per ask card. */
-	let askSelections = $state<Record<string, Set<number>>>({});
-	let askProgress = $state<Record<string, number>>({});
-
 	/**
 	 * Only the newest unanswered dialog can be driven — older cards are history.
 	 * Claude Code also sends a permission notification for a question, which
@@ -234,6 +224,51 @@
 			? (entries.findLast((e) => e.kind === 'ask' && !e.answers && !e.rejected)?.id ?? null)
 			: null
 	);
+
+	// ── the open dialog ──────────────────────────────────────────────────
+	// A dialog is drawn as a card in the transcript, never in the composer:
+	// an AskUserQuestion where its entry sits, anything else (a permission
+	// prompt, a local command's picker) at the foot, where the turn stopped.
+
+	/** Which dialog is open: the live question's entry, or the pane's own. */
+	const dialogKey = $derived(liveAskId ?? (paneChoice || canAnswer ? 'pane' : null));
+	/** The pane drew this dialog at some point, so its going away means it was answered. */
+	let seenLive = $state<string | null>(null);
+	/** The card sent the keys that close this dialog, with no pane read to confirm it. */
+	let submitted = $state<string | null>(null);
+	$effect(() => {
+		if (dialogKey === null) {
+			seenLive = null;
+			submitted = null;
+		} else if (paneChoice) {
+			seenLive = dialogKey;
+			// The pane still draws it, whatever keys the card sent blind.
+			submitted = null;
+		}
+	});
+	/** Answered and gone from the pane, while the hooks may still say it is open. */
+	const dialogClosed = $derived(
+		dialogKey !== null &&
+			((seenLive === dialogKey && paneChoice === null) || submitted === dialogKey)
+	);
+	/**
+	 * Questions answered here before the log says so. The JSONL records the
+	 * answers a moment after the dialog closes, and the card should not flash
+	 * back to open in between.
+	 */
+	let answeredAsks = $state<Record<string, true>>({});
+	let lastLiveAsk: { id: string; seen: boolean } | null = null;
+	$effect(() => {
+		if (liveAskId && dialogClosed) answeredAsks[liveAskId] = true;
+		// The hooks can leave `waiting` on the same tick the pane drops the
+		// dialog, so a question seen live that stops being live was answered.
+		if (lastLiveAsk && lastLiveAsk.id !== liveAskId && lastLiveAsk.seen) {
+			answeredAsks[lastLiveAsk.id] = true;
+		}
+		lastLiveAsk = liveAskId ? { id: liveAskId, seen: seenLive === liveAskId } : null;
+	});
+	/** The pane's dialog at the foot, when it is not the live question's. */
+	const footDialog = $derived(liveAskId === null && paneChoice !== null);
 
 	/**
 	 * The turns claude-mux delivered from its queue or as a steer, by entry id.
@@ -257,36 +292,6 @@
 		}
 		return out;
 	});
-
-	function askActive(entryId: string, qIndex: number): boolean {
-		return canAnswer && entryId === liveAskId && (askProgress[entryId] ?? 0) === qIndex;
-	}
-
-	function pickOption(entry: AskEntry, qIndex: number, optIndex: number) {
-		if (!askActive(entry.id, qIndex)) return;
-		const question = entry.questions[qIndex];
-		if (question.multiSelect) {
-			const set = new Set(askSelections[entry.id] ?? []);
-			if (set.has(optIndex)) set.delete(optIndex);
-			else set.add(optIndex);
-			askSelections[entry.id] = set;
-			return;
-		}
-		submitAnswer(entry, qIndex, [optIndex]);
-	}
-
-	function confirmMulti(entry: AskEntry, qIndex: number) {
-		if (!askActive(entry.id, qIndex)) return;
-		submitAnswer(entry, qIndex, [...(askSelections[entry.id] ?? [])]);
-	}
-
-	function submitAnswer(entry: AskEntry, qIndex: number, picks: number[]) {
-		const keys = keysForAnswer(picks, entry.questions[qIndex]);
-		if (!keys) return;
-		onSendKeys?.(keys);
-		askProgress[entry.id] = qIndex + 1;
-		delete askSelections[entry.id];
-	}
 
 	function formatTime(ts: number): string {
 		try {
@@ -572,7 +577,7 @@
 					<div class="ask-detail">
 						{#each entry.questions as q (q.question)}
 							<div class="ask-q-review">
-								<span class="ask-header-chip done">{q.header}</span>
+								<span class="ask-header-chip">{q.header}</span>
 								<p class="ask-question">{q.question}</p>
 								{#each q.options as opt (opt.label)}
 									<div class="ask-opt-review" class:chosen={entry.answers?.[q.question] === opt.label}>
@@ -586,50 +591,23 @@
 						{/each}
 					</div>
 				</details>
+			{:else if entry.id === liveAskId || answeredAsks[entry.id]}
+				<DialogCard
+					ask={entry}
+					choice={entry.id === liveAskId ? paneChoice : null}
+					permission={sessionState === 'permission'}
+					closed={entry.id !== liveAskId || dialogClosed}
+					onKeys={(keys) => onSendKeys?.(keys)}
+					onText={(text) => onSendPaneText?.(text)}
+					onSubmitted={() => (submitted = entry.id)}
+				/>
 			{:else}
-				<div class="ask-card">
-					<div class="ask-title">
-						<iconify-icon icon="mdi:chat-question"></iconify-icon>
-						<span>Claude is asking</span>
-					</div>
-					{#each entry.questions as q, qi (q.question)}
-						{@const active = askActive(entry.id, qi)}
-						{@const done = (askProgress[entry.id] ?? 0) > qi}
-						<div class="ask-q" class:inactive={!active && !done}>
-							<span class="ask-header-chip">{q.header}</span>
-							<p class="ask-question">{q.question}</p>
-							{#if done}
-								<div class="ask-sent">answer sent ✓</div>
-							{:else}
-								<div class="ask-options">
-									{#each q.options as opt, oi (opt.label)}
-										<button
-											class="ask-opt"
-											class:selected={q.multiSelect && askSelections[entry.id]?.has(oi)}
-											disabled={!active}
-											onclick={() => pickOption(entry, qi, oi)}
-										>
-											<span class="ask-opt-label">{opt.label}</span>
-											{#if opt.description}<span class="ask-opt-desc">{opt.description}</span>{/if}
-											{#if opt.preview}<pre class="ask-opt-preview">{opt.preview}</pre>{/if}
-										</button>
-									{/each}
-								</div>
-								{#if q.multiSelect}
-									<button
-										class="ask-confirm"
-										disabled={!active || !(askSelections[entry.id]?.size > 0)}
-										onclick={() => confirmMulti(entry, qi)}
-									>
-										Confirm selection
-									</button>
-								{/if}
-							{/if}
-						</div>
-					{/each}
-					<button class="ask-other" onclick={() => onOpenTerminal?.()}>
-						Other / answer in terminal →
-					</button>
+				<div class="row note">
+					<iconify-icon icon="mdi:chat-question-outline"></iconify-icon>
+					<span class="row-summary">
+						Question not answered: {entry.questions.map((q) => q.header).join(' · ')}
+					</span>
+					<span class="time">{formatTime(entry.ts)}</span>
 				</div>
 			{/if}
 		{:else if entry.kind === 'text' && grillRound(entry.text)}
@@ -788,6 +766,15 @@
 		{/if}
 	{/each}
 
+	{#if footDialog}
+		<DialogCard
+			choice={paneChoice}
+			permission={sessionState === 'permission'}
+			onKeys={(keys) => onSendKeys?.(keys)}
+			onText={(text) => onSendPaneText?.(text)}
+		/>
+	{/if}
+
 	<!-- Live status: driven by hooks, which fire the instant a tool starts;
 	     the JSONL itself is written in batches and lags by seconds. -->
 	{#if sessionState === 'busy'}
@@ -813,28 +800,17 @@
 				<span class="live-text mono">{currentAction ?? 'Working…'}</span>
 			{/if}
 		</div>
-	{:else if sessionState === 'permission'}
-		<div class="live-row attention" style="color: {sessionStateVisual('permission').color}">
-			<SessionStateIndicator state="permission" />
+	{:else if sessionState === 'permission' || sessionState === 'waiting'}
+		{@const state = sessionState}
+		<div class="live-row attention" style="color: {sessionStateVisual(state).color}">
+			<SessionStateIndicator {state} />
 			<span class="live-text">
-				{#if liveAskId}
-					Waiting for your answer — pick an option above ↑
-				{:else if choiceOffered}
-					Waiting for permission — answer below ↓
-				{:else}
-					Waiting for permission — switch to terminal view to respond
-				{/if}
-			</span>
-		</div>
-	{:else if sessionState === 'waiting'}
-		{@const pendingAsk = entries.some((e) => e.kind === 'ask' && !e.answers && !e.rejected)}
-		<div class="live-row attention" style="color: {sessionStateVisual('waiting').color}">
-			<SessionStateIndicator state="waiting" />
-			<span class="live-text">
-				{#if pendingAsk}
-					Waiting for your answer — pick an option above ↑
-				{:else if choiceOffered}
-					Waiting for your answer — pick an option below ↓
+				{#if dialogClosed}
+					Answer sent — waiting for Claude to carry on
+				{:else if liveAskId || footDialog}
+					Waiting for your answer — answer in the card above ↑
+				{:else if state === 'permission'}
+					Waiting for permission — reading the dialog, or switch to terminal view to respond
 				{:else}
 					Question incoming… answer here when it appears, or in the terminal view
 				{/if}
@@ -1659,149 +1635,25 @@
 		}
 	}
 
-	/* --- AskUserQuestion: the waiting state made tangible. Red is the app's
-	   waiting color; the card cools to a neutral log line once answered. --- */
-	.ask-card {
-		margin: 14px 0 14px 12px;
-		border: 1px solid #7f1d1d;
-		border-left: 3px solid #ef4444;
-		border-radius: 8px;
-		background: #1c1312;
-		padding: 10px 12px 12px;
-	}
-	.ask-title {
-		display: flex;
-		align-items: center;
-		gap: 7px;
-		font-size: 11px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: #f87171;
-		margin-bottom: 8px;
-	}
-	.ask-q + .ask-q {
-		margin-top: 12px;
-		padding-top: 10px;
-		border-top: 1px solid #2b1c1a;
-	}
-	.ask-q.inactive {
-		opacity: 0.45;
-	}
+	/* --- AskUserQuestion, once answered: a log line that opens to the
+	   choices. The open dialog is DialogCard's. --- */
 	.ask-header-chip {
 		display: inline-block;
 		font-size: 10px;
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
-		color: #fca5a5;
-		background: #3b1a18;
+		color: #a8a29e;
+		background: #262220;
 		border-radius: 4px;
 		padding: 1px 7px;
 		margin-bottom: 4px;
 	}
-	.ask-header-chip.done {
-		color: #a8a29e;
-		background: #262220;
-	}
 	.ask-question {
-		margin: 0 0 8px;
-		color: #f5f0ee;
-		font-weight: 600;
-	}
-	.ask-options {
-		display: flex;
-		flex-direction: column;
-		gap: 5px;
-	}
-	.ask-opt {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 2px;
-		text-align: left;
-		width: 100%;
-		padding: 7px 10px;
-		border: 1px solid #322220;
-		border-radius: 7px;
-		background: #221715;
-		cursor: pointer;
-		transition:
-			border-color 0.12s,
-			background 0.12s;
-	}
-	.ask-opt:hover:not(:disabled) {
-		border-color: #ef4444;
-		background: #2b1a18;
-	}
-	.ask-opt.selected {
-		border-color: #ef4444;
-		background: #341c19;
-	}
-	.ask-opt:disabled {
-		cursor: default;
-	}
-	.ask-opt-label {
-		font-size: 13px;
-		font-weight: 600;
-		color: #f5f0ee;
-	}
-	.ask-opt-desc {
-		font-size: 12px;
-		line-height: 1.45;
-		color: #a8a29e;
-	}
-	/* The panel the terminal draws beside a highlighted option, shown under
-	   every option here: on a phone there is no room to the side, and the
-	   worked numbers are usually what the choice turns on. */
-	.ask-opt-preview {
-		align-self: stretch;
-		margin: 6px 0 0;
-		padding: 8px 10px;
-		border-radius: 6px;
-		background: #161110;
-		border: 1px solid #2b1c1a;
+		font-weight: 500;
 		color: #d6d3d1;
-		font-family: var(--mono);
-		font-size: 12px;
-		line-height: 1.5;
-		white-space: pre;
-		overflow-x: auto;
+		margin: 4px 0 6px;
 	}
-	.ask-confirm {
-		margin-top: 8px;
-		padding: 6px 14px;
-		border: none;
-		border-radius: 7px;
-		background: #dc2626;
-		color: #fff;
-		font-size: 12.5px;
-		font-weight: 700;
-		cursor: pointer;
-	}
-	.ask-confirm:disabled {
-		opacity: 0.4;
-		cursor: default;
-	}
-	.ask-other {
-		margin-top: 10px;
-		padding: 0;
-		border: none;
-		background: none;
-		color: #8a837c;
-		font-size: 12px;
-		cursor: pointer;
-		text-decoration: underline;
-		text-underline-offset: 3px;
-	}
-	.ask-other:hover {
-		color: #c7c2bd;
-	}
-	.ask-sent {
-		font-size: 12.5px;
-		color: #86b898;
-	}
-
 	/* Answered question: review layout inside the collapsed row */
 	.ask-detail {
 		padding: 8px 12px 10px;
@@ -1810,11 +1662,6 @@
 		margin-top: 10px;
 		padding-top: 8px;
 		border-top: 1px solid #262220;
-	}
-	.ask-q-review .ask-question {
-		font-weight: 500;
-		color: #d6d3d1;
-		margin: 4px 0 6px;
 	}
 	.ask-opt-review {
 		font-size: 12.5px;
