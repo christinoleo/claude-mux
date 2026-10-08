@@ -14,7 +14,8 @@
 	} from '$lib/stores/sessions.svelte';
 	import { fleetStore, type Machine } from '$lib/stores/fleet.svelte';
 	import { serverStore } from '$lib/stores/servers.svelte';
-	import SessionRow from '$lib/components/SessionRow.svelte';
+	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
+	import { PANES } from '$lib/side-panel/panes';
 	import SubagentRow from '$lib/components/SubagentRow.svelte';
 	import { agentView, childSummary, type AgentView } from '$shared/subagents.js';
 	import { clock } from '$lib/stores/clock.svelte';
@@ -447,6 +448,23 @@
 		}
 	}
 
+	/** The row's right-click menu: open the session with one of its side panel's panes. */
+	function panelMenu(machine: Machine, tmuxTarget: string): RowMenuItem[] {
+		return PANES.map((pane) => ({
+			label: `Open ${pane.label.toLowerCase()}`,
+			icon: pane.icon,
+			run: () => {
+				const path = `/session/${encodeURIComponent(tmuxTarget)}?panel=${pane.kind}`;
+				if (machine.local) {
+					goto(path);
+					onSessionSelect?.();
+				} else {
+					window.location.href = `${machine.server.url}${path}`;
+				}
+			}
+		}));
+	}
+
 	function handleRowClick(e: MouseEvent, machine: Machine, session: Session) {
 		e.preventDefault();
 		if (e.detail >= 2 && machine.local) {
@@ -669,6 +687,7 @@
 		onlongpress={() => { if (machine.local) renameId = s.id; }}
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
 		ondragend={dragEnd}
+		menu={s.tmux_target ? panelMenu(machine, s.tmux_target) : []}
 	/>
 	{#if !row.workers}{@render agentThread(machine, s, agents)}{/if}
 {/snippet}

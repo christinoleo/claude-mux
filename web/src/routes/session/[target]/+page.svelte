@@ -43,6 +43,22 @@
 	import { useGamepad, STICK_DEADZONE } from '$lib/gamepad.svelte';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import { viewModesStore } from '$lib/stores/viewModes.svelte';
+	import * as Sheet from '$lib/components/ui/sheet';
+	import ResizeDivider from '$lib/components/ResizeDivider.svelte';
+	import SidePanel from '$lib/components/side-panel/SidePanel.svelte';
+	import PanelToggles from '$lib/components/side-panel/PanelToggles.svelte';
+	import { sidePanelStore } from '$lib/stores/sidePanel.svelte';
+	import { PANE_KINDS, PANE_PARAMS, paneDef, panelKeyAction } from '$lib/side-panel/panes';
+	import { panelQuery, readPanel } from '$lib/side-panel/url';
+	import {
+		INLINE_MEDIA_QUERY,
+		PHONE_MEDIA_QUERY,
+		DEFAULT_WIDTH_CSS,
+		PANEL_MIN_PX,
+		SESSION_MIN_PX,
+		DIVIDER_PX,
+		dragWidth
+	} from '$lib/side-panel/layout';
 
 	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
 	const voiceEnabled = $derived(Boolean($page.data.voiceEnabled));
@@ -184,6 +200,110 @@
 		else params.delete('view');
 		const query = params.toString();
 		goto(`${$page.url.pathname}${query ? `?${query}` : ''}`, { noScroll: true, keepFocus: true });
+	}
+
+	/**
+	 * The side panel: a column beside the session on a wide screen, a sheet
+	 * over it below 1180px (full-screen on a phone). Which pane shows lives in
+	 * the URL (`?panel=<kind>` and the pane's own params); its width, maximize,
+	 * and the pane last shown live in localStorage, per session.
+	 */
+	const panelKind = $derived(readPanel($page.url.searchParams, PANE_KINDS));
+	const panelPrefs = $derived(sidePanelStore.get(target));
+	let panelInline = $state(browser && window.matchMedia(INLINE_MEDIA_QUERY).matches);
+	let panelPhone = $state(browser && window.matchMedia(PHONE_MEDIA_QUERY).matches);
+	onMount(() => {
+		const inline = window.matchMedia(INLINE_MEDIA_QUERY);
+		const phone = window.matchMedia(PHONE_MEDIA_QUERY);
+		const sync = () => {
+			panelInline = inline.matches;
+			panelPhone = phone.matches;
+		};
+		inline.addEventListener('change', sync);
+		phone.addEventListener('change', sync);
+		return () => {
+			inline.removeEventListener('change', sync);
+			phone.removeEventListener('change', sync);
+		};
+	});
+	/**
+	 * The pane the inline column last showed for this session. Closing hides
+	 * the column rather than unmounting it, so reopening finds every pane as
+	 * it was left.
+	 */
+	let panelKept = $state<{ target: string | null; kind: string } | null>(null);
+	$effect(() => {
+		if (panelKind) panelKept = { target, kind: panelKind };
+	});
+	const panelColumnKind = $derived(
+		panelKind ?? (panelKept?.target === target ? panelKept.kind : null)
+	);
+	const panelMaximized = $derived(panelInline && panelKind !== null && panelPrefs.maximized === true);
+	/** The column's width mid-drag; saved to the session's prefs when the drag ends. */
+	let panelDragWidth = $state<number | null>(null);
+	let panelResizing = $state(false);
+	let sessionRow = $state<HTMLElement | null>(null);
+	const panelWidthCss = $derived(
+		panelDragWidth !== null
+			? `${panelDragWidth}px`
+			: panelPrefs.width
+				? `${panelPrefs.width}px`
+				: DEFAULT_WIDTH_CSS
+	);
+
+	function navigatePanel(query: URLSearchParams, replaceState: boolean) {
+		const q = query.toString();
+		goto(`${$page.url.pathname}${q ? `?${q}` : ''}`, { noScroll: true, keepFocus: true, replaceState });
+	}
+
+	/** Show `kind`'s pane (or close the panel, for null). Opening and closing push history. */
+	function openPanel(kind: string | null) {
+		if (kind === panelKind) return;
+		if (kind) sidePanelStore.update(target, { last: kind });
+		navigatePanel(panelQuery($page.url.searchParams, kind, PANE_PARAMS), false);
+	}
+
+	/** A pane's toggle: a pressed one closes the panel, another switches to its pane. */
+	function togglePane(kind: string) {
+		if (paneDef(kind)?.unavailable?.(currentSession ?? null)) return;
+		openPanel(panelKind === kind ? null : kind);
+	}
+
+	function setPaneParams(kind: string, own: Record<string, string | null>, opts?: { push?: boolean }) {
+		if (kind !== panelKind) return;
+		navigatePanel(panelQuery($page.url.searchParams, kind, PANE_PARAMS, own), !opts?.push);
+	}
+
+	function toggleMaximize() {
+		if (!panelInline || !panelKind) return;
+		sidePanelStore.update(target, { maximized: !panelPrefs.maximized });
+	}
+
+	function resizePanel(e: PointerEvent) {
+		if (!sessionRow) return;
+		const rect = sessionRow.getBoundingClientRect();
+		const width = dragWidth(e.clientX, rect.right, rect.width);
+		// A width that would crush the session column is refused, not clamped.
+		if (width !== null) panelDragWidth = width;
+	}
+
+	function endPanelResize() {
+		if (panelDragWidth !== null) sidePanelStore.update(target, { width: panelDragWidth });
+		panelDragWidth = null;
+	}
+
+	/** The keys that toggle a pane, close or reopen the panel, and maximize it. */
+	function handlePanelKeys(e: KeyboardEvent): boolean {
+		const action = panelKeyAction(e);
+		if (!action) return false;
+		e.preventDefault();
+		if (action === 'maximize') toggleMaximize();
+		else if (action === 'toggle') {
+			const last = paneDef(panelPrefs.last ?? null) ?? paneDef(PANE_KINDS[0]);
+			if (panelKind) openPanel(null);
+			else if (last) togglePane(last.kind);
+		} else togglePane(action.kind);
+		return true;
 	}
 
 	let textInput = $state('');
@@ -398,6 +518,7 @@
 	 */
 	function handleGlobalKeys(e: KeyboardEvent) {
 		if (handleChooserKeys(e)) return;
+		if (!e.repeat && handlePanelKeys(e)) return;
 		// The voice key works wherever focus is; the composer handles it
 		// itself when it has focus, and marks the event so it is not taken twice.
 		if (!e.defaultPrevented && !e.repeat && isVoiceHotkey(e)) {
@@ -1922,6 +2043,9 @@
 				<Hint icon={action.icon} label={action.label} class="mini" onclick={action.run} />
 			</span>
 		{/each}
+		{#if isClaudeSession}
+			<PanelToggles kind={panelKind} session={currentSession ?? null} onToggle={togglePane} />
+		{/if}
 		{#if !embed}
 			<Hint
 				icon="mdi:menu"
@@ -1971,6 +2095,15 @@
 {/snippet}
 
 <Tooltip.Provider delayDuration={250}>
+<div
+	class="session-row"
+	class:panel-max={panelMaximized}
+	bind:this={sessionRow}
+	style:--panel-w={panelWidthCss}
+	style:--panel-min="{PANEL_MIN_PX}px"
+	style:--session-min="{SESSION_MIN_PX}px"
+	style:--divider-w="{DIVIDER_PX}px"
+>
 <div class="session-container">
 
 	<div class="output-wrap" class:has-rail={railShowing}>
@@ -2334,6 +2467,56 @@
 			</div>
 </div>
 
+{#snippet sidePanel(kind: string)}
+	{#key target}
+		<SidePanel
+			{kind}
+			target={target ?? ''}
+			session={currentSession ?? null}
+			query={$page.url.searchParams}
+			maximized={panelMaximized}
+			canMaximize={panelInline}
+			onSetParams={setPaneParams}
+			onToggleMaximize={toggleMaximize}
+			onClose={() => openPanel(null)}
+		/>
+	{/key}
+{/snippet}
+
+{#if panelInline}
+	{#if panelColumnKind}
+		<div class="panel-divider" hidden={!panelKind}>
+			<ResizeDivider
+				bind:resizing={panelResizing}
+				title="Drag to resize · double-click for the default width"
+				onmove={resizePanel}
+				onend={endPanelResize}
+				onreset={() => sidePanelStore.update(target, { width: undefined })}
+			/>
+		</div>
+		<aside class="side-panel" aria-label="Side panel" hidden={!panelKind}>
+			{@render sidePanel(panelColumnKind)}
+			{#if panelResizing}
+				<!-- A pane may hold an iframe, which must not eat the pointer mid-drag. -->
+				<div class="panel-shield"></div>
+			{/if}
+		</aside>
+	{/if}
+{:else}
+	<Sheet.Root open={panelKind !== null} onOpenChange={(open) => { if (!open) openPanel(null); }}>
+		<Sheet.Content
+			side="right"
+			showCloseButton={false}
+			onOpenAutoFocus={(e) => e.preventDefault()}
+			class="side-sheet gap-0 p-0 {panelPhone ? 'phone' : ''}"
+		>
+			<Sheet.Title class="sr-only">Side panel</Sheet.Title>
+			{#if panelKind}{@render sidePanel(panelKind)}{/if}
+		</Sheet.Content>
+	</Sheet.Root>
+{/if}
+</div>
+
 <CommandPalette bind:open={commandsOpen} cwd={currentSession?.cwd} pinned={pinnedCommands} onselect={fillInput} />
 
 <AlertDialog.Root bind:open={showConfirmKill}>
@@ -2536,7 +2719,57 @@
 		color: #fca5a5;
 	}
 
+	.session-row {
+		height: 100%;
+		display: flex;
+		min-width: 0;
+		background: #000;
+	}
+	.panel-divider[hidden],
+	.side-panel[hidden] {
+		display: none;
+	}
+	.panel-divider {
+		flex: none;
+		width: var(--divider-w);
+	}
+	.side-panel {
+		position: relative;
+		flex: none;
+		width: var(--panel-w);
+		min-width: var(--panel-min);
+		max-width: calc(100% - var(--session-min) - var(--divider-w));
+		border-left: 1px solid #262626;
+	}
+	.panel-shield {
+		position: absolute;
+		inset: 0;
+	}
+	/* Maximized, the panel takes the page; the session stays mounted, out of sight. */
+	.session-row.panel-max .session-container,
+	.session-row.panel-max .panel-divider {
+		display: none;
+	}
+	.session-row.panel-max .side-panel {
+		flex: 1;
+		width: auto;
+		max-width: none;
+		border-left: 0;
+	}
+	:global([data-slot='sheet-content'].side-sheet) {
+		width: min(44rem, 92vw);
+		max-width: none;
+		background: #111111;
+		border-color: #262626;
+	}
+	:global([data-slot='sheet-content'].side-sheet.phone) {
+		width: 100vw;
+		border-left: 0;
+	}
+
 	.session-container {
+		flex: 1;
+		min-width: 0;
 		height: 100%;
 		display: flex;
 		flex-direction: column;
@@ -2744,6 +2977,7 @@
 	   right holds the two controls that are worth a thumb's whole reach. */
 	.cx {
 		position: relative;
+		container: composer / inline-size;
 		background: #151516;
 		border: 1px solid #2a2a2c;
 		border-bottom: 0;
@@ -3239,11 +3473,13 @@
 
 
 	/* The header's rare actions return to the status line once there is room
-	   across for them; a phone reaches them through the sheet instead. */
+	   across for them; a phone reaches them through the sheet instead. The
+	   room is the composer's, not the viewport's: the side panel can leave
+	   the session a narrow column on a wide screen. */
 	.wide-only {
 		display: none;
 	}
-	@media (min-width: 700px) {
+	@container composer (min-width: 640px) {
 		.wide-only {
 			display: inline-flex;
 		}
