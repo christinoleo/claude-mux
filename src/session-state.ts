@@ -101,3 +101,23 @@ export function indicatorStateOf(s: TurnWatermark): IndicatorState {
 export function recedes(state: IndicatorState): boolean {
   return state === "idle" || state === "dead" || state === "plain";
 }
+
+/** What a session asking through AskUserQuestion is doing, as its row says it. */
+export const ASKING = "Asking a question";
+/** What a session waiting on an MCP elicitation is doing. */
+export const AWAITING_INPUT = "Waiting for input";
+
+/**
+ * What a session wants from a person: an answer, an approval, or nothing.
+ * A permission dialog reports as `waiting` first (the PermissionRequest hook)
+ * and turns `permission` only when Claude Code's notification follows, so the
+ * action, not the state, is what tells a question from an approval.
+ */
+export function needsYouKind(s: {
+  state: SessionState;
+  current_action?: string | null;
+}): "input" | "approval" | null {
+  if (s.state === "permission") return "approval";
+  if (s.state !== "waiting") return null;
+  return s.current_action === ASKING || s.current_action === AWAITING_INPUT ? "input" : "approval";
+}

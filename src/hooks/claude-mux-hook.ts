@@ -27,6 +27,7 @@ import {
 import { join } from "path";
 import { homedir } from "os";
 import { parseMcpToolName } from "../transcript/mcp.js";
+import { ASKING, AWAITING_INPUT } from "../session-state.js";
 
 // Paths
 const LEGACY_CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
@@ -570,9 +571,6 @@ function handleStop(input: HookInput): void {
   writeSession(session);
 }
 
-/** What a session asking through AskUserQuestion is doing, as its row says it. */
-const ASKING = "Asking a question";
-
 function handlePermissionRequest(input: HookInput): void {
   const session = getOrCreateSession(input);
 
@@ -623,7 +621,7 @@ function handleNotificationElicitation(input: HookInput): void {
 
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "waiting";
-  session.current_action = "Waiting for input";
+  session.current_action = AWAITING_INPUT;
   session.last_update = Date.now();
   writeSession(session);
 }
