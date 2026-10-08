@@ -147,3 +147,32 @@ describe("sessionChanges", () => {
     expect(sessionChanges(session)?.summary()).toEqual({ files: 1, additions: 3, deletions: 0 });
   });
 });
+
+describe("ChangesCollector: where turns start", () => {
+  const prompt = (uuid: string, content: string) =>
+    JSON.stringify({ type: "user", uuid, message: { role: "user", content } });
+  const edit = (id: string) =>
+    JSON.stringify({
+      type: "user",
+      uuid: `r-${id}`,
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: "ok" }] },
+      toolUseResult: {
+        filePath: "/a.ts",
+        originalFile: "x\n",
+        structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-x", "+y"] }],
+      },
+    });
+
+  it("names every turn's prompt, changed something or not", () => {
+    const c = collect([prompt("p1", "hello"), prompt("p2", "edit it"), edit("t1")].join("\n"));
+    expect(c.promptIds()).toEqual(["p1", "p2"]);
+    expect(c.byTurn().map((t) => [t.id, t.n])).toEqual([["p2", 2]]);
+  });
+
+  it("folds a pasted command's bundle into the line typed, as the transcript does", () => {
+    const bundle = "<command-message>simplify</command-message>\n<command-name>/simplify</command-name>\n<command-args>now</command-args>";
+    const c = collect([prompt("typed", "/simplify now"), prompt("bundle", bundle), edit("t1")].join("\n"));
+    expect(c.promptIds()).toEqual(["typed"]);
+    expect(c.byTurn().map((t) => [t.id, t.n])).toEqual([["typed", 1]]);
+  });
+});

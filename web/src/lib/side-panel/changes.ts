@@ -33,7 +33,17 @@ export interface Listing {
 	root?: string;
 	files: ChangedFile[];
 	turns?: Turn[];
+	/** From the session source: the prompt that opens every turn, changed something or not. */
+	prompts?: string[];
 	totals: { files: number; additions: number; deletions: number };
+}
+
+/** What the transcript needs to draw each turn's change summary. */
+export interface TranscriptChanges {
+	turns: Turn[];
+	prompts: ReadonlySet<string>;
+	/** Where the changed paths are shown relative to. */
+	root: string | null;
 }
 
 /** What `/changes/diff` answers, from either source. */
@@ -184,3 +194,35 @@ const LANGUAGES: Record<string, string> = {
 	swift: 'swift',
 	lua: 'lua'
 };
+
+/**
+ * Where each turn's change summary goes in the transcript: after the last
+ * item of the turn, keyed by that item's id. A turn runs from its prompt to
+ * the next one, and only the ids in `prompts` count as prompts: the transcript
+ * also draws user lines the log does not open a turn on (a steer that rode in
+ * with a tool result, say), and those fall inside the turn around them. A turn
+ * whose prompt is not among the items, scrolled out above the loaded tail,
+ * gets no summary, and neither does the last turn while `open`, the session
+ * still working on it.
+ */
+export function placeTurnChanges(
+	items: readonly { id: string; kind: string }[],
+	turns: readonly Turn[],
+	prompts: ReadonlySet<string>,
+	open: boolean
+): Map<string, Turn> {
+	const byPrompt = new Map<string, Turn>();
+	for (const t of turns) if (t.id) byPrompt.set(t.id, t);
+	const placed = new Map<string, Turn>();
+	let current: Turn | null = null;
+	let last: string | null = null;
+	for (const item of items) {
+		if (item.kind === 'user' && prompts.has(item.id)) {
+			if (current && last) placed.set(last, current);
+			current = byPrompt.get(item.id) ?? null;
+		}
+		last = item.id;
+	}
+	if (current && last && !open) placed.set(last, current);
+	return placed;
+}

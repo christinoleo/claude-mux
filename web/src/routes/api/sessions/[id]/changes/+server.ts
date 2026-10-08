@@ -7,8 +7,9 @@ import { gitChanges } from '$shared/server/git.js';
 /**
  * The files a session changed, with line counts. `source=git` reads the
  * working tree of the repo the session sits in; `source=session` reads the
- * session's own log, and groups the files by turn as well. Without a source,
- * git when the session is in a repo, else the log.
+ * session's own log, and groups the files by turn as well, naming every
+ * turn's prompt (`prompts`) so a reader can tell where each turn starts.
+ * Without a source, git when the session is in a repo, else the log.
  */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const id = decodeURIComponent(params.id);
@@ -33,6 +34,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 		source: 'session',
 		files,
 		turns: collector?.byTurn() ?? [],
+		prompts: collector?.promptIds() ?? [],
 		totals: summarize(files)
 	});
 };

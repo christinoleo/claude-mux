@@ -15,6 +15,7 @@
 	import { fleetStore, type Machine } from '$lib/stores/fleet.svelte';
 	import { serverStore } from '$lib/stores/servers.svelte';
 	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
+	import DiffBadge from '$lib/components/DiffBadge.svelte';
 	import { PANES } from '$lib/side-panel/panes';
 	import SubagentRow from '$lib/components/SubagentRow.svelte';
 	import { agentView, childSummary, type AgentView } from '$shared/subagents.js';
@@ -689,7 +690,9 @@
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
 		ondragend={dragEnd}
 		menu={s.tmux_target && !splitStore.active ? panelMenu(machine, s.tmux_target) : []}
-	/>
+	>
+		{#snippet meta()}<DiffBadge changes={s.changes} />{/snippet}
+	</SessionRow>
 	{#if !row.workers}{@render agentThread(machine, s, agents)}{/if}
 {/snippet}
 
