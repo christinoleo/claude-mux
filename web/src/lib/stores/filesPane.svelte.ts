@@ -12,17 +12,17 @@ export interface FilesPrefs {
 
 const persisted = createPersisted<Record<string, FilesPrefs>>('claude-mux-files-pane', {});
 
-/** The Files pane's per-session preferences, keyed by pane target. */
+/** The Files pane's per-session preferences, keyed by session id: a pane target is reused by later sessions. */
 class FilesPaneStore {
 	private state = $state<Record<string, FilesPrefs>>(persisted.load());
 
-	get(target: string | null): FilesPrefs {
-		return (target && this.state[target]) || {};
+	get(id: string | null): FilesPrefs {
+		return (id && this.state[id]) || {};
 	}
 
-	update(target: string | null, patch: FilesPrefs): void {
-		if (!target) return;
-		this.state[target] = { ...this.state[target], ...patch };
+	update(id: string | null, patch: FilesPrefs): void {
+		if (!id) return;
+		this.state[id] = { ...this.state[id], ...patch };
 		persisted.save(this.state);
 	}
 }

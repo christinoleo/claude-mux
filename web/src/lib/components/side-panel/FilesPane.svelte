@@ -30,13 +30,14 @@
 	import { renderMarkdown } from '$lib/markdown';
 	import { filesPaneStore } from '$lib/stores/filesPane.svelte';
 
-	let { session, target, params, setParams, setActions, mention, active }: PaneBodyProps = $props();
+	let { session, params, setParams, setActions, mention, active }: PaneBodyProps = $props();
 
 	const sessionId = $derived(session?.id ?? null);
 	const api = $derived(sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/files` : null);
-	const prefs = $derived(filesPaneStore.get(target));
+	const prefs = $derived(filesPaneStore.get(sessionId));
 	const showIgnored = $derived(prefs.showIgnored === true);
-	const expanded = $derived(new Set(prefs.expanded ?? []));
+	// Only paths inside the root belong here; an older build could save others.
+	const expanded = $derived(new Set((prefs.expanded ?? []).filter((d) => d && !d.startsWith('/'))));
 
 	// ── the tree ─────────────────────────────────────────────────────────
 
@@ -88,12 +89,12 @@
 		const next = new Set(expanded);
 		if (open) next.add(dir);
 		else next.delete(dir);
-		filesPaneStore.update(target, { expanded: [...next] });
+		filesPaneStore.update(sessionId, { expanded: [...next] });
 		if (open && !dirs[dir]) void loadDir(dir);
 	}
 
 	function toggleIgnored() {
-		filesPaneStore.update(target, { showIgnored: !showIgnored });
+		filesPaneStore.update(sessionId, { showIgnored: !showIgnored });
 	}
 
 	// ── the open file ────────────────────────────────────────────────────
@@ -132,27 +133,39 @@
 			const read = body as FileRead;
 			shown = { path, read };
 			// An absolute or roundabout spelling settles on the path inside the root.
-			if (read.path !== path) setParams({ file: read.path });
-			filesPaneStore.update(target, { file: read.path });
+			if (read.path !== path) {
+				fileReadFor = `${read.path}\0${params.line ?? ''}`;
+				setParams({ file: read.path });
+			}
+			revealInTree(read.path);
+			filesPaneStore.update(sessionId, { file: read.path });
 		} catch (err) {
 			if (mine === fileSeq) shown = { path, error: err instanceof Error ? err.message : String(err) };
 		}
 	}
 
+	/**
+	 * What the file was last read for: its path and the line asked. A link
+	 * that names the open file again (after Claude edited it, say) reads it
+	 * afresh rather than scrolling stale text; showing the pane again does not.
+	 */
+	let fileReadFor: string | null = null;
 	$effect(() => {
 		const path = wantedFile;
 		if (!path || !active) return;
-		if (untrack(() => current)) return;
-		untrack(() => {
-			void loadFile(path);
-			// Open the directories that hold it, so the tree shows where it is.
-			const missing = ancestors(path).filter((d) => !expanded.has(d));
-			if (missing.length > 0) {
-				filesPaneStore.update(target, { expanded: [...expanded, ...missing] });
-				for (const d of missing) if (!dirs[d]) void loadDir(d);
-			}
-		});
+		const key = `${path}\0${params.line ?? ''}`;
+		if (key === fileReadFor) return;
+		fileReadFor = key;
+		untrack(() => void loadFile(path));
 	});
+
+	/** Open the directories that hold `path` (inside the root), so the tree shows where it is. */
+	function revealInTree(path: string) {
+		const missing = ancestors(path).filter((d) => !expanded.has(d));
+		if (missing.length === 0) return;
+		filesPaneStore.update(sessionId, { expanded: [...expanded, ...missing] });
+		for (const d of missing) if (!dirs[d]) void loadDir(d);
+	}
 
 	const current = $derived(
 		shown && wantedFile && (shown.path === wantedFile || ('read' in shown && shown.read.path === wantedFile))
@@ -167,7 +180,7 @@
 	}
 
 	function closeFile() {
-		filesPaneStore.update(target, { file: undefined });
+		filesPaneStore.update(sessionId, { file: undefined });
 		setParams({ file: null, line: null });
 	}
 
@@ -220,8 +233,16 @@
 		}
 	}
 
+	/**
+	 * Claude Code reads an `@path` from the session's cwd, which may sit below
+	 * the root this pane lists from: the path is made relative to the cwd, or
+	 * left absolute when the cwd is not inside the root.
+	 */
 	function mentionOpen() {
-		if (openPath) mention(`@${openPath}`);
+		if (!openPath || !root) return;
+		const abs = `${root}/${openPath}`;
+		const cwd = session?.cwd ?? root;
+		mention(`@${cwd === root ? openPath : displayPath(abs, cwd)}`);
 	}
 
 	function formatSize(bytes: number): string {
@@ -234,15 +255,21 @@
 
 	let query = $state('');
 	let allFiles = $state<string[] | null>(null);
+	let listError = $state<string | null>(null);
 	let listing = false;
 	let picked = $state(0);
 
 	async function loadAll() {
 		if (allFiles || listing || !api) return;
 		listing = true;
+		listError = null;
 		try {
 			const res = await fetch(`${api}/list`);
-			if (res.ok) allFiles = ((await res.json()) as { files: string[] }).files;
+			const body = await res.json();
+			if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+			allFiles = (body as { files: string[] }).files;
+		} catch (err) {
+			listError = err instanceof Error ? err.message : String(err);
 		} finally {
 			listing = false;
 		}
@@ -294,6 +321,8 @@
 				label: 'Reload',
 				disabled: !sessionId,
 				run: () => {
+					allFiles = null;
+					if (query.trim()) void loadAll();
 					reloadTree();
 					if (wantedFile) void loadFile(wantedFile);
 				}
@@ -374,7 +403,9 @@
 		{/if}
 		<div class="list">
 			{#if query.trim()}
-				{#if !allFiles}
+				{#if listError}
+					<div class="note err">{listError}</div>
+				{:else if !allFiles}
 					<div class="note">Loading…</div>
 				{:else if results.length === 0}
 					<div class="note">No file matches.</div>
@@ -446,7 +477,7 @@
 				</button>
 			</div>
 			{#if read?.kind === 'text' && read.truncated}
-				<div class="banner">Truncated at 1 MB: showing the first {formatSize(read.text.length)} of {formatSize(read.size)}.</div>
+				<div class="banner">Truncated at 1 MB: showing the first {formatSize(read.shown)} of {formatSize(read.size)}.</div>
 			{/if}
 			{#if !current}
 				<p class="msg">Loading…</p>

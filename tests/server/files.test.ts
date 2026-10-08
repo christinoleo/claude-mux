@@ -83,10 +83,14 @@ describe("resolveInRoot", () => {
     expect((await resolveInRoot(via, join(via, "src/a.ts"))).rel).toBe("src/a.ts");
   });
 
-  it("refuses .git and answers 404 for a missing path", async () => {
+  it("refuses .git at any depth and answers 404 for a missing path", async () => {
     mkdirSync(join(root, ".git"));
     writeFileSync(join(root, ".git", "config"), "");
+    mkdirSync(join(root, "vendor", "lib", ".git"), { recursive: true });
+    writeFileSync(join(root, "vendor", "lib", ".git", "config"), "");
     expect(await refused(resolveInRoot(root, ".git/config"))).toBe(403);
+    expect(await refused(resolveInRoot(root, "vendor/lib/.git/config"))).toBe(403);
+    expect((await listDir(root, "vendor/lib", { repo: false })).entries).toEqual([]);
     expect(await refused(resolveInRoot(root, "nope.ts"))).toBe(404);
   });
 });
@@ -116,6 +120,16 @@ describe("listDir", () => {
     expect(all.entries.some((e) => e.name === ".git")).toBe(false);
   });
 
+  it("still filters ignored entries when a directory is a symlink", async () => {
+    git("init", "-q");
+    writeFileSync(join(root, ".gitignore"), "dist/\n");
+    mkdirSync(join(root, "dist"));
+    symlinkSync(join(root, "src"), join(root, "lnk"));
+    const listing = await listDir(root, "", { repo: true });
+    expect(listing.entries.map((e) => e.name)).toEqual(["lnk", "src", ".gitignore", "README.md"]);
+    expect(listing.hidden).toBe(1);
+  });
+
   it("refuses a directory outside the root", async () => {
     expect(await refused(listDir(root, "..", { repo: false }))).toBe(403);
   });
@@ -140,6 +154,16 @@ describe("readProjectFile", () => {
     expect(read.truncated).toBe(true);
     expect(read.text.length).toBeLessThanOrEqual(READ_LIMIT_BYTES);
     expect(read.text.endsWith("\n")).toBe(true);
+    expect(read.shown).toBe(Buffer.byteLength(read.text));
+  });
+
+  it("never splits a character when a file has no line end to cut at", async () => {
+    // Three-byte characters straddle the limit, which is not a multiple of three.
+    writeFileSync(join(root, "wide.txt"), "€".repeat(Math.ceil(READ_LIMIT_BYTES / 3) + 10));
+    const read = await readProjectFile(root, "wide.txt");
+    if (read.kind !== "text") throw new Error("expected text");
+    expect(read.text.includes("\uFFFD")).toBe(false);
+    expect(read.shown).toBeLessThanOrEqual(READ_LIMIT_BYTES);
   });
 
   it("serves an image only through the guard", async () => {

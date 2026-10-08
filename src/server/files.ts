@@ -11,6 +11,7 @@
  */
 
 import { execFile } from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import { realpath, readdir, readFile, stat, open } from 'fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import type { Session } from '../db/sessions-json.js';
@@ -48,7 +49,15 @@ export interface DirListing {
 }
 
 export type FileRead =
-	| { kind: 'text'; path: string; size: number; text: string; truncated: boolean }
+	| {
+			kind: 'text';
+			path: string;
+			size: number;
+			/** The bytes of the file `text` holds, short of `size` when truncated. */
+			shown: number;
+			text: string;
+			truncated: boolean;
+	}
 	| { kind: 'image'; path: string; size: number; mime: string }
 	| { kind: 'binary'; path: string; size: number };
 
@@ -73,9 +82,9 @@ function isInside(root: string, abs: string): boolean {
 	return rel === '' || (rel !== '..' && !rel.startsWith('..' + sep) && !isAbsolute(rel));
 }
 
-/** The `.git` directory or anything in it. */
+/** A `.git` directory at any depth (a submodule's, a vendored repo's) or anything in one. */
 function isGitPath(rel: string): boolean {
-	return rel === '.git' || rel.startsWith('.git/');
+	return rel.split('/').includes('.git');
 }
 
 /**
@@ -168,8 +177,9 @@ export async function listDir(
 	let hidden = 0;
 	let shown = entries;
 	if (opts.repo && entries.length > 0) {
-		// git wants a directory spelled with its slash to match a `dir/` pattern, and answers in the same spelling.
-		const spelled = (e: FileEntry) => (e.type === 'dir' ? `${e.path}/` : e.path);
+		// git wants a directory spelled with its slash to match a `dir/` pattern, and answers in the same
+		// spelling; a link to one goes without, since git refuses a path that runs through a symlink.
+		const spelled = (e: FileEntry) => (e.type === 'dir' && !e.link ? `${e.path}/` : e.path);
 		const ignored = await ignoredPaths(realRoot, entries.map(spelled));
 		for (const e of entries) if (ignored.has(spelled(e))) e.ignored = true;
 		if (!opts.showIgnored) {
@@ -208,11 +218,13 @@ export async function readProjectFile(root: string, path: string): Promise<FileR
 	const truncated = s.size > READ_LIMIT_BYTES;
 	let bytes = head;
 	if (truncated) {
-		// Cut at the last line end so the final line is whole and no character is split.
+		// Cut at the last line end so the final line is whole.
 		const nl = bytes.lastIndexOf(0x0a);
 		if (nl > 0) bytes = bytes.subarray(0, nl + 1);
 	}
-	return { kind: 'text', path: rel, size: s.size, text: bytes.toString('utf-8'), truncated };
+	// The decoder holds back a character split by the cut rather than mangling it.
+	const text = new StringDecoder('utf8').write(bytes);
+	return { kind: 'text', path: rel, size: s.size, shown: Buffer.byteLength(text), text, truncated };
 }
 
 /** An image's bytes, through the same guard as any read. */
