@@ -1,9 +1,11 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { join, resolve, extname, basename } from 'path';
 import { randomBytes } from 'crypto';
 import { getSessionAttachmentsDir } from '$shared/db/index.js';
+import { imageMimeFor } from '$shared/utils/image-types.js';
 
 /** Strip path separators and control chars from a user-supplied filename. */
 function sanitizeName(name: string): string {
@@ -63,6 +65,25 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		size: file.size,
 		mime: file.type || 'application/octet-stream'
 	});
+};
+
+/** Serve an uploaded image back, for the thumbnails of a queued message. */
+export const GET: RequestHandler = async ({ params, url }) => {
+	const sessionId = decodeURIComponent(params.id);
+	const target = url.searchParams.get('path');
+	if (!target) return json({ error: 'path parameter required' }, { status: 400 });
+	if (!isUnderSessionDir(getSessionAttachmentsDir(sessionId), target)) {
+		return json({ error: 'path outside session attachments dir' }, { status: 400 });
+	}
+	const type = imageMimeFor(target);
+	if (!type) return json({ error: 'not an image' }, { status: 415 });
+	try {
+		return new Response(await readFile(target), {
+			headers: { 'Content-Type': type, 'Cache-Control': 'private, max-age=3600' }
+		});
+	} catch {
+		return json({ error: 'not found' }, { status: 404 });
+	}
 };
 
 export const DELETE: RequestHandler = async ({ params, url }) => {

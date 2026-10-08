@@ -7,7 +7,7 @@
 	import ToolLabel from '$lib/components/ToolLabel.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
-	import type { QueuedMessageInfo } from '$shared/types/ws-messages.js';
+	import type { DeliveryInfo } from '$shared/types/ws-messages.js';
 	import type { PaneActivity } from '$shared/types/ws-messages.js';
 	import { formatSpinnerElapsed } from '$lib/format';
 	import { Badge } from '$lib/components/ui/badge';
@@ -28,8 +28,7 @@
 		sessionState = null,
 		currentAction = null,
 		activity = null,
-		queue = [],
-		paneQueue = [],
+		delivered = [],
 		suggestion = null,
 		onAcceptSuggestion,
 		choiceOffered = false,
@@ -51,10 +50,8 @@
 		currentAction?: string | null;
 		/** Claude Code's spinner line, split into its parts; null outside tmux or between frames. */
 		activity?: PaneActivity | null;
-		/** Messages waiting in claude-mux's own send queue, next out first. */
-		queue?: QueuedMessageInfo[];
-		/** Messages waiting in Claude Code's own queue, typed into the terminal. */
-		paneQueue?: string[];
+		/** What claude-mux's queue and steers handed the pane lately, newest last. */
+		delivered?: DeliveryInfo[];
 		/** Claude Code's own ghost-text proposal for the next prompt. */
 		suggestion?: string | null;
 		/** Accepts the suggestion (Tab then Enter in the pane). */
@@ -232,12 +229,6 @@
 		(sessionState === 'waiting' || sessionState === 'permission') && onSendKeys != null
 	);
 
-	/**
-	 * A message queued in the pane only waits on the turn in flight, so the
-	 * queue offers the one key that ends it. Busy only: with nothing running,
-	 * Escape would clear the pane's input rather than hand the message over.
-	 */
-	const canInterrupt = $derived(sessionState === 'busy' && onSendKeys != null);
 	const liveAskId = $derived(
 		canAnswer
 			? (entries.findLast((e) => e.kind === 'ask' && !e.answers && !e.rejected)?.id ?? null)
@@ -245,19 +236,27 @@
 	);
 
 	/**
-	 * A message claude-mux queued and has already pasted into the pane appears in
-	 * both queues. The transcript entry is the richer record, so drop the echo.
+	 * The turns claude-mux delivered from its queue or as a steer, by entry id.
+	 * Each delivery labels the first turn after it that carries its text, so
+	 * the same words sent twice label two turns, not one.
 	 */
-	const pendingInPane = $derived(
-		paneQueue.length === 0
-			? []
-			: paneQueue.filter(
-					(text) =>
-						!entries.some(
-							(e) => e.kind === 'queued' && !e.delivered && e.text.trim() === text.trim()
-						)
-				)
-	);
+	const deliveredVia = $derived.by(() => {
+		const out = new Map<string, DeliveryInfo['via']>();
+		for (const d of delivered) {
+			const text = d.text.trim();
+			// The JSONL stamps the turn a moment after the paste; allow for clock skew.
+			const turn = entries.find(
+				(e) =>
+					// A delivered queued entry is hidden behind its user turn.
+					(e.kind === 'user' || (e.kind === 'queued' && !e.delivered)) &&
+					!out.has(e.id) &&
+					e.ts >= d.at - 5000 &&
+					e.text.trim() === text
+			);
+			if (turn) out.set(turn.id, d.via);
+		}
+		return out;
+	});
 
 	function askActive(entryId: string, qIndex: number): boolean {
 		return canAnswer && entryId === liveAskId && (askProgress[entryId] ?? 0) === qIndex;
@@ -468,6 +467,16 @@
 			<span class="prompt-glyph">❯</span>
 		{/if}
 	{/snippet}
+	{#snippet via(id: string)}
+		{@const how = deliveredVia.get(id)}
+		{#if how}
+			<span
+				class="via"
+				title={how === 'steer' ? 'Steered into the running turn' : 'Sent from the queue'}
+				>{how === 'steer' ? 'Steer' : 'Queued'}</span
+			>
+		{/if}
+	{/snippet}
 	{#snippet row(entry: TranscriptEntry)}
 		{#if entry.kind === 'user'}
 			<div class="user-block" class:dictated={entry.dictated}>
@@ -491,7 +500,7 @@
 				{:else}
 					<div class="user-text">{entry.text}</div>
 				{/if}
-				<span class="time">{formatTime(entry.ts)}</span>
+				<span class="time">{@render via(entry.id)}{formatTime(entry.ts)}</span>
 			</div>
 		{:else if entry.kind === 'queued'}
 			{#if !entry.delivered}
@@ -499,6 +508,7 @@
 					{@render turnGlyph(entry.dictated ?? false)}
 					<div class="user-text">{entry.text}</div>
 					<span class="time" title="sent while the agent was working">
+						{@render via(entry.id)}
 						<iconify-icon icon="mdi:clock-fast"></iconify-icon>
 						{formatTime(entry.ts)}
 					</span>
@@ -780,21 +790,6 @@
 
 	<!-- Live status: driven by hooks, which fire the instant a tool starts;
 	     the JSONL itself is written in batches and lags by seconds. -->
-	{#if queue.length > 0}
-		{@const head = queue[0]}
-		<div class="live-row queue-note">
-			<iconify-icon icon={head.kind === 'control' ? 'mdi:cog-outline' : 'mdi:tray-full'}
-			></iconify-icon>
-			<span class="live-text">
-				{#if head.kind === 'control'}
-					Dashboard command waiting for the prompt: <code>{head.text}</code>
-				{:else}
-					Queued for when this session is idle: {head.text}
-				{/if}
-				{#if queue.length > 1}<span class="queue-more">+{queue.length - 1} more</span>{/if}
-			</span>
-		</div>
-	{/if}
 	{#if sessionState === 'busy'}
 		<div class="live-row busy">
 			<SessionStateIndicator state="busy" />
@@ -847,16 +842,6 @@
 		</div>
 	{/if}
 
-	{#each pendingInPane as text, i (i + text)}
-		<div class="user-block pending">
-			<span class="prompt-glyph">❯</span>
-			<div class="user-text">{text}</div>
-			<span class="time" title="waiting in the terminal's queue">
-				<iconify-icon icon="mdi:clock-outline"></iconify-icon>
-				queued
-			</span>
-		</div>
-	{/each}
 	{#if suggestion}
 		<!-- Claude's own next-prompt proposal, drawn as the same not-yet-happened
 		     turn anchor as a queued message — but in the suggestion's blue, and
@@ -873,14 +858,6 @@
 				<iconify-icon icon="mdi:star-four-points-outline"></iconify-icon>
 				suggested · accept <kbd>&#8677;</kbd>
 			</span>
-		</button>
-	{/if}
-	{#if canInterrupt && pendingInPane.length > 0}
-		<!-- One control for the whole queue: ending the turn is what hands the
-		     messages over, and there is only ever one turn to end. -->
-		<button class="jump-queue" onclick={() => onSendKeys?.('Escape')}>
-			<iconify-icon icon="mdi:debug-step-over"></iconify-icon>
-			Interrupt so Claude reads {pendingInPane.length > 1 ? 'these' : 'this'} now
 		</button>
 	{/if}
 </div>
@@ -1035,6 +1012,16 @@
 		border: 1px solid #3a3a52;
 		border-radius: 3px;
 	}
+	/* How a turn got there, when claude-mux delivered it for you. */
+	.via {
+		margin-right: 6px;
+		padding: 0 5px;
+		border-radius: 4px;
+		background: #292524;
+		color: #a8a29e;
+		font-size: 10px;
+	}
+
 	.prompt-glyph,
 	.mic-glyph {
 		flex-shrink: 0;
@@ -1104,32 +1091,6 @@
 	.time iconify-icon {
 		font-size: 12px;
 		vertical-align: -2px;
-	}
-
-	/* Hands the queued messages to Claude by ending the turn they wait on. */
-	.jump-queue {
-		display: inline-flex;
-		margin: 2px 0 0 24px;
-		align-items: center;
-		gap: 3px;
-		padding: 2px 7px;
-		border: 1px solid #46351c;
-		border-radius: 5px;
-		background: transparent;
-		color: #8a7a55;
-		font-family: var(--mono);
-		font-size: 10px;
-		cursor: pointer;
-	}
-
-	.jump-queue:hover {
-		border-color: #7c5e2a;
-		background: #241d12;
-		color: #fbbf24;
-	}
-
-	.jump-queue iconify-icon {
-		font-size: 12px;
 	}
 
 	/* Cross-session (A2A) message: same anchor shape as a human turn, cool
@@ -2028,17 +1989,6 @@
 		margin: 8px 0 4px 12px;
 		font-size: 12.5px;
 		color: #a8a29e;
-	}
-	.live-row.queue-note {
-		color: #78716c;
-	}
-	.live-row.queue-note code {
-		font-family: var(--mono);
-		color: #a8a29e;
-	}
-	.queue-more {
-		margin-left: 6px;
-		color: #57534e;
 	}
 	.live-verb {
 		flex: none;

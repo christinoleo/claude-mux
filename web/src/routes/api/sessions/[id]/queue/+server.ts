@@ -4,12 +4,14 @@ import {
 	enqueue,
 	getQueue,
 	removeFromQueue,
+	removeQueueItem,
 	reorderQueue,
+	moveQueueItem,
 	clearQueue,
 	editQueueItem,
 	type QueuedMessage
 } from '$shared/server/message-queue.js';
-import { composePrompt } from '$lib/server/prompt.js';
+import { attachmentPaths } from '$lib/server/prompt.js';
 import { broadcastSessions } from '$lib/server/ws-managers.js';
 
 /** Answer with the queue, and push it to every dashboard without waiting for the poll. */
@@ -26,18 +28,20 @@ export const GET: RequestHandler = async ({ params }) => {
 export const POST: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);
 	const body = await request.json();
-	const text = body.text;
-	if (!text || typeof text !== 'string') {
-		return json({ error: 'text is required' }, { status: 400 });
+	const text = typeof body.text === 'string' ? body.text.trim() : '';
+	const attachments = attachmentPaths(target, body.attachments);
+	if (!attachments.ok) return json({ error: attachments.error }, { status: 400 });
+	if (!text && attachments.paths.length === 0) {
+		return json({ error: 'text or attachments are required' }, { status: 400 });
 	}
-	const prompt = composePrompt(target, text.trim(), body.attachments);
-	if (!prompt.ok) return json({ error: prompt.error }, { status: 400 });
-	return changed(enqueue(target, prompt.text));
+	// Kept apart from the text, so an edit changes the words and the files stay.
+	return changed(enqueue(target, text, 'user', attachments.paths));
 };
 
 export const DELETE: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);
 	const body = await request.json().catch(() => ({}));
+	if (typeof body.id === 'string') return changed(removeQueueItem(target, body.id));
 	const index = body.index;
 	if (typeof index === 'number') {
 		return changed(removeFromQueue(target, index));
@@ -49,12 +53,15 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 
 /**
  * `{ id, text }` replaces that item's text in place (404 once it has left the
- * queue); `{ fromIndex, toIndex }` moves an item.
+ * queue); `{ id, toIndex }` or `{ fromIndex, toIndex }` moves an item.
  */
 export const PATCH: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);
 	const body = await request.json();
 	const { id, text, fromIndex, toIndex } = body;
+	if (typeof id === 'string' && typeof toIndex === 'number') {
+		return changed(moveQueueItem(target, id, toIndex));
+	}
 	if (typeof id === 'string' && typeof text === 'string') {
 		if (!text.trim()) return json({ error: 'text must not be empty' }, { status: 400 });
 		if (!editQueueItem(target, id, text.trim())) {

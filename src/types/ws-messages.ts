@@ -78,10 +78,22 @@ const QueuedMessageSchema = z.object({
 	id: z.string(),
 	text: z.string(),
 	queuedAt: z.number(),
-	kind: z.enum(['user', 'control'])
+	kind: z.enum(['user', 'control']),
+	/** Attachment paths, folded into the text only when the message is delivered. */
+	attachments: z.array(z.string()).optional()
 });
 /** One message in claude-mux's send queue, as the broadcast carries it. */
 export type QueuedMessageInfo = z.infer<typeof QueuedMessageSchema>;
+
+const DeliverySchema = z.object({
+	/** Exactly what was pasted into the pane, attachments folded in. */
+	text: z.string(),
+	/** The queue drained it on an idle pane, or a steer pushed it into the turn. */
+	via: z.enum(['queue', 'steer']),
+	at: z.number()
+});
+/** A message claude-mux handed the pane on the user's behalf, for labelling its turn. */
+export type DeliveryInfo = z.infer<typeof DeliverySchema>;
 
 const InboxTicketSchema = z.object({
 	repo: z.string(),
@@ -141,6 +153,8 @@ const EnrichedSessionSchema = z.object({
 	pane_alive: z.boolean(),
 	/** Every message claude-mux holds for the pane, next out first — live only. */
 	queue: z.array(QueuedMessageSchema).optional(),
+	/** What the queue and steers handed the pane lately, newest last — live only. */
+	delivered: z.array(DeliverySchema).optional(),
 	agent: z.enum(AGENT_IDS).optional(),
 	/** Set when the maestro daemon started the session. */
 	maestro_role: z.string().nullable().optional(),

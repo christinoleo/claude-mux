@@ -144,7 +144,10 @@ Code's notice about its own update, which `readUpdateNotice()` finds in the
 footer below the box, or right-aligned just above the box in the fullscreen
 layout), `pane_activity`, and `queue` (everything claude-mux's own send queue
 holds for the pane, each item with a stable `id` that the queue-edit and
-`/steer` routes address it by) are live-only: they
+`/steer` routes address it by; attachments ride beside the text and are
+folded in only on delivery), and `delivered` (what the queue and steers handed
+the pane lately, which the transcript matches to label a turn "Queued" or
+"Steer") are live-only: they
 ride the WebSocket broadcast and are never written to the session JSON. They are
 typed once as `LivePaneFields` in `src/server/ws-handlers.ts`, and **each one
 also needs a line in `EnrichedSessionSchema`** (`src/types/ws-messages.ts`) —
