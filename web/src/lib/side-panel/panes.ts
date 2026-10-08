@@ -9,6 +9,7 @@ import type { Component } from 'svelte';
 import type { Session } from '$lib/stores/sessions.svelte';
 import type { ChangesInfo } from '$shared/types/ws-messages.js';
 import ProjectPane from '$lib/components/side-panel/ProjectPane.svelte';
+import ChangesPane from '$lib/components/side-panel/ChangesPane.svelte';
 import { IS_MAC } from '$lib/constants';
 
 export interface PaneAction {
@@ -49,6 +50,16 @@ export interface PaneDef {
 }
 
 export const PANES: readonly PaneDef[] = [
+	{
+		kind: 'changes',
+		label: 'Changes',
+		icon: 'mdi:plus-minus-variant',
+		key: 'C',
+		params: ['file', 'turn', 'source'],
+		body: ChangesPane,
+		unavailable: (s) => (s ? null : 'Not a Claude session'),
+		count: (s) => s?.changes ?? null
+	},
 	{
 		kind: 'project',
 		label: 'Project',
