@@ -695,8 +695,7 @@
 	const REVEAL_PAGES = 40;
 
 	/**
-	 * Scroll the transcript to an entry (an agent's Task card, a turn's
-	 * prompt) and open it if it folds. A long session holds only its tail, so
+	 * Scroll the transcript to an entry (a turn's prompt, a tool row) and open it if it folds. A long session holds only its tail, so
 	 * an entry the socket never sent is asked for, slice by slice, until it is
 	 * on the page or the history runs out.
 	 */
@@ -2222,6 +2221,7 @@
 						entries={transcriptStore.entries}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
 						{fileLink}
+						agentLink={(id) => `/session/${encodeURIComponent(target ?? '')}/agent/${encodeURIComponent(id)}`}
 						turnChanges={sessionChanges}
 						{changesLink}
 						available={transcriptStore.available}

@@ -42,6 +42,7 @@
 		onLoadEarlier,
 		onSendReply,
 		fileLink,
+		agentLink,
 		turnChanges = null,
 		changesLink
 	}: {
@@ -86,6 +87,8 @@
 		onSendReply?: (text: string) => Promise<boolean>;
 		/** The link that opens a file a tool row touched, at a line; without it the rows draw none. */
 		fileLink?: (path: string, line: number | null) => string;
+		/** Where a subagent opens as a page of its own; without it agent cards link nowhere. */
+		agentLink?: (agentId: string) => string;
 		/** The session's turns that edited files, from the changes API's session source. */
 		turnChanges?: TranscriptChanges | null;
 		/** Where the Changes pane opens on turn `n`, at `file` or its first file; without it no summaries draw. */
@@ -675,6 +678,17 @@
 								<span class="agent-count">{sub.activity.length} tools</span>
 							{/if}
 						</span>
+						{#if agentLink}
+							<a
+								class="tool-open"
+								href={agentLink(sub.agentId)}
+								title="Open agent"
+								aria-label="Open agent"
+								onclick={(e) => e.stopPropagation()}
+							>
+								<iconify-icon icon="mdi:open-in-new"></iconify-icon>
+							</a>
+						{/if}
 					{:else}
 						<span class="row-summary mono"><ToolLabel name={entry.name} summary={entry.summary} /></span>
 						{@const opens = fileLink ? toolFileTarget(entry) : null}
