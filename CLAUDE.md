@@ -51,6 +51,12 @@ The workflow builds CLI + web, publishes to npm via **OIDC trusted publishing** 
 
 After release, other machines update with: `claude-mux update`.
 
+The published package installs only the root `dependencies`, so web packages
+belong in web `devDependencies`, where Vite bundles them into the server; a web
+`dependencies` entry stays a bare import and fails on every host but this one
+(0.30.0 served `/` as a 500 that way, over `marked`). `prepublishOnly` runs
+`scripts/check-server-externals.ts` after the build to catch it.
+
 ## Service management on remote hosts
 
 For machines that should run claude-mux as a long-lived service (e.g. `engage`):
