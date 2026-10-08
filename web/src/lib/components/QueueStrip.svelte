@@ -60,10 +60,11 @@
 		}
 	}
 
-	const remove = (index: number) => call('queue', 'DELETE', { index });
+	// By id: the drain may send the head between this render and the request.
+	const remove = (id: string) => call('queue', 'DELETE', { id });
 	const move = (fromIndex: number, toIndex: number) => {
 		if (toIndex < 0 || toIndex >= queue.length || toIndex === fromIndex) return;
-		void call('queue', 'PATCH', { fromIndex, toIndex });
+		void call('queue', 'PATCH', { id: queue[fromIndex].id, toIndex });
 	};
 	const steer = (id: string) => call('steer', 'POST', { id });
 	const sendNow = () => call('send-now', 'POST');
@@ -190,7 +191,7 @@
 								class="qs-btn qs-remove"
 								title="Remove from the queue"
 								aria-label="Remove"
-								onclick={() => void remove(i)}
+								onclick={() => void remove(item.id)}
 							>
 								<iconify-icon icon="mdi:close"></iconify-icon>
 							</button>

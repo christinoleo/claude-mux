@@ -1064,16 +1064,16 @@
 			await sendAnswerText();
 			return;
 		}
+		if (editing) {
+			await saveEdit();
+			return;
+		}
 		const paths = readyPaths;
 		if (!textInput.trim() && paths.length === 0) {
 			// Empty input: just send Enter key — unless the dialog's text row is
 			// open, where an empty Enter declines the question.
 			if (answering) return;
 			await sendKeys('Enter');
-			return;
-		}
-		if (editing) {
-			await saveEdit();
 			return;
 		}
 		// Busy, or a dialog open: the message waits in the queue for its own turn.
@@ -1235,9 +1235,15 @@
 		}
 	}
 
-	// The broadcast drops an item the moment the drain sends it.
+	// The broadcast drops an item the moment the drain sends it. A session
+	// missing for a moment (a reconnect) says nothing about its queue.
 	$effect(() => {
-		if (editing && editing.target === target && !queue.some((m) => m.id === editing!.id)) {
+		if (
+			editing &&
+			editing.target === target &&
+			currentSession &&
+			!queue.some((m) => m.id === editing!.id)
+		) {
 			untrack(orphanEdit);
 		}
 	});

@@ -4,7 +4,9 @@ import {
 	enqueue,
 	getQueue,
 	removeFromQueue,
+	removeQueueItem,
 	reorderQueue,
+	moveQueueItem,
 	clearQueue,
 	editQueueItem,
 	type QueuedMessage
@@ -39,6 +41,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 export const DELETE: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);
 	const body = await request.json().catch(() => ({}));
+	if (typeof body.id === 'string') return changed(removeQueueItem(target, body.id));
 	const index = body.index;
 	if (typeof index === 'number') {
 		return changed(removeFromQueue(target, index));
@@ -50,12 +53,15 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 
 /**
  * `{ id, text }` replaces that item's text in place (404 once it has left the
- * queue); `{ fromIndex, toIndex }` moves an item.
+ * queue); `{ id, toIndex }` or `{ fromIndex, toIndex }` moves an item.
  */
 export const PATCH: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);
 	const body = await request.json();
 	const { id, text, fromIndex, toIndex } = body;
+	if (typeof id === 'string' && typeof toIndex === 'number') {
+		return changed(moveQueueItem(target, id, toIndex));
+	}
 	if (typeof id === 'string' && typeof text === 'string') {
 		if (!text.trim()) return json({ error: 'text must not be empty' }, { status: 400 });
 		if (!editQueueItem(target, id, text.trim())) {

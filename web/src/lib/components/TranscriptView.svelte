@@ -247,7 +247,8 @@
 			// The JSONL stamps the turn a moment after the paste; allow for clock skew.
 			const turn = entries.find(
 				(e) =>
-					(e.kind === 'user' || e.kind === 'queued') &&
+					// A delivered queued entry is hidden behind its user turn.
+					(e.kind === 'user' || (e.kind === 'queued' && !e.delivered)) &&
 					!out.has(e.id) &&
 					e.ts >= d.at - 5000 &&
 					e.text.trim() === text

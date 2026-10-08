@@ -83,3 +83,18 @@ describe('queue delivery', () => {
 		expect(getDeliveries(TARGET).at(-1)).toMatchObject({ text: 'read this now', via: 'steer' });
 	});
 });
+
+describe('queue edits by id', () => {
+	it('removes and moves the item named, whatever its position', async () => {
+		const { removeQueueItem, moveQueueItem } = await import('../../src/server/message-queue.js');
+		const [a] = enqueue(TARGET, 'A');
+		const b = enqueue(TARGET, 'B')[1];
+		const c = enqueue(TARGET, 'C')[2];
+		moveQueueItem(TARGET, c.id, 0);
+		expect(getQueue(TARGET).map((m) => m.text)).toEqual(['C', 'A', 'B']);
+		removeQueueItem(TARGET, b.id);
+		expect(getQueue(TARGET).map((m) => m.text)).toEqual(['C', 'A']);
+		removeQueueItem(TARGET, 'gone');
+		expect(getQueue(TARGET).map((m) => m.id)).toEqual([c.id, a.id]);
+	});
+});

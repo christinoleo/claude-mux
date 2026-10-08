@@ -310,6 +310,23 @@ export function getQueue(target: string): QueuedMessage[] {
 	return queues.get(target) ?? [];
 }
 
+/** Drop one item by id; a no-op once it has left the queue. */
+export function removeQueueItem(target: string, id: string): QueuedMessage[] {
+	const index = queues.get(target)?.findIndex((m) => m.id === id) ?? -1;
+	return removeFromQueue(target, index);
+}
+
+/**
+ * Move one item, named by id, to a slot. The id keeps a drain that sent the
+ * head in the meantime from moving its neighbour instead.
+ */
+export function moveQueueItem(target: string, id: string, toIndex: number): QueuedMessage[] {
+	const queue = queues.get(target);
+	const fromIndex = queue?.findIndex((m) => m.id === id) ?? -1;
+	if (!queue || fromIndex === -1) return queue ?? [];
+	return reorderQueue(target, fromIndex, Math.min(Math.max(toIndex, 0), queue.length - 1));
+}
+
 export function removeFromQueue(target: string, index: number): QueuedMessage[] {
 	const queue = queues.get(target);
 	if (!queue || index < 0 || index >= queue.length) return queue ?? [];
