@@ -214,7 +214,11 @@
 	 * the URL (`?panel=<kind>` and the pane's own params); its width, maximize,
 	 * and the pane last shown live in localStorage, per session.
 	 */
-	const panelKind = $derived(readPanel($page.url.searchParams, PANE_KINDS));
+	/** The pane the URL asks for, unless it cannot apply to this session (a plain pane, say). */
+	const panelKind = $derived.by(() => {
+		const kind = readPanel($page.url.searchParams, PANE_KINDS);
+		return kind && !paneDef(kind)?.unavailable?.(currentSession ?? null) ? kind : null;
+	});
 	const panelPrefs = $derived(sidePanelStore.get(target));
 	const inlineQuery = new MediaQuery(INLINE_MEDIA_QUERY);
 	const phoneQuery = new MediaQuery(PHONE_MEDIA_QUERY);
@@ -248,9 +252,11 @@
 	}
 
 	/** A pane's toggle: a pressed one closes the panel, another switches to its pane. */
-	function togglePane(kind: string) {
-		if (paneDef(kind)?.unavailable?.(currentSession ?? null)) return;
+	/** Returns whether it did anything. */
+	function togglePane(kind: string): boolean {
+		if (paneDef(kind)?.unavailable?.(currentSession ?? null)) return false;
 		openPanel(panelKind === kind ? null : kind);
+		return true;
 	}
 
 	function setPaneParams(kind: string, own: Record<string, string | null>, opts?: { push?: boolean }) {
@@ -258,9 +264,11 @@
 		navigateQuery(panelQuery($page.url.searchParams, kind, PANE_PARAMS, own), !opts?.push);
 	}
 
-	function toggleMaximize() {
-		if (!panelInline || !panelKind) return;
+	/** Returns whether it did anything. */
+	function toggleMaximize(): boolean {
+		if (!panelInline || !panelKind) return false;
 		sidePanelStore.update(target, { maximized: !panelPrefs.maximized });
+		return true;
 	}
 
 	function resizePanel(e: PointerEvent) {
@@ -278,16 +286,19 @@
 
 	/** The keys that toggle a pane, close or reopen the panel, and maximize it. */
 	function handlePanelKeys(e: KeyboardEvent): boolean {
-		const action = panelKeyAction(e);
+		const action = e.defaultPrevented ? null : panelKeyAction(e);
 		if (!action) return false;
-		e.preventDefault();
-		if (action === 'maximize') toggleMaximize();
+		let done: boolean;
+		if (action === 'maximize') done = toggleMaximize();
 		else if (action === 'toggle') {
-			const last = paneDef(panelPrefs.last ?? null) ?? PANES[0];
-			if (panelKind) openPanel(null);
-			else if (last) togglePane(last.kind);
-		} else togglePane(action.kind);
-		return true;
+			if (panelKind) {
+				openPanel(null);
+				done = true;
+			} else done = togglePane((paneDef(panelPrefs.last ?? null) ?? PANES[0]).kind);
+		} else done = togglePane(action.kind);
+		// A key that changed nothing is left to whatever else wants it.
+		if (done) e.preventDefault();
+		return done;
 	}
 
 	let textInput = $state('');
@@ -2447,10 +2458,11 @@
 			</div>
 </div>
 
-{#snippet sidePanel(kind: string)}
+{#snippet sidePanel(kind: string, open: boolean)}
 	{#key target}
 		<SidePanel
 			{kind}
+			{open}
 			target={target ?? ''}
 			session={currentSession ?? null}
 			query={$page.url.searchParams}
@@ -2475,7 +2487,7 @@
 			/>
 		</div>
 		<aside class="side-panel" aria-label="Side panel" hidden={!panelKind}>
-			{@render sidePanel(panelColumnKind)}
+			{@render sidePanel(panelColumnKind, panelKind !== null)}
 			{#if panelResizing}
 				<!-- A pane may hold an iframe, which must not eat the pointer mid-drag. -->
 				<div class="panel-shield"></div>
@@ -2491,7 +2503,7 @@
 			class="side-sheet gap-0 p-0 {panelPhone ? 'phone' : ''}"
 		>
 			<Sheet.Title class="sr-only">Side panel</Sheet.Title>
-			{#if panelKind}{@render sidePanel(panelKind)}{/if}
+			{#if panelKind}{@render sidePanel(panelKind, true)}{/if}
 		</Sheet.Content>
 	</Sheet.Root>
 {/if}

@@ -454,7 +454,10 @@
 		}
 	}
 
-	/** The row's right-click menu: open the session with one of its side panel's panes. */
+	/**
+	 * The row's right-click menu: open the session with one of its side
+	 * panel's panes. Left off during a split, which a page load would end.
+	 */
 	function panelMenu(machine: Machine, tmuxTarget: string): RowMenuItem[] {
 		return PANES.map((pane) => ({
 			label: `Open ${pane.label.toLowerCase()}`,
@@ -685,7 +688,7 @@
 		onlongpress={() => { if (machine.local) renameId = s.id; }}
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
 		ondragend={dragEnd}
-		menu={s.tmux_target ? panelMenu(machine, s.tmux_target) : []}
+		menu={s.tmux_target && !splitStore.active ? panelMenu(machine, s.tmux_target) : []}
 	/>
 	{#if !row.workers}{@render agentThread(machine, s, agents)}{/if}
 {/snippet}

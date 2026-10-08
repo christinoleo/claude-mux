@@ -12,6 +12,7 @@
 
 	let {
 		kind,
+		open,
 		target,
 		session,
 		query,
@@ -23,6 +24,8 @@
 	}: {
 		/** The pane showing. */
 		kind: string;
+		/** False while the column is closed but kept mounted: no pane is active then. */
+		open: boolean;
 		target: string;
 		session: Session | null;
 		/** The page's query, for the params each pane owns. */
@@ -87,7 +90,7 @@
 					params={readPaneParams(query, pane.params)}
 					setParams={(own, opts) => onSetParams(pane.kind, own, opts)}
 					setActions={(list) => (actions[pane.kind] = list)}
-					active={pane.kind === kind}
+					active={open && pane.kind === kind}
 				/>
 			</div>
 		{/each}

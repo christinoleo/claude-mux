@@ -14,18 +14,22 @@
 	let error = $state<string | null>(null);
 	let loading = $state(false);
 
+	/** Bumped by each load, so an answer that arrives after a newer request is dropped. */
+	let seq = 0;
+
 	async function load(id: string) {
+		const mine = ++seq;
 		loading = true;
 		error = null;
 		try {
 			const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/project`);
 			const body = await res.json();
 			if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-			info = body as ProjectInfo;
+			if (mine === seq) info = body as ProjectInfo;
 		} catch (err) {
-			error = err instanceof Error ? err.message : String(err);
+			if (mine === seq) error = err instanceof Error ? err.message : String(err);
 		} finally {
-			loading = false;
+			if (mine === seq) loading = false;
 		}
 	}
 
