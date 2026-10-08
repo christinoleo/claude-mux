@@ -25,9 +25,11 @@ import {
   unlinkSync,
   readdirSync,
 } from "fs";
-import { basename, dirname, join } from "path";
+import { join } from "path";
 import { homedir } from "os";
 import { parseMcpToolName } from "../transcript/mcp.js";
+import { readSubagentMeta, subagentDir, type SubagentMeta } from "../transcript/tailer.js";
+import type { Subagent } from "../db/sessions-json.js";
 import { ASKING, AWAITING_INPUT } from "../session-state.js";
 
 // Paths
@@ -57,18 +59,6 @@ function debugLog(message: string): void {
 interface Screenshot {
   path: string;
   timestamp: number;
-}
-
-/** A subagent the session spawned, from SubagentStart to SubagentStop. */
-interface Subagent {
-  id: string;
-  type: string;
-  description: string | null;
-  state: "running" | "done" | "failed";
-  started_at: number;
-  ended_at: number | null;
-  transcript_path: string | null;
-  tool_use_id?: string | null;
 }
 
 /** An Agent tool call seen in PreToolUse, waiting for the SubagentStart it causes. */
@@ -752,24 +742,12 @@ function isAgentTool(name?: string): boolean {
 const MAX_AGENT_CALLS = 20;
 
 /**
- * Where Claude Code keeps a subagent's transcript: beside the parent's JSONL,
- * in `<session id>/subagents/agent-<agent id>.jsonl`. SubagentStart does not
- * say, SubagentStop does.
+ * Where Claude Code keeps a subagent's transcript: beside the parent's JSONL.
+ * SubagentStart does not say, SubagentStop does.
  */
 function subagentTranscriptPath(input: HookInput, agentId: string): string | null {
   if (!input.transcript_path) return null;
-  const sessionDir = join(dirname(input.transcript_path), basename(input.transcript_path, ".jsonl"));
-  return join(sessionDir, "subagents", `agent-${agentId}.jsonl`);
-}
-
-/** The `.meta.json` Claude Code writes beside a subagent's transcript. */
-function readSubagentMeta(transcriptPath: string | null): { description?: string; toolUseId?: string } {
-  if (!transcriptPath) return {};
-  try {
-    return JSON.parse(readFileSync(transcriptPath.replace(/\.jsonl$/, ".meta.json"), "utf-8"));
-  } catch {
-    return {};
-  }
+  return join(subagentDir(input.transcript_path), `agent-${agentId}.jsonl`);
 }
 
 /**
@@ -787,16 +765,15 @@ function takeAgentCall(session: Session, type: string, toolUseId?: string): Agen
   return call;
 }
 
-function handleSubagentStart(input: HookInput): void {
-  const session = getOrCreateSession(input);
-  if (!input.agent_id) return;
-
-  const type = input.agent_type || "general-purpose";
-  const transcriptPath = subagentTranscriptPath(input, input.agent_id);
-  const meta = readSubagentMeta(transcriptPath);
-  const call = takeAgentCall(session, type, meta.toolUseId);
-  const agent: Subagent = {
-    id: input.agent_id,
+function newSubagent(
+  id: string,
+  type: string,
+  transcriptPath: string | null,
+  meta: SubagentMeta,
+  call?: AgentCall | null
+): Subagent {
+  return {
+    id,
     type,
     description: meta.description ?? call?.description ?? null,
     state: "running",
@@ -805,6 +782,16 @@ function handleSubagentStart(input: HookInput): void {
     transcript_path: transcriptPath,
     tool_use_id: meta.toolUseId ?? call?.tool_use_id ?? null,
   };
+}
+
+function handleSubagentStart(input: HookInput): void {
+  const session = getOrCreateSession(input);
+  if (!input.agent_id) return;
+
+  const type = input.agent_type || "general-purpose";
+  const transcriptPath = subagentTranscriptPath(input, input.agent_id);
+  const meta = transcriptPath ? readSubagentMeta(transcriptPath) : {};
+  const agent = newSubagent(input.agent_id, type, transcriptPath, meta, takeAgentCall(session, type, meta.toolUseId));
   session.subagents = [...(session.subagents ?? []).filter(a => a.id !== agent.id), agent];
   session.last_update = Date.now();
   writeSession(session);
@@ -814,27 +801,19 @@ function handleSubagentStop(input: HookInput): void {
   const session = getOrCreateSession(input);
   if (!input.agent_id) return;
 
-  const transcriptPath = input.agent_transcript_path ?? subagentTranscriptPath(input, input.agent_id);
   let agent = session.subagents?.find(a => a.id === input.agent_id);
+  const transcriptPath =
+    input.agent_transcript_path ?? subagentTranscriptPath(input, input.agent_id) ?? agent?.transcript_path ?? null;
+  const meta = agent?.description || !transcriptPath ? {} : readSubagentMeta(transcriptPath);
   if (!agent) {
     // Started before the hook knew about subagents, or its start was pruned.
-    const meta = readSubagentMeta(transcriptPath);
-    agent = {
-      id: input.agent_id,
-      type: input.agent_type || "general-purpose",
-      description: meta.description ?? null,
-      state: "running",
-      started_at: Date.now(),
-      ended_at: null,
-      transcript_path: transcriptPath,
-      tool_use_id: meta.toolUseId ?? null,
-    };
+    agent = newSubagent(input.agent_id, input.agent_type || "general-purpose", transcriptPath, meta);
     session.subagents = [...(session.subagents ?? []), agent];
   }
   if (agent.state === "running") agent.state = "done";
   agent.ended_at ??= Date.now();
-  agent.transcript_path = transcriptPath ?? agent.transcript_path;
-  if (!agent.description) agent.description = readSubagentMeta(agent.transcript_path).description ?? null;
+  agent.transcript_path = transcriptPath;
+  agent.description ||= meta.description ?? null;
   session.last_update = Date.now();
   writeSession(session);
 }

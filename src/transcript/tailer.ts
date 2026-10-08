@@ -93,6 +93,24 @@ export interface SubagentMeta {
   model?: string;
 }
 
+/** Where Claude Code keeps a session's subagent transcripts: a sibling directory named after it. */
+export function subagentDir(transcriptPath: string): string {
+  return join(dirname(transcriptPath), basename(transcriptPath, ".jsonl"), "subagents");
+}
+
+/** The `.meta.json` Claude Code writes beside a subagent's transcript, or `{}` if not written yet. */
+export function readSubagentMeta(agentTranscriptPath: string): SubagentMeta {
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(agentTranscriptPath.replace(/\.jsonl$/, ".meta.json"), "utf8")
+    );
+    if (parsed && typeof parsed === "object") return parsed as SubagentMeta;
+  } catch {
+    // Meta may not be written yet; the transcript still streams.
+  }
+  return {};
+}
+
 /**
  * List the subagent transcripts a session has spawned. They live in a sibling
  * directory named after the session, one `agent-<id>.jsonl` per subagent with
@@ -104,7 +122,7 @@ export function listSubagents(
   /** Agent ids already tracked; their meta is not re-read. */
   known?: ReadonlySet<string>
 ): SubagentFile[] {
-  const dir = join(dirname(transcriptPath), basename(transcriptPath, ".jsonl"), "subagents");
+  const dir = subagentDir(transcriptPath);
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -116,16 +134,8 @@ export function listSubagents(
     const agentId = name.match(/^agent-(.+)\.jsonl$/)?.[1];
     if (!agentId) continue;
     if (known?.has(agentId)) continue;
-    let meta: SubagentMeta = {};
-    try {
-      const parsed: unknown = JSON.parse(
-        readFileSync(join(dir, `agent-${agentId}.meta.json`), "utf8")
-      );
-      if (parsed && typeof parsed === "object") meta = parsed as SubagentMeta;
-    } catch {
-      // Meta may not be written yet; the transcript still streams.
-    }
-    files.push({ agentId, path: join(dir, name), meta });
+    const path = join(dir, name);
+    files.push({ agentId, path, meta: readSubagentMeta(path) });
   }
   return files;
 }
