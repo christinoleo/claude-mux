@@ -5,6 +5,7 @@
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { toolIcon } from '$lib/tool-icons';
 	import ToolLabel from '$lib/components/ToolLabel.svelte';
+	import { toolFileTarget } from '$lib/side-panel/files';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { DeliveryInfo } from '$shared/types/ws-messages.js';
@@ -37,7 +38,8 @@
 		olderCount = 0,
 		loadingEarlier = false,
 		onLoadEarlier,
-		onSendReply
+		onSendReply,
+		fileLink
 	}: {
 		entries: TranscriptEntry[];
 		available: boolean;
@@ -78,6 +80,8 @@
 		 * resolves false when the pane did not take it.
 		 */
 		onSendReply?: (text: string) => Promise<boolean>;
+		/** The link that opens a file a tool row touched, at a line; without it the rows draw none. */
+		fileLink?: (path: string, line: number | null) => string;
 	} = $props();
 
 	// ── live activity line ───────────────────────────────────────────────
@@ -653,6 +657,20 @@
 						</span>
 					{:else}
 						<span class="row-summary mono"><ToolLabel name={entry.name} summary={entry.summary} /></span>
+						{@const opens = fileLink ? toolFileTarget(entry) : null}
+						{#if opens && fileLink}
+							<a
+								class="tool-open"
+								href={fileLink(opens.path, opens.line)}
+								title="Open in Files{opens.line ? ` at line ${opens.line}` : ''}"
+								aria-label="Open in Files"
+								data-sveltekit-noscroll
+								data-sveltekit-keepfocus
+								onclick={(e) => e.stopPropagation()}
+							>
+								<iconify-icon icon="mdi:file-eye-outline"></iconify-icon>
+							</a>
+						{/if}
 					{/if}
 					{#if entry.result}
 						<iconify-icon
@@ -1279,6 +1297,22 @@
 	.tool-status {
 		flex-shrink: 0;
 		font-size: 14px;
+	}
+	.tool-open {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		margin: -4px 0;
+		border-radius: 6px;
+		color: #78716c;
+		font-size: 14px;
+	}
+	.tool-open:hover {
+		background: #262626;
+		color: #e7e5e4;
 	}
 	.tool-status.ok {
 		color: #4d7c5f;

@@ -20,7 +20,8 @@
 		canMaximize,
 		onSetParams,
 		onToggleMaximize,
-		onClose
+		onClose,
+		onMention
 	}: {
 		/** The pane showing. */
 		kind: string;
@@ -36,6 +37,7 @@
 		onSetParams: (kind: string, own: Record<string, string | null>, opts?: { push?: boolean }) => void;
 		onToggleMaximize: () => void;
 		onClose: () => void;
+		onMention: (text: string) => void;
 	} = $props();
 
 	let mounted = $state<string[]>([]);
@@ -91,6 +93,7 @@
 					setParams={(own, opts) => onSetParams(pane.kind, own, opts)}
 					setActions={(list) => (actions[pane.kind] = list)}
 					active={open && pane.kind === kind}
+					mention={onMention}
 				/>
 			</div>
 		{/each}
