@@ -55,6 +55,21 @@ export interface Screenshot {
   timestamp: number;
 }
 
+/** A subagent the session spawned, tracked by the hook from SubagentStart to SubagentStop. */
+export interface Subagent {
+  /** Claude Code's agent id; its transcript is `agent-<id>.jsonl`. */
+  id: string;
+  /** The agent type, e.g. "Explore". */
+  type: string;
+  description: string | null;
+  state: "running" | "done" | "failed";
+  started_at: number;
+  ended_at: number | null;
+  transcript_path: string | null;
+  /** The parent's Agent tool call that spawned it. */
+  tool_use_id?: string | null;
+}
+
 export interface Session {
   v: number;
   id: string;
@@ -84,6 +99,8 @@ export interface Session {
   maestro_role?: string | null;
   /** The GitHub issue a maestro worker owns. */
   maestro_issue?: number | null;
+  /** Subagents running now, and those that finished in the last few minutes. */
+  subagents?: Subagent[];
 }
 
 export interface SessionInput {

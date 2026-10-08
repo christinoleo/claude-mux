@@ -8,7 +8,8 @@
  *
  * Usage: node claude-mux-hook.js <event>
  * Events: session-start, stop, permission-request, notification-idle,
- *         notification-permission, pre-tool-use, post-tool-use, session-end
+ *         notification-permission, pre-tool-use, post-tool-use, session-end,
+ *         subagent-start, subagent-stop
  *
  * Hook input is received via stdin as JSON.
  */
@@ -24,7 +25,7 @@ import {
   unlinkSync,
   readdirSync,
 } from "fs";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 import { homedir } from "os";
 import { parseMcpToolName } from "../transcript/mcp.js";
 import { ASKING, AWAITING_INPUT } from "../session-state.js";
@@ -58,6 +59,25 @@ interface Screenshot {
   timestamp: number;
 }
 
+/** A subagent the session spawned, from SubagentStart to SubagentStop. */
+interface Subagent {
+  id: string;
+  type: string;
+  description: string | null;
+  state: "running" | "done" | "failed";
+  started_at: number;
+  ended_at: number | null;
+  transcript_path: string | null;
+  tool_use_id?: string | null;
+}
+
+/** An Agent tool call seen in PreToolUse, waiting for the SubagentStart it causes. */
+interface AgentCall {
+  type: string;
+  description: string | null;
+  tool_use_id: string | null;
+}
+
 interface Session {
   v: number;
   id: string;
@@ -84,6 +104,9 @@ interface Session {
   /** Set when the maestro daemon started this session: its role and issue. */
   maestro_role?: string | null;
   maestro_issue?: number | null;
+  subagents?: Subagent[];
+  /** Agent calls not yet matched to a SubagentStart; see takeAgentCall. */
+  agent_calls?: AgentCall[];
 }
 
 /** One entry of the Stop payload's `background_tasks`. */
@@ -108,7 +131,9 @@ interface HookInput {
     file_path?: string;
     filePath?: string;
     description?: string;
+    subagent_type?: string;
   };
+  tool_use_id?: string;
   /**
    * Stop payload: work still in flight when the turn ended. A turn that ends
    * with a background agent or shell running is paused, not finished — the
@@ -116,8 +141,14 @@ interface HookInput {
    * Claude Code lists only running work here.
    */
   background_tasks?: BackgroundTask[];
-  /** Set on tool events fired from inside a subagent, with the parent's session id. */
+  /**
+   * Set on tool events fired from inside a subagent, with the parent's session
+   * id, and on SubagentStart/SubagentStop, which name the agent they are about.
+   */
   agent_id?: string;
+  agent_type?: string;
+  /** SubagentStop only: the agent's own JSONL. */
+  agent_transcript_path?: string;
 }
 
 /**
@@ -156,6 +187,8 @@ function mapEventName(hookEventName?: string): string | undefined {
     PostToolUse: "post-tool-use",
     PostToolUseFailure: "post-tool-use-failure",
     SessionEnd: "session-end",
+    SubagentStart: "subagent-start",
+    SubagentStop: "subagent-stop",
     // Notification events can't be distinguished by hook_event_name alone
     // (all are "Notification"), so they fall through to argv
   };
@@ -183,11 +216,18 @@ function readSession(id: string): Session | null {
   }
 }
 
+/** How long a finished subagent stays listed before it is pruned from the JSON. */
+const FINISHED_SUBAGENT_TTL_MS = 10 * 60 * 1000;
+
 function writeSession(session: Session): void {
   ensureSessionsDir();
   // Prune screenshots whose files no longer exist
   if (session.screenshots?.length) {
     session.screenshots = session.screenshots.filter(s => existsSync(s.path));
+  }
+  if (session.subagents?.length) {
+    const cutoff = Date.now() - FINISHED_SUBAGENT_TTL_MS;
+    session.subagents = session.subagents.filter(a => a.ended_at === null || a.ended_at > cutoff);
   }
   const path = getSessionPath(session.id);
   const tmpPath = path + ".tmp";
@@ -362,6 +402,7 @@ function formatToolAction(
       return `Searching...`;
 
     case "Task":
+    case "Agent":
       return "Running agent...";
 
     default:
@@ -649,6 +690,17 @@ function handlePreToolUse(input: HookInput): void {
       : "Working...";
   }
 
+  if (isAgentTool(input.tool_name) && !input.agent_id) {
+    session.agent_calls = [
+      ...(session.agent_calls ?? []).slice(-(MAX_AGENT_CALLS - 1)),
+      {
+        type: input.tool_input?.subagent_type ?? "general-purpose",
+        description: input.tool_input?.description ?? null,
+        tool_use_id: input.tool_use_id ?? null,
+      },
+    ];
+  }
+
   if (input.tool_name?.includes("take_screenshot") && input.tool_input?.filePath) {
     session.screenshots = session.screenshots || [];
     session.screenshots.push({
@@ -674,9 +726,115 @@ function handlePostToolUse(input: HookInput): void {
 function handlePostToolUseFailure(input: HookInput): void {
   const session = getOrCreateSession(input);
 
+  // An agent that dies with an error still gets its SubagentStop, either side
+  // of this; the failure is what tells the two endings apart.
+  if (isAgentTool(input.tool_name) && input.tool_use_id) {
+    const agent = session.subagents?.find(a => a.tool_use_id === input.tool_use_id);
+    if (agent) {
+      agent.state = "failed";
+      agent.ended_at ??= Date.now();
+    }
+  }
+
   session.tmux_target = getTmuxTarget() ?? session.tmux_target;
   session.state = "busy";
   session.current_action = null;
+  session.last_update = Date.now();
+  writeSession(session);
+}
+
+/** The tool that spawns a subagent: `Agent`, called `Task` before Claude Code 2.1. */
+function isAgentTool(name?: string): boolean {
+  return name === "Agent" || name === "Task";
+}
+
+/** Agent calls kept waiting for their SubagentStart; enough for a wide fan-out. */
+const MAX_AGENT_CALLS = 20;
+
+/**
+ * Where Claude Code keeps a subagent's transcript: beside the parent's JSONL,
+ * in `<session id>/subagents/agent-<agent id>.jsonl`. SubagentStart does not
+ * say, SubagentStop does.
+ */
+function subagentTranscriptPath(input: HookInput, agentId: string): string | null {
+  if (!input.transcript_path) return null;
+  const sessionDir = join(dirname(input.transcript_path), basename(input.transcript_path, ".jsonl"));
+  return join(sessionDir, "subagents", `agent-${agentId}.jsonl`);
+}
+
+/** The `.meta.json` Claude Code writes beside a subagent's transcript. */
+function readSubagentMeta(transcriptPath: string | null): { description?: string; toolUseId?: string } {
+  if (!transcriptPath) return {};
+  try {
+    return JSON.parse(readFileSync(transcriptPath.replace(/\.jsonl$/, ".meta.json"), "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The PreToolUse that spawned this agent, taken off the list: the oldest call
+ * for the same agent type, which is the order Claude Code starts them in.
+ */
+function takeAgentCall(session: Session, type: string, toolUseId?: string): AgentCall | null {
+  const calls = session.agent_calls ?? [];
+  const i = toolUseId
+    ? calls.findIndex(c => c.tool_use_id === toolUseId)
+    : calls.findIndex(c => c.type === type);
+  if (i < 0) return null;
+  const [call] = calls.splice(i, 1);
+  session.agent_calls = calls;
+  return call;
+}
+
+function handleSubagentStart(input: HookInput): void {
+  const session = getOrCreateSession(input);
+  if (!input.agent_id) return;
+
+  const type = input.agent_type || "general-purpose";
+  const transcriptPath = subagentTranscriptPath(input, input.agent_id);
+  const meta = readSubagentMeta(transcriptPath);
+  const call = takeAgentCall(session, type, meta.toolUseId);
+  const agent: Subagent = {
+    id: input.agent_id,
+    type,
+    description: meta.description ?? call?.description ?? null,
+    state: "running",
+    started_at: Date.now(),
+    ended_at: null,
+    transcript_path: transcriptPath,
+    tool_use_id: meta.toolUseId ?? call?.tool_use_id ?? null,
+  };
+  session.subagents = [...(session.subagents ?? []).filter(a => a.id !== agent.id), agent];
+  session.last_update = Date.now();
+  writeSession(session);
+}
+
+function handleSubagentStop(input: HookInput): void {
+  const session = getOrCreateSession(input);
+  if (!input.agent_id) return;
+
+  const transcriptPath = input.agent_transcript_path ?? subagentTranscriptPath(input, input.agent_id);
+  let agent = session.subagents?.find(a => a.id === input.agent_id);
+  if (!agent) {
+    // Started before the hook knew about subagents, or its start was pruned.
+    const meta = readSubagentMeta(transcriptPath);
+    agent = {
+      id: input.agent_id,
+      type: input.agent_type || "general-purpose",
+      description: meta.description ?? null,
+      state: "running",
+      started_at: Date.now(),
+      ended_at: null,
+      transcript_path: transcriptPath,
+      tool_use_id: meta.toolUseId ?? null,
+    };
+    session.subagents = [...(session.subagents ?? []), agent];
+  }
+  if (agent.state === "running") agent.state = "done";
+  agent.ended_at ??= Date.now();
+  agent.transcript_path = transcriptPath ?? agent.transcript_path;
+  if (!agent.description) agent.description = readSubagentMeta(agent.transcript_path).description ?? null;
   session.last_update = Date.now();
   writeSession(session);
 }
@@ -741,6 +899,14 @@ async function main(): Promise<void> {
       case "post-tool-use-failure":
         handlePostToolUseFailure(input);
         debugLog(`main: post-tool-use-failure completed`);
+        break;
+      case "subagent-start":
+        handleSubagentStart(input);
+        debugLog(`main: subagent-start completed`);
+        break;
+      case "subagent-stop":
+        handleSubagentStop(input);
+        debugLog(`main: subagent-stop completed`);
         break;
       case "session-end":
         handleSessionEnd(input);
