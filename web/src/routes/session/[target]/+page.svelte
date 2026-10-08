@@ -5,9 +5,9 @@
 	import { reportClient } from '$lib/client-log';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { terminalStore } from '$lib/stores/terminal.svelte';
-	import { sessionStore, getSessionDisplayName } from '$lib/stores/sessions.svelte';
+	import { sessionStore, getSessionDisplayName, attentionCount, postVisit } from '$lib/stores/sessions.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
-	import { sessionStateVisual, type IndicatorState } from '$shared/session-state.js';
+	import { sessionStateVisual, indicatorStateOf, isUnread, type IndicatorState } from '$shared/session-state.js';
 	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -66,15 +66,39 @@
 	const isAlive = $derived(!paneIsDead && (isClaudeSession || isPlainPane));
 	// Dead panes and plain (non-Claude) panes are row states, not Claude states.
 	const indicatorState = $derived<IndicatorState>(
-		paneIsDead ? 'dead' : isPlainPane ? 'plain' : (currentSession?.state ?? 'idle')
+		paneIsDead ? 'dead' : isPlainPane ? 'plain' : currentSession ? indicatorStateOf(currentSession) : 'idle'
 	);
 	// Browser tab: the state emoji rides in front of the name, so a background
-	// tab says whether the session wants a human without being opened.
+	// tab says whether the session wants a human without being opened, and
+	// the count before it says how many sessions anywhere want one or are done.
+	const attention = $derived(attentionCount(sessionStore.sessions));
 	const pageTitle = $derived(
-		`${sessionStateVisual(indicatorState).emoji} ${
+		`${attention > 0 ? `(${attention}) ` : ''}${sessionStateVisual(indicatorState).emoji} ${
 			currentSession ? getSessionDisplayName(currentSession) : (target || 'Session')
 		}`
 	);
+
+	// The unread "Done" watermark: opening the session stamps it, and so does
+	// a turn that finishes while the page is in front of someone — the same
+	// visit clears the badge on every other browser. Split panes are this page
+	// in a frame, so they count too. Adapted from t3code's ChatView visit
+	// effect (MIT, © T3 Tools Inc.).
+	let pageVisible = $state(browser && document.visibilityState === 'visible');
+	onMount(() => {
+		const onVisibility = () => (pageVisible = document.visibilityState === 'visible');
+		document.addEventListener('visibilitychange', onVisibility);
+		return () => document.removeEventListener('visibilitychange', onVisibility);
+	});
+	/** The session this page last stamped, and when: one post per change, not per broadcast. */
+	let lastVisit: { id: string; at: number } | null = null;
+	$effect(() => {
+		const s = currentSession;
+		if (!s || !pageVisible) return;
+		const fresh = lastVisit?.id !== s.id;
+		if (!fresh && (!isUnread(s) || Date.now() - lastVisit!.at < 2000)) return;
+		lastVisit = { id: s.id, at: Date.now() };
+		void postVisit('', s.id);
+	});
 	// Inline status next to the title. Skip bare states (idle/busy/etc.)
 	// since the state symbol + color already convey them; only show when
 	// there's information the symbol can't carry.

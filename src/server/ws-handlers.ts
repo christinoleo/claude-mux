@@ -10,7 +10,7 @@
 
 import { execFileSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
-import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, sanitizeDisplayName, type Session } from '../db/index.js';
+import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, sanitizeDisplayName, getVisits, type Session } from '../db/index.js';
 import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
@@ -49,6 +49,8 @@ type LivePaneFields = {
 	queue: QueuedMessageInfo[];
 	/** What the queue and steers handed the pane lately, so the transcript can label it. */
 	delivered: DeliveryInfo[];
+	/** When anyone last had the session open, from `visits.json`; null when nobody has. */
+	last_visited_at: number | null;
 };
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
@@ -440,6 +442,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 		}
 	}
 
+	const visits = getVisits();
 	const enrichedSessions = sessions.map((s) => {
 		const paneTitle = s.tmux_target ? (paneTitles.get(s.tmux_target)?.title ?? null) : null;
 		const raw = s.tmux_target ? rawCaptures.get(s.tmux_target) : undefined;
@@ -481,6 +484,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 				? getQueue(s.tmux_target).map(({ attempts: _attempts, ...info }) => info)
 				: [],
 			delivered: s.tmux_target ? getDeliveries(s.tmux_target) : [],
+			last_visited_at: visits[s.id] ?? null,
 		};
 
 		if (s.tmux_target && links[s.tmux_target]) {

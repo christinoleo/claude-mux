@@ -11,7 +11,7 @@
 	 */
 	import { clickOutside } from '$lib/actions/clickOutside';
 	import SessionStateIndicator from './SessionStateIndicator.svelte';
-	import { sessionStateVisual } from '$shared/session-state.js';
+	import { sessionStateVisual, indicatorStateOf } from '$shared/session-state.js';
 	import type { ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import {
 		sessionStore,
@@ -62,9 +62,9 @@
 				class:cur={session.tmux_target === currentTarget}
 				onclick={() => open_(session)}
 			>
-				<SessionStateIndicator state={session.state} size="sm" />
+				<SessionStateIndicator state={indicatorStateOf(session)} size="sm" />
 				<span class="name">{getSessionDisplayName(session)}</span>
-				<span class="sub">{sessionStateVisual(session.state).label}</span>
+				<span class="sub">{sessionStateVisual(indicatorStateOf(session)).label}</span>
 			</button>
 		{/each}
 

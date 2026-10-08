@@ -144,9 +144,12 @@
 }
 
 /* Behaviour only — shape and colour come from SessionStateIndicator, the one
-   component that draws a session state. */
+   component that draws a session state. Stepped rather than eased, and every
+   dot on the page in phase (the component sets the delay off the wall clock),
+   so a column of working sessions blinks together instead of shimmering.
+   After t3code's `status-pulse` (MIT, © T3 Tools Inc.). */
 .pulse-dot {
-  animation: claude-mux-pulse 1.4s ease-in-out infinite;
+  animation: claude-mux-pulse 1.6s steps(4, jump-none) infinite;
 }
 @keyframes claude-mux-pulse {
   0%,

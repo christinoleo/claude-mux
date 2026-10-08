@@ -76,6 +76,10 @@ interface Session {
   display_name?: string | null;
   /** In-flight background work (agents, shells, workflows) at the last Stop. */
   background_tasks?: number;
+  /** When the user's latest prompt started a turn (epoch ms). */
+  turn_started_at?: number | null;
+  /** When the latest turn ended for good, background work included (epoch ms). */
+  turn_completed_at?: number | null;
   /** Set when the maestro daemon started this session: its role and issue. */
   maestro_role?: string | null;
   maestro_issue?: number | null;
@@ -517,6 +521,7 @@ function handleUserPromptSubmit(input: HookInput): void {
   session.state = "busy";
   session.current_action = "Thinking...";
   session.background_tasks = 0;
+  session.turn_started_at = Date.now();
   // Capture the first user prompt as session name and set pane title.
   // Slash commands are control input, not a description of the work — and one of
   // them (`/rename`) is injected by the dashboard, which would otherwise title the
@@ -554,6 +559,9 @@ function handleStop(input: HookInput): void {
   } else {
     session.state = "idle";
     session.current_action = null;
+    // The dashboard's unread "Done" compares this against when someone last
+    // looked at the session; a pause on background work is not an ending.
+    session.turn_completed_at = Date.now();
   }
   session.last_update = Date.now();
   writeSession(session);

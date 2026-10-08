@@ -123,6 +123,12 @@ const EnrichedSessionSchema = z.object({
 	current_action: z.string().nullable(),
 	prompt_text: z.string().nullable(),
 	last_update: z.number(),
+	/** When the user's latest prompt started a turn; stamped by the hook. */
+	turn_started_at: z.number().nullable().optional(),
+	/** When the latest turn ended for good; stamped by the hook. */
+	turn_completed_at: z.number().nullable().optional(),
+	/** When anyone last had the session open (`visits.json`) — live only. */
+	last_visited_at: z.number().nullable().optional(),
 	screenshots: z.array(ScreenshotSchema).optional(),
 	chrome_active: z.boolean().optional(),
 	linked_to: z.string().nullable().optional(),

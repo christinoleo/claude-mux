@@ -72,6 +72,10 @@ export interface Session {
   chrome_active?: boolean;
   /** In-flight background work (agents, shells) reported by the last Stop hook. */
   background_tasks?: number;
+  /** When the user's latest prompt started a turn (epoch ms), stamped by the hook. */
+  turn_started_at?: number | null;
+  /** When the latest turn ended for good (epoch ms); see `visits-json.ts` for what reads it. */
+  turn_completed_at?: number | null;
   linked_to?: string | null;
   rc_url?: string | null;
   display_name?: string | null;
