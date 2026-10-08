@@ -8,9 +8,10 @@
 import { mkdirSync, renameSync, writeFileSync } from "fs";
 import { dirname } from "path";
 
-export function writeFileAtomic(path: string, contents: string): void {
+/** `mode` applies from the first byte written, so a secret is never readable by others. */
+export function writeFileAtomic(path: string, contents: string, mode?: number): void {
   mkdirSync(dirname(path), { recursive: true });
   const temp = `${path}.tmp`;
-  writeFileSync(temp, contents, "utf-8");
+  writeFileSync(temp, contents, { encoding: "utf-8", mode });
   renameSync(temp, path);
 }

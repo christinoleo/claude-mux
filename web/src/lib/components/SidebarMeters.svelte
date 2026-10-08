@@ -11,6 +11,16 @@
 		unlockNotificationAudio,
 		type NotificationMode
 	} from '$lib/notifications';
+	import {
+		currentSubscription,
+		pushUnavailable,
+		saveEvents,
+		sendTestPush,
+		serverEvents,
+		subscribe,
+		unsubscribe,
+		type PushEvents
+	} from '$lib/push';
 
 	const SPARK_DAYS = 14;
 	/** Why the plan columns are missing, for the one place there is room to say it. */
@@ -144,6 +154,67 @@
 		}
 		preferences.notificationMode = value;
 	}
+
+	// Web Push reaches this device with every claude-mux tab closed. The
+	// browser holds the subscription; the server holds which events it takes.
+	let pushSub = $state<PushSubscription | null>(null);
+	let pushEvents = $state<PushEvents>({ needsYou: true, done: true });
+	let pushBusy = $state(false);
+	/** What the last push action said: a problem, or that the test went out. */
+	let pushNote = $state<{ text: string; problem: boolean } | null>(null);
+	const pushBlocked = typeof window === 'undefined' ? null : pushUnavailable();
+
+	$effect(() => {
+		if (pushBlocked) return;
+		void (async () => {
+			const sub = await currentSubscription();
+			// A subscription the server forgot (its push service said the device
+			// was gone, or the file was cleared) cannot be reached, so it counts as off.
+			const events = sub ? await serverEvents(sub) : null;
+			pushSub = events ? sub : null;
+			if (events) pushEvents = events;
+		})().catch(() => {});
+	});
+
+	async function pushAction(run: () => Promise<string | void>): Promise<void> {
+		pushBusy = true;
+		pushNote = null;
+		try {
+			const done = await run();
+			if (done) pushNote = { text: done, problem: false };
+		} catch (err) {
+			pushNote = { text: err instanceof Error ? err.message : String(err), problem: true };
+		} finally {
+			pushBusy = false;
+		}
+	}
+
+	function setPush(on: boolean): Promise<void> {
+		return pushAction(async () => {
+			if (on && !pushSub) pushSub = await subscribe(pushEvents);
+			else if (!on && pushSub) {
+				await unsubscribe(pushSub);
+				pushSub = null;
+			}
+		});
+	}
+
+	function setPushEvent(key: keyof PushEvents, value: boolean): Promise<void> {
+		const sub = pushSub;
+		if (!sub) return Promise.resolve();
+		return pushAction(async () => {
+			pushEvents = await saveEvents(sub, { ...pushEvents, [key]: value });
+		});
+	}
+
+	function testPush(): Promise<void> {
+		const sub = pushSub;
+		if (!sub) return Promise.resolve();
+		return pushAction(async () => {
+			await sendTestPush(sub);
+			return 'Sent. It should arrive in a few seconds.';
+		});
+	}
 </script>
 
 <!--
@@ -219,6 +290,58 @@
 	</div>
 	{#if alertProblem}
 		<p class="alerts-problem" role="status">{alertProblem}</p>
+	{/if}
+
+	<div class="alerts-row">
+		<span
+			class="alerts-label"
+			id="push-label"
+			title="Notifications on this device with claude-mux closed, sent by the server"
+		>
+			Push
+		</span>
+		<div class="segmented" role="radiogroup" aria-labelledby="push-label">
+			{#each [false, true] as on (on)}
+				<button
+					type="button"
+					role="radio"
+					aria-checked={!!pushSub === on}
+					class:on={!!pushSub === on}
+					disabled={pushBusy || !!pushBlocked}
+					onclick={() => setPush(on)}
+				>
+					{on ? 'This device' : 'Off'}
+				</button>
+			{/each}
+		</div>
+	</div>
+	{#if pushBlocked}
+		<p class="alerts-note">{pushBlocked}</p>
+	{:else if pushSub}
+		<div class="toggles">
+			<label class="toggle-row" title="A session asks a question or wants an approval">
+				<input
+					type="checkbox"
+					checked={pushEvents.needsYou}
+					disabled={pushBusy}
+					onchange={(e) => setPushEvent('needsYou', e.currentTarget.checked)}
+				/>
+				<span>Needs you</span>
+			</label>
+			<label class="toggle-row" title="A session finished its turn">
+				<input
+					type="checkbox"
+					checked={pushEvents.done}
+					disabled={pushBusy}
+					onchange={(e) => setPushEvent('done', e.currentTarget.checked)}
+				/>
+				<span>Done</span>
+			</label>
+			<button type="button" class="link-button" disabled={pushBusy} onclick={testPush}>Send a test</button>
+		</div>
+	{/if}
+	{#if pushNote}
+		<p class={pushNote.problem ? 'alerts-problem' : 'alerts-note'} role="status">{pushNote.text}</p>
 	{/if}
 
 	<div class="toggles">
@@ -414,6 +537,34 @@
 		font-size: 11px;
 		line-height: 1.35;
 		color: #fbbf24;
+	}
+
+	.alerts-note {
+		margin: 6px 0 0;
+		font-size: 11px;
+		line-height: 1.35;
+		color: hsl(var(--muted-foreground));
+	}
+
+	.link-button {
+		margin-left: auto;
+		border: 0;
+		padding: 0;
+		background: none;
+		font: inherit;
+		font-size: 11px;
+		color: hsl(var(--muted-foreground));
+		text-decoration: underline;
+		text-underline-offset: 2px;
+		cursor: pointer;
+	}
+
+	.link-button:hover:not(:disabled) {
+		color: hsl(var(--foreground));
+	}
+
+	.link-button:disabled {
+		cursor: progress;
 	}
 
 	.toggles {

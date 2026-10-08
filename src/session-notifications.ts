@@ -37,6 +37,34 @@ export const NOTIFICATION_TITLES: Record<NotificationKind, string> = {
   completion: "Turn finished",
 };
 
+/** What a notification calls a session. */
+export function sessionDisplayName(s: {
+  id: string;
+  display_name?: string | null;
+  tmux_target?: string | null;
+  issue?: { title: string } | null;
+}): string {
+  // A maestro worker exists to close one issue; its title says what it is
+  // doing better than any name the session picked up on the way.
+  if (s.issue) return s.issue.title;
+  return s.display_name || s.tmux_target || s.id;
+}
+
+/**
+ * What a waiting session is asking, in the fewest words there are: the
+ * dialog's own question when the pane has been read, else what the hooks say.
+ */
+export function asking(s: {
+  state: SessionState;
+  current_action?: string | null;
+  pane_choice?: { question: string | null } | null;
+}): string {
+  if (needsYouKind(s) === "input") return s.pane_choice?.question || s.current_action || "Asking you a question";
+  // A permission dialog's action is only "Waiting..." or "Waiting for
+  // permission", which says less than the dialog's own question.
+  return s.pane_choice?.question || "Asking permission to go on";
+}
+
 /**
  * Compare a broadcast with what was seen before it. A session raises at most
  * one event per change: one when it starts waiting or what it waits for
