@@ -180,7 +180,7 @@ const EnrichedSessionSchema = z.object({
 	/** Set when the maestro daemon started the session. */
 	maestro_role: z.string().nullable().optional(),
 	maestro_issue: z.number().nullable().optional(),
-	/** Subagents running now, and those that finished in the last few minutes. */
+	/** Subagents running now, those done in the last hour, and those failed in the last day. */
 	subagents: z.array(SubagentSchema).optional(),
 	/** The issue that worker owns, as GitHub last described it — live only. */
 	issue: IssueInfoSchema.nullable().optional()

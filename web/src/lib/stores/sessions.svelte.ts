@@ -71,7 +71,7 @@ export interface Session {
 	/** Set when the maestro daemon started the session. */
 	maestro_role?: string | null;
 	maestro_issue?: number | null;
-	/** Subagents running now, and those that finished within the last hour. */
+	/** Subagents running now, those done in the last hour, and those failed in the last day. */
 	subagents?: SubagentInfo[];
 	/** The issue that worker owns, as GitHub last described it. */
 	issue?: IssueInfo | null;

@@ -70,6 +70,11 @@
 	onMount(() => {
 		opened = new Set(openedStore.load());
 	});
+	/** A row with no subagents gets this instead of reading the clock every tick. */
+	const NO_AGENTS: AgentView = { rows: [], running: 0, folded: 0 };
+	function agentsOf(s: Session): AgentView {
+		return s.subagents?.length ? agentView(s.subagents, clock.now, opened) : NO_AGENTS;
+	}
 	function markOpened(agentId: string) {
 		if (opened.has(agentId)) return;
 		opened = new Set([...opened, agentId].slice(-300));
@@ -141,6 +146,8 @@
 		worker?: boolean;
 		/** On that session's row: how many workers sit under it. */
 		workers?: number;
+		/** On the last of those workers: its master, whose own subagents follow the workers. */
+		trailing?: Session;
 	}
 
 	interface Card {
@@ -238,9 +245,8 @@
 		return !row.worker && row.session.display_name && row.rel ? row.rel : null;
 	}
 
-	function agentHref(machine: Machine, s: Session, agentId: string): string {
-		const path = `/session/${encodeURIComponent(s.tmux_target ?? '')}/agent/${encodeURIComponent(agentId)}`;
-		return machine.local ? path : `${machine.server.url}${path}`;
+	function agentHref(machine: Machine, target: string, agentId: string): string {
+		return `${apiBase(machine)}/session/${encodeURIComponent(target)}/agent/${encodeURIComponent(agentId)}`;
 	}
 
 	/** The tmux session a pane belongs to: `main` of `main:2.0`. */
@@ -275,7 +281,7 @@
 			out.push(workers ? { ...row, workers: workers.length } : row);
 			if (workers) {
 				workers.sort((a, b) => (a.session.maestro_issue ?? 0) - (b.session.maestro_issue ?? 0));
-				out.push(...workers);
+				out.push(...workers.slice(0, -1), { ...workers.at(-1)!, trailing: row.session });
 			}
 		}
 		return out;
@@ -613,14 +619,35 @@
 		<!-- A worker hangs off its master on a solid violet thread, and its own
 		     subagents ride inside that thread. -->
 		<div class="thread worker">{@render rowWithAgents(machine, row)}</div>
+		<!-- A master's own subagents come after its workers, as in the design. -->
+		{#if row.trailing}{@render agentThread(machine, row.trailing, agentsOf(row.trailing))}{/if}
 	{:else}
 		{@render rowWithAgents(machine, row)}
 	{/if}
 {/snippet}
 
+{#snippet agentThread(machine: Machine, s: Session, agents: AgentView)}
+	{#if agents.rows.length > 0 && s.tmux_target}
+		<div class="thread agents">
+			{#each agents.rows as agent (agent.id)}
+				{@const href = agentHref(machine, s.tmux_target, agent.id)}
+				<SubagentRow
+					{agent}
+					{href}
+					active={machine.local && $page.url.pathname === href}
+					onclick={() => {
+						markOpened(agent.id);
+						onSessionSelect?.();
+					}}
+				/>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet rowWithAgents(machine: Machine, row: Row)}
 	{@const s = row.session}
-	{@const agents = agentView(s.subagents, clock.now, opened)}
+	{@const agents = agentsOf(s)}
 	{@const isActive = machine.local && s.tmux_target === currentTarget}
 	{@const draftable = machine.local && !isActive && !!s.tmux_target}
 	<SessionRow
@@ -643,22 +670,7 @@
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
 		ondragend={dragEnd}
 	/>
-	{#if agents.rows.length > 0 && s.tmux_target}
-		<div class="thread agents">
-			{#each agents.rows as agent (agent.id)}
-				{@const href = agentHref(machine, s, agent.id)}
-				<SubagentRow
-					{agent}
-					{href}
-					active={machine.local && $page.url.pathname === href}
-					onclick={() => {
-						markOpened(agent.id);
-						onSessionSelect?.();
-					}}
-				/>
-			{/each}
-		</div>
-	{/if}
+	{#if !row.workers}{@render agentThread(machine, s, agents)}{/if}
 {/snippet}
 
 {#snippet paneRow(machine: Machine, pane: TmuxPane)}

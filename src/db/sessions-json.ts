@@ -101,7 +101,7 @@ export interface Session {
   maestro_role?: string | null;
   /** The GitHub issue a maestro worker owns. */
   maestro_issue?: number | null;
-  /** Subagents running now, and those that finished in the last few minutes. */
+  /** Subagents running now, those done in the last hour, and those failed in the last day. */
   subagents?: Subagent[];
 }
 

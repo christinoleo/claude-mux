@@ -208,9 +208,8 @@ function readSession(id: string): Session | null {
 }
 
 /**
- * How long a finished subagent stays in the JSON. The sidebar lists one as a
- * row for ten minutes and then counts it as "N agents done" on the parent, so
- * it has to outlive that; a failed one waits for someone to open it.
+ * How long a finished subagent stays in the JSON: long enough for the sidebar
+ * to count it once its row folds, and a day for a failed one.
  */
 const DONE_SUBAGENT_TTL_MS = 60 * 60 * 1000;
 const FAILED_SUBAGENT_TTL_MS = 24 * 60 * 60 * 1000;

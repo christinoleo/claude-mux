@@ -168,10 +168,12 @@
 				><iconify-icon icon="mdi:paperclip"></iconify-icon>{staged}</span
 			>
 		{/if}
+		{#if worker}
+			<span class="wst"><SessionStateIndicator state={shown} size="sm" title={s.current_action} /></span>
+		{/if}
 		{#if draft}
 			<iconify-icon icon="mdi:pencil-outline"></iconify-icon>{draft}
 		{:else if worker}
-			<span class="wst"><SessionStateIndicator state={shown} size="sm" title={s.current_action} /></span>
 			{['worker', shown, s.current_action].filter(Boolean).join(' · ')}
 		{:else}
 			{s.current_action || (shown === 'done' ? 'done' : s.state)}

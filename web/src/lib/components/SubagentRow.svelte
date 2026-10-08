@@ -45,7 +45,7 @@
 	class:done={agent.state === 'done'}
 	class:failed={agent.state === 'failed'}
 	{onclick}
-	title={agent.description ?? agent.type}
+	{title}
 >
 	<span class="glyph" aria-hidden="true">
 		{#if agent.state === 'done'}

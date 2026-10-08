@@ -30,7 +30,11 @@ describe("agentView", () => {
   it("keeps a failed agent's row until it is opened, then lets it age", () => {
     const failed = [agent("bad", "failed", AGENT_ROW_MS * 3)];
     expect(agentView(failed, NOW, new Set()).rows.map((a) => a.id)).toEqual(["bad"]);
-    expect(agentView(failed, NOW, new Set(["bad"]))).toMatchObject({ rows: [], folded: 1 });
+    expect(agentView(failed, NOW, new Set(["bad"]))).toMatchObject({ rows: [], folded: 0 });
+  });
+
+  it("stops counting a done agent after an hour, though the hook has not pruned it yet", () => {
+    expect(agentView([agent("old", "done", 61 * 60 * 1000)], NOW, new Set()).folded).toBe(0);
   });
 
   it("handles a session with no subagents", () => {
