@@ -84,8 +84,7 @@ function sessionChanged(a: Session, b: Session): boolean {
 	if (aQueue && bQueue && aQueue.some((msg, i) => msg !== bQueue[i])) return true;
 	// The server queue: likewise fresh each tick, and almost always empty.
 	// Whole, since an edit changes one item's text and a reorder only its ids.
-	if ((a.queue?.length ?? 0) !== (b.queue?.length ?? 0)) return true;
-	if (a.queue?.length && JSON.stringify(a.queue) !== JSON.stringify(b.queue)) return true;
+	if (JSON.stringify(a.queue ?? []) !== JSON.stringify(b.queue ?? [])) return true;
 	// The delivery log only ever grows at the end.
 	if ((a.delivered?.length ?? 0) !== (b.delivered?.length ?? 0)) return true;
 	if (a.delivered?.length && a.delivered.at(-1)!.at !== b.delivered?.at(-1)?.at) return true;

@@ -308,7 +308,7 @@
 		// queue behind the turn — queued, it would land after the dialog closed.
 		if (answering) return paneChoice?.noting ? ('note' as const) : ('answer' as const);
 		if (editing) return 'save' as const;
-		if ((currentSession?.state ?? 'idle') === 'idle') return 'send' as const;
+		if (isIdle) return 'send' as const;
 		// Holding Ctrl/⌘ turns the button into what Ctrl/⌘+Enter does.
 		return isBusy && steerHeld ? ('steer' as const) : ('queue' as const);
 	});
@@ -345,6 +345,7 @@
 
 
 	const isBusy = $derived((currentSession?.state ?? 'idle') === 'busy');
+	const isIdle = $derived((currentSession?.state ?? 'idle') === 'idle');
 
 	/** What tmux calls the arrows the browser reports. */
 	const ARROW_KEYS: Record<string, string> = {
@@ -611,8 +612,7 @@
 
 	/** The transcript's live status row is showing (its height affects scroll). */
 	const liveRowVisible = $derived(
-		viewMode === 'transcript' &&
-			(queueCount > 0 || (currentSession?.state ?? 'idle') !== 'idle')
+		viewMode === 'transcript' && !isIdle
 	);
 
 	// Clear whatever is typed in Claude's prompt: Ctrl+E (end of line) then
@@ -1068,7 +1068,7 @@
 			return;
 		}
 		// Busy, or a dialog open: the message waits in the queue for its own turn.
-		if ((currentSession?.state ?? 'idle') !== 'idle') {
+		if (!isIdle) {
 			await queueText();
 			return;
 		}
@@ -1196,13 +1196,12 @@
 		});
 	}
 
-	function endEdit() {
+	function cancelEdit() {
 		if (!editing) return;
 		textInput = editing.draft;
 		editing = null;
 		void tick().then(autoResize);
 	}
-	const cancelEdit = endEdit;
 
 	/**
 	 * The message left the queue while it was being edited — delivered, or
@@ -1226,7 +1225,7 @@
 			body: JSON.stringify({ id, text: textInput })
 		});
 		if (editing?.id !== id) return;
-		if (res.ok) endEdit();
+		if (res.ok) cancelEdit();
 		else if (res.status === 404) orphanEdit();
 		else {
 			const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -1243,18 +1242,7 @@
 
 	/** Ctrl/⌘ is held, so the primary button shows what Ctrl/⌘+Enter would do. */
 	let steerHeld = $state(false);
-	onMount(() => {
-		const sync = (e: KeyboardEvent) => (steerHeld = e.ctrlKey || e.metaKey);
-		const release = () => (steerHeld = false);
-		window.addEventListener('keydown', sync);
-		window.addEventListener('keyup', sync);
-		window.addEventListener('blur', release);
-		return () => {
-			window.removeEventListener('keydown', sync);
-			window.removeEventListener('keyup', sync);
-			window.removeEventListener('blur', release);
-		};
-	});
+	const syncSteerHeld = (e: KeyboardEvent) => (steerHeld = e.ctrlKey || e.metaKey);
 
 
 	// ─── Attachments ────────────────────────────────────────────────────────
@@ -1857,7 +1845,14 @@
 
 	</script>
 
-<svelte:window onkeydown={handleGlobalKeys} />
+<svelte:window
+	onkeydown={(e) => {
+		syncSteerHeld(e);
+		handleGlobalKeys(e);
+	}}
+	onkeyup={syncSteerHeld}
+	onblur={() => (steerHeld = false)}
+/>
 
 <svelte:head>
 	<title>{pageTitle}</title>
@@ -2518,6 +2513,7 @@
 										return;
 									}
 									if (modArmed) await sendModSequence();
+									else if (actionKind === 'steer') await steerText();
 									else await sendFromButton();
 								}}
 							>

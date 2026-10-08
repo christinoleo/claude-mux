@@ -1,15 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { existsSync, readFileSync, statSync } from 'fs';
-import { extname } from 'path';
-
-const MIME_TYPES: Record<string, string> = {
-	'.png': 'image/png',
-	'.jpg': 'image/jpeg',
-	'.jpeg': 'image/jpeg',
-	'.webp': 'image/webp',
-	'.gif': 'image/gif'
-};
+import { imageMimeFor } from '$shared/utils/image-types.js';
 
 export const GET: RequestHandler = async ({ url }) => {
 	const path = url.searchParams.get('path');
@@ -38,8 +30,7 @@ export const GET: RequestHandler = async ({ url }) => {
 			return json({ error: 'File too large' }, { status: 413 });
 		}
 
-		const ext = extname(path).toLowerCase();
-		const mimeType = MIME_TYPES[ext];
+		const mimeType = imageMimeFor(path);
 
 		if (!mimeType) {
 			return json({ error: 'Unsupported image format' }, { status: 400 });

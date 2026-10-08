@@ -32,9 +32,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		}
 
 		const text = typeof body.text === 'string' ? body.text.trim() : '';
-		if (!text) return json({ error: 'text or id is required' }, { status: 400 });
 		const prompt = composePrompt(pane, text, body.attachments);
 		if (!prompt.ok) return json({ error: prompt.error }, { status: 400 });
+		if (!prompt.text) return json({ error: 'text, attachments or id is required' }, { status: 400 });
 		if (!(await steerIntoPane(pane, prompt.text, busy))) {
 			return json({ error: NOT_TAKEN }, { status: 502 });
 		}

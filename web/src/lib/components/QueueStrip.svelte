@@ -12,6 +12,7 @@
 	 */
 	import * as Collapsible from '$lib/components/ui/collapsible';
 	import type { QueuedMessageInfo } from '$shared/types/ws-messages.js';
+	import { imageMimeFor } from '$shared/utils/image-types.js';
 
 	let {
 		target,
@@ -40,6 +41,8 @@
 	/** The item being dragged by its grip, and the slot it would land in. */
 	let drag = $state<{ id: string; from: number; to: number } | null>(null);
 	let listEl: HTMLElement | null = $state(null);
+	/** The rows' vertical midpoints, measured once when a drag starts. */
+	let midpoints: number[] = [];
 
 	const total = $derived(queue.length + paneQueue.length);
 	const base = $derived(`/api/sessions/${encodeURIComponent(target)}`);
@@ -72,20 +75,21 @@
 		}
 	}
 
-	/** The slot a pointer at this height falls into, by the rows' own midpoints. */
+	/** The slot a pointer at this height falls into: the last row whose midpoint it is past. */
 	function slotAt(y: number): number {
-		const rows = listEl ? Array.from(listEl.querySelectorAll<HTMLElement>('[data-queue-row]')) : [];
 		let slot = 0;
-		for (const [i, row] of rows.entries()) {
-			const r = row.getBoundingClientRect();
-			if (y > r.top + r.height / 2) slot = i;
-		}
-		return y < (rows[0]?.getBoundingClientRect().top ?? 0) ? 0 : slot;
+		for (const [i, mid] of midpoints.entries()) if (y > mid) slot = i;
+		return slot;
 	}
 
 	function onGripDown(e: PointerEvent, item: QueuedMessageInfo, index: number) {
 		if (e.button !== 0) return;
 		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		const rows = listEl ? Array.from(listEl.querySelectorAll<HTMLElement>('[data-queue-row]')) : [];
+		midpoints = rows.map((row) => {
+			const r = row.getBoundingClientRect();
+			return r.top + r.height / 2;
+		});
 		drag = { id: item.id, from: index, to: index };
 	}
 	function onGripMove(e: PointerEvent) {
@@ -98,10 +102,9 @@
 		move(from, to);
 	}
 
-	const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 	const fileName = (path: string) => path.split('/').pop() ?? path;
-	const thumbUrl = (path: string) =>
-		`/api/sessions/${encodeURIComponent(sessionId ?? '')}/attach?path=${encodeURIComponent(path)}`;
+	const thumbUrl = (id: string, path: string) =>
+		`/api/sessions/${encodeURIComponent(id)}/attach?path=${encodeURIComponent(path)}`;
 </script>
 
 {#if total > 0}
@@ -116,13 +119,14 @@
 		<Collapsible.Content>
 			<ul class="qs-list" bind:this={listEl}>
 				{#each queue as item, i (item.id)}
+					{@const dropHere = drag && drag.id !== item.id && drag.to === i}
 					<li
 						class="qs-row"
 						data-queue-row
 						class:editing={item.id === editingId}
 						class:dragging={drag?.id === item.id}
-						class:drop-above={drag && drag.id !== item.id && drag.to === i && drag.from > i}
-						class:drop-below={drag && drag.id !== item.id && drag.to === i && drag.from < i}
+						class:drop-above={dropHere && drag!.from > i}
+						class:drop-below={dropHere && drag!.from < i}
 					>
 						<button
 							type="button"
@@ -142,8 +146,8 @@
 							{#if item.attachments?.length}
 								<div class="qs-thumbs">
 									{#each item.attachments as path (path)}
-										{#if IMAGE.test(path) && sessionId}
-											<img class="qs-thumb" src={thumbUrl(path)} alt={fileName(path)} title={fileName(path)} />
+										{#if imageMimeFor(path) && sessionId}
+											<img class="qs-thumb" src={thumbUrl(sessionId, path)} alt={fileName(path)} title={fileName(path)} />
 										{:else}
 											<span class="qs-thumb qs-file" title={fileName(path)}>
 												<iconify-icon icon="mdi:file-outline"></iconify-icon>

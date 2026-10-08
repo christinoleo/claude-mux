@@ -40,7 +40,7 @@ export interface QueuedMessage extends QueuedMessageInfo {
 }
 
 /** What the pane is given for a queued message: its attachments folded into the text. */
-export function promptOf(message: QueuedMessageInfo): string {
+function promptOf(message: QueuedMessageInfo): string {
 	return composePromptWithAttachments(message.text, message.attachments ?? []);
 }
 
@@ -260,7 +260,7 @@ const DELIVERY_LOG_TTL_MS = 60 * 60 * 1000;
  * transcript can label the user turn it becomes. In memory only: the label is
  * a courtesy, and a restart forgetting it costs nothing.
  */
-export function recordDelivery(target: string, text: string, via: DeliveryInfo['via']): void {
+function recordDelivery(target: string, text: string, via: DeliveryInfo['via']): void {
 	const now = Date.now();
 	const log = (deliveries.get(target) ?? []).filter((d) => now - d.at < DELIVERY_LOG_TTL_MS);
 	log.push({ text, via, at: now });
@@ -402,6 +402,7 @@ function pruneQueues(knownTargets: Set<string>, now: number): void {
 		queues.delete(target);
 		pendingDrain.delete(target);
 		missingSince.delete(target);
+		deliveries.delete(target);
 		changed = true;
 	};
 

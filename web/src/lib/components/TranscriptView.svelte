@@ -242,7 +242,6 @@
 	 */
 	const deliveredVia = $derived.by(() => {
 		const out = new Map<string, DeliveryInfo['via']>();
-		if (delivered.length === 0) return out;
 		for (const d of delivered) {
 			const text = d.text.trim();
 			// The JSONL stamps the turn a moment after the paste; allow for clock skew.
@@ -1092,9 +1091,6 @@
 		font-size: 12px;
 		vertical-align: -2px;
 	}
-
-
-
 
 	/* Cross-session (A2A) message: same anchor shape as a human turn, cool
 	   teal instead of warm amber — another agent's voice, not the user's. */
