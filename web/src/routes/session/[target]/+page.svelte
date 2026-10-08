@@ -51,7 +51,7 @@
 	import { PANES, PANE_KINDS, PANE_PARAMS, paneDef, panelKeyAction } from '$lib/side-panel/panes';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { panelQuery, readPanel } from '$lib/side-panel/url';
-	import type { Listing, Turn } from '$lib/side-panel/changes';
+	import type { Listing, TranscriptChanges } from '$lib/side-panel/changes';
 	import {
 		INLINE_MEDIA_QUERY,
 		PHONE_MEDIA_QUERY,
@@ -276,37 +276,60 @@
 		});
 	}
 
+	/** A link that opens the side panel on `kind`, with that pane's own params. */
+	function paneLink(kind: string, own: Record<string, string | null>): string {
+		return `${$page.url.pathname}?${panelQuery($page.url.searchParams, kind, PANE_PARAMS, own)}`;
+	}
+
 	/** Where a transcript tool row opens the file it touched: the Files pane, at that line. */
 	function fileLink(path: string, line: number | null): string {
-		const own = { file: path, line: line ? String(line) : null };
-		return `${$page.url.pathname}?${panelQuery($page.url.searchParams, 'files', PANE_PARAMS, own)}`;
+		return paneLink('files', { file: path, line: line ? String(line) : null });
 	}
 
 	/** Where a turn's change summary opens the Changes pane: the session source, that turn, a file. */
 	function changesLink(n: number, file: string | null): string {
-		const own = { source: 'session', turn: String(n), file };
-		return `${$page.url.pathname}?${panelQuery($page.url.searchParams, 'changes', PANE_PARAMS, own)}`;
+		return paneLink('changes', { source: 'session', turn: String(n), file });
 	}
 
 	/**
 	 * The turns that edited files, for the transcript's per-turn summaries.
-	 * Earlier turns never change, so this is read again only when a turn ends.
+	 * Earlier turns never change, so this is read on opening a session and
+	 * again only when a turn ends (the session goes idle), not when one starts;
+	 * and once more a moment after, since the log can trail the Stop hook.
 	 */
-	let turnChanges = $state<{ id: string; turns: Turn[] } | null>(null);
+	let turnChanges = $state<{ id: string; changes: TranscriptChanges } | null>(null);
 	const changesSessionId = $derived(currentSession?.id ?? null);
-	const turnEnded = $derived(`${currentSession?.turn_completed_at ?? 0}:${currentSession?.state === 'idle'}`);
+	const turnEnded = $derived(
+		currentSession?.state === 'idle' ? (currentSession.turn_completed_at ?? 0) : null
+	);
+	const sessionChanges = $derived(
+		turnChanges && turnChanges.id === changesSessionId ? turnChanges.changes : null
+	);
 	$effect(() => {
 		const id = changesSessionId;
-		void turnEnded;
 		if (!id) return;
+		const fallbackRoot = untrack(() => currentSession?.git_root ?? currentSession?.cwd ?? null);
+		if (turnEnded === null && untrack(() => turnChanges?.id) === id) return;
 		let stale = false;
-		fetch(`/api/sessions/${encodeURIComponent(id)}/changes?source=session`)
-			.then((res) => (res.ok ? (res.json() as Promise<Listing>) : null))
-			.then((body) => {
-				if (!stale && body) turnChanges = { id, turns: body.turns ?? [] };
-			})
-			.catch(() => {});
-		return () => (stale = true);
+		const load = () =>
+			fetch(`/api/sessions/${encodeURIComponent(id)}/changes?source=session`)
+				.then((res) => (res.ok ? (res.json() as Promise<Listing>) : null))
+				.then((body) => {
+					if (stale || !body) return;
+					const changes = {
+						turns: body.turns ?? [],
+						prompts: new Set(body.prompts ?? []),
+						root: body.root ?? fallbackRoot
+					};
+					turnChanges = { id, changes };
+				})
+				.catch(() => {});
+		void load();
+		const again = turnEnded === null ? null : setTimeout(load, 3000);
+		return () => {
+			stale = true;
+			if (again) clearTimeout(again);
+		};
 	});
 
 	/** Returns whether it did anything. */
@@ -2207,8 +2230,7 @@
 						entries={transcriptStore.entries}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
 						{fileLink}
-						turnChanges={turnChanges?.id === currentSession?.id ? turnChanges!.turns : []}
-						changesRoot={currentSession?.git_root ?? currentSession?.cwd ?? null}
+						turnChanges={sessionChanges}
 						{changesLink}
 						available={transcriptStore.available}
 						loaded={transcriptStore.receivedData}

@@ -20,7 +20,7 @@
 	} from '$shared/transcript/grilling.js';
 	import { groupToolRuns } from '$shared/transcript/tool-groups.js';
 	import TurnChangesCard from '$lib/components/TurnChangesCard.svelte';
-	import { placeTurnChanges, type Turn } from '$lib/side-panel/changes';
+	import { placeTurnChanges, type TranscriptChanges, type Turn } from '$lib/side-panel/changes';
 
 	let {
 		entries,
@@ -42,8 +42,7 @@
 		onLoadEarlier,
 		onSendReply,
 		fileLink,
-		turnChanges = [],
-		changesRoot = null,
+		turnChanges = null,
 		changesLink
 	}: {
 		entries: TranscriptEntry[];
@@ -88,9 +87,7 @@
 		/** The link that opens a file a tool row touched, at a line; without it the rows draw none. */
 		fileLink?: (path: string, line: number | null) => string;
 		/** The session's turns that edited files, from the changes API's session source. */
-		turnChanges?: Turn[];
-		/** Where the changed paths are shown relative to. */
-		changesRoot?: string | null;
+		turnChanges?: TranscriptChanges | null;
 		/** Where the Changes pane opens on turn `n`, at `file` or its first file; without it no summaries draw. */
 		changesLink?: (n: number, file: string | null) => string;
 	} = $props();
@@ -120,12 +117,16 @@
 	const items = $derived(groupToolRuns(entries));
 
 	/** Each turn's change summary, by the item it follows; the turn still running has none yet. */
+	const turnRunning = $derived(sessionState !== null && sessionState !== 'idle');
 	const turnCards = $derived(
-		changesLink ? placeTurnChanges(items, turnChanges, sessionState !== null && sessionState !== 'idle') : new Map<string, Turn>()
+		changesLink && turnChanges
+			? placeTurnChanges(items, turnChanges.turns, turnChanges.prompts, turnRunning)
+			: new Map<string, Turn>()
 	);
-	/** The latest summary starts open, the rest closed, until the reader says otherwise. */
-	const latestCard = $derived(Math.max(-1, ...[...turnCards.values()].map((t) => t.n)));
-	let cardOpen = $state<Record<number, boolean>>({});
+	/** The latest summary (the map runs in transcript order) starts open, the rest closed, until the reader says otherwise. */
+	const latestCard = $derived([...turnCards.values()].at(-1)?.id ?? null);
+	/** By the turn's prompt id, which unlike its number never repeats across sessions in one pane. */
+	let cardOpen = $state<Record<string, boolean>>({});
 
 	/**
 	 * Which tool cards and groups the reader has open, by entry id (a group
@@ -805,8 +806,8 @@
 		{#if changed && changesLink}
 			<TurnChangesCard
 				turn={changed}
-				root={changesRoot}
-				bind:open={() => cardOpen[changed.n] ?? changed.n === latestCard, (v) => (cardOpen[changed.n] = v)}
+				root={turnChanges?.root ?? null}
+				bind:open={() => cardOpen[changed.id!] ?? changed.id === latestCard, (v) => (cardOpen[changed.id!] = v)}
 				link={(file) => changesLink(changed.n, file)}
 			/>
 		{/if}

@@ -131,6 +131,12 @@ function promptText(record: Record<string, unknown>): string | null {
   return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
 }
 
+/** Whether a prompt line is the harness's record of a slash command. */
+function isCommand(record: Record<string, unknown>): boolean {
+  const content = asRecord(record.message)?.content;
+  return typeof content === "string" && parseSlashCommand(content.trim()) !== null;
+}
+
 function parseTs(value: unknown): number {
   const ts = typeof value === "string" ? Date.parse(value) : NaN;
   return Number.isFinite(ts) ? ts : 0;
@@ -209,6 +215,11 @@ export class ChangesCollector {
 
     const prompt = promptText(record);
     if (prompt === null) return;
+    // A command pasted into the prompt is logged twice: the text as typed, then
+    // the harness's bundle once it ran. The transcript folds the bundle into the
+    // first line, and so does this: one turn, under the first line's id.
+    const last = this.turns[this.turns.length - 1];
+    if (last && last.changes.size === 0 && last.prompt === prompt && isCommand(record)) return;
     this.turns.push({
       id: readString(record.uuid),
       n: (this.turns[this.turns.length - 1]?.n ?? 0) + 1,
@@ -216,6 +227,11 @@ export class ChangesCollector {
       prompt,
       changes: new Map(),
     });
+  }
+
+  /** The id of every turn's prompt, changed something or not, oldest first. */
+  promptIds(): string[] {
+    return this.turns.flatMap((turn) => (turn.id ? [turn.id] : []));
   }
 
   /** The turns that changed something, oldest first. */

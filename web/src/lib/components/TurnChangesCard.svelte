@@ -52,11 +52,20 @@
 			{#each turn.files as f (f.file)}
 				{@const letter = statusLetter(f)}
 				<li>
-					<a href={link(f.file)} title={f.file} data-sveltekit-noscroll data-sveltekit-keepfocus>
-						<span class="st" class:new={letter === 'A'} class:gone={letter === 'D'}>{letter}</span>
+					<a
+						href={link(f.file)}
+						title={f.oldPath ? `${f.oldPath} → ${f.file}` : f.file}
+						data-sveltekit-noscroll
+						data-sveltekit-keepfocus
+					>
+						<span class="st st-{letter === '?' ? 'u' : letter.toLowerCase()}">{letter}</span>
 						<span class="path"><bdi>{displayPath(f.file, root)}</bdi></span>
-						{#if f.additions}<span class="add">+{f.additions}</span>{/if}
-						{#if f.deletions}<span class="del">−{f.deletions}</span>{/if}
+						{#if f.binary}
+							<span class="dim">bin</span>
+						{:else}
+							{#if f.additions}<span class="add">+{f.additions}</span>{/if}
+							{#if f.deletions}<span class="del">−{f.deletions}</span>{/if}
+						{/if}
 					</a>
 				</li>
 			{/each}
@@ -115,13 +124,20 @@
 	}
 	.st {
 		width: 1ch;
+	}
+	.st-m,
+	.st-r {
 		color: #fbbf24;
 	}
-	.st.new {
+	.st-a {
 		color: #4ade80;
 	}
-	.st.gone {
+	.st-d {
 		color: #f87171;
+	}
+	.st-u,
+	.dim {
+		color: #78716c;
 	}
 	.path {
 		flex: 1;

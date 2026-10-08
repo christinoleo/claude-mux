@@ -14,6 +14,8 @@ function turn(id: string, n: number): Turn {
   };
 }
 
+const prompts = new Set(["p1", "p2", "p3"]);
+
 const items = [
   { id: "p1", kind: "user" },
   { id: "t1", kind: "text" },
@@ -27,7 +29,7 @@ const items = [
 
 describe("placeTurnChanges", () => {
   it("puts each turn's summary after the last item before the next prompt", () => {
-    const placed = placeTurnChanges(items, [turn("p1", 1), turn("p3", 3)], false);
+    const placed = placeTurnChanges(items, [turn("p1", 1), turn("p3", 3)], prompts, false);
     expect([...placed].map(([at, t]) => [at, t.n])).toEqual([
       ["g1", 1],
       ["t3", 3],
@@ -35,18 +37,24 @@ describe("placeTurnChanges", () => {
   });
 
   it("holds back the last turn while the session is still on it", () => {
-    const placed = placeTurnChanges(items, [turn("p1", 1), turn("p3", 3)], true);
+    const placed = placeTurnChanges(items, [turn("p1", 1), turn("p3", 3)], prompts, true);
     expect([...placed.keys()]).toEqual(["g1"]);
   });
 
   it("skips a turn whose prompt is above the loaded tail", () => {
     const tail = items.slice(1);
-    const placed = placeTurnChanges(tail, [turn("p1", 1), turn("p2", 2)], false);
+    const placed = placeTurnChanges(tail, [turn("p1", 1), turn("p2", 2)], prompts, false);
     expect([...placed].map(([at, t]) => [at, t.n])).toEqual([["t2", 2]]);
   });
 
   it("ignores changes logged before any prompt", () => {
     const early: Turn = { ...turn("x", 0), id: null };
-    expect(placeTurnChanges(items, [early], false).size).toBe(0);
+    expect(placeTurnChanges(items, [early], prompts, false).size).toBe(0);
+  });
+
+  it("keeps a user line the log opened no turn on inside the turn around it", () => {
+    const steered = [...items.slice(0, 2), { id: "steer", kind: "user" }, ...items.slice(2)];
+    const placed = placeTurnChanges(steered, [turn("p1", 1)], prompts, false);
+    expect([...placed].map(([at, t]) => [at, t.n])).toEqual([["g1", 1]]);
   });
 });
