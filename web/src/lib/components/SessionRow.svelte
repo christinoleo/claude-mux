@@ -8,6 +8,10 @@
 	 * the context ring. Line 2 is what the session is doing. Rows that need
 	 * nothing from anyone recede, so the eye lands on the ones that do.
 	 * `children` draws under the row, for rows nested inside it.
+	 *
+	 * A maestro worker is a session too, but it reads as one of its master's
+	 * children: a terminal tile where the state dot was, its issue as a chip,
+	 * and the state moved down beside what it is doing.
 	 */
 	import type { Snippet } from 'svelte';
 	import SessionStateIndicator from './SessionStateIndicator.svelte';
@@ -100,7 +104,13 @@
 	use:longPress={{ onTrigger: () => onlongpress?.() }}
 	title={hint}
 >
-	<span class="st"><SessionStateIndicator state={shown} size="sm" title={s.current_action} /></span>
+	{#if worker}
+		<span class="tile" aria-hidden="true">
+			<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M7 9l3 3-3 3M13 15h4" /></svg>
+		</span>
+	{:else}
+		<span class="st"><SessionStateIndicator state={shown} size="sm" title={s.current_action} /></span>
+	{/if}
 	<span class="name" title={s.cwd}>{title}</span>
 	<span class="meta">
 		{#if tag}<span class="ptag" title="Open in pane {tag}">{tag}</span>{/if}
@@ -109,6 +119,8 @@
 		{/if}
 		{#if wants}
 			<span class="pill">{needsHelp(s) ? 'needs help' : 'wants you'}</span>
+		{:else if worker && s.maestro_issue}
+			<span class="issue">#{s.maestro_issue}</span>
 		{:else if elapsed}
 			<span class="when run" title="Working for {elapsed}">{elapsed}</span>
 		{:else}
@@ -156,8 +168,13 @@
 				><iconify-icon icon="mdi:paperclip"></iconify-icon>{staged}</span
 			>
 		{/if}
+		{#if worker}
+			<span class="wst"><SessionStateIndicator state={shown} size="sm" title={s.current_action} /></span>
+		{/if}
 		{#if draft}
 			<iconify-icon icon="mdi:pencil-outline"></iconify-icon>{draft}
+		{:else if worker}
+			{['worker', shown, s.current_action].filter(Boolean).join(' · ')}
 		{:else}
 			{s.current_action || (shown === 'done' ? 'done' : s.state)}
 		{/if}
@@ -205,19 +222,49 @@
 		color: var(--muted);
 		font-weight: 400;
 	}
-	/* A maestro worker hangs off the session running its daemon, on a thread
-	   drawn from the master's status column. */
+	/* A maestro worker: violet, the colour of a whole session working for
+	   another. Its thread is drawn by the list that nests it. */
 	.row.worker {
-		margin-left: 15px;
+		grid-template-columns: 18px 1fr auto 14px;
+		padding: 7px 8px;
 	}
-	.row.worker::before {
-		content: '';
-		position: absolute;
-		left: -7px;
-		top: -2px;
-		bottom: -2px;
-		width: 1px;
-		background: var(--line);
+	.row.worker .name {
+		font-family: var(--font-mono);
+		font-size: 12.5px;
+	}
+	.tile {
+		display: grid;
+		place-items: center;
+		width: 18px;
+		height: 18px;
+		border-radius: 4px;
+		background: #2e1f5e;
+		color: #c4b5fd;
+	}
+	.tile svg {
+		width: 11px;
+		height: 11px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2.4;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+	.issue {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: #c4b5fd;
+		background: #2e1f5e;
+		border-radius: 999px;
+		padding: 1px 7px;
+		white-space: nowrap;
+	}
+	.wst {
+		display: inline-grid;
+		place-items: center;
+		vertical-align: 0;
+		margin-right: 5px;
+		transform: scale(0.85);
 	}
 	.path {
 		font-family: var(--font-mono);

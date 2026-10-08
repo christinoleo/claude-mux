@@ -8,7 +8,8 @@ import {
 	type IssueInfo,
 	type InboxTicket,
 	type QueuedMessageInfo,
-	type DeliveryInfo
+	type DeliveryInfo,
+	type SubagentInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
 import { indicatorStateOf, needsYouKind } from '$shared/session-state.js';
@@ -70,6 +71,8 @@ export interface Session {
 	/** Set when the maestro daemon started the session. */
 	maestro_role?: string | null;
 	maestro_issue?: number | null;
+	/** Subagents running now, those done in the last hour, and those failed in the last day. */
+	subagents?: SubagentInfo[];
 	/** The issue that worker owns, as GitHub last described it. */
 	issue?: IssueInfo | null;
 }
@@ -108,6 +111,8 @@ function sessionChanged(a: Session, b: Session): boolean {
 	}
 	if ((a.pane_update?.text ?? null) !== (b.pane_update?.text ?? null)) return true;
 	if (JSON.stringify(a.pane_activity ?? null) !== JSON.stringify(b.pane_activity ?? null)) return true;
+	// Subagents: a fresh array each tick, so compare contents.
+	if (JSON.stringify(a.subagents ?? []) !== JSON.stringify(b.subagents ?? [])) return true;
 	// The issue arrives fresh each tick and changes only when GitHub's answer does.
 	if (JSON.stringify(a.issue ?? null) !== JSON.stringify(b.issue ?? null)) return true;
 	// Screenshots: compare by length + last timestamp (avoids deep comparison)
