@@ -133,7 +133,7 @@ function firstChangedLine(hunk: PatchHunk): number | null {
 	let line = Number(m[1]);
 	for (const l of hunk.lines) {
 		if (l.startsWith('+')) return line;
-		if (!l.startsWith('-')) line++;
+		if (l.startsWith(' ')) line++;
 	}
 	return Number(m[1]);
 }

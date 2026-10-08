@@ -75,11 +75,13 @@
 	const root = $derived(rootListing?.root ?? null);
 	const repo = $derived(rootListing?.repo ?? false);
 
-	// The tree is read when first shown, and from scratch when the session or the ignored toggle changes.
+	/** What the tree was last read for; showing the pane again reuses it, Reload reads it afresh. */
+	let readFor: string | null = null;
 	$effect(() => {
-		void api;
-		void showIgnored;
-		if (active) untrack(reloadTree);
+		const key = `${api}\0${showIgnored}`;
+		if (!active || !api || key === readFor) return;
+		readFor = key;
+		untrack(reloadTree);
 	});
 
 	function setExpanded(dir: string, open: boolean) {
@@ -742,6 +744,18 @@
 		padding: 16px 20px 32px;
 		font-size: 14px;
 		line-height: 1.6;
+	}
+	/* A document, not a reply: its headings stand out more than the transcript's. */
+	.md :global(h1) {
+		font-size: 1.45em;
+		margin-top: 4px;
+	}
+	.md :global(h2) {
+		font-size: 1.2em;
+		margin-top: 20px;
+	}
+	.md :global(h3) {
+		font-size: 1.05em;
 	}
 	.code {
 		flex: 1;
