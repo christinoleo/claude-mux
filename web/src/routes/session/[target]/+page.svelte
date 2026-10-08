@@ -51,6 +51,7 @@
 	import { PANES, PANE_KINDS, PANE_PARAMS, paneDef, panelKeyAction } from '$lib/side-panel/panes';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { panelQuery, readPanel } from '$lib/side-panel/url';
+	import type { Listing, Turn } from '$lib/side-panel/changes';
 	import {
 		INLINE_MEDIA_QUERY,
 		PHONE_MEDIA_QUERY,
@@ -280,6 +281,33 @@
 		const own = { file: path, line: line ? String(line) : null };
 		return `${$page.url.pathname}?${panelQuery($page.url.searchParams, 'files', PANE_PARAMS, own)}`;
 	}
+
+	/** Where a turn's change summary opens the Changes pane: the session source, that turn, a file. */
+	function changesLink(n: number, file: string | null): string {
+		const own = { source: 'session', turn: String(n), file };
+		return `${$page.url.pathname}?${panelQuery($page.url.searchParams, 'changes', PANE_PARAMS, own)}`;
+	}
+
+	/**
+	 * The turns that edited files, for the transcript's per-turn summaries.
+	 * Earlier turns never change, so this is read again only when a turn ends.
+	 */
+	let turnChanges = $state<{ id: string; turns: Turn[] } | null>(null);
+	const changesSessionId = $derived(currentSession?.id ?? null);
+	const turnEnded = $derived(`${currentSession?.turn_completed_at ?? 0}:${currentSession?.state === 'idle'}`);
+	$effect(() => {
+		const id = changesSessionId;
+		void turnEnded;
+		if (!id) return;
+		let stale = false;
+		fetch(`/api/sessions/${encodeURIComponent(id)}/changes?source=session`)
+			.then((res) => (res.ok ? (res.json() as Promise<Listing>) : null))
+			.then((body) => {
+				if (!stale && body) turnChanges = { id, turns: body.turns ?? [] };
+			})
+			.catch(() => {});
+		return () => (stale = true);
+	});
 
 	/** Returns whether it did anything. */
 	function toggleMaximize(): boolean {
@@ -2179,6 +2207,9 @@
 						entries={transcriptStore.entries}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
 						{fileLink}
+						turnChanges={turnChanges?.id === currentSession?.id ? turnChanges!.turns : []}
+						changesRoot={currentSession?.git_root ?? currentSession?.cwd ?? null}
+						{changesLink}
 						available={transcriptStore.available}
 						loaded={transcriptStore.receivedData}
 						sessionState={currentSession?.state ?? null}
