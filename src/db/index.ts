@@ -43,3 +43,12 @@ export {
   DEFAULT_SETTINGS,
   type Settings,
 } from "./settings-json.js";
+
+// When someone last looked at each session: the unread "Done" watermark.
+export {
+  getVisits,
+  recordVisit,
+  markUnread,
+  setVisitsPath,
+  type Visits,
+} from "./visits-json.js";

@@ -11,6 +11,7 @@ import {
 	type DeliveryInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
+import { indicatorStateOf } from '$shared/session-state.js';
 
 const savedProjectsStore = createPersisted<string[]>('claude-mux-projects', []);
 
@@ -32,6 +33,12 @@ export interface Session {
 	current_action: string | null;
 	prompt_text: string | null;
 	last_update: number;
+	/** When the user's latest prompt started a turn; in this browser's clock on the local store. */
+	turn_started_at?: number | null;
+	/** When the latest turn ended for good, in the server's clock. */
+	turn_completed_at?: number | null;
+	/** When anyone last had the session open, in the server's clock; null when nobody has. */
+	last_visited_at?: number | null;
 	pane_title?: string | null;
 	pane_alive?: boolean;
 	screenshots?: Screenshot[];
@@ -69,7 +76,8 @@ export interface Session {
 const VOLATILE_KEYS: (keyof Session)[] = [
 	'state', 'current_action', 'prompt_text', 'last_update',
 	'pane_title', 'pane_alive', 'chrome_active', 'linked_to', 'rc_url', 'display_name',
-	'draft_input', 'draft_kind', 'context_pct'
+	'draft_input', 'draft_kind', 'context_pct',
+	'turn_started_at', 'turn_completed_at', 'last_visited_at'
 ];
 
 /** Fast shallow comparison of two sessions on volatile fields + screenshots */
@@ -170,6 +178,9 @@ class SessionStore extends ReliableWebSocket {
 		if (this.clockSkew === null || Math.abs(skew - this.clockSkew) > 2000) this.clockSkew = skew;
 		for (const s of sessions) {
 			if (s.pane_activity?.started_at != null) s.pane_activity.started_at += this.clockSkew;
+			// Shown as a running count only. The completion stays in the server's
+			// clock: it is compared with the visit watermark, which is too.
+			if (s.turn_started_at != null) s.turn_started_at += this.clockSkew;
 		}
 	}
 
@@ -406,6 +417,24 @@ export function needsHelp(session: Session): boolean {
 /** Whether a session is waiting on a person: a dialog in the pane, or a worker asking on GitHub. */
 export function wantsHuman(session: Session): boolean {
 	return session.state === 'waiting' || session.state === 'permission' || needsHelp(session);
+}
+
+/**
+ * What leads the tab title: "(n) " for the live sessions waiting on a person
+ * or whose last turn finished unseen, or nothing when there are none.
+ */
+export function attentionPrefix(sessions: Session[]): string {
+	const n = sessions.filter((s) => s.pane_alive !== false && (wantsHuman(s) || indicatorStateOf(s) === 'done')).length;
+	return n > 0 ? `(${n}) ` : '';
+}
+
+/** Tell the server someone is looking at the session, or rewind it to unread. */
+export function postVisit(base: string, id: string, unread = false): void {
+	void fetch(`${base}/api/sessions/${encodeURIComponent(id)}/visit`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ unread })
+	}).catch(() => {});
 }
 
 export function findDeepestProject(path: string, projects: Iterable<string>): string | null {

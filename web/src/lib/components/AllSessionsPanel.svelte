@@ -9,12 +9,12 @@
 		getSessionDisplayName,
 		findDeepestProject,
 		wantsHuman,
-		needsHelp,
+		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
 	import { fleetStore, type Machine } from '$lib/stores/fleet.svelte';
 	import { serverStore } from '$lib/stores/servers.svelte';
-	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
+	import SessionRow from '$lib/components/SessionRow.svelte';
 	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { attachmentsStore } from '$lib/stores/attachments.svelte';
@@ -350,16 +350,11 @@
 		return machine.sessions.some((s) => s.pane_alive !== false && wantsHuman(s));
 	}
 
-	// ── time, labels ─────────────────────────────────────────────────────────
-	let now = $state(Date.now());
+	// ── labels ───────────────────────────────────────────────────────────────
 	onMount(() => {
 		fleetStore.start();
-		const tick = setInterval(() => (now = Date.now()), 30_000);
 		const unsubscribe = tmuxPanesStore.subscribe();
-		return () => {
-			clearInterval(tick);
-			unsubscribe?.();
-		};
+		return () => unsubscribe?.();
 	});
 
 	$effect(() => {
@@ -369,15 +364,6 @@
 	$effect(() => {
 		if (searchOpen) searchInput?.focus();
 	});
-
-	function ago(ts: number | undefined): string {
-		if (!ts) return '';
-		const s = Math.max(0, Math.round((now - ts) / 1000));
-		if (s < 60) return 'now';
-		if (s < 3600) return `${Math.round(s / 60)}m`;
-		if (s < 86400) return `${Math.round(s / 3600)}h`;
-		return `${Math.round(s / 86400)}d`;
-	}
 
 	function detectPaneAgent(command: string): SessionAgent | null {
 		const cmd = command.toLowerCase();
@@ -596,80 +582,30 @@
 	});
 </script>
 
-{#snippet ring(pct: number | null | undefined)}
-	{#if pct !== null && pct !== undefined}
-		<span
-			class="ctx"
-			class:warn={pct >= 70 && pct < 90}
-			class:hot={pct >= 90}
-			style="--p: {Math.min(100, Math.max(0, pct))}"
-			title="{pct}% of the context window"
-		></span>
-	{:else}
-		<span class="ctx none"></span>
-	{/if}
-{/snippet}
-
 {#snippet sessionRow(machine: Machine, row: Row)}
 	{@const s = row.session}
 	{@const isActive = machine.local && s.tmux_target === currentTarget}
-	{@const draft = machine.local && !isActive && s.tmux_target ? draftsStore.get(s.tmux_target) : ''}
-	{@const staged = machine.local && !isActive && s.tmux_target ? attachmentsStore.count(s.tmux_target) : 0}
-	{@const wants = wantsHuman(s)}
-	{@const tag = paneTag(machine, s.tmux_target)}
-	<a
+	{@const draftable = machine.local && !isActive && !!s.tmux_target}
+	<SessionRow
+		session={s}
+		title={rowTitle(row)}
+		where={rowWhere(row)}
 		href={machine.local && s.tmux_target ? `/session/${encodeURIComponent(s.tmux_target)}` : `${machine.server.url}/session/${encodeURIComponent(s.tmux_target ?? '')}`}
-		class="row"
-		class:cur={isActive || tag !== null}
-		class:orch={row.orchestrator}
-		class:worker={row.worker}
-		class:inA={tag === 'A'}
-		class:inB={tag === 'B'}
-		draggable={canDrag && s.tmux_target ? 'true' : 'false'}
+		hint={(machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`) + (canDrag ? ' · ⌥-click or drag to open side by side' : '')}
+		active={isActive}
+		tag={paneTag(machine, s.tmux_target)}
+		orchestrator={row.orchestrator}
+		worker={row.worker}
+		draft={draftable ? draftsStore.preview(s.tmux_target!) : ''}
+		staged={draftable ? attachmentsStore.count(s.tmux_target!) : 0}
+		draggable={canDrag && !!s.tmux_target}
+		onkill={machine.local && !compact ? () => killSession(machine, s) : null}
+		onmarkunread={isActive || paneTag(machine, s.tmux_target) ? null : () => postVisit(apiBase(machine), s.id, true)}
+		onclick={(e) => handleRowClick(e, machine, s)}
+		onlongpress={() => { if (machine.local) renameId = s.id; }}
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
 		ondragend={dragEnd}
-		onclick={(e) => handleRowClick(e, machine, s)}
-		use:longPress={{ onTrigger: () => { if (machine.local) renameId = s.id; } }}
-		title={(machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`) + (canDrag ? ' · ⌥-click or drag to open side by side' : '')}
-	>
-		<span class="st"><SessionStateIndicator state={s.state} size="sm" title={s.current_action} /></span>
-		<span class="name" title={s.cwd}>{rowTitle(row)}</span>
-		<span class="meta">
-			{#if tag}<span class="ptag" title="Open in pane {tag}">{tag}</span>{/if}
-			{#if s.rc_url}
-				<iconify-icon icon="mdi:cellphone-link" class="rc" title="Remote Control active"></iconify-icon>
-			{/if}
-			{#if wants}
-				<span class="pill">{needsHelp(s) ? 'needs help' : 'wants you'}</span>
-			{:else}
-				<span class="when">{ago(s.last_update)}</span>
-			{/if}
-		</span>
-		{@render ring(s.context_pct)}
-		{#if machine.local && !compact}
-			<button
-				type="button"
-				class="kill"
-				title="Kill session"
-				onclick={(e) => { e.preventDefault(); e.stopPropagation(); killSession(machine, s); }}
-			>
-				<iconify-icon icon="mdi:power"></iconify-icon>
-			</button>
-		{/if}
-		<span class="sub" class:draft={!!draft} title={draft || s.current_action || s.state}>
-			{#if staged}
-				<span class="staged" title="{staged} attachment{staged === 1 ? '' : 's'} staged"
-					><iconify-icon icon="mdi:paperclip"></iconify-icon>{staged}</span
-				>
-			{/if}
-			{#if draft}
-				<iconify-icon icon="mdi:pencil-outline"></iconify-icon>{draftsStore.preview(s.tmux_target!)}
-			{:else}
-				{s.current_action || s.state}
-			{/if}
-			{#if !draft && rowWhere(row)}<span class="path" title={s.cwd}>{rowWhere(row)}</span>{/if}
-		</span>
-	</a>
+	/>
 {/snippet}
 
 {#snippet paneRow(machine: Machine, pane: TmuxPane)}
@@ -678,7 +614,7 @@
 	{@const meta = detected ? AGENTS[detected] : null}
 	<a
 		href="/session/{encodeURIComponent(pane.target)}"
-		class="row tmux"
+		class="row"
 		class:cur={isActive}
 		draggable={canDrag ? 'true' : 'false'}
 		ondragstart={(e) => dragStart(e, machine, pane.target)}
@@ -1310,13 +1246,13 @@
 		}
 	}
 
-	/* ── session row ────────────────────────────────────────── */
+	/* ── tmux pane row (session rows draw themselves: SessionRow) ── */
 	.row {
 		display: grid;
 		grid-template-columns: 16px 1fr auto 14px;
 		column-gap: 8px;
 		align-items: center;
-		padding: 6px 7px;
+		padding: 5px 7px;
 		border-radius: 9px;
 		color: var(--text);
 		text-decoration: none;
@@ -1342,40 +1278,11 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-weight: 500;
 	}
 	.row .name.mono {
 		font-family: var(--font-mono);
-		font-weight: 400;
 		color: var(--muted);
 		font-size: 12px;
-	}
-	.row.orch .name {
-		color: var(--muted);
-	}
-	/* A maestro worker hangs off the session running its daemon, on a thread
-	   drawn from the master's status column. */
-	.row.worker {
-		margin-left: 15px;
-	}
-	.row.worker::before {
-		content: '';
-		position: absolute;
-		left: -7px;
-		top: -2px;
-		bottom: -2px;
-		width: 1px;
-		background: var(--line);
-	}
-	.path {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: var(--dim);
-		background: var(--surface-3);
-		border-radius: 4px;
-		padding: 0 5px;
-		margin-left: 6px;
-		flex-shrink: 0;
 	}
 	.row .meta {
 		display: flex;
@@ -1388,37 +1295,6 @@
 		color: var(--dim);
 		white-space: nowrap;
 	}
-	/* Remote Control: reachable from the account's other sessions and the
-	   phone. Indigo, the colour the app keeps for "connected elsewhere". */
-	.row .rc {
-		font-size: 13px;
-		color: #818cf8;
-	}
-	/* Which pane of a split the row is open in. A is amber, the focus colour;
-	   B is indigo, the "elsewhere" colour, so the two never read alike. */
-	.row.inA {
-		box-shadow: inset 2px 0 0 var(--amber);
-	}
-	.row.inB {
-		box-shadow: inset 2px 0 0 #818cf8;
-	}
-	.ptag {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		font-weight: 600;
-		border: 1px solid var(--line);
-		border-radius: 4px;
-		padding: 0 4px;
-		color: var(--dim);
-	}
-	.row.inA .ptag {
-		color: var(--amber);
-		border-color: #5a4310;
-	}
-	.row.inB .ptag {
-		color: #818cf8;
-		border-color: #3a3a6a;
-	}
 	.pill {
 		font-size: 10.5px;
 		font-weight: 500;
@@ -1428,100 +1304,9 @@
 		padding: 1px 7px;
 		white-space: nowrap;
 	}
-	.row .sub {
-		grid-column: 2 / 5;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-family: var(--font-mono);
-		font-size: 11px;
-		color: var(--dim);
-		margin-top: 1px;
-	}
-	.row .sub.draft {
-		color: var(--amber);
-	}
-	.row .sub iconify-icon {
-		font-size: 11px;
-		vertical-align: -1px;
-		margin-right: 3px;
-	}
-	.row .sub .staged {
-		color: var(--amber);
-		margin-right: 6px;
-	}
-	.row .sub .staged iconify-icon {
-		margin-right: 1px;
-	}
-	.row.tmux {
-		padding-top: 5px;
-		padding-bottom: 5px;
-	}
-	.row.tmux .name {
-		font-weight: 400;
-	}
-	/* the kill switch sits over the row's right edge, only when pointed at */
-	.kill {
-		position: absolute;
-		right: 6px;
-		top: 4px;
-		width: 22px;
-		height: 22px;
-		display: grid;
-		place-items: center;
-		border: 0;
-		border-radius: 6px;
-		background: var(--surface-3);
-		color: var(--dim);
-		font-size: 13px;
-		cursor: pointer;
-		opacity: 0;
-	}
-	.row:hover .kill {
-		opacity: 1;
-	}
-	.kill:hover {
-		color: #fca5a5;
-	}
-	@media (hover: none) {
-		.kill {
-			display: none;
-		}
-	}
-
-	/* context ring */
 	.ctx {
 		width: 14px;
 		height: 14px;
-		border-radius: 50%;
-		position: relative;
-		background: conic-gradient(var(--c, var(--green)) calc(var(--p) * 1%), var(--surface-3) 0);
-	}
-	.ctx::after {
-		content: '';
-		position: absolute;
-		inset: 3.5px;
-		border-radius: 50%;
-		background: var(--surface);
-	}
-	.row:hover .ctx::after {
-		background: var(--surface-2);
-	}
-	.row.cur .ctx::after {
-		background: var(--surface-3);
-	}
-	.ctx.warn {
-		--c: var(--amber);
-	}
-	.ctx.hot {
-		--c: #ef4444;
-	}
-	.ctx.none {
-		background: transparent;
-	}
-	.ctx.none::after {
-		display: none;
 	}
 
 	/* closed sessions, folded */

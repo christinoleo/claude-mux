@@ -13,6 +13,9 @@
 		{ sm: { dot: 7, icon: 13 }, md: { dot: 8, icon: 15 }, lg: { dot: 12, icon: 18 } }[size]
 	);
 	const label = $derived(title || visual.label);
+	// Start every pulse at the same point of the wall clock's cycle (1.6s, as
+	// in app.css), so dots that start pulsing at different moments still blink together.
+	const phase = $derived(visual.pulse ? -(Date.now() % 1600) : 0);
 </script>
 
 {#if visual.icon}
@@ -28,7 +31,7 @@
 	<span
 		class="state-dot"
 		class:pulse-dot={visual.pulse}
-		style="background: {visual.color}; width: {px.dot}px; height: {px.dot}px;"
+		style="background: {visual.color}; width: {px.dot}px; height: {px.dot}px; animation-delay: {phase}ms;"
 		role="img"
 		aria-label={label}
 		{title}

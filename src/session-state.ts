@@ -10,8 +10,11 @@
  */
 import type { SessionState } from "./db/index.js";
 
-/** A row can also be in states Claude Code never reports. */
-export type IndicatorState = SessionState | "dead" | "plain";
+/**
+ * A row can also be in states Claude Code never reports: `done` is an idle
+ * session whose last turn ended after anyone last looked (see `isUnread`).
+ */
+export type IndicatorState = SessionState | "done" | "dead" | "plain";
 
 export interface SessionStateVisual {
   /** Iconify name, or null when the state is drawn as a dot. */
@@ -45,6 +48,15 @@ export const SESSION_STATE_VISUALS: Record<IndicatorState, SessionStateVisual> =
     pulse: false,
     label: "Waiting for you",
   },
+  // The one idle with colour: a turn finished while nobody was looking.
+  done: {
+    icon: "mdi:check-circle",
+    color: "#34d399",
+    ink: "green",
+    emoji: "✅",
+    pulse: false,
+    label: "Done",
+  },
   // Idle recedes on purpose: amber is reserved for the states that want a human.
   idle: { icon: null, color: "#78716c", ink: "gray", emoji: "💤", pulse: false, label: "Idle" },
   dead: { icon: null, color: "#555", ink: "gray", emoji: "⚫", pulse: false, label: "Pane closed" },
@@ -55,4 +67,37 @@ export function sessionStateVisual(state: IndicatorState): SessionStateVisual {
   // Session JSON on disk can carry a state this build doesn't know — an older
   // hook, a hand-edited file. Render the row quietly rather than throwing.
   return SESSION_STATE_VISUALS[state] ?? SESSION_STATE_VISUALS.idle;
+}
+
+/** The fields the unread "Done" is worked out from. */
+export interface TurnWatermark {
+  state: SessionState;
+  /** Stamped by the hook when a turn ends for good. */
+  turn_completed_at?: number | null;
+  /** The server's visits watermark; null when nobody ever opened the session. */
+  last_visited_at?: number | null;
+}
+
+/**
+ * A turn ended after the last time anyone looked. A session never visited
+ * counts as read — otherwise every session alive when this shipped, and every
+ * worker nobody opens, would light up at once.
+ */
+export function isUnread(s: TurnWatermark): boolean {
+  if (!s.turn_completed_at || !s.last_visited_at) return false;
+  return s.turn_completed_at > s.last_visited_at;
+}
+
+/** What a live session's indicator shows: its state, or `done` for an unread idle. */
+export function indicatorStateOf(s: TurnWatermark): IndicatorState {
+  return s.state === "idle" && isUnread(s) ? "done" : s.state;
+}
+
+/**
+ * A row that needs nothing from anyone steps back: a dimmer title, so working,
+ * asking and done sessions are what the eye lands on. Adapted from t3code's
+ * `shouldRecedeSidebarThread` (MIT, © T3 Tools Inc.).
+ */
+export function recedes(state: IndicatorState): boolean {
+  return state === "idle" || state === "dead" || state === "plain";
 }

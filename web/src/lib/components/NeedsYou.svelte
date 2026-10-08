@@ -9,7 +9,8 @@
 	 * first kind and cannot show the other two, so this card gathers them in
 	 * the order they started waiting: the longest wait is the one at the top.
 	 */
-	import { onMount } from 'svelte';
+	import { formatAgo } from '$lib/format';
+	import { clock } from '$lib/stores/clock.svelte';
 	import type { Machine } from '$lib/stores/fleet.svelte';
 	import { getSessionDisplayName, needsHelp, type Session } from '$lib/stores/sessions.svelte';
 	import type { InboxTicket } from '$shared/types/ws-messages.js';
@@ -75,20 +76,6 @@
 
 	const multiHost = $derived(machines.length > 1);
 
-	let now = $state(Date.now());
-	onMount(() => {
-		const tick = setInterval(() => (now = Date.now()), 30_000);
-		return () => clearInterval(tick);
-	});
-
-	function waited(ts: number): string {
-		const s = Math.max(0, Math.round((now - ts) / 1000));
-		if (s < 60) return 'now';
-		if (s < 3600) return `${Math.round(s / 60)}m`;
-		if (s < 86400) return `${Math.round(s / 3600)}h`;
-		return `${Math.round(s / 86400)}d`;
-	}
-
 	/** What the session is asking, in the fewest words the poll has. */
 	function asking(s: Session): string {
 		if (s.state === 'waiting') return s.pane_choice?.question || s.current_action || 'Asking you a question';
@@ -130,7 +117,7 @@
 				>
 					<span class="ic"><SessionStateIndicator state={s.state} size="sm" /></span>
 					<span class="name">{getSessionDisplayName(s)}</span>
-					<span class="when">{waited(item.since)}</span>
+					<span class="when">{formatAgo(item.since, clock.now)}</span>
 					<span class="sub">
 						{asking(s)}{#if multiHost}<span class="host">{item.machine.server.hostname}</span>{/if}
 					</span>
@@ -140,7 +127,7 @@
 				<button type="button" class="it" onclick={() => openHelp(item)} title={t.url}>
 					<span class="ic help"><iconify-icon icon={KIND_ICON['needs-help']}></iconify-icon></span>
 					<span class="name">{item.session && needsHelp(item.session) ? getSessionDisplayName(item.session) : t.title}</span>
-					<span class="when">{waited(item.since)}</span>
+					<span class="when">{formatAgo(item.since, clock.now)}</span>
 					<span class="sub note">
 						<span class="num">#{t.number}</span>{t.note ?? 'Worker asked for a decision'}
 					</span>

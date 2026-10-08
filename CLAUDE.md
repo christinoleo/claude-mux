@@ -145,7 +145,7 @@ footer below the box, or right-aligned just above the box in the fullscreen
 layout), `pane_activity`, and `queue` (everything claude-mux's own send queue
 holds for the pane, each item with a stable `id` that the queue-edit and
 `/steer` routes address it by; attachments ride beside the text and are
-folded in only on delivery), and `delivered` (what the queue and steers handed
+folded in only on delivery), `last_visited_at` (see Session States), and `delivered` (what the queue and steers handed
 the pane lately, which the transcript matches to label a turn "Queued" or
 "Steer") are live-only: they
 ride the WebSocket broadcast and are never written to the session JSON. They are
@@ -211,8 +211,9 @@ Claude Code events → stdin → hook script → JSON files (~/.claude-mux/sessi
 
 | State | Indicator | Description |
 |-------|-----------|-------------|
-| `idle` | Dim grey dot (#78716c) | Ready for new task |
-| `busy` | Green pulsing dot (#34d399) | Working (thinking, tool use) |
+| `idle` | Dim grey dot (#78716c) | Ready for new task; the row recedes |
+| `done` | Emerald `mdi:check-circle` (#34d399) | Idle, and the last turn finished after anyone last looked |
+| `busy` | Green pulsing dot (#34d399) | Working (thinking, tool use); the row counts the turn up |
 | `waiting` | Amber `mdi:chat-question-outline` (#fbbf24) | Asking user a question |
 | `permission` | Amber `mdi:shield-alert-outline` (#fbbf24) | Needs permission to proceed |
 
@@ -222,7 +223,22 @@ web sidebar, the transcript's live status row and the session header (all via
 `SessionStateIndicator.svelte`), and the Ink TUI. It also covers two states the
 hooks never report: `dead` (pane closed) and `plain` (a non-Claude tmux pane).
 Add a state there, not in a component. Amber is reserved for the states that
-want a human — idle deliberately recedes.
+want a human — idle deliberately recedes, and `recedes()` dims its row's title.
+The busy dots pulse in steps, all in phase off the wall clock.
+
+`done` is the unread watermark. The hook stamps `turn_started_at` on each
+prompt and `turn_completed_at` on a Stop that really ends the turn (not one
+paused on a background agent). The server keeps when anyone last had each
+session open in `~/.claude-mux/visits.json` (`src/db/visits-json.ts`; the hook
+never touches it) and rides it on the broadcast as the live field
+`last_visited_at`. The session page posts `/api/sessions/<id>/visit` on open
+and whenever a turn finishes while it is visible; the sidebar's "Mark unread"
+posts `{ unread: true }`, which rewinds the watermark to just before the turn
+ended. `isUnread()` compares the two, and a session nobody ever opened counts
+as read. Both tab titles count the sessions that want a person or are done.
+
+The sidebar row is `SessionRow.svelte`: a `meta` slot on line 1 after the time,
+for badges that come later, and a `children` snippet for rows nested under it.
 
 ## Project Structure
 
