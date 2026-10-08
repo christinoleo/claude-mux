@@ -29,7 +29,6 @@
 	import { drawer } from '$lib/stores/drawer.svelte';
 	import Hint from '$lib/components/Hint.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { keysForOptionMove, keysForOptionPick } from '$shared/tmux/answer-keys.js';
 	import { modelDisplayName } from '$shared/claude/model-name.js';
 	import { serverStore } from '$lib/stores/servers.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
@@ -313,9 +312,6 @@
 		if (!hasDraft) {
 			return suggestion != null ? ('accept' as const) : ('enter' as const);
 		}
-		// A dialog's text row is open: the draft is its answer, not a prompt to
-		// queue behind the turn — queued, it would land after the dialog closed.
-		if (answering) return paneChoice?.noting ? ('note' as const) : ('answer' as const);
 		if (editing) return 'save' as const;
 		if (isIdle) return 'send' as const;
 		// Holding Ctrl/⌘ turns the button into what Ctrl/⌘+Enter does.
@@ -329,9 +325,7 @@
 		send: { label: 'Send', icon: 'mdi:arrow-up' },
 		queue: { label: 'Queue', icon: 'mdi:playlist-plus' },
 		steer: { label: 'Steer', icon: 'mdi:arrow-right-top' },
-		save: { label: 'Save', icon: 'mdi:content-save-outline' },
-		answer: { label: 'Answer', icon: 'mdi:message-reply-text-outline' },
-		note: { label: 'Save note', icon: 'mdi:note-check-outline' }
+		save: { label: 'Save', icon: 'mdi:content-save-outline' }
 	} as const;
 	/** An armed modifier names the sequence it will send, not the verb. */
 	const actionLabel = $derived(
@@ -408,70 +402,11 @@
 	const paneChoice = $derived(currentSession?.pane_choice ?? null);
 
 	/**
-	 * The dialog's "Type something" row is open for typing. The field stays
-	 * put then, because what you type is the answer, and the rows step aside.
+	 * The pane has a dialog's text field open — the free-text row, or an
+	 * option's notes. An empty Enter there would decline the question, so
+	 * the composer leaves it to the card's own field.
 	 */
-	/**
-	 * The free-text row was just picked here. Highlighting it is what opens
-	 * it, and the pane will say so on its next tick — but a tap that seems to
-	 * do nothing gets tapped again, and a second Enter on the open, empty row
-	 * declines the whole question. So the field takes over at once, and this
-	 * clears when the pane confirms, the dialog closes, or enough time passes.
-	 */
-	let pendingAnswer = $state(false);
-	let pendingAnswerTimer: ReturnType<typeof setTimeout> | null = null;
-	const PENDING_ANSWER_MS = 4000;
-	function expectTyping() {
-		pendingAnswer = true;
-		if (pendingAnswerTimer) clearTimeout(pendingAnswerTimer);
-		pendingAnswerTimer = setTimeout(() => {
-			pendingAnswerTimer = null;
-			pendingAnswer = false;
-		}, PENDING_ANSWER_MS);
-	}
-	$effect(() => {
-		if (pendingAnswer && (paneChoice === null || paneChoice.typing === true)) {
-			pendingAnswer = false;
-			if (pendingAnswerTimer) {
-				clearTimeout(pendingAnswerTimer);
-				pendingAnswerTimer = null;
-			}
-		}
-	});
-	const answering = $derived(paneChoice?.typing === true || pendingAnswer);
-
-	/**
-	 * The numbered options the pane is offering, standing in for the field.
-	 * A draft in the field means you are writing rather than choosing.
-	 */
-	const choice = $derived(!hasDraft && !answering ? paneChoice : null);
-
-	/** A hint segment naming a key and what it does: "s to use this session only". */
-	const KEY_SEGMENT = /^(\S+) to (.+)$/;
-
-	/** Keys the chooser already drives with its rows and its own buttons. */
-	const DRIVEN_KEYS = new Set(['Enter', 'Esc', '↑/↓', '←/→', 'ctrl+g']);
-
-	/**
-	 * The keys a dialog answers to beyond picking a row — the model picker's
-	 * "s to use this session only", a question's "n to add notes" — read off
-	 * the hint line the dialog draws under itself, so a dialog this page has
-	 * never seen still gets its extra keys offered as buttons.
-	 */
-	function extraKeys(keys: string | undefined): { key: string; label: string }[] {
-		if (!keys) return [];
-		const out: { key: string; label: string }[] = [];
-		for (const segment of keys.split('·')) {
-			const m = segment.trim().match(KEY_SEGMENT);
-			if (!m || DRIVEN_KEYS.has(m[1])) continue;
-			if (!/^[a-z]$/i.test(m[1]) && m[1] !== 'Tab' && m[1] !== 'Space') continue;
-			out.push({ key: m[1], label: m[2] });
-		}
-		return out;
-	}
-
-	/** A note the dialog adjusts with the horizontal arrows. */
-	const ARROW_NOTE = /←\/→/;
+	const paneTyping = $derived(paneChoice?.typing === true || paneChoice?.noting === true);
 
 	/** Anything drawn over the page that answers to the keyboard itself. */
 	const overlayOpen = $derived(
@@ -483,16 +418,13 @@
 	const TYPING_TAGS = /^(INPUT|TEXTAREA|SELECT)$/;
 
 	/**
-	 * Answer the dialog from the keyboard while the chooser stands in for the
-	 * composer.
-	 *
-	 * The field is not rendered then, so nothing else is listening: Enter takes
-	 * the row the pane has highlighted, Escape declines, and the arrows walk it
-	 * — the same keys the dialog answers to in the terminal. Returns whether the
-	 * key was spent here.
+	 * Answer the pane's dialog from the keyboard while nothing else wants the
+	 * keys: no draft, and focus on no field. Enter takes the row the pane has
+	 * highlighted, Escape declines, and the arrows walk it — the same keys the
+	 * dialog answers to in the terminal. Returns whether the key was spent here.
 	 */
 	function handleChooserKeys(e: KeyboardEvent): boolean {
-		if (!choice || overlayOpen) return false;
+		if (!paneChoice || hasDraft || paneTyping || overlayOpen) return false;
 		if (e.ctrlKey || e.metaKey || e.altKey) return false;
 		const el = e.target as HTMLElement | null;
 		if (el?.isContentEditable || TYPING_TAGS.test(el?.tagName ?? '')) return false;
@@ -500,54 +432,19 @@
 		if (!key) return false;
 		e.preventDefault();
 		// Enter on the highlighted free-text row would decline the question:
-		// the row is already open, so the field takes over instead.
-		if (key === 'Enter' && choice.options.find((o) => o.selected)?.text) {
-			expectTyping();
+		// the card's field is where its answer goes.
+		if (key === 'Enter' && paneChoice.options.find((o) => o.selected)?.text) {
+			focusDialogField();
 			return true;
 		}
 		void sendKeys(key);
 		return true;
 	}
 
-	/**
-	 * Move Claude Code's own highlight to the row you tapped, then submit.
-	 *
-	 * Walks with arrows from the row the pane says is selected rather than
-	 * typing the number, so it works whether or not the dialog takes digits.
-	 */
-	async function pickOption(n: number) {
-		const options = choice?.options ?? [];
-		const from = options.findIndex((o) => o.selected);
-		const to = options.findIndex((o) => o.n === n);
-		// The free-text row opens on the highlight alone; Enter on it while it
-		// is still empty declines the question, so the arrows go without it.
-		if (options[to]?.text) {
-			const move = keysForOptionMove(from, to, options.length);
-			if (move === null) return;
-			expectTyping();
-			if (move) await sendKeys(move);
-			return;
-		}
-		const keys = keysForOptionPick(from, to, options.length);
-		if (keys) await sendKeys(keys);
+	/** Hands the keyboard to the dialog card's own text field. */
+	function focusDialogField() {
+		outputElement?.querySelector<HTMLInputElement>('[data-dialog-input]')?.focus();
 	}
-
-	/**
-	 * Move Claude Code's highlight to a row without picking it — a long press.
-	 *
-	 * Some dialogs hang a setting off the highlighted row: the model picker's
-	 * effort applies to the highlighted model, and a question's notes open for
-	 * the highlighted option. Picking would close the dialog before either.
-	 */
-	async function highlightOption(n: number) {
-		const options = choice?.options ?? [];
-		const to = options.findIndex((o) => o.n === n);
-		const keys = keysForOptionMove(options.findIndex((o) => o.selected), to, options.length);
-		if (keys === null) return;
-		if (options[to]?.text) expectTyping();
-		if (keys) await sendKeys(keys);
-	}
-
 
 	/**
 	 * The rare half of the old page header, folded into the session sheet.
@@ -1005,6 +902,16 @@
 		});
 	}
 
+	/** Types text into the pane as it is, with no Enter: a dialog's own text field. */
+	async function sendPaneText(text: string) {
+		if (!target) return;
+		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ text, raw: true })
+		});
+	}
+
 	// Send button with empty input: single tap → Enter, double tap → Tab+Enter
 	// (accept suggestion). The single Enter is delayed briefly so a second tap
 	// can upgrade it; keyboard Enter stays immediate (see handleKeydown).
@@ -1016,8 +923,8 @@
 			await sendText();
 			return;
 		}
-		// Nothing typed into the dialog's text row: a bare Enter would decline it.
-		if (answering) return;
+		// The dialog's text field is open: a bare Enter would decline it.
+		if (paneTyping) return focusDialogField();
 		if (emptyEnterTimer) {
 			clearTimeout(emptyEnterTimer);
 			emptyEnterTimer = null;
@@ -1030,49 +937,18 @@
 		}, DOUBLE_TAP_MS);
 	}
 
-	/**
-	 * Type the draft into the dialog's open text row.
-	 *
-	 * A single-select question takes the row as its answer on Enter, so that
-	 * goes with it. A multi-select toggles the row's box on Enter instead, and
-	 * the answer is sent from the Submit tab — the strip's Done button — so
-	 * the text is left where it is.
-	 */
-	async function sendAnswerText() {
-		if (!target) return;
-		const text = textInput;
-		const multi = paneChoice?.multi === true;
-		const noting = paneChoice?.noting === true;
-		textInput = '';
-		if (textareaElement) textareaElement.style.height = 'auto';
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text, raw: true })
-		});
-		// A note is closed with Escape, which keeps it on the option and
-		// brings the rows back to pick from — Enter would submit the dialog
-		// with the note and no option.
-		if (noting) await sendKeys('Escape');
-		else if (!multi) await sendKeys('Enter');
-	}
-
 	async function sendText() {
 		if (!target) return;
 		if (!canSend) return;
-		if (answering && textInput.trim()) {
-			await sendAnswerText();
-			return;
-		}
 		if (editing) {
 			await saveEdit();
 			return;
 		}
 		const paths = readyPaths;
 		if (!textInput.trim() && paths.length === 0) {
-			// Empty input: just send Enter key — unless the dialog's text row is
-			// open, where an empty Enter declines the question.
-			if (answering) return;
+			// Empty input: just send Enter key — unless the dialog's text field
+			// is open, where an empty Enter declines the question.
+			if (paneTyping) return focusDialogField();
 			await sendKeys('Enter');
 			return;
 		}
@@ -1425,7 +1301,7 @@
 	}
 	const modArmed = $derived(ctrlCount > 0 || altCount > 0);
 	/** Steer is offered as its own control whenever there is a turn to steer into. */
-	const canSteer = $derived(isBusy && hasDraft && !answering && !editing && !modArmed);
+	const canSteer = $derived(isBusy && hasDraft && !editing && !modArmed);
 
 
 	/** One line, and it never doubles: the most important thing right now. */
@@ -1440,7 +1316,7 @@
 		const state = currentSession?.state ?? 'idle';
 		const label = sessionStateVisual(state).label.toLowerCase();
 		if (state === 'permission') return label;
-		if (state === 'waiting') return choice?.question ?? label;
+		if (state === 'waiting') return paneChoice?.question ?? label;
 		const parts: string[] = [];
 		if (state === 'busy') parts.push(currentSession?.current_action || label);
 		else parts.push(statusText || label);
@@ -2032,13 +1908,7 @@
 			<textarea
 			bind:this={textareaElement}
 			bind:value={textInput}
-			placeholder={modArmed
-				? 'Type keys, Enter to send as mod sequence…'
-				: answering
-					? paneChoice?.noting
-						? 'Type a note…'
-						: 'Type your answer…'
-					: 'Type a message...'}
+			placeholder={modArmed ? 'Type keys, Enter to send as mod sequence…' : 'Type a message...'}
 			rows={1}
 			onkeydown={handleKeydown}
 			onkeyup={(e) => { handleKeyup(e); syncCaret(); }}
@@ -2103,10 +1973,10 @@
 						delivered={currentSession?.delivered ?? []}
 						{suggestion}
 						onAcceptSuggestion={() => void acceptSuggestion()}
-						choiceOffered={choice !== null || answering}
+						{paneChoice}
 						subagents={transcriptStore.subagentsByTask}
-						onSendKeys={(keys) => void sendKeys(keys)}
-						onOpenTerminal={() => toggleView()}
+						onSendKeys={sendKeys}
+						onSendPaneText={sendPaneText}
 						olderCount={transcriptStore.firstIndex}
 						loadingEarlier={transcriptStore.loadingEarlier}
 						onLoadEarlier={() => holdPlaceThrough(transcriptStore.loadEarlier())}
@@ -2204,221 +2074,85 @@
 									/>
 								</div>
 							{/if}
-							{#if choice}
-								<div class="optlist">
-									{#if choice.question}<p class="question">{choice.question}</p>{/if}
-									{#each choice.options as option (option.n)}
-										<button
-											type="button"
-											class="optrow"
-											class:sel={option.selected}
-											title="Tap to pick · hold to highlight only"
-											onclick={() => void pickOption(option.n)}
-											use:longPress={{ onTrigger: () => void highlightOption(option.n) }}
-										>
-											{#if option.checked === undefined}
-												<u>{option.n}</u>
-											{:else}
-												<iconify-icon
-													class="optbox"
-													class:on={option.checked}
-													icon={option.checked
-														? 'mdi:checkbox-marked'
-														: 'mdi:checkbox-blank-outline'}
-												></iconify-icon>
-											{/if}
-											<span class="optlabel">
-												{option.label}
-												{#if option.hint}<em>{option.hint}</em>{/if}
-											</span>
-										</button>
-									{/each}
-									<!-- What the dialog prints for itself under the rows — the model
-									     picker's effort setting, which the horizontal arrows adjust. -->
-									{#each choice.notes ?? [] as note (note)}
-										<p class="optnote">
-											<span>{note}</span>
-											{#if ARROW_NOTE.test(note)}
-												<button
-													type="button"
-													class="optarrow"
-													title="Left"
-													onclick={() => void sendKeys('Left')}
-												>
-													<iconify-icon icon="mdi:chevron-left"></iconify-icon>
-												</button>
-												<button
-													type="button"
-													class="optarrow"
-													title="Right"
-													onclick={() => void sendKeys('Right')}
-												>
-													<iconify-icon icon="mdi:chevron-right"></iconify-icon>
-												</button>
-											{/if}
-										</p>
-									{/each}
-									<div class="optextra">
-										<!-- Move the highlight without picking: what a setting under the
-										     rows, or a note, applies to. A held row does the same. -->
-										<button
-											type="button"
-											class="optkey optnav"
-											title="Highlight the row above"
-											onclick={() => void sendKeys('Up')}
-										>
-											<iconify-icon icon="mdi:chevron-up"></iconify-icon>
-										</button>
-										<button
-											type="button"
-											class="optkey optnav"
-											title="Highlight the row below"
-											onclick={() => void sendKeys('Down')}
-										>
-											<iconify-icon icon="mdi:chevron-down"></iconify-icon>
-										</button>
-										{#if choice.multi}
-											<!-- Ticking a box leaves the dialog open; the answer goes
-											     in from a tab of its own, one key to the right. -->
-											<button
-												type="button"
-												class="optdone"
-												onclick={() => void sendKeys('Right')}
-											>
-												<iconify-icon icon="mdi:check-all"></iconify-icon>Done — review and submit
-											</button>
-										{/if}
-										<!-- The other keys the dialog names for itself, as buttons. -->
-										{#each extraKeys(choice.keys) as extra (extra.key)}
-											<button
-												type="button"
-												class="optkey"
-												onclick={() => void sendKeys(extra.key)}
-											>
-												<kbd>{extra.key}</kbd>{extra.label}
-											</button>
-										{/each}
-									</div>
-									<p class="optkeys">{choice.keys ?? '↑↓ move · Enter confirm · Esc cancel'}</p>
-								</div>
-							{:else}
-								{#if answering && paneChoice}
-									<!-- The dialog's text row is open: the field below is its
-									     answer. Up steps back onto the rows, keeping the text. -->
-									<div class="answering">
-										<iconify-icon icon={paneChoice.noting ? 'mdi:note-edit-outline' : 'mdi:form-textbox'}
+							{#if hasAttachments}
+								<Popover.Root bind:open={attachStackOpen}>
+									<Popover.Trigger
+										class="tattach"
+										title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
+									>
+										<iconify-icon
+											icon={anyUploading ? 'mdi:loading' : 'mdi:paperclip'}
+											class={anyUploading ? 'attach-spin' : ''}
 										></iconify-icon>
-										<span class="atext">
-											{#if paneChoice.noting}
-												Note on: {paneChoice.options.find((o) => o.selected)?.label ??
-													paneChoice.question ??
-													'this option'}
-											{:else}
-												{paneChoice.question ?? 'Type your answer'}
-											{/if}
-										</span>
-										{#if paneChoice.multi && !paneChoice.noting}
-											<button
-												type="button"
-												class="optdone"
-												title="Leave the row and open the Submit tab"
-												onclick={() => void sendKeys('Up Right')}
-											>
-												<iconify-icon icon="mdi:check-all"></iconify-icon>Done
-											</button>
-										{/if}
-										<!-- A notes field closes with Escape and keeps the note; a text
-										     row is left with Up, which keeps its text too. -->
-										<button
-											type="button"
-											class="optkey"
-											title="Back to the options"
-											onclick={() => void sendKeys(paneChoice?.noting ? 'Escape' : 'Up')}
-										>
-											<iconify-icon icon="mdi:format-list-bulleted"></iconify-icon>Options
-										</button>
-									</div>
-								{/if}
-								{#if hasAttachments}
-									<Popover.Root bind:open={attachStackOpen}>
-										<Popover.Trigger
-											class="tattach"
-											title={`${attachments.length} attachment${attachments.length === 1 ? '' : 's'}`}
-										>
-											<iconify-icon
-												icon={anyUploading ? 'mdi:loading' : 'mdi:paperclip'}
-												class={anyUploading ? 'attach-spin' : ''}
-											></iconify-icon>
-											<span class:attach-failed={anyFailed}>{attachments.length}</span>
-										</Popover.Trigger>
-										<Popover.Content
-											side="top"
-											align="start"
-											class="w-72 p-2 bg-[#1a1a1a] border-[#333]"
-										>
-											<div class="attach-list">
-												{#each attachments as att (att.localId)}
-													<div
-														class="attach-item"
-														class:attach-item-failed={att.status === 'failed'}
-														title={att.status === 'failed' ? `Upload failed: ${att.error}` : att.name}
-													>
-														{#if att.thumb}
-															<img class="attach-item-thumb" src={att.thumb} alt="" />
-														{:else}
-															<span class="attach-item-thumb attach-item-file">
-																<iconify-icon icon="mdi:file-outline"></iconify-icon>
-															</span>
-														{/if}
-														<span class="attach-item-name">{att.name}</span>
-														{#if att.status === 'uploading'}
-															<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
-														{:else if att.status === 'failed'}
-															<button
-																type="button"
-																class="attach-item-remove"
-																title="Retry"
-																aria-label={`Retry ${att.name}`}
-																onclick={() => retryAttachment(att.localId)}
-															>
-																<iconify-icon icon="mdi:refresh"></iconify-icon>
-															</button>
-														{/if}
+										<span class:attach-failed={anyFailed}>{attachments.length}</span>
+									</Popover.Trigger>
+									<Popover.Content
+										side="top"
+										align="start"
+										class="w-72 p-2 bg-[#1a1a1a] border-[#333]"
+									>
+										<div class="attach-list">
+											{#each attachments as att (att.localId)}
+												<div
+													class="attach-item"
+													class:attach-item-failed={att.status === 'failed'}
+													title={att.status === 'failed' ? `Upload failed: ${att.error}` : att.name}
+												>
+													{#if att.thumb}
+														<img class="attach-item-thumb" src={att.thumb} alt="" />
+													{:else}
+														<span class="attach-item-thumb attach-item-file">
+															<iconify-icon icon="mdi:file-outline"></iconify-icon>
+														</span>
+													{/if}
+													<span class="attach-item-name">{att.name}</span>
+													{#if att.status === 'uploading'}
+														<iconify-icon class="attach-spin" icon="mdi:loading"></iconify-icon>
+													{:else if att.status === 'failed'}
 														<button
 															type="button"
 															class="attach-item-remove"
-															title="Remove"
-															aria-label={`Remove ${att.name}`}
-															onclick={() => removeAttachment(att.localId)}
+															title="Retry"
+															aria-label={`Retry ${att.name}`}
+															onclick={() => retryAttachment(att.localId)}
 														>
-															<iconify-icon icon="mdi:close"></iconify-icon>
+															<iconify-icon icon="mdi:refresh"></iconify-icon>
 														</button>
-													</div>
-												{/each}
-											</div>
-											{#if attachments.length > 1}
-												<button type="button" class="attach-clear" onclick={() => attachmentsStore.clear(target)}>
-													Remove all
-												</button>
-											{/if}
-										</Popover.Content>
-									</Popover.Root>
-								{/if}
-								{#if editing?.target === target}
-									<div class="editbar">
-										<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
-										<span>Editing a queued message. Enter saves it in place.</span>
-										<button type="button" onclick={cancelEdit}>Cancel</button>
-									</div>
-								{:else if editNotice}
-									<div class="editbar notice" role="status">
-										<iconify-icon icon="mdi:information-outline"></iconify-icon>
-										<span>{editNotice}</span>
-										<button type="button" onclick={() => (editNotice = null)}>Dismiss</button>
-									</div>
-								{/if}
-								{@render composerField()}
+													{/if}
+													<button
+														type="button"
+														class="attach-item-remove"
+														title="Remove"
+														aria-label={`Remove ${att.name}`}
+														onclick={() => removeAttachment(att.localId)}
+													>
+														<iconify-icon icon="mdi:close"></iconify-icon>
+													</button>
+												</div>
+											{/each}
+										</div>
+										{#if attachments.length > 1}
+											<button type="button" class="attach-clear" onclick={() => attachmentsStore.clear(target)}>
+												Remove all
+											</button>
+										{/if}
+									</Popover.Content>
+								</Popover.Root>
 							{/if}
+							{#if editing?.target === target}
+								<div class="editbar">
+									<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
+									<span>Editing a queued message. Enter saves it in place.</span>
+									<button type="button" onclick={cancelEdit}>Cancel</button>
+								</div>
+							{:else if editNotice}
+								<div class="editbar notice" role="status">
+									<iconify-icon icon="mdi:information-outline"></iconify-icon>
+									<span>{editNotice}</span>
+									<button type="button" onclick={() => (editNotice = null)}>Dismiss</button>
+								</div>
+							{/if}
+							{@render composerField()}
 						</div>
 
 						<!-- lane 2 — the footer, whose left edge never moves -->
@@ -3165,8 +2899,6 @@
 		position: relative;
 		padding: 8px 4px 0 13px;
 		display: flex;
-		/* Wraps only for the answering strip, which claims a whole line. */
-		flex-wrap: wrap;
 		gap: 9px;
 		align-items: flex-start;
 	}
@@ -3211,225 +2943,6 @@
 	}
 	.mid :global(.tattach .attach-failed) {
 		color: #f87171;
-	}
-
-	/* The pane's own numbered rows, lifted out and made tappable. Compact
-	   rows rather than full-width buttons: the options are not peers, and
-	   "Yes" and a sentence cannot share a width. */
-	.optlist {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-	}
-	.question {
-		margin: 0 0 4px;
-		padding: 0 9px;
-		font-size: 13px;
-		line-height: 1.4;
-		color: #a8a29e;
-		/* Carried whole from the pane, with the breaks the dialog drew itself. */
-		white-space: pre-line;
-		overflow-wrap: anywhere;
-	}
-	.optrow {
-		display: flex;
-		align-items: flex-start;
-		gap: 9px;
-		width: 100%;
-		min-height: 28px;
-		padding: 4px 9px;
-		border: 0;
-		border-radius: 7px;
-		background: none;
-		color: #a8a29e;
-		font-size: 13px;
-		line-height: 1.35;
-		text-align: left;
-		justify-content: flex-start;
-		cursor: pointer;
-	}
-	.optrow u {
-		font-family: var(--font-mono);
-		font-size: 10px;
-		color: #57534e;
-		text-decoration: none;
-		width: 9px;
-		flex: none;
-		/* Sits on the label's first line, not centred on a two-line row. */
-		align-self: flex-start;
-		padding-top: 3px;
-	}
-	/* A question's options are often too terse to choose between on the label
-	   alone, so the dialog's own description comes with them. */
-	.optlabel {
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-		min-width: 0;
-	}
-	.optlabel em {
-		font-style: normal;
-		font-size: 11.5px;
-		line-height: 1.35;
-		color: #78716c;
-		white-space: pre-line;
-		overflow-wrap: anywhere;
-	}
-	.optrow.sel .optlabel em {
-		color: #c8a94a;
-	}
-	/* A multi-select row says what it is with its own box, so it does not also
-	   need the number — the box is the thing a tap changes. */
-	.optbox {
-		font-size: 15px;
-		color: #57534e;
-		flex: none;
-		align-self: flex-start;
-		padding-top: 1px;
-	}
-	.optbox.on {
-		color: #34d399;
-	}
-	.optdone {
-		display: inline-flex;
-		align-items: center;
-		align-self: flex-start;
-		gap: 6px;
-		margin-top: 3px;
-		height: 30px;
-		padding: 0 11px;
-		border: 0;
-		border-radius: 8px;
-		background: #1c3326;
-		color: #6ee7b7;
-		font-family: var(--font-mono);
-		font-size: 11.5px;
-		cursor: pointer;
-	}
-	.optdone:hover {
-		background: #244433;
-	}
-	/* The chooser replaces the field, so the keys it answers to are named where
-	   the field's own hints would sit. */
-	.optkeys {
-		margin: 4px 0 0;
-		color: #6b6b70;
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-	}
-	/* A line the dialog prints for itself under the rows, with the arrows that
-	   adjust it when the line says they do. */
-	.optnote {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		margin: 3px 0 0;
-		padding: 0 9px;
-		font-size: 12px;
-		line-height: 1.4;
-		color: #a8a29e;
-	}
-	.optnote span {
-		min-width: 0;
-	}
-	.optarrow {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 26px;
-		height: 24px;
-		padding: 0;
-		border: 0;
-		border-radius: 6px;
-		background: #26262a;
-		color: #d6d3d1;
-		font-size: 16px;
-		cursor: pointer;
-	}
-	.optarrow:hover {
-		background: #33333a;
-	}
-	.optextra {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-	}
-	/* One of the other keys the dialog names: the key as a cap, then its verb. */
-	.optkey {
-		display: inline-flex;
-		align-items: center;
-		align-self: flex-start;
-		gap: 6px;
-		margin-top: 3px;
-		height: 30px;
-		padding: 0 11px 0 8px;
-		border: 0;
-		border-radius: 8px;
-		background: #26262a;
-		color: #d6d3d1;
-		font-family: var(--font-mono);
-		font-size: 11.5px;
-		cursor: pointer;
-	}
-	.optkey:hover {
-		background: #33333a;
-	}
-	/* The two arrows are keys too, just without a verb to print. */
-	.optkey.optnav {
-		width: 34px;
-		padding: 0;
-		justify-content: center;
-		font-size: 17px;
-	}
-	.optkey kbd {
-		padding: 0 5px;
-		border: 1px solid #44444a;
-		border-radius: 4px;
-		font-family: inherit;
-		font-size: 10.5px;
-		color: #fbbf24;
-	}
-	/* The field is answering a dialog's text row: say which question, and
-	   offer the two moves that are not typing. */
-	.answering {
-		flex: 1 0 100%;
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 6px;
-		margin: 0 0 -2px;
-		padding: 0 4px;
-		font-size: 12px;
-		color: #fde68a;
-	}
-	.answering > iconify-icon {
-		font-size: 15px;
-		color: #fbbf24;
-	}
-	.answering .atext {
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.answering .optdone,
-	.answering .optkey {
-		margin-top: 0;
-		height: 26px;
-	}
-	.optrow:hover {
-		background: #1e1e21;
-		color: #f5f5f4;
-	}
-	.optrow.sel {
-		background: #3a2d0d;
-		color: #fde68a;
-	}
-	.optrow.sel u {
-		color: #fbbf24;
 	}
 
 	/* ── lane 2 · the footer ────────────────────────────────────────── */
