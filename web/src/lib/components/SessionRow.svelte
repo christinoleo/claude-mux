@@ -1,3 +1,11 @@
+<script lang="ts" module>
+	export interface RowMenuItem {
+		label: string;
+		icon: string;
+		run: () => void;
+	}
+</script>
+
 <script lang="ts">
 	/**
 	 * One session in the sidebar.
@@ -20,6 +28,7 @@
 	import { longPress } from '$lib/actions/longPress';
 	import { formatSpinnerElapsed, formatAgo } from '$lib/format';
 	import { clock } from '$lib/stores/clock.svelte';
+	import * as ContextMenu from '$lib/components/ui/context-menu';
 
 	interface Props {
 		session: Session;
@@ -44,6 +53,8 @@
 		onlongpress?: () => void;
 		ondragstart?: (e: DragEvent) => void;
 		ondragend?: () => void;
+		/** What a right-click on the row offers; none leaves the browser's own menu. */
+		menu?: RowMenuItem[];
 		/** Trailing slot on line 1, after the time. */
 		meta?: Snippet;
 		children?: Snippet;
@@ -68,6 +79,7 @@
 		onlongpress,
 		ondragstart,
 		ondragend,
+		menu = [],
 		meta,
 		children
 	}: Props = $props();
@@ -83,12 +95,30 @@
 	$effect(() => {
 		if (running) return clock.fine();
 	});
+	/**
+	 * A finger's hold is the rename here, so the menu answers only a right
+	 * click: the hold's own contextmenu event (Android raises one) is dropped.
+	 */
+	let touched = false;
 	const elapsed = $derived(
 		running ? formatSpinnerElapsed(Math.max(0, Math.floor((clock.now - s.turn_started_at!) / 1000))) : null
 	);
 </script>
 
+<ContextMenu.Root>
+<ContextMenu.Trigger disabled={menu.length === 0}>
+{#snippet child({ props })}
 <a
+	{...props}
+	onpointerdown={(e) => (touched = e.pointerType === 'touch')}
+	onpointermove={undefined}
+	onpointerup={undefined}
+	onpointercancel={undefined}
+	oncontextmenu={(e) => {
+		if (touched) e.preventDefault();
+		else (props.oncontextmenu as ((e: MouseEvent) => void) | undefined)?.(e);
+	}}
+	tabindex={undefined}
 	{href}
 	class="row"
 	class:cur={active || tag !== null}
@@ -181,6 +211,19 @@
 		{#if !draft && where}<span class="path" title={s.cwd}>{where}</span>{/if}
 	</span>
 </a>
+{/snippet}
+</ContextMenu.Trigger>
+{#if menu.length > 0}
+	<ContextMenu.Content class="min-w-44">
+		{#each menu as item (item.label)}
+			<ContextMenu.Item onSelect={item.run}>
+				<iconify-icon icon={item.icon}></iconify-icon>
+				{item.label}
+			</ContextMenu.Item>
+		{/each}
+	</ContextMenu.Content>
+{/if}
+</ContextMenu.Root>
 {@render children?.()}
 
 <style>

@@ -12,6 +12,7 @@
 	import { splitStore, type PaneSide, MIN_PANE_PX } from '$lib/stores/split.svelte';
 	import { serverStore } from '$lib/stores/servers.svelte';
 	import { paneUrl, parseRef, type PaneRef } from '$lib/split-refs';
+	import ResizeDivider from './ResizeDivider.svelte';
 
 	let { a, b }: { a: PaneRef; b: PaneRef } = $props();
 
@@ -85,19 +86,11 @@
 
 	// ── divider ──────────────────────────────────────────────────────────────
 	let resizing = $state(false);
-	function startResize(e: PointerEvent) {
-		if (splitStore.zoom) return;
-		resizing = true;
-		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-	}
 	function moveResize(e: PointerEvent) {
-		if (!resizing || !root) return;
+		if (!root) return;
 		const rect = root.getBoundingClientRect();
 		const min = MIN_PANE_PX / rect.width;
 		splitStore.setRatio(Math.min(1 - min, Math.max(min, (e.clientX - rect.left) / rect.width)));
-	}
-	function endResize() {
-		resizing = false;
 	}
 
 	// ── drop targets ─────────────────────────────────────────────────────────
@@ -117,7 +110,6 @@
 
 <div
 	class="split"
-	class:resizing
 	class:dragging={splitStore.dragging}
 	style="grid-template-columns: {columns}"
 	bind:this={root}
@@ -157,19 +149,14 @@
 	{/snippet}
 
 	{@render pane('a', a, urlA, 'a')}
-	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-	<div
-		class="divider"
-		class:hidden={splitStore.zoom !== null}
-		role="separator"
-		aria-orientation="vertical"
-		title="Drag to resize · double-click for 50/50"
-		onpointerdown={startResize}
-		onpointermove={moveResize}
-		onpointerup={endResize}
-		onpointercancel={endResize}
-		ondblclick={() => splitStore.setRatio(0.5)}
-	></div>
+	<div class="divider-slot" class:hidden={splitStore.zoom !== null}>
+		<ResizeDivider
+			bind:resizing
+			title="Drag to resize · double-click for 50/50"
+			onmove={moveResize}
+			onreset={() => splitStore.setRatio(0.5)}
+		/>
+	</div>
 	{@render pane('b', b, urlB, 'b')}
 </div>
 
@@ -196,29 +183,11 @@
 		border: 0;
 		background: #0a0a0a;
 	}
-	.divider {
-		background: #1f1f21;
-		position: relative;
-		cursor: col-resize;
-		touch-action: none;
+	.divider-slot {
+		min-width: 0;
 	}
-	.divider.hidden {
+	.divider-slot.hidden {
 		display: none;
-	}
-	.divider::after {
-		content: '';
-		position: absolute;
-		left: 1px;
-		right: 1px;
-		top: 50%;
-		height: 40px;
-		transform: translateY(-50%);
-		border-radius: 2px;
-		background: #2a2a2c;
-	}
-	.divider:hover::after,
-	.split.resizing .divider::after {
-		background: #f59e0b;
 	}
 	.shield {
 		position: absolute;

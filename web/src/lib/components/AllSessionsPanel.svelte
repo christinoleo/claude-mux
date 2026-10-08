@@ -14,7 +14,8 @@
 	} from '$lib/stores/sessions.svelte';
 	import { fleetStore, type Machine } from '$lib/stores/fleet.svelte';
 	import { serverStore } from '$lib/stores/servers.svelte';
-	import SessionRow from '$lib/components/SessionRow.svelte';
+	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
+	import { PANES } from '$lib/side-panel/panes';
 	import SubagentRow from '$lib/components/SubagentRow.svelte';
 	import { agentView, childSummary, type AgentView } from '$shared/subagents.js';
 	import { clock } from '$lib/stores/clock.svelte';
@@ -439,12 +440,30 @@
 			onSessionSelect?.();
 			return;
 		}
+		goToSession(machine, tmuxTarget);
+	}
+
+	/** Go to a session's page, on its own host when remote. */
+	function goToSession(machine: Machine, tmuxTarget: string, query = '') {
+		const path = `/session/${encodeURIComponent(tmuxTarget)}${query}`;
 		if (machine.local) {
-			goto(`/session/${encodeURIComponent(tmuxTarget)}`);
+			goto(path);
 			onSessionSelect?.();
 		} else {
-			window.location.href = `${machine.server.url}/session/${encodeURIComponent(tmuxTarget)}`;
+			window.location.href = `${machine.server.url}${path}`;
 		}
+	}
+
+	/**
+	 * The row's right-click menu: open the session with one of its side
+	 * panel's panes. Left off during a split, which a page load would end.
+	 */
+	function panelMenu(machine: Machine, tmuxTarget: string): RowMenuItem[] {
+		return PANES.map((pane) => ({
+			label: `Open ${pane.label.toLowerCase()}`,
+			icon: pane.icon,
+			run: () => goToSession(machine, tmuxTarget, `?panel=${pane.kind}`)
+		}));
 	}
 
 	function handleRowClick(e: MouseEvent, machine: Machine, session: Session) {
@@ -669,6 +688,7 @@
 		onlongpress={() => { if (machine.local) renameId = s.id; }}
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
 		ondragend={dragEnd}
+		menu={s.tmux_target && !splitStore.active ? panelMenu(machine, s.tmux_target) : []}
 	/>
 	{#if !row.workers}{@render agentThread(machine, s, agents)}{/if}
 {/snippet}

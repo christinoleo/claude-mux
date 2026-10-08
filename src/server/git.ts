@@ -445,3 +445,9 @@ export async function gitFileDiff(cwd: string, file: string): Promise<GitDiff | 
 	const parsed = parseUnifiedDiff(out);
 	return { file: rel, binary: parsed.binary || entry.binary === true, hunks: parsed.hunks };
 }
+
+/** The branch checked out at `root`, or null on a detached HEAD or outside a repo. */
+export async function currentBranch(root: string): Promise<string | null> {
+	const out = await git(['symbolic-ref', '--short', '-q', 'HEAD'], root);
+	return out?.trim() || null;
+}
