@@ -11,6 +11,7 @@ import type { ChangesInfo } from '$shared/types/ws-messages.js';
 import ProjectPane from '$lib/components/side-panel/ProjectPane.svelte';
 import ChangesPane from '$lib/components/side-panel/ChangesPane.svelte';
 import FilesPane from '$lib/components/side-panel/FilesPane.svelte';
+import WebPane from '$lib/components/side-panel/WebPane.svelte';
 import { IS_MAC } from '$lib/constants';
 
 export interface PaneAction {
@@ -70,6 +71,15 @@ export const PANES: readonly PaneDef[] = [
 		key: 'F',
 		params: ['file', 'line'],
 		body: FilesPane,
+		unavailable: (s) => (s ? null : 'Not a Claude session')
+	},
+	{
+		kind: 'web',
+		label: 'Web',
+		icon: 'mdi:web',
+		key: 'W',
+		params: ['url'],
+		body: WebPane,
 		unavailable: (s) => (s ? null : 'Not a Claude session')
 	},
 	{
