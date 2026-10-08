@@ -75,8 +75,11 @@ Subagents land on the parent's JSON as `subagents`, from `SubagentStart` to
 description comes from the `agent-<id>.meta.json` Claude Code writes beside the
 agent's transcript (`<session id>/subagents/` next to the parent's JSONL), or
 else from the parent's `Agent` call in `PreToolUse`, parked in `agent_calls`
-until its start claims it. A failed `Agent` call marks its agent `failed`, and
-finished agents are pruned ten minutes after they end.
+until its start claims it; `SubagentStop` reads the meta again, since that
+pairing goes by agent type alone. A failed `Agent` call marks its agent
+`failed`, a Stop that really ends the turn closes any agent still marked
+running (Escape never sends its `SubagentStop`), and finished agents are pruned
+ten minutes after they end.
 
 ### 2. SvelteKit Web Server + WebSocket
 The web server (`web/`) is built with SvelteKit and svelte-adapter-bun:

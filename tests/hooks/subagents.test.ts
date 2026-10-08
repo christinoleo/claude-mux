@@ -106,6 +106,41 @@ describe("hook: subagents", () => {
     expect(session().subagents[1].state).toBe("failed");
   });
 
+  it("lets the meta correct a start that was paired with the wrong call", () => {
+    spawnAgent("toolu_1", "Find the hook");
+    spawnAgent("toolu_2", "Find the schema");
+    runHook({ hook_event_name: "SubagentStart", agent_id: "b", agent_type: "Explore" });
+    expect(session().subagents[0]).toMatchObject({ description: "Find the hook", tool_use_id: "toolu_1" });
+
+    writeFileSync(agentPath("b", "meta.json"), JSON.stringify({ description: "Find the schema", toolUseId: "toolu_2" }));
+    runHook({ hook_event_name: "SubagentStop", agent_id: "b", agent_type: "Explore" });
+    expect(session().subagents[0]).toMatchObject({ description: "Find the schema", tool_use_id: "toolu_2", state: "done" });
+  });
+
+  it("drops meta values that are not strings, which would break the broadcast", () => {
+    writeFileSync(agentPath("a1", "meta.json"), JSON.stringify({ description: 42, toolUseId: { x: 1 } }));
+    runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });
+    expect(session().subagents[0]).toMatchObject({ description: null, tool_use_id: null });
+  });
+
+  it("ends every agent, and forgets unstarted calls, when the turn ends for good", () => {
+    spawnAgent("toolu_1", "Interrupted");
+    spawnAgent("toolu_2", "Denied");
+    runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });
+    runHook({ hook_event_name: "Stop", background_tasks: [{ type: "subagent", agent_type: "Explore" }] });
+    expect(session().subagents[0].state).toBe("running");
+
+    runHook({ hook_event_name: "Stop", background_tasks: [] });
+    const after = session();
+    expect(after.subagents[0]).toMatchObject({ state: "done", ended_at: expect.any(Number) });
+    expect(after.agent_calls).toEqual([]);
+  });
+
+  it("ignores a subagent event without an agent id", () => {
+    runHook({ session_id: "ghost", hook_event_name: "SubagentStart", agent_type: "Explore" });
+    expect(() => readFileSync(join(home, ".claude-mux", "sessions", "ghost.json"))).toThrow();
+  });
+
   it("prunes agents that finished more than ten minutes ago", () => {
     const s = session();
     const old = Date.now() - 11 * 60 * 1000;

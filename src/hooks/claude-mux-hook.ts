@@ -24,6 +24,7 @@ import {
   renameSync,
   unlinkSync,
   readdirSync,
+  statSync,
 } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -594,6 +595,17 @@ function handleStop(input: HookInput): void {
   } else {
     session.state = "idle";
     session.current_action = null;
+    // Nothing will wake the turn, so no agent is still running: one cut short
+    // by Escape never sends its SubagentStop, and a parked call that never
+    // started (denied, say) must not lend its description to a later agent.
+    const now = Date.now();
+    for (const agent of session.subagents ?? []) {
+      if (agent.state === "running") {
+        agent.state = "done";
+        agent.ended_at = now;
+      }
+    }
+    session.agent_calls = [];
     // The dashboard's unread "Done" compares this against when someone last
     // looked at the session; a pause on background work is not an ending.
     session.turn_completed_at = Date.now();
@@ -765,11 +777,33 @@ function takeAgentCall(session: Session, type: string, toolUseId?: string): Agen
   return call;
 }
 
+/**
+ * The description and spawning call from the agent's `.meta.json`, kept only
+ * when they are strings: the broadcast schema is strict, and one bad value
+ * would stop the whole sessions message from parsing.
+ */
+function agentMeta(transcriptPath: string | null): { description?: string; toolUseId?: string } {
+  const meta: SubagentMeta = transcriptPath ? readSubagentMeta(transcriptPath) : {};
+  return {
+    ...(typeof meta.description === "string" ? { description: meta.description } : {}),
+    ...(typeof meta.toolUseId === "string" ? { toolUseId: meta.toolUseId } : {}),
+  };
+}
+
+/** When the agent's transcript appeared, for an agent first heard of at its stop. */
+function fileBirth(path: string | null): number {
+  try {
+    return path ? statSync(path).birthtimeMs || Date.now() : Date.now();
+  } catch {
+    return Date.now();
+  }
+}
+
 function newSubagent(
   id: string,
   type: string,
   transcriptPath: string | null,
-  meta: SubagentMeta,
+  meta: { description?: string; toolUseId?: string },
   call?: AgentCall | null
 ): Subagent {
   return {
@@ -785,12 +819,12 @@ function newSubagent(
 }
 
 function handleSubagentStart(input: HookInput): void {
-  const session = getOrCreateSession(input);
   if (!input.agent_id) return;
+  const session = getOrCreateSession(input);
 
   const type = input.agent_type || "general-purpose";
   const transcriptPath = subagentTranscriptPath(input, input.agent_id);
-  const meta = transcriptPath ? readSubagentMeta(transcriptPath) : {};
+  const meta = agentMeta(transcriptPath);
   const agent = newSubagent(input.agent_id, type, transcriptPath, meta, takeAgentCall(session, type, meta.toolUseId));
   session.subagents = [...(session.subagents ?? []).filter(a => a.id !== agent.id), agent];
   session.last_update = Date.now();
@@ -798,22 +832,26 @@ function handleSubagentStart(input: HookInput): void {
 }
 
 function handleSubagentStop(input: HookInput): void {
-  const session = getOrCreateSession(input);
   if (!input.agent_id) return;
+  const session = getOrCreateSession(input);
 
   let agent = session.subagents?.find(a => a.id === input.agent_id);
   const transcriptPath =
     input.agent_transcript_path ?? subagentTranscriptPath(input, input.agent_id) ?? agent?.transcript_path ?? null;
-  const meta = agent?.description || !transcriptPath ? {} : readSubagentMeta(transcriptPath);
+  // Read again even when the start found a description: that one may have come
+  // from pairing the start with a parked call by type, and the meta is exact.
+  const meta = agentMeta(transcriptPath);
   if (!agent) {
     // Started before the hook knew about subagents, or its start was pruned.
     agent = newSubagent(input.agent_id, input.agent_type || "general-purpose", transcriptPath, meta);
+    agent.started_at = fileBirth(transcriptPath);
     session.subagents = [...(session.subagents ?? []), agent];
   }
   if (agent.state === "running") agent.state = "done";
   agent.ended_at ??= Date.now();
   agent.transcript_path = transcriptPath;
-  agent.description ||= meta.description ?? null;
+  agent.description = meta.description ?? agent.description;
+  agent.tool_use_id = meta.toolUseId ?? agent.tool_use_id;
   session.last_update = Date.now();
   writeSession(session);
 }
