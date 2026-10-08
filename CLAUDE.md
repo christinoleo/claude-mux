@@ -188,6 +188,15 @@ older slices with `history_request` — the same message the terminal uses for i
 scrollback. Delta messages carry each entry's index so a client holding only the
 tail can tell a new entry from an update to one it never received.
 
+A subagent opens as a window of its own at `/session/<target>/agent/<id>`. Its
+page connects to `/api/sessions/<id>/agents/<agent id>/transcript/stream`, which
+joins the parent session's state in `TranscriptWsManager` — the same tailer that
+feeds the Task cards — and is sent the same messages carrying that agent's
+entries, its payload (with the brief, the Task prompt, as `prompt`) and its
+context instead of the session's. An agent whose file is not on disk is
+`available: false` until it turns up. The page takes no input; its "Message"
+button returns to the parent with `?compose`, which focuses the composer.
+
 ### 6. What GitHub says a session is waiting on
 
 The maestro and wayfinder skills keep their state in GitHub issues, not in any

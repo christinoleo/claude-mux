@@ -48,7 +48,7 @@ const HISTORY_PAGE = 200;
  * (an updated entry — e.g. a tool call receiving its result — keeps its
  * position; a new one is appended).
  */
-class TranscriptStore extends ReliableWebSocket {
+export class TranscriptStore extends ReliableWebSocket {
 	entries = $state<TranscriptEntry[]>([]);
 	/** All subagents, keyed by their own id — some have no parent Task id. */
 	subagents = $state<Record<string, SubagentPayload>>({});
@@ -85,11 +85,14 @@ class TranscriptStore extends ReliableWebSocket {
 
 	private indexById = new Map<string, number>();
 	private sessionId: string | null = null;
+	/** Set when this store reads one of the session's subagents instead of the session. */
+	private agentId: string | null = null;
 
 	protected getWsUrl(): string {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-		const encoded = encodeURIComponent(this.sessionId!);
-		return `${protocol}//${window.location.host}/api/sessions/${encoded}/transcript/stream`;
+		const session = encodeURIComponent(this.sessionId!);
+		const agent = this.agentId ? `/agents/${encodeURIComponent(this.agentId)}` : '';
+		return `${protocol}//${window.location.host}/api/sessions/${session}${agent}/transcript/stream`;
 	}
 
 	protected getLogPrefix(): string {
@@ -240,12 +243,15 @@ class TranscriptStore extends ReliableWebSocket {
 	/**
 	 * Single entry point: pass a claude-mux session id to view its transcript,
 	 * or null to detach. Mirrors terminalStore.setTarget's lifecycle contract.
+	 * With `agentId`, the store holds that subagent's transcript instead, and
+	 * `subagents` holds that one agent.
 	 */
-	setSession(sessionId: string | null | undefined): void {
+	setSession(sessionId: string | null | undefined, agentId: string | null = null): void {
 		if (!browser) return;
 		const next = sessionId ?? null;
+		const nextAgent = next ? agentId : null;
 
-		if (this.sessionId === next) {
+		if (this.sessionId === next && this.agentId === nextAgent) {
 			if (next === null) return;
 			if (this.ws) return;
 			this.doConnect();
@@ -266,6 +272,7 @@ class TranscriptStore extends ReliableWebSocket {
 		this.resetReceived();
 		this.indexById = new Map();
 		this.sessionId = next;
+		this.agentId = nextAgent;
 
 		if (next) this.doConnect();
 	}

@@ -103,7 +103,7 @@ function devWebSocket() {
 					});
 				} else if (parsed.type === 'transcript') {
 					const { target } = parsed;
-					const accepted = transcriptWsManager.addClient(client, target);
+					const accepted = transcriptWsManager.addClient(client, target, parsed.agent);
 					if (!accepted) {
 						ws.close(1013, 'Max clients reached');
 						return;

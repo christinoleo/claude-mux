@@ -15,11 +15,11 @@ export const init: ServerInit = () => {
 	ensurePushMonitor();
 };
 
+/** What a socket was upgraded for: its channel, and the pane or session (and agent) it reads. */
+type WsData = { type: 'sessions' | 'terminal' | 'transcript'; target?: string; agent?: string };
+
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
-const wsDataMap = new WeakMap<
-	WebSocket,
-	{ type: 'sessions' | 'terminal' | 'transcript'; target?: string; client: WsClient }
->();
+const wsDataMap = new WeakMap<WebSocket, WsData & { client: WsClient }>();
 
 // Handle function for SvelteKit
 /**
@@ -85,7 +85,7 @@ export const websocket = {
 	 * magnitude; the terminal's small frames pay a negligible amount of CPU.
 	 */
 	perMessageDeflate: true,
-	open(ws: WebSocket & { data?: { type: 'sessions' | 'terminal' | 'transcript'; target?: string } }) {
+	open(ws: WebSocket & { data?: WsData }) {
 		const data = ws.data;
 		if (!data) return;
 
@@ -105,7 +105,7 @@ export const websocket = {
 		} else if (data.type === 'terminal' && data.target) {
 			accepted = terminalWsManager.addClient(client, data.target);
 		} else if (data.type === 'transcript' && data.target) {
-			accepted = transcriptWsManager.addClient(client, data.target);
+			accepted = transcriptWsManager.addClient(client, data.target, data.agent);
 		}
 
 		// If not accepted (max clients reached), close the connection
