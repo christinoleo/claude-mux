@@ -56,15 +56,16 @@
 	>
 		<span class="cap">sessions</span>
 		{#each siblings as session (session.id)}
+			{@const shown = indicatorStateOf(session)}
 			<button
 				type="button"
 				class="row"
 				class:cur={session.tmux_target === currentTarget}
 				onclick={() => open_(session)}
 			>
-				<SessionStateIndicator state={indicatorStateOf(session)} size="sm" />
+				<SessionStateIndicator state={shown} size="sm" />
 				<span class="name">{getSessionDisplayName(session)}</span>
-				<span class="sub">{sessionStateVisual(indicatorStateOf(session)).label}</span>
+				<span class="sub">{sessionStateVisual(shown).label}</span>
 			</button>
 		{/each}
 

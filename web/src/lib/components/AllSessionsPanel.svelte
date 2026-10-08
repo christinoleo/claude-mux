@@ -596,11 +596,11 @@
 		tag={paneTag(machine, s.tmux_target)}
 		orchestrator={row.orchestrator}
 		worker={row.worker}
-		draft={draftable && draftsStore.get(s.tmux_target!) ? draftsStore.preview(s.tmux_target!) : ''}
+		draft={draftable ? draftsStore.preview(s.tmux_target!) : ''}
 		staged={draftable ? attachmentsStore.count(s.tmux_target!) : 0}
 		draggable={canDrag && !!s.tmux_target}
 		onkill={machine.local && !compact ? () => killSession(machine, s) : null}
-		onmarkunread={isActive ? null : () => void postVisit(apiBase(machine), s.id, true)}
+		onmarkunread={isActive ? null : () => postVisit(apiBase(machine), s.id, true)}
 		onclick={(e) => handleRowClick(e, machine, s)}
 		onlongpress={() => { if (machine.local) renameId = s.id; }}
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
@@ -614,7 +614,7 @@
 	{@const meta = detected ? AGENTS[detected] : null}
 	<a
 		href="/session/{encodeURIComponent(pane.target)}"
-		class="row tmux"
+		class="row"
 		class:cur={isActive}
 		draggable={canDrag ? 'true' : 'false'}
 		ondragstart={(e) => dragStart(e, machine, pane.target)}

@@ -420,16 +420,17 @@ export function wantsHuman(session: Session): boolean {
 }
 
 /**
- * How many live sessions the tab title should count: those waiting on a
- * person, and those whose last turn finished unseen.
+ * What leads the tab title: "(n) " for the live sessions waiting on a person
+ * or whose last turn finished unseen, or nothing when there are none.
  */
-export function attentionCount(sessions: Session[]): number {
-	return sessions.filter((s) => s.pane_alive !== false && (wantsHuman(s) || isUnread(s))).length;
+export function attentionPrefix(sessions: Session[]): string {
+	const n = sessions.filter((s) => s.pane_alive !== false && (wantsHuman(s) || isUnread(s))).length;
+	return n > 0 ? `(${n}) ` : '';
 }
 
 /** Tell the server someone is looking at the session, or rewind it to unread. */
-export function postVisit(base: string, id: string, unread = false): Promise<Response | void> {
-	return fetch(`${base}/api/sessions/${encodeURIComponent(id)}/visit`, {
+export function postVisit(base: string, id: string, unread = false): void {
+	void fetch(`${base}/api/sessions/${encodeURIComponent(id)}/visit`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ unread })

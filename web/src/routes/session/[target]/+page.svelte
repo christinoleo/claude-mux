@@ -5,7 +5,7 @@
 	import { reportClient } from '$lib/client-log';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { terminalStore } from '$lib/stores/terminal.svelte';
-	import { sessionStore, getSessionDisplayName, attentionCount, postVisit } from '$lib/stores/sessions.svelte';
+	import { sessionStore, getSessionDisplayName, attentionPrefix, postVisit } from '$lib/stores/sessions.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual, indicatorStateOf, isUnread, type IndicatorState } from '$shared/session-state.js';
 	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
@@ -71,9 +71,9 @@
 	// Browser tab: the state emoji rides in front of the name, so a background
 	// tab says whether the session wants a human without being opened, and
 	// the count before it says how many sessions anywhere want one or are done.
-	const attention = $derived(attentionCount(sessionStore.sessions));
+	const attention = $derived(attentionPrefix(sessionStore.sessions));
 	const pageTitle = $derived(
-		`${attention > 0 ? `(${attention}) ` : ''}${sessionStateVisual(indicatorState).emoji} ${
+		`${attention}${sessionStateVisual(indicatorState).emoji} ${
 			currentSession ? getSessionDisplayName(currentSession) : (target || 'Session')
 		}`
 	);
@@ -97,7 +97,7 @@
 		const fresh = lastVisit?.id !== s.id;
 		if (!fresh && (!isUnread(s) || Date.now() - lastVisit!.at < 2000)) return;
 		lastVisit = { id: s.id, at: Date.now() };
-		void postVisit('', s.id);
+		postVisit('', s.id);
 	});
 	// Inline status next to the title. Skip bare states (idle/busy/etc.)
 	// since the state symbol + color already convey them; only show when

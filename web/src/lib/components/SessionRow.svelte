@@ -10,12 +10,12 @@
 	 * `children` draws under the row, for rows nested inside it.
 	 */
 	import type { Snippet } from 'svelte';
-	import { onMount } from 'svelte';
 	import SessionStateIndicator from './SessionStateIndicator.svelte';
 	import { indicatorStateOf, isUnread, recedes } from '$shared/session-state.js';
 	import { wantsHuman, needsHelp, type Session } from '$lib/stores/sessions.svelte';
 	import { longPress } from '$lib/actions/longPress';
-	import { formatSpinnerElapsed } from '$lib/format';
+	import { formatSpinnerElapsed, formatAgo } from '$lib/format';
+	import { clock } from '$lib/stores/clock.svelte';
 
 	interface Props {
 		session: Session;
@@ -76,29 +76,11 @@
 
 	// A working row counts its turn up every second; the rest say how long ago,
 	// which only needs a look now and then.
-	let now = $state(Date.now());
-	onMount(() => {
-		const id = setInterval(() => (now = Date.now()), 30_000);
-		return () => clearInterval(id);
-	});
 	$effect(() => {
-		if (!running) return;
-		now = Date.now();
-		const id = setInterval(() => (now = Date.now()), 1000);
-		return () => clearInterval(id);
+		if (running) return clock.fine();
 	});
-
-	function ago(ts: number | undefined | null): string {
-		if (!ts) return '';
-		const sec = Math.max(0, Math.round((now - ts) / 1000));
-		if (sec < 60) return 'now';
-		if (sec < 3600) return `${Math.round(sec / 60)}m`;
-		if (sec < 86400) return `${Math.round(sec / 3600)}h`;
-		return `${Math.round(sec / 86400)}d`;
-	}
-
 	const elapsed = $derived(
-		running ? formatSpinnerElapsed(Math.max(0, Math.floor((now - s.turn_started_at!) / 1000))) : null
+		running ? formatSpinnerElapsed(Math.max(0, Math.floor((clock.now - s.turn_started_at!) / 1000))) : null
 	);
 </script>
 
@@ -130,7 +112,7 @@
 		{:else if elapsed}
 			<span class="when run" title="Working for {elapsed}">{elapsed}</span>
 		{:else}
-			<span class="when">{ago(shown === 'done' ? s.turn_completed_at : s.last_update)}</span>
+			<span class="when">{formatAgo(shown === 'done' ? s.turn_completed_at : s.last_update, clock.now)}</span>
 		{/if}
 		{@render meta?.()}
 	</span>

@@ -8,7 +8,7 @@
  * session, and the server compares the two.
  */
 
-import { existsSync, readFileSync, statSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import { dirname, join } from "path";
 import { getSessionsDir } from "./sessions-json.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
@@ -35,7 +35,6 @@ function resolveVisitsPath(): string {
 /** Every recorded visit. Read on each session poll, so parsed only when the file changed. */
 export function getVisits(): Visits {
   const path = resolveVisitsPath();
-  if (!existsSync(path)) return {};
   try {
     const { mtimeMs } = statSync(path);
     if (cache?.mtimeMs === mtimeMs) return cache.visits;
@@ -53,21 +52,18 @@ export function getVisits(): Visits {
   }
 }
 
-function setVisit(id: string, at: number): Visits {
+/** Someone is looking at the session now. */
+export function recordVisit(id: string, at: number = Date.now()): void {
   const now = Date.now();
   const next: Visits = {};
   for (const [other, when] of Object.entries(getVisits())) {
     if (now - when < KEEP_MS) next[other] = when;
   }
   next[id] = at;
-  writeFileAtomic(resolveVisitsPath(), JSON.stringify(next, null, 2));
-  cache = null;
-  return next;
-}
-
-/** Someone is looking at the session now. */
-export function recordVisit(id: string, at: number = Date.now()): void {
-  setVisit(id, at);
+  const path = resolveVisitsPath();
+  writeFileAtomic(path, JSON.stringify(next, null, 2));
+  // Keep what was just written, so the next poll need not parse it back.
+  cache = { mtimeMs: statSync(path).mtimeMs, visits: next };
 }
 
 /**
@@ -76,6 +72,6 @@ export function recordVisit(id: string, at: number = Date.now()): void {
  */
 export function markUnread(id: string, turnCompletedAt: number | null | undefined): boolean {
   if (!turnCompletedAt) return false;
-  setVisit(id, turnCompletedAt - 1);
+  recordVisit(id, turnCompletedAt - 1);
   return true;
 }

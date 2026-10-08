@@ -2,11 +2,11 @@
 	import AllSessionsPanel from '$lib/components/AllSessionsPanel.svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import { sessionStore, attentionCount } from '$lib/stores/sessions.svelte';
+	import { sessionStore, attentionPrefix } from '$lib/stores/sessions.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
 
 	// Sessions that want a person or finished unseen, so a background tab says so.
-	const attention = $derived(attentionCount(sessionStore.sessions));
+	const attention = $derived(attentionPrefix(sessionStore.sessions));
 
 	type Phase = 'waiting' | 'redirecting' | 'fallback';
 	let phase = $state<Phase>('waiting');
@@ -50,7 +50,7 @@
 </script>
 
 <svelte:head>
-	<title>{attention > 0 ? `(${attention}) ` : ''}claude-mux</title>
+	<title>{attention}claude-mux</title>
 </svelte:head>
 
 {#if phase === 'fallback'}
