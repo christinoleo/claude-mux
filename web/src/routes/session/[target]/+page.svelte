@@ -714,9 +714,11 @@
 	// A subagent's "Message <parent>" lands here with `?compose`: the reader
 	// came to type, so the box takes the focus and the param goes.
 	$effect(() => {
-		if (!$page.url.searchParams.has('compose') || !textareaElement) return;
+		if (!$page.url.searchParams.has('compose')) return;
+		// The param goes either way: a pane with no composer up (terminal
+		// view, a dead pane) should not grab the focus on some later visit.
 		untrack(() => {
-			textareaElement!.focus();
+			textareaElement?.focus();
 			const params = new URLSearchParams($page.url.searchParams);
 			params.delete('compose');
 			const query = params.toString();

@@ -15,11 +15,11 @@ export const init: ServerInit = () => {
 	ensurePushMonitor();
 };
 
+/** What a socket was upgraded for: its channel, and the pane or session (and agent) it reads. */
+type WsData = { type: 'sessions' | 'terminal' | 'transcript'; target?: string; agent?: string };
+
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
-const wsDataMap = new WeakMap<
-	WebSocket,
-	{ type: 'sessions' | 'terminal' | 'transcript'; target?: string; agent?: string; client: WsClient }
->();
+const wsDataMap = new WeakMap<WebSocket, WsData & { client: WsClient }>();
 
 // Handle function for SvelteKit
 /**
@@ -85,7 +85,7 @@ export const websocket = {
 	 * magnitude; the terminal's small frames pay a negligible amount of CPU.
 	 */
 	perMessageDeflate: true,
-	open(ws: WebSocket & { data?: { type: 'sessions' | 'terminal' | 'transcript'; target?: string; agent?: string } }) {
+	open(ws: WebSocket & { data?: WsData }) {
 		const data = ws.data;
 		if (!data) return;
 

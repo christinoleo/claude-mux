@@ -33,8 +33,14 @@
 	const hooked = $derived(session?.subagents?.find((a) => a.id === agentId) ?? null);
 
 	const store = new TranscriptStore();
+	// Held through a sessions-socket reconnect, when the list is briefly
+	// empty: dropping the id would throw away the entries and the scroll.
+	let sessionId = $state<string | null>(null);
 	$effect(() => {
-		store.setSession(session?.id ?? null, agentId);
+		if (session) sessionId = session.id;
+	});
+	$effect(() => {
+		store.setSession(sessionId, agentId);
 	});
 	onDestroy(() => store.setSession(null));
 
@@ -50,13 +56,11 @@
 	const title = $derived(description ?? (type ? agentTypeLabel(type) : 'Subagent'));
 
 	/** The brief is the agent's first line; it is pinned above rather than drawn as a prompt. */
-	const entries = $derived(
-		store.firstIndex === 0 && store.entries[0]?.kind === 'user' ? store.entries.slice(1) : store.entries
+	const head = $derived(
+		store.firstIndex === 0 && store.entries[0]?.kind === 'user' ? store.entries[0] : null
 	);
-	const brief = $derived(
-		payload?.prompt ??
-			(store.firstIndex === 0 && store.entries[0]?.kind === 'user' ? store.entries[0].text : null)
-	);
+	const entries = $derived(head ? store.entries.slice(1) : store.entries);
+	const brief = $derived(payload?.prompt ?? head?.text ?? null);
 
 	$effect(() => {
 		if (running) return clock.fine();
@@ -119,9 +123,9 @@
 
 <div class="window">
 	<header>
-		<button type="button" class="menu" onclick={() => drawer.toggle()} aria-label="Sessions">
+		<Button variant="ghost" size="icon" class="menu" onclick={() => drawer.toggle()} aria-label="Sessions">
 			<iconify-icon icon="mdi:menu"></iconify-icon>
-		</button>
+		</Button>
 		<a class="crumb" href={parentHref}>
 			<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
 			{parentName}
@@ -145,18 +149,17 @@
 			<span class="dia big" aria-hidden="true">
 				<svg viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9z" /></svg>
 			</span>
-			<p class="empty-title">
-				{noSession ? 'This session is no longer running' : 'No subagent with this id'}
-			</p>
-			<p class="empty-body">
-				{noSession
-					? 'Its subagents went with it.'
-					: `${parentName} has no record of agent ${agentId}. It may have been spawned by another session, or its transcript was removed.`}
-			</p>
-			{#if !noSession}
-				<Button variant="outline" href={parentHref}>Back to {parentName}</Button>
-			{:else}
+			{#if noSession}
+				<p class="empty-title">This session is no longer running</p>
+				<p class="empty-body">Its subagents went with it.</p>
 				<Button variant="outline" href="/">See all sessions</Button>
+			{:else}
+				<p class="empty-title">No subagent with this id</p>
+				<p class="empty-body">
+					{parentName} has no record of agent {agentId}. It may have been spawned by another session,
+					or its transcript was removed.
+				</p>
+				<Button variant="outline" href={parentHref}>Back to {parentName}</Button>
 			{/if}
 		</div>
 	{:else}
@@ -216,14 +219,11 @@
 		border-bottom: 1px solid #1f1f1f;
 		min-width: 0;
 	}
-	.menu {
+	header :global(.menu) {
 		display: none;
-		place-items: center;
+		flex: none;
 		width: 36px;
-		height: 36px;
 		margin-left: -8px;
-		border: 0;
-		background: none;
 		color: #a8a29e;
 		font-size: 20px;
 	}
@@ -377,6 +377,11 @@
 		flex: 1;
 	}
 	.readonly :global(.message) {
+		max-width: 50%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		display: block;
+		line-height: 2.4;
 		border-color: var(--teal-deep);
 		color: var(--teal);
 		min-height: 40px;
@@ -415,8 +420,8 @@
 			padding: 8px 16px;
 			flex-wrap: wrap;
 		}
-		.menu {
-			display: grid;
+		header :global(.menu) {
+			display: inline-flex;
 		}
 		.status {
 			flex-basis: 100%;
@@ -429,6 +434,10 @@
 		}
 		.readonly :global(.message) {
 			width: 100%;
+			max-width: 100%;
+		}
+		.crumb {
+			max-width: calc(100% - 60px);
 		}
 	}
 </style>

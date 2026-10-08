@@ -37,11 +37,23 @@ const REPLY = line({
   message: { id: "m1", role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "It lives in message-queue.ts." }] },
 });
 
+const TOOL = line({
+  type: "assistant",
+  uuid: "t1",
+  isSidechain: true,
+  message: {
+    id: "m2",
+    role: "assistant",
+    model: "claude-opus-5-5",
+    content: [{ type: "tool_use", id: "toolu_1", name: "Grep", input: { pattern: "queue" } }],
+  },
+});
+
 interface Msg {
   type: string;
   entries?: { id: string; kind: string }[];
   available?: boolean;
-  subagents?: { agentId: string; prompt: string | null }[];
+  subagents?: { agentId: string; prompt: string | null; full: boolean }[];
 }
 
 let dir: string;
@@ -131,5 +143,21 @@ describe("TranscriptWsManager following one subagent", () => {
     const found = agent.filter((m) => m.type === "snapshot").at(-1)!;
     expect(found.available).toBe(true);
     expect(found.entries!.map((e) => e.id)).toEqual(["b1"]);
+  });
+
+  it("sends the window the agent whole and leaves the session's cards lean", async () => {
+    writeFileSync(agentFile, BRIEF);
+    const session = attach();
+    const agent = attach(AGENT);
+    await vi.advanceTimersByTimeAsync(0);
+    appendFileSync(agentFile, TOOL);
+    await vi.advanceTimersByTimeAsync(500);
+
+    const toAgent = agent.filter((m) => m.type === "subagents").flatMap((m) => m.subagents!);
+    const toSession = session.filter((m) => m.type === "subagents").flatMap((m) => m.subagents!);
+    expect(toAgent.length).toBeGreaterThan(0);
+    expect(toAgent.every((p) => p.full)).toBe(true);
+    expect(toSession.length).toBeGreaterThan(0);
+    expect(toSession.every((p) => !p.full)).toBe(true);
   });
 });
