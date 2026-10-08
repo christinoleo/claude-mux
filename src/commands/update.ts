@@ -1,12 +1,13 @@
 import { Command } from "commander";
 import { execSync, spawnSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { VERSION } from "../utils/version.js";
 import { runSetup } from "../setup/index.js";
 import { terminate } from "../utils/pid.js";
 import { DEFAULT_SERVER_PORT } from "../utils/paths.js";
+import { tmuxServerInsideUnit } from "../tmux/server.js";
 
 const UNIT_PATH = join(homedir(), ".config", "systemd", "user", "claude-mux.service");
 
@@ -76,26 +77,64 @@ function isSystemdManaged(): boolean {
 }
 
 /**
- * Older unit files lack KillMode=process, so stopping the service also killed
- * the tmux server (and every Claude session) spawned from the dashboard.
- * Patch the unit in place and daemon-reload BEFORE we stop it.
+ * Bring an older unit up to what `restartUnit` relies on: `KillMode=process`,
+ * so ending the server leaves anything else in its cgroup alone, and
+ * `Restart=always`, so systemd starts the server again after a clean exit.
+ * Patched in place, then daemon-reload.
  */
-function ensureUnitKillMode(): void {
+export function patchUnitForRestart(unit: string): string {
+  let patched = unit.replace(/^Restart=(?!always$).*$/m, "Restart=always");
+  if (!/^Restart=/m.test(patched)) patched = patched.replace(/^(ExecStart=.*)$/m, "$1\nRestart=always");
+  if (!/^KillMode=/m.test(patched)) patched = patched.replace(/^(Restart=.*)$/m, "$1\nKillMode=process");
+  return patched;
+}
+
+function ensureUnitRestartable(): void {
   if (!existsSync(UNIT_PATH)) return;
   try {
     const unit = readFileSync(UNIT_PATH, "utf-8");
-    if (/^KillMode=/m.test(unit)) return;
-    const patched = unit.replace(
-      /^(RestartSec=.*)$/m,
-      "$1\n# Only kill the server on stop/restart; tmux sessions started from the dashboard live on.\nKillMode=process"
-    );
+    const patched = patchUnitForRestart(unit);
     if (patched === unit) return;
     writeFileSync(UNIT_PATH, patched, "utf-8");
-    console.log("Patched systemd unit: KillMode=process (keeps tmux sessions alive across restarts)");
+    console.log("Patched systemd unit: Restart=always, KillMode=process");
     systemctlUser("daemon-reload");
   } catch (err) {
     console.warn(`Could not patch unit file: ${String(err)}`);
   }
+}
+
+/**
+ * Restart the server without `systemctl stop` or `restart`. Those are jobs on
+ * the unit, and a stop job carries over to every unit that is `PartOf=` it,
+ * which a tmux pane scope is when the tmux server was started from inside the
+ * service (see src/tmux/server.ts): every Claude session would close, and this
+ * update with them when it was typed in one. Ending the main process and
+ * letting `Restart=always` start it again is no job on the unit, so the panes
+ * stay. Falls back to a plain restart when the server is not running.
+ */
+function restartUnit(): void {
+  const active = spawnSync("systemctl", ["--user", "is-active", "--quiet", SYSTEMD_UNIT]).status === 0;
+  if (!active) {
+    systemctlUser("start", SYSTEMD_UNIT);
+    return;
+  }
+  systemctlUser("kill", "--kill-whom=main", "--signal=SIGTERM", SYSTEMD_UNIT);
+}
+
+/**
+ * The package manager that installed the binary this update runs from, so the
+ * new version lands where the old one is (a bun global install is invisible to
+ * `npm i -g`, and the reverse).
+ */
+function installCommand(version: string): [string, string[]] {
+  let self = process.argv[1] ?? "";
+  try {
+    self = realpathSync(self);
+  } catch {
+    // keep the unresolved path
+  }
+  if (self.includes("/.bun/install/global/")) return ["bun", ["add", "-g", `claude-mux@${version}`]];
+  return ["npm", ["i", "-g", `claude-mux@${version}`]];
 }
 
 function systemctlUser(...args: string[]): number {
@@ -171,33 +210,35 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
     process.exit(1);
   }
 
-  // Stop the running prod server BEFORE `npm i -g` so the install doesn't
-  // overwrite module files the live process is still loading lazily.
   const skipRestart = !!opts.skipRestart;
   const systemdActive = !skipRestart && isSystemdManaged();
   const nohupPid = !skipRestart && !systemdActive ? findProdPid() : null;
 
   if (systemdActive) {
-    ensureUnitKillMode();
-    console.log(`Stopping ${SYSTEMD_UNIT} (systemd)...`);
-    systemctlUser("stop", SYSTEMD_UNIT);
+    ensureXdgRuntime();
+    ensureUnitRestartable();
+    if (tmuxServerInsideUnit(SYSTEMD_UNIT)) {
+      console.log("The tmux server runs inside claude-mux.service; restarting without stopping the unit so its panes stay.");
+    }
   } else if (nohupPid) {
+    // Stopped BEFORE the install so it doesn't overwrite module files the
+    // live process is still loading lazily. The systemd path installs first
+    // and restarts right after instead, because stopping that unit is what
+    // closes the panes.
     await stopProd(nohupPid);
   }
 
-  console.log(`\nInstalling claude-mux@${latest} globally via npm...`);
-  const install = spawnSync("npm", ["i", "-g", `claude-mux@${latest}`], {
-    stdio: "inherit",
-  });
+  const [installer, installArgs] = installCommand(latest);
+  console.log(`\nInstalling claude-mux@${latest} globally via ${installer}...`);
+  const install = spawnSync(installer, installArgs, { stdio: "inherit" });
   if (install.status !== 0) {
-    console.error("npm install failed; starting the old server again.");
-    if (systemdActive) systemctlUser("start", SYSTEMD_UNIT);
-    else if (nohupPid) startProd();
+    console.error(`${installer} install failed; the server keeps the old version.`);
+    if (nohupPid) startProd();
     process.exit(install.status ?? 1);
   }
 
   console.log("\nRe-running setup to sync hooks...");
-  // Through the binary npm just installed, not this process: the running code
+  // Through the binary just installed, not this process: the running code
   // is the old version, and a change to what setup writes (the hook command,
   // say) would otherwise only land on the update after the one that shipped it.
   const setup = spawnSync("claude-mux", ["setup", "--yes"], { stdio: "inherit" });
@@ -205,8 +246,8 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
 
   if (systemdActive) {
     console.log("");
-    console.log(`Starting ${SYSTEMD_UNIT} (systemd)...`);
-    systemctlUser("start", SYSTEMD_UNIT);
+    console.log(`Restarting ${SYSTEMD_UNIT} (systemd)...`);
+    restartUnit();
   } else if (nohupPid) {
     console.log("");
     startProd();

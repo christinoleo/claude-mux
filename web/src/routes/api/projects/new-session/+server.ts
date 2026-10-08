@@ -5,6 +5,7 @@ import { execFileSync } from 'child_process';
 import { upsertSession, type SessionAgent } from '$shared/db/index.js';
 import { AGENTS, parseAgent } from '$shared/agents.js';
 import { sizeArgsForNewSession } from '$shared/tmux/geometry.js';
+import { tmuxNewSession } from '$shared/tmux/server.js';
 import { homedir } from 'os';
 import { join } from 'path';
 import { projectSlug } from '$shared/utils/slug.js';
@@ -63,17 +64,16 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		// Unset CLAUDECODE so Claude (and harmlessly Gemini/Copilot) don't see the
 		// parent tmux server's CLAUDECODE=1 and refuse to start.
-		execFileSync('tmux', [
-			'new-session', '-d', '-s', sessionName, '-c', cwd,
+		// The first session after boot starts the tmux server; tmuxNewSession keeps
+		// it out of this service's cgroup so a restart does not close every pane.
+		tmuxNewSession([
+			'-d', '-s', sessionName, '-c', cwd,
 			// Detached, the window would be 80x24; the dashboard reads dialogs
 			// off the screen and wants them unwrapped (see tmux/geometry).
 			...sizeArgsForNewSession(),
 			'--', 'env', '-u', 'CLAUDECODE', ...AGENTS[selectedAgent].argv,
 			...(firstPrompt ? [firstPrompt] : [])
-		], {
-			stdio: 'ignore',
-			env: tmuxEnv
-		});
+		], tmuxEnv);
 
 		// Detect actual base-index from tmux config
 		const baseIndex = execFileSync('tmux', ['show-option', '-gv', 'base-index'], {

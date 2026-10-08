@@ -7,6 +7,7 @@ import { upsertSession, writeLink } from "../db/sessions-json.js";
 import { resolveSession } from "./resolve-session.js";
 import { projectSlug } from "../utils/slug.js";
 import { sizeArgsForNewSession } from "../tmux/geometry.js";
+import { tmuxNewSession } from "../tmux/server.js";
 
 /** Pre-trust a workspace directory in ~/.claude.json so Claude skips the trust dialog */
 function ensureWorkspaceTrusted(cwd: string) {
@@ -71,8 +72,7 @@ export function createNewSessionCommand(): Command {
         // (tmux server's global env may have CLAUDECODE=1 from a parent session)
         // Started detached, the window would be 80x24; the dashboard reads
         // dialogs off the screen and wants them unwrapped (see tmux/geometry).
-        const tmuxArgs = ["new-session", "-d", "-s", sessionName, "-c", cwd, ...sizeArgsForNewSession(), "--", "env", "-u", "CLAUDECODE", ...claudeArgs];
-        execFileSync("tmux", tmuxArgs, { stdio: "ignore" });
+        tmuxNewSession(["-d", "-s", sessionName, "-c", cwd, ...sizeArgsForNewSession(), "--", "env", "-u", "CLAUDECODE", ...claudeArgs]);
 
         // Detect actual base-index from tmux config
         const baseIndex = execFileSync("tmux", ["show-option", "-gv", "base-index"], {
