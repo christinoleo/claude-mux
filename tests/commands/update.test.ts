@@ -6,7 +6,7 @@ vi.mock("child_process", async (orig) => ({
   spawnSync: (...args: unknown[]) => spawnSync(...args),
 }));
 
-const { prefetchRelease } = await import("../../src/commands/update.js");
+const { prefetchRelease, patchUnitForRestart } = await import("../../src/commands/update.js");
 
 describe("prefetchRelease", () => {
   beforeEach(() => {
@@ -35,5 +35,24 @@ describe("prefetchRelease", () => {
     spawnSync.mockReturnValue({ status: 1, stderr: "E404" });
     expect(await prefetchRelease("1.2.3", { attempts: 3, delayMs: 0 })).toBe(false);
     expect(spawnSync).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("patchUnitForRestart", () => {
+  const head = "[Service]\nExecStart=/usr/bin/claude-mux serve\n";
+
+  it("turns on-failure into always and adds KillMode", () => {
+    expect(patchUnitForRestart(`${head}Restart=on-failure\nRestartSec=3\n`)).toBe(
+      `${head}Restart=always\nKillMode=process\nRestartSec=3\n`
+    );
+  });
+
+  it("adds Restart=always under ExecStart when the unit has none", () => {
+    expect(patchUnitForRestart(head)).toBe(`${head.trimEnd()}\nRestart=always\nKillMode=process\n`);
+  });
+
+  it("leaves a unit that already restarts always alone", () => {
+    const unit = `${head}Restart=always\nKillMode=process\n`;
+    expect(patchUnitForRestart(unit)).toBe(unit);
   });
 });

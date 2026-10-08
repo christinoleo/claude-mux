@@ -64,11 +64,12 @@ Environment=PATH=${pathValue}
 # Optional env file (e.g. GROQ_API_KEY=...). Leading dash = ok if missing.
 EnvironmentFile=-%h/.config/claude-mux/env
 ExecStart=${claudeMuxBin} serve --port ${port} --host ${host}
-Restart=on-failure
+# \`claude-mux update\` restarts the server by ending it and letting systemd
+# start it again, never with \`systemctl stop\` (see src/tmux/server.ts).
+Restart=always
 RestartSec=3
-# tmux sessions started from the dashboard (New Session) spawn the tmux server
-# as a child of this service. Only kill the server process on stop/restart, so
-# \`claude-mux update\` / \`systemctl restart\` never take the Claude sessions down.
+# A tmux server started by an older claude-mux may still run in this cgroup.
+# Only kill the server process itself when it ends.
 KillMode=process
 StandardOutput=journal
 StandardError=journal

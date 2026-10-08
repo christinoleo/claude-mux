@@ -61,7 +61,9 @@ sudo loginctl enable-linger $USER        # one-time: survive logout, start on bo
 journalctl --user -u claude-mux -f       # logs
 ```
 
-`update` auto-detects how the server is running and restarts it accordingly: `systemctl --user stop/start claude-mux.service` for systemd-managed hosts, or `nohup claude-mux serve` for hosts started manually. Use `--skip-restart` to leave the server alone.
+`update` auto-detects how the server is running and restarts it accordingly, installing with whichever of npm or bun owns the running binary. On systemd-managed hosts it never runs `systemctl stop` or `restart`: it installs while the server runs, then ends the main process and lets `Restart=always` start it again (patching an older unit to that first). For hosts started manually it stops the `nohup claude-mux serve` before installing and starts it after. Use `--skip-restart` to leave the server alone.
+
+Why not `stop`: tmux 3.4+ built with systemd puts each pane in a scope that is `PartOf=` the unit the tmux server runs in. A server started by the dashboard's first New Session ran inside `claude-mux.service`, so stopping the service closed every pane on the host. `tmuxNewSession()` (`src/tmux/server.ts`) now starts a fresh tmux server under `systemd-run --user --scope` of its own; a server already running inside the service keeps that tie until it next exits, which is why `update` still avoids stop jobs.
 
 ## Architecture
 
