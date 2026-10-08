@@ -59,27 +59,28 @@
 		const id = sessionId;
 		if (!id || !active) return;
 		untrack(() => void loadInfo(id));
-		const timer = setInterval(() => void loadInfo(id), POLL_MS);
+		const timer = setInterval(() => {
+			if (document.visibilityState === 'visible') void loadInfo(id);
+		}, POLL_MS);
 		return () => clearInterval(timer);
 	});
 
 	// ── the choice ───────────────────────────────────────────────────────
 
-	const remembered = $derived(webPaneStore.get(sessionId));
+	const devConfigured = $derived(!!info?.urls.dev);
 	/** What to show when neither the URL nor this browser names anything. */
 	const fallback = $derived<WebChoice | null>(
-		info?.urls.dev || info?.detected.length ? 'dev' : info?.urls.prod ? 'prod' : null
+		devConfigured || info?.detected.length ? 'dev' : info?.urls.prod ? 'prod' : null
 	);
-	const choice = $derived(params.url ?? remembered ?? fallback);
+	const choice = $derived(params.url ?? fallback);
 	const target = $derived(choice ? choiceUrl(choice, info) : null);
-	const devConfigured = $derived(!!info?.urls.dev);
 
 	// No URL in the address: put the one last shown here back.
 	let restored = false;
 	$effect(() => {
 		if (!active || restored) return;
 		restored = true;
-		const last = untrack(() => remembered);
+		const last = untrack(() => webPaneStore.get(sessionId));
 		if (!params.url && last) setParams({ url: last });
 	});
 
@@ -149,6 +150,14 @@
 		return () => (stale = true);
 	});
 	const verdict = $derived(check && check.src === frameSrc ? check.result : null);
+	/** Why the target is shown as a card rather than framed, or null to frame it. */
+	const blocked = $derived.by((): { reason: string; open: string; command?: string } | null => {
+		if (embed?.kind === 'card') return embed;
+		if (embed && verdict?.embeddable === false) {
+			return { reason: `The site forbids framing. ${verdict.reason}`, open: embed.src };
+		}
+		return null;
+	});
 
 	let reloads = $state(0);
 	/** Loads of the current frame; every one after the first is a navigation inside it. */
@@ -210,7 +219,7 @@
 			>
 			<Toggle
 				size="sm"
-				disabled={!info?.urls.dev && !info?.detected.length}
+				disabled={!devConfigured && !info?.detected.length}
 				title={info?.urls.dev ?? (info?.detected.length ? 'A dev server found running in the project' : 'No dev server found')}
 				bind:pressed={() =>
 					choice === 'dev' || (!devConfigured && !!info?.detected.some((d) => d.url === choice)),
@@ -248,10 +257,6 @@
 		</div>
 	{/if}
 
-	{#if embed?.warn}
-		<p class="warn"><iconify-icon icon="mdi:alert-outline"></iconify-icon>{embed.warn}</p>
-	{/if}
-
 	<div class="view">
 		{#if infoError && !info}
 			<p class="msg err">{infoError}</p>
@@ -278,32 +283,30 @@
 			</div>
 		{:else if !embed}
 			<p class="msg dim">Resolving {target}…</p>
-		{:else if embed.kind === 'card' || verdict?.embeddable === false}
-			{@const open = embed.kind === 'card' ? embed.open : embed.src}
+		{:else if blocked}
+			{@const command = blocked.command}
 			<div class="empty card">
 				<iconify-icon icon="mdi:application-brackets-outline"></iconify-icon>
-				<h3>Can't show {hostLabel(open)} here</h3>
-				<p>
-					{embed.kind === 'card' ? embed.reason : verdict?.embeddable === false ? `The site forbids framing. ${verdict.reason}` : ''}
-				</p>
-				<Button href={open} target="_blank" rel="noopener noreferrer" size="sm">
+				<h3>Can't show {hostLabel(blocked.open)} here</h3>
+				<p>{blocked.reason}</p>
+				<Button href={blocked.open} target="_blank" rel="noopener noreferrer" size="sm">
 					<iconify-icon icon="mdi:open-in-new"></iconify-icon> Open in new tab
 				</Button>
-				{#if embed.kind === 'card' && embed.command}
+				{#if command}
 					<p class="dim">To show it here, map the port over HTTPS on this machine:</p>
 					<div class="cmd">
-						<code>{embed.command}</code>
-						<button type="button" class="icon" title="Copy command" aria-label="Copy command" onclick={() => copy(embed.command!)}>
+						<code>{command}</code>
+						<button type="button" class="icon" title="Copy command" aria-label="Copy command" onclick={() => copy(command)}>
 							<iconify-icon icon="mdi:content-copy"></iconify-icon>
 						</button>
 					</div>
 				{/if}
 			</div>
-		{:else if !verdict}
-			<p class="msg dim">Checking {hostLabel(embed.src)}…</p>
-		{:else}
-			{#key `${embed.src}\0${reloads}`}
-				<iframe src={embed.src} title="Web preview" allow="clipboard-read; clipboard-write; fullscreen" onload={onFrameLoad}></iframe>
+		{:else if frameSrc && !verdict}
+			<p class="msg dim">Checking {hostLabel(frameSrc)}…</p>
+		{:else if frameSrc}
+			{#key `${frameSrc}\0${reloads}`}
+				<iframe src={frameSrc} title="Web preview" allow="clipboard-read; clipboard-write; fullscreen" onload={onFrameLoad}></iframe>
 			{/key}
 		{/if}
 	</div>
@@ -396,23 +399,6 @@
 	}
 	.proc {
 		color: #78716c;
-	}
-	.warn {
-		display: flex;
-		gap: 8px;
-		align-items: flex-start;
-		margin: 0;
-		padding: 7px 12px;
-		border-bottom: 1px solid #3a2f12;
-		background: #1c1608;
-		color: #fbbf24;
-		font-size: 12px;
-		line-height: 1.45;
-		flex: none;
-	}
-	.warn iconify-icon {
-		flex: none;
-		margin-top: 2px;
 	}
 	.view {
 		flex: 1;

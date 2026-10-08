@@ -30,11 +30,11 @@ export function choiceUrl(choice: string, info: Pick<WebInfo, 'urls' | 'detected
 export function normalizeTyped(text: string): string | null {
 	const t = text.trim();
 	if (!t) return null;
-	const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(t)
-		? t
-		: `${/^(localhost|127\.|\[?::1\]?|0\.0\.0\.0)/i.test(t) ? 'http' : 'https'}://${t}`;
+	const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(t);
 	try {
-		const u = new URL(withScheme);
+		let u = new URL(hasScheme ? t : `http://${t}`);
+		// Without a scheme, only this machine is assumed to speak plain HTTP.
+		if (!hasScheme && !pointsHere(u)) u = new URL(`https://${t}`);
 		return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null;
 	} catch {
 		return null;
@@ -54,8 +54,6 @@ export type Embed =
 	| {
 			kind: 'frame';
 			src: string;
-			/** Shown above the frame without stopping it. */
-			warn?: string;
 	  }
 	| {
 			kind: 'card';
@@ -65,7 +63,6 @@ export type Embed =
 			open: string;
 			/** The command that would make it embeddable. */
 			command?: string;
-			warn?: string;
 	  };
 
 export interface EmbedContext {
@@ -103,18 +100,18 @@ export function resolveEmbed(target: string, ctx: EmbedContext): Embed {
 	const host = ctx.tailnet.host ?? ctx.page.hostname;
 	const remote = new URL(u.href);
 	remote.hostname = host;
-	const loopbackOnly = ctx.detected.find((d) => d.port === port)?.loopbackOnly === true;
-	const warn = loopbackOnly
-		? `The server on port ${port} listens on 127.0.0.1 only, so nothing off this machine reaches it directly. Restart it bound to 0.0.0.0, or map it with tailscale serve.`
-		: undefined;
-	if (pageSecure && remote.protocol === 'http:') {
+	const card = { kind: 'card' as const, open: remote.href, command: `tailscale serve --bg --https=${port} http://localhost:${port}` };
+	if (ctx.detected.find((d) => d.port === port)?.loopbackOnly) {
 		return {
-			kind: 'card',
-			reason: `Port ${port} has no tailscale serve HTTPS mapping, and this page, served over HTTPS, cannot frame plain HTTP.`,
-			open: remote.href,
-			command: `tailscale serve --bg --https=${port} http://localhost:${port}`,
-			warn
+			...card,
+			reason: `The server on port ${port} listens on 127.0.0.1 only, so nothing off this machine reaches it. Map it with tailscale serve, or restart it bound to 0.0.0.0.`
 		};
 	}
-	return { kind: 'frame', src: remote.href, warn };
+	if (pageSecure && remote.protocol === 'http:') {
+		return {
+			...card,
+			reason: `Port ${port} has no tailscale serve HTTPS mapping, and this page, served over HTTPS, cannot frame plain HTTP.`
+		};
+	}
+	return { kind: 'frame', src: remote.href };
 }

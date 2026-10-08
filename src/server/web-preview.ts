@@ -10,9 +10,9 @@
 
 import { execFile } from 'child_process';
 import { readlink } from 'fs/promises';
-import { isAbsolute, relative } from 'path';
 import { promisify } from 'util';
 import { isLoopback } from '../utils/loopback.js';
+import { isInside } from './files.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -90,11 +90,6 @@ function isWildcard(address: string): boolean {
 	return address === '*' || address === '0.0.0.0' || address === '::';
 }
 
-function inside(root: string, path: string): boolean {
-	const rel = relative(root, path);
-	return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-}
-
 /** Where to reach a server bound to `addresses` from this machine. */
 function localUrl(port: number, addresses: string[]): string {
 	if (addresses.some((a) => isWildcard(a) || isLoopback(a))) return `http://localhost:${port}/`;
@@ -102,11 +97,24 @@ function localUrl(port: number, addresses: string[]): string {
 	return `http://${a.includes(':') ? `[${a}]` : a}:${port}/`;
 }
 
+/** `url`'s response with redirects followed and the body left unread. */
+async function fetchHeaders(url: string, timeoutMs: number): Promise<Response> {
+	const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
+	void res.body?.cancel();
+	return res;
+}
+
+/**
+ * `pid:port` pairs that have answered the probe with HTML. A process that
+ * serves HTML keeps doing so, so each is probed once rather than on every
+ * poll; entries go when their listener does.
+ */
+const servingHtml = new Set<string>();
+
 /** Whether `url` answers with an HTML page within the probe timeout. */
 async function servesHtml(url: string): Promise<boolean> {
 	try {
-		const res = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS), redirect: 'follow' });
-		void res.body?.cancel();
+		const res = await fetchHeaders(url, PROBE_TIMEOUT_MS);
 		return (res.headers.get('content-type') ?? '').includes('text/html');
 	} catch {
 		return false;
@@ -115,10 +123,10 @@ async function servesHtml(url: string): Promise<boolean> {
 
 /**
  * The listeners whose process works inside `root` and answers HTTP with HTML,
- * one per port, lowest port first. `exclude` leaves out a process (this
- * server, which may well run from the same repo).
+ * one per port, lowest port first. This server counts too: claude-mux's own
+ * dev server is the dev server of the claude-mux repo.
  */
-export async function detectDevServers(root: string, exclude = process.pid): Promise<DevServer[]> {
+export async function detectDevServers(root: string): Promise<DevServer[]> {
 	if (process.platform !== 'linux') return [];
 	let out: string;
 	try {
@@ -127,10 +135,12 @@ export async function detectDevServers(root: string, exclude = process.pid): Pro
 		return [];
 	}
 	const byPort = new Map<number, Listener[]>();
+	const live = new Set<string>();
 	for (const l of parseListeners(out)) {
-		if (l.pid === exclude) continue;
 		byPort.set(l.port, [...(byPort.get(l.port) ?? []), l]);
+		live.add(`${l.pid}:${l.port}`);
 	}
+	for (const key of servingHtml) if (!live.has(key)) servingHtml.delete(key);
 	const cwds = new Map<number, Promise<string | null>>();
 	const cwdOf = (pid: number) => {
 		if (!cwds.has(pid)) cwds.set(pid, readlink(`/proc/${pid}/cwd`).catch(() => null));
@@ -139,10 +149,14 @@ export async function detectDevServers(root: string, exclude = process.pid): Pro
 	const found = await Promise.all(
 		[...byPort].map(async ([port, socks]): Promise<DevServer | null> => {
 			const cwd = await cwdOf(socks[0].pid);
-			if (!cwd || !inside(root, cwd)) return null;
+			if (!cwd || !isInside(root, cwd)) return null;
 			const addresses = socks.map((s) => s.address);
 			const url = localUrl(port, addresses);
-			if (!(await servesHtml(url))) return null;
+			const key = `${socks[0].pid}:${port}`;
+			if (!servingHtml.has(key)) {
+				if (!(await servesHtml(url))) return null;
+				servingHtml.add(key);
+			}
 			return {
 				port,
 				url,
@@ -177,11 +191,13 @@ export function parseServeStatus(status: ServeStatus): Record<number, string> {
 		}
 		if (target.protocol !== 'http:' || !isLoopback(target.hostname)) continue;
 		const local = Number(target.port || 80);
-		const colon = hostPort.lastIndexOf(':');
-		const host = hostPort.slice(0, colon);
-		const httpsPort = hostPort.slice(colon + 1);
-		const url = httpsPort === '443' ? `https://${host}` : `https://${host}:${httpsPort}`;
-		if (!serves[local] || String(local) === httpsPort) serves[local] = url;
+		let served: URL;
+		try {
+			served = new URL(`https://${hostPort}`);
+		} catch {
+			continue;
+		}
+		if (!serves[local] || String(local) === (served.port || '443')) serves[local] = served.origin;
 	}
 	return serves;
 }
@@ -217,19 +233,15 @@ function sourceAllows(source: string, ours: URL, theirs: URL): boolean {
 	const s = source.toLowerCase();
 	if (s === '*') return true;
 	if (s === "'self'") return ours.origin === theirs.origin;
-	if (/^[a-z][a-z0-9+.-]*:$/.test(s)) return ours.protocol === s || (s === 'http:' && ours.protocol === 'https:');
+	// A source naming http also allows https.
+	const schemeOk = (scheme: string) => ours.protocol === scheme || (scheme === 'http:' && ours.protocol === 'https:');
+	if (/^[a-z][a-z0-9+.-]*:$/.test(s)) return schemeOk(s);
 	const m = /^(?:([a-z][a-z0-9+.-]*):\/\/)?(\*|(?:\*\.)?[^:/]+)(?::(\*|\d+))?(?:\/.*)?$/.exec(s);
 	if (!m) return false;
 	const [, scheme, host, port] = m;
-	if (scheme && `${scheme}:` !== ours.protocol && !(scheme === 'http' && ours.protocol === 'https:')) return false;
+	if (scheme && !schemeOk(`${scheme}:`)) return false;
 	const hostname = ours.hostname.toLowerCase();
-	if (host === '*') {
-		// matches any host
-	} else if (host.startsWith('*.')) {
-		if (!hostname.endsWith(host.slice(1))) return false;
-	} else if (host !== hostname) {
-		return false;
-	}
+	if (host !== '*' && !(host.startsWith('*.') ? hostname.endsWith(host.slice(1)) : host === hostname)) return false;
 	if (port === '*') return true;
 	const ourPort = ours.port || DEFAULT_PORTS[ours.protocol];
 	return (port ?? DEFAULT_PORTS[scheme ? `${scheme}:` : ours.protocol]) === ourPort;
@@ -270,8 +282,7 @@ export function framingVerdict(headers: Headers, theirs: URL, ours: URL): FrameC
 export async function checkFraming(url: string, origin: string): Promise<FrameCheck> {
 	let res: Response;
 	try {
-		res = await fetch(url, { signal: AbortSignal.timeout(FRAME_CHECK_TIMEOUT_MS), redirect: 'follow' });
-		void res.body?.cancel();
+		res = await fetchHeaders(url, FRAME_CHECK_TIMEOUT_MS);
 	} catch (err) {
 		return { embeddable: null, reason: err instanceof Error ? err.message : String(err) };
 	}

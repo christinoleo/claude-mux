@@ -77,7 +77,8 @@ export async function filesRoot(session: Pick<Session, 'cwd' | 'git_root'>): Pro
 	return { root: repo ?? session.cwd, repo: repo !== null };
 }
 
-function isInside(root: string, abs: string): boolean {
+/** Whether `abs` is `root` or sits somewhere below it. */
+export function isInside(root: string, abs: string): boolean {
 	const rel = relative(root, abs);
 	return rel === '' || (rel !== '..' && !rel.startsWith('..' + sep) && !isAbsolute(rel));
 }

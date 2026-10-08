@@ -70,20 +70,24 @@ describe("resolveEmbed", () => {
   });
 
   it("offers an unmapped local server in a new tab with the command, from another device", () => {
-    const e = resolveEmbed("http://localhost:5173/", ctx("https://box.ts.net:3456", { detected: [server(5173, true)] }));
+    const e = resolveEmbed("http://localhost:5173/", ctx("https://box.ts.net:3456"));
     expect(e).toMatchObject({
       kind: "card",
       open: "http://box.ts.net:5173/",
       command: "tailscale serve --bg --https=5173 http://localhost:5173",
     });
-    expect(e.warn).toMatch(/127\.0\.0\.1 only/);
+  });
+
+  it("says a loopback-only server is out of reach from another device, even over plain HTTP", () => {
+    const e = resolveEmbed("http://localhost:5173/", ctx("http://box.ts.net:3434", { detected: [server(5173, true)] }));
+    expect(e).toMatchObject({ kind: "card", command: "tailscale serve --bg --https=5173 http://localhost:5173" });
+    expect(e.kind === "card" && e.reason).toMatch(/127\.0\.0\.1 only/);
   });
 
   it("frames a rewritten local server from a plain-HTTP page on another device", () => {
     expect(resolveEmbed("http://localhost:5173/", ctx("http://box.ts.net:3434"))).toEqual({
       kind: "frame",
       src: "http://box.ts.net:5173/",
-      warn: undefined,
     });
   });
 });
