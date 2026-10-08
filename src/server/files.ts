@@ -11,10 +11,10 @@
  */
 
 import { execFile } from 'child_process';
-import { realpath, readdir, stat, open } from 'fs/promises';
+import { realpath, readdir, readFile, stat, open } from 'fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import type { Session } from '../db/sessions-json.js';
-import { repoRoot } from './git.js';
+import { git, repoRoot } from './git.js';
 import { imageMimeFor } from '../utils/image-types.js';
 
 /** Text past this many bytes is cut off, and the answer says so. */
@@ -23,8 +23,6 @@ export const READ_LIMIT_BYTES = 1024 * 1024;
 const IMAGE_LIMIT_BYTES = 20 * 1024 * 1024;
 /** How much of a file is sniffed for a NUL byte to call it binary. */
 const SNIFF_BYTES = 8 * 1024;
-/** Paths handed to one `git check-ignore`. */
-const CHECK_IGNORE_CHUNK = 500;
 /** The most paths quick-open is handed. */
 const LIST_LIMIT = 50_000;
 
@@ -86,17 +84,17 @@ function isGitPath(rel: string): boolean {
  * another spelling (a symlink to it) still resolves. Throws a 403 for a path
  * that lands outside the root or in `.git`, and a 404 for one that is not there.
  */
-export async function resolveInRoot(root: string, path: string): Promise<{ abs: string; rel: string }> {
+export async function resolveInRoot(
+	root: string,
+	path: string
+): Promise<{ abs: string; rel: string; realRoot: string }> {
 	if (path.includes('\0')) throw new FileAccessError('Invalid path', 400);
 	const realRoot = await realpath(root).catch(() => {
 		throw new FileAccessError('Project directory not found', 404);
 	});
 	const wanted = isAbsolute(path) ? resolve(path) : resolve(realRoot, path);
 	// Refuse a path that climbs out before touching the disk, so its existence is not told.
-	if (!isAbsolute(path) && !isInside(realRoot, wanted)) {
-		throw new FileAccessError('Path is outside the project', 403);
-	}
-	if (isAbsolute(path) && !isInside(realRoot, wanted) && !isInside(resolve(root), wanted)) {
+	if (!isInside(realRoot, wanted) && !(isAbsolute(path) && isInside(resolve(root), wanted))) {
 		throw new FileAccessError('Path is outside the project', 403);
 	}
 	let abs: string;
@@ -108,31 +106,26 @@ export async function resolveInRoot(root: string, path: string): Promise<{ abs: 
 	if (!isInside(realRoot, abs)) throw new FileAccessError('Path is outside the project', 403);
 	const rel = relative(realRoot, abs).split(sep).join('/');
 	if (isGitPath(rel)) throw new FileAccessError('Path is outside the project', 403);
-	return { abs, rel };
+	return { abs, rel, realRoot };
 }
 
 /**
- * The entries of `paths` (relative to `root`) that git ignores. Asked in
- * chunks through stdin, never a shell; an error counts as none ignored.
+ * The entries of `paths` (relative to `root`) that git ignores, asked through
+ * stdin, never a shell; an error counts as none ignored.
  */
-export async function ignoredPaths(root: string, paths: string[]): Promise<Set<string>> {
-	const ignored = new Set<string>();
-	for (let i = 0; i < paths.length; i += CHECK_IGNORE_CHUNK) {
-		const chunk = paths.slice(i, i + CHECK_IGNORE_CHUNK);
-		const out = await new Promise<string>((done) => {
-			const child = execFile(
-				'git',
-				['check-ignore', '-z', '--stdin'],
-				{ cwd: root, timeout: 10_000, maxBuffer: 16 * 1024 * 1024 },
-				// Exit 1 means nothing in the chunk is ignored.
-				(_err, stdout) => done(stdout ?? '')
-			);
-			child.stdin?.on('error', () => {});
-			child.stdin?.end(chunk.join('\0') + '\0');
-		});
-		for (const p of out.split('\0')) if (p) ignored.add(p);
-	}
-	return ignored;
+async function ignoredPaths(root: string, paths: string[]): Promise<Set<string>> {
+	const out = await new Promise<string>((done) => {
+		const child = execFile(
+			'git',
+			['check-ignore', '-z', '--stdin'],
+			{ cwd: root, timeout: 10_000, maxBuffer: 16 * 1024 * 1024 },
+			// Exit 1 means nothing given is ignored.
+			(_err, stdout) => done(stdout ?? '')
+		);
+		child.stdin?.on('error', () => {});
+		child.stdin?.end(paths.join('\0') + '\0');
+	});
+	return new Set(out.split('\0').filter(Boolean));
 }
 
 /** Directories first, then by name as a person would sort them. */
@@ -150,8 +143,7 @@ export async function listDir(
 	dir: string,
 	opts: { repo: boolean; showIgnored?: boolean }
 ): Promise<DirListing> {
-	const { abs, rel } = await resolveInRoot(root, dir || '.');
-	const realRoot = await realpath(root);
+	const { abs, rel, realRoot } = await resolveInRoot(root, dir || '.');
 	const dirents = await readdir(abs, { withFileTypes: true }).catch((err: NodeJS.ErrnoException) => {
 		throw new FileAccessError(err.code === 'ENOTDIR' ? 'Not a directory' : 'Cannot read directory', 400);
 	});
@@ -176,14 +168,10 @@ export async function listDir(
 	let hidden = 0;
 	let shown = entries;
 	if (opts.repo && entries.length > 0) {
-		// git wants a directory spelled with its slash to match a `dir/` pattern.
-		const ignored = await ignoredPaths(
-			realRoot,
-			entries.map((e) => (e.type === 'dir' ? `${e.path}/` : e.path))
-		);
-		for (const e of entries) {
-			if (ignored.has(e.type === 'dir' ? `${e.path}/` : e.path) || ignored.has(e.path)) e.ignored = true;
-		}
+		// git wants a directory spelled with its slash to match a `dir/` pattern, and answers in the same spelling.
+		const spelled = (e: FileEntry) => (e.type === 'dir' ? `${e.path}/` : e.path);
+		const ignored = await ignoredPaths(realRoot, entries.map(spelled));
+		for (const e of entries) if (ignored.has(spelled(e))) e.ignored = true;
 		if (!opts.showIgnored) {
 			shown = entries.filter((e) => !e.ignored);
 			hidden = entries.length - shown.length;
@@ -196,7 +184,7 @@ export async function listDir(
 async function readHead(abs: string, limit: number): Promise<Buffer> {
 	const handle = await open(abs, 'r');
 	try {
-		const buf = Buffer.alloc(limit);
+		const buf = Buffer.allocUnsafe(limit);
 		const { bytesRead } = await handle.read(buf, 0, limit, 0);
 		return buf.subarray(0, bytesRead);
 	} finally {
@@ -235,7 +223,7 @@ export async function readProjectImage(root: string, path: string): Promise<{ by
 	const s = await stat(abs);
 	if (!s.isFile()) throw new FileAccessError('Not a file', 400);
 	if (s.size > IMAGE_LIMIT_BYTES) throw new FileAccessError('Image too large', 413);
-	return { bytes: await readHead(abs, s.size), mime };
+	return { bytes: await readFile(abs), mime };
 }
 
 /**
@@ -243,14 +231,7 @@ export async function readProjectImage(root: string, path: string): Promise<{ by
  * quick-open. Null outside a repo or when git fails.
  */
 export async function listRepoFiles(root: string): Promise<{ files: string[]; truncated: boolean } | null> {
-	const out = await new Promise<string | null>((done) => {
-		execFile(
-			'git',
-			['-c', 'core.quotepath=off', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
-			{ cwd: root, timeout: 20_000, maxBuffer: 64 * 1024 * 1024 },
-			(err, stdout) => done(err ? null : stdout)
-		);
-	});
+	const out = await git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], root);
 	if (out === null) return null;
 	const files = [...new Set(out.split('\0').filter(Boolean))];
 	return { files: files.slice(0, LIST_LIMIT), truncated: files.length > LIST_LIMIT };

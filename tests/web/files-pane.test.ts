@@ -5,7 +5,6 @@ import {
   fuzzyScore,
   shikiLanguage,
   toolFileTarget,
-  underRoot,
 } from "../../web/src/lib/side-panel/files.js";
 
 describe("shikiLanguage", () => {
@@ -23,12 +22,6 @@ describe("paths", () => {
   it("lists the directories that hold a path", () => {
     expect(ancestors("a/b/c.ts")).toEqual(["a", "a/b"]);
     expect(ancestors("c.ts")).toEqual([]);
-  });
-
-  it("makes an absolute path inside the root relative", () => {
-    expect(underRoot("/repo/src/a.ts", "/repo")).toBe("src/a.ts");
-    expect(underRoot("/repository/a.ts", "/repo")).toBe("/repository/a.ts");
-    expect(underRoot("src/a.ts", "/repo")).toBe("src/a.ts");
   });
 });
 

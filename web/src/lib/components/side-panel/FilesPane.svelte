@@ -21,11 +21,11 @@
 		fuzzyFilter,
 		isMarkdown,
 		shikiLanguage,
-		underRoot,
 		type DirListing,
 		type FileEntry,
 		type FileRead
 	} from '$lib/side-panel/files';
+	import { displayPath } from '$lib/side-panel/changes';
 	import { highlightFile } from '$lib/side-panel/shiki';
 	import { renderMarkdown } from '$lib/markdown';
 	import { filesPaneStore } from '$lib/stores/filesPane.svelte';
@@ -97,7 +97,7 @@
 	// ── the open file ────────────────────────────────────────────────────
 
 	/** The file the URL names, made relative when it is an absolute path inside the root. */
-	const wantedFile = $derived(params.file ? underRoot(params.file, root) : null);
+	const wantedFile = $derived(params.file ? displayPath(params.file, root) : null);
 	const wantedLine = $derived.by(() => {
 		const n = Number(params.line);
 		return Number.isInteger(n) && n > 0 ? n : null;
@@ -140,7 +140,7 @@
 	$effect(() => {
 		const path = wantedFile;
 		if (!path || !active) return;
-		if (untrack(() => shown && (shown.path === path || ('read' in shown && shown.read.path === path)))) return;
+		if (untrack(() => current)) return;
 		untrack(() => {
 			void loadFile(path);
 			// Open the directories that hold it, so the tree shows where it is.
@@ -234,7 +234,6 @@
 	let allFiles = $state<string[] | null>(null);
 	let listing = false;
 	let picked = $state(0);
-	let queryEl = $state<HTMLInputElement | null>(null);
 
 	async function loadAll() {
 		if (allFiles || listing || !api) return;
@@ -342,7 +341,6 @@
 			class:ignored={entry.ignored}
 			class:on={openPath === entry.path}
 			aria-current={openPath === entry.path ? 'true' : undefined}
-			data-tree-file={entry.path}
 			style:--depth={depth}
 			title={entry.path}
 			onclick={() => openFile(entry.path)}
@@ -361,7 +359,6 @@
 			<div class="search">
 				<iconify-icon icon="mdi:magnify"></iconify-icon>
 				<Input
-					bind:ref={queryEl}
 					bind:value={query}
 					type="search"
 					placeholder="Go to file…"

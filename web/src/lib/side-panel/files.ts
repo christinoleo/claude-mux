@@ -4,26 +4,12 @@
  * transcript tool row points at.
  */
 import type { PatchHunk } from '$shared/transcript/parser.js';
+import type { FileRead as ServerFileRead } from '$shared/server/files.js';
 
-export interface FileEntry {
-	name: string;
-	path: string;
-	type: 'dir' | 'file';
-	ignored?: true;
-	link?: true;
-}
+export type { FileEntry, DirListing } from '$shared/server/files.js';
 
-export interface DirListing {
-	root: string;
-	dir: string;
-	repo: boolean;
-	entries: FileEntry[];
-	hidden: number;
-}
-
-export type FileRead =
-	| { kind: 'text'; path: string; size: number; text: string; truncated: boolean }
-	| { kind: 'image'; path: string; size: number; mime: string };
+/** What the read route answers with 200; a binary file answers 415. */
+export type FileRead = Exclude<ServerFileRead, { kind: 'binary' }>;
 
 /** The Shiki grammar for a path, or null to draw it plain. */
 export function shikiLanguage(path: string): string | null {
@@ -83,13 +69,6 @@ export function isMarkdown(path: string): boolean {
 export function ancestors(path: string): string[] {
 	const parts = path.split('/').slice(0, -1);
 	return parts.map((_, i) => parts.slice(0, i + 1).join('/'));
-}
-
-/** `path` relative to `root` when it sits inside it; anything else is returned as given. */
-export function underRoot(path: string, root: string | null): string {
-	if (!root || !path.startsWith('/')) return path;
-	const base = root.endsWith('/') ? root : `${root}/`;
-	return path.startsWith(base) ? path.slice(base.length) : path;
 }
 
 /**
