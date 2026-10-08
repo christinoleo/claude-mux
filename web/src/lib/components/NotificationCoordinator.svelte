@@ -5,19 +5,30 @@
 	ThreadNotificationCoordinator (MIT, © T3 Tools Inc.).
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import {
 		detectNotifications,
-		hasDesktopNotifications,
-		hasNotificationSound,
 		NOTIFICATION_TITLES,
 		type SeenSession,
 		type SessionNotification
 	} from '$shared/session-notifications.js';
-	import { sessionStore, getSessionDisplayName, wantsHuman, type Session } from '$lib/stores/sessions.svelte';
+	import {
+		sessionStore,
+		asking,
+		getSessionDisplayName,
+		wantsHuman,
+		type Session
+	} from '$lib/stores/sessions.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
-	import { playNotificationSound, setFaviconBadge, unlockNotificationAudio } from '$lib/notifications';
+	import {
+		hasDesktopNotifications,
+		hasNotificationSound,
+		playNotificationSound,
+		setFaviconBadge,
+		unlockNotificationAudio
+	} from '$lib/notifications';
 
 	/** The tmux targets of the sessions on screen; a split shows two. */
 	let { viewing }: { viewing: string[] } = $props();
@@ -36,18 +47,11 @@
 		return document.visibilityState === 'visible' && document.hasFocus();
 	}
 
-	function openSession(s: Session): void {
-		void goto(`/session/${encodeURIComponent(s.tmux_target ?? s.id)}`);
+	function openSession(target: string): void {
+		void goto(`/session/${encodeURIComponent(target)}`);
 	}
 
-	/** What a waiting session is asking, or failing that, what it is doing. */
-	function detail({ session: s, kind }: SessionNotification<Session>): string | null {
-		if (kind === 'completion') return null;
-		return s.pane_choice?.question ?? s.current_action ?? null;
-	}
-
-	function alert(event: SessionNotification<Session>): void {
-		const { session: s, kind } = event;
+	function alert({ session: s, kind }: SessionNotification<Session>): void {
 		const inFront = windowInFront();
 		// The session you are looking at needs no alert: you can see it.
 		if (inFront && viewing.some((t) => t === s.tmux_target || t === s.id)) return;
@@ -56,7 +60,8 @@
 
 		const title = NOTIFICATION_TITLES[kind];
 		const name = getSessionDisplayName(s);
-		const more = detail(event);
+		const more = kind === 'completion' ? null : asking(s);
+		const target = s.tmux_target ?? s.id;
 
 		if (inFront) {
 			if (!preferences.inAppToasts) return;
@@ -64,7 +69,7 @@
 			show(title, {
 				id: `session-${s.id}`,
 				description: more ? `${name} · ${more}` : name,
-				action: { label: 'Open', onClick: () => openSession(s) }
+				action: { label: 'Open', onClick: () => openSession(target) }
 			});
 			return;
 		}
@@ -86,7 +91,7 @@
 			n.addEventListener('click', () => {
 				n.close();
 				window.focus();
-				openSession(s);
+				openSession(target);
 			});
 			n.addEventListener('close', () => {
 				if (open.get(s.id) === n) open.delete(s.id);
@@ -100,8 +105,10 @@
 	$effect(() => {
 		const out = detectNotifications(seen, sessionStore.sessions);
 		seen = out.seen;
-		if (mode === 'off' && !preferences.inAppToasts) return;
-		for (const event of out.events) alert(event);
+		// Only a new broadcast should re-run detection, not a preference or a navigation.
+		untrack(() => {
+			for (const event of out.events) alert(event);
+		});
 	});
 
 	// Coming back to the window is reading what the notifications said.

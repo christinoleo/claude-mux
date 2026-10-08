@@ -12,7 +12,7 @@
 	import { formatAgo } from '$lib/format';
 	import { clock } from '$lib/stores/clock.svelte';
 	import type { Machine } from '$lib/stores/fleet.svelte';
-	import { getSessionDisplayName, needsHelp, type Session } from '$lib/stores/sessions.svelte';
+	import { asking, getSessionDisplayName, needsHelp, type Session } from '$lib/stores/sessions.svelte';
 	import type { InboxTicket } from '$shared/types/ws-messages.js';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 
@@ -75,12 +75,6 @@
 	const readyShown = $derived(showAllReady ? ready : ready.slice(0, READY_SHOWN));
 
 	const multiHost = $derived(machines.length > 1);
-
-	/** What the session is asking, in the fewest words the poll has. */
-	function asking(s: Session): string {
-		if (s.state === 'waiting') return s.pane_choice?.question || s.current_action || 'Asking you a question';
-		return s.current_action || 'Asking permission to go on';
-	}
 
 	function repoName(t: InboxTicket): string {
 		return t.repo.split('/').pop() ?? t.repo;

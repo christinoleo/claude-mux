@@ -3,8 +3,42 @@
  * Adapted from t3code's threadNotifications.ts (MIT, © T3 Tools Inc.).
  */
 
+/** How the browser alerts: system notifications, a sound, both, or neither. */
+export type NotificationMode = 'off' | 'notifications' | 'sound' | 'both';
+
+export function hasDesktopNotifications(mode: NotificationMode): boolean {
+	return mode === 'notifications' || mode === 'both';
+}
+
+export function hasNotificationSound(mode: NotificationMode): boolean {
+	return mode === 'sound' || mode === 'both';
+}
+
 let originalFavicon: HTMLLinkElement | undefined;
 let badgeFavicon: HTMLLinkElement | undefined;
+/** Badge images by label; there are only ten ("1"-"9" and "9+"). */
+const badges = new Map<string, string>();
+
+function badgeImage(label: string): string | null {
+	const cached = badges.get(label);
+	if (cached) return cached;
+	const canvas = document.createElement('canvas');
+	canvas.width = canvas.height = 64;
+	const context = canvas.getContext('2d');
+	if (!context) return null;
+	context.fillStyle = '#e5484d';
+	context.beginPath();
+	context.arc(32, 32, 30, 0, Math.PI * 2);
+	context.fill();
+	context.fillStyle = 'white';
+	context.font = `700 ${label.length > 1 ? 32 : 42}px system-ui, sans-serif`;
+	context.textAlign = 'center';
+	context.textBaseline = 'middle';
+	context.fillText(label, 32, 35);
+	const url = canvas.toDataURL('image/png');
+	badges.set(label, url);
+	return url;
+}
 
 /** Swap the favicon for a red count while any session needs someone, and put it back after. */
 export function setFaviconBadge(count: number): void {
@@ -16,19 +50,8 @@ export function setFaviconBadge(count: number): void {
 		originalFavicon = undefined;
 		return;
 	}
-	const canvas = document.createElement('canvas');
-	canvas.width = canvas.height = 64;
-	const context = canvas.getContext('2d');
-	if (!context) return;
-	context.fillStyle = '#e5484d';
-	context.beginPath();
-	context.arc(32, 32, 30, 0, Math.PI * 2);
-	context.fill();
-	context.fillStyle = 'white';
-	context.font = `700 ${count > 9 ? 32 : 42}px system-ui, sans-serif`;
-	context.textAlign = 'center';
-	context.textBaseline = 'middle';
-	context.fillText(count > 9 ? '9+' : String(count), 32, 35);
+	const image = badgeImage(count > 9 ? '9+' : String(count));
+	if (!image) return;
 	if (!badgeFavicon) {
 		originalFavicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? undefined;
 		originalFavicon?.remove();
@@ -37,7 +60,7 @@ export function setFaviconBadge(count: number): void {
 		badgeFavicon.type = 'image/png';
 		document.head.append(badgeFavicon);
 	}
-	badgeFavicon.href = canvas.toDataURL('image/png');
+	badgeFavicon.href = image;
 }
 
 let audio: AudioContext | undefined;
@@ -49,6 +72,7 @@ let audio: AudioContext | undefined;
 export function unlockNotificationAudio(): void {
 	if (typeof AudioContext === 'undefined') return;
 	audio ??= new AudioContext();
+	if (audio.state === 'running') return;
 	void audio.resume().catch(() => {});
 }
 

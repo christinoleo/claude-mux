@@ -64,14 +64,3 @@ export function detectNotifications<S extends NotifiableSession>(
   }
   return { seen, events };
 }
-
-/** How the browser alerts: system notifications, a sound, both, or neither. */
-export type NotificationMode = "off" | "notifications" | "sound" | "both";
-
-export function hasDesktopNotifications(mode: NotificationMode): boolean {
-  return mode === "notifications" || mode === "both";
-}
-
-export function hasNotificationSound(mode: NotificationMode): boolean {
-  return mode === "sound" || mode === "both";
-}

@@ -14,11 +14,6 @@
 	theme="dark"
 	class="toaster group"
 	style="--normal-bg: #151516; --normal-text: hsl(var(--foreground)); --normal-border: #2a2a2c; --border-radius: 14px;"
-	toastOptions={{
-		classes: {
-			toast: "cn-toast",
-		},
-	}}
 	{...restProps}
 >
 	{#snippet loadingIcon()}

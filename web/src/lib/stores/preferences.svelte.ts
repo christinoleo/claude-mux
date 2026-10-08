@@ -1,5 +1,5 @@
 import { createPersisted } from './persisted';
-import type { NotificationMode } from '$shared/session-notifications.js';
+import type { NotificationMode } from '$lib/notifications';
 
 interface Preferences {
 	terminalTheming: boolean;

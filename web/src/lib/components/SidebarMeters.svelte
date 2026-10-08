@@ -5,12 +5,12 @@
 	import { wakeLockSupported } from '$lib/wakeLock.svelte';
 	import { hostTimeZone, makeDayFormatter, money } from '$lib/format';
 	import { SEVERITY, severityForPercent } from '$lib/severity';
-	import { unlockNotificationAudio } from '$lib/notifications';
 	import {
 		hasDesktopNotifications,
 		hasNotificationSound,
+		unlockNotificationAudio,
 		type NotificationMode
-	} from '$shared/session-notifications.js';
+	} from '$lib/notifications';
 
 	const SPARK_DAYS = 14;
 	/** Why the plan columns are missing, for the one place there is room to say it. */

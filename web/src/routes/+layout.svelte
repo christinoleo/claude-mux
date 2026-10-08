@@ -219,7 +219,7 @@
 {#if !embed}
 	<!-- A split's panes are this layout in frames; only the outer page alerts. -->
 	<NotificationCoordinator {viewing} />
-	<Toaster position="top-right" theme="dark" closeButton />
+	<Toaster position="top-right" closeButton />
 {/if}
 
 {#if showSidebar && !embed}
