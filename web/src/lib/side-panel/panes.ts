@@ -9,6 +9,7 @@ import type { Component } from 'svelte';
 import type { Session } from '$lib/stores/sessions.svelte';
 import type { ChangesInfo } from '$shared/types/ws-messages.js';
 import ProjectPane from '$lib/components/side-panel/ProjectPane.svelte';
+import { IS_MAC } from '$lib/constants';
 
 export interface PaneAction {
 	icon: string;
@@ -67,17 +68,20 @@ export function paneDef(kind: string | null): PaneDef | null {
 	return PANES.find((p) => p.kind === kind) ?? null;
 }
 
-const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+/** How Alt+Shift+`letter` is written for this keyboard. */
+function altShift(letter: string): string {
+	return IS_MAC ? `⌥⇧${letter}` : `Alt Shift ${letter}`;
+}
 
 /** How the keys that toggle a pane are written for this keyboard. */
 export function paneKeys(def: PaneDef): string {
-	return MAC ? `⌥⇧${def.key}` : `Alt Shift ${def.key}`;
+	return altShift(def.key);
 }
 /** Toggles maximize. */
-export const MAXIMIZE_KEY = 'M';
-export const MAXIMIZE_KEYS = MAC ? `⌥⇧${MAXIMIZE_KEY}` : `Alt Shift ${MAXIMIZE_KEY}`;
+const MAXIMIZE_KEY = 'M';
+export const MAXIMIZE_KEYS = altShift(MAXIMIZE_KEY);
 /** Closes the panel, or reopens the pane last shown. */
-export const CLOSE_KEYS = MAC ? '⌘\\' : 'Ctrl \\';
+export const CLOSE_KEYS = IS_MAC ? '⌘\\' : 'Ctrl \\';
 
 /** The pane an Alt+Shift+letter press names, or 'maximize'. */
 export function panelKeyAction(e: KeyboardEvent): PaneDef | 'maximize' | 'toggle' | null {

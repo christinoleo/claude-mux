@@ -39,7 +39,7 @@
 	import { attachmentsStore, type Attachment } from '$lib/stores/attachments.svelte';
 	import { untrack } from 'svelte';
 	import { swipe } from '$lib/actions/swipe';
-	import { STORAGE_KEYS } from '$lib/constants';
+	import { STORAGE_KEYS, MOD_LABEL } from '$lib/constants';
 	import { useGamepad, STICK_DEADZONE } from '$lib/gamepad.svelte';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import { viewModesStore } from '$lib/stores/viewModes.svelte';
@@ -48,7 +48,8 @@
 	import SidePanel from '$lib/components/side-panel/SidePanel.svelte';
 	import PanelToggles from '$lib/components/side-panel/PanelToggles.svelte';
 	import { sidePanelStore } from '$lib/stores/sidePanel.svelte';
-	import { PANE_KINDS, PANE_PARAMS, paneDef, panelKeyAction } from '$lib/side-panel/panes';
+	import { PANES, PANE_KINDS, PANE_PARAMS, paneDef, panelKeyAction } from '$lib/side-panel/panes';
+	import { MediaQuery } from 'svelte/reactivity';
 	import { panelQuery, readPanel } from '$lib/side-panel/url';
 	import {
 		INLINE_MEDIA_QUERY,
@@ -198,8 +199,13 @@
 		const params = new URLSearchParams($page.url.searchParams);
 		if (next === 'terminal') params.set('view', 'terminal');
 		else params.delete('view');
-		const query = params.toString();
-		goto(`${$page.url.pathname}${query ? `?${query}` : ''}`, { noScroll: true, keepFocus: true });
+		navigateQuery(params);
+	}
+
+	/** Go to this page with `query`, keeping scroll and focus. */
+	function navigateQuery(query: URLSearchParams, replaceState = false) {
+		const q = query.toString();
+		goto(`${$page.url.pathname}${q ? `?${q}` : ''}`, { noScroll: true, keepFocus: true, replaceState });
 	}
 
 	/**
@@ -210,22 +216,10 @@
 	 */
 	const panelKind = $derived(readPanel($page.url.searchParams, PANE_KINDS));
 	const panelPrefs = $derived(sidePanelStore.get(target));
-	let panelInline = $state(browser && window.matchMedia(INLINE_MEDIA_QUERY).matches);
-	let panelPhone = $state(browser && window.matchMedia(PHONE_MEDIA_QUERY).matches);
-	onMount(() => {
-		const inline = window.matchMedia(INLINE_MEDIA_QUERY);
-		const phone = window.matchMedia(PHONE_MEDIA_QUERY);
-		const sync = () => {
-			panelInline = inline.matches;
-			panelPhone = phone.matches;
-		};
-		inline.addEventListener('change', sync);
-		phone.addEventListener('change', sync);
-		return () => {
-			inline.removeEventListener('change', sync);
-			phone.removeEventListener('change', sync);
-		};
-	});
+	const inlineQuery = new MediaQuery(INLINE_MEDIA_QUERY);
+	const phoneQuery = new MediaQuery(PHONE_MEDIA_QUERY);
+	const panelInline = $derived(inlineQuery.current);
+	const panelPhone = $derived(phoneQuery.current);
 	/**
 	 * The pane the inline column last showed for this session. Closing hides
 	 * the column rather than unmounting it, so reopening finds every pane as
@@ -243,24 +237,14 @@
 	let panelDragWidth = $state<number | null>(null);
 	let panelResizing = $state(false);
 	let sessionRow = $state<HTMLElement | null>(null);
-	const panelWidthCss = $derived(
-		panelDragWidth !== null
-			? `${panelDragWidth}px`
-			: panelPrefs.width
-				? `${panelPrefs.width}px`
-				: DEFAULT_WIDTH_CSS
-	);
-
-	function navigatePanel(query: URLSearchParams, replaceState: boolean) {
-		const q = query.toString();
-		goto(`${$page.url.pathname}${q ? `?${q}` : ''}`, { noScroll: true, keepFocus: true, replaceState });
-	}
+	const panelWidth = $derived(panelDragWidth ?? panelPrefs.width);
+	const panelWidthCss = $derived(panelWidth ? `${panelWidth}px` : DEFAULT_WIDTH_CSS);
 
 	/** Show `kind`'s pane (or close the panel, for null). Opening and closing push history. */
 	function openPanel(kind: string | null) {
 		if (kind === panelKind) return;
 		if (kind) sidePanelStore.update(target, { last: kind });
-		navigatePanel(panelQuery($page.url.searchParams, kind, PANE_PARAMS), false);
+		navigateQuery(panelQuery($page.url.searchParams, kind, PANE_PARAMS));
 	}
 
 	/** A pane's toggle: a pressed one closes the panel, another switches to its pane. */
@@ -271,7 +255,7 @@
 
 	function setPaneParams(kind: string, own: Record<string, string | null>, opts?: { push?: boolean }) {
 		if (kind !== panelKind) return;
-		navigatePanel(panelQuery($page.url.searchParams, kind, PANE_PARAMS, own), !opts?.push);
+		navigateQuery(panelQuery($page.url.searchParams, kind, PANE_PARAMS, own), !opts?.push);
 	}
 
 	function toggleMaximize() {
@@ -299,7 +283,7 @@
 		e.preventDefault();
 		if (action === 'maximize') toggleMaximize();
 		else if (action === 'toggle') {
-			const last = paneDef(panelPrefs.last ?? null) ?? paneDef(PANE_KINDS[0]);
+			const last = paneDef(panelPrefs.last ?? null) ?? PANES[0];
 			if (panelKind) openPanel(null);
 			else if (last) togglePane(last.kind);
 		} else togglePane(action.kind);
@@ -505,10 +489,6 @@
 		ArrowLeft: 'Left',
 		ArrowRight: 'Right'
 	};
-
-	/** Apple keyboards say ⌘ where everyone else says Ctrl. */
-	const MOD_LABEL =
-		typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '\u2318' : 'Ctrl';
 
 	/**
 	 * Shortcuts for the controls that have no caption to name them.

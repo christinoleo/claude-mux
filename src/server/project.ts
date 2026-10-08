@@ -9,7 +9,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { currentBranch, repoRoot } from './git.js';
 
-export const PROJECT_CONFIG_FILE = '.claude-mux.json';
+const PROJECT_CONFIG_FILE = '.claude-mux.json';
 
 export interface ProjectConfig {
 	/** Named URLs, e.g. `{ prod: 'https://…', dev: 'http://localhost:5173' }`. */
@@ -55,15 +55,23 @@ export function parseProjectConfig(text: string): ProjectConfig {
 export async function projectInfo(cwd: string): Promise<ProjectInfo> {
 	const repo = await repoRoot(cwd);
 	const root = repo ?? cwd;
-	const branch = repo ? await currentBranch(repo) : null;
-	let config: ProjectConfig | null = null;
-	let configError: string | null = null;
-	try {
-		config = parseProjectConfig(await readFile(join(root, PROJECT_CONFIG_FILE), 'utf-8'));
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-			configError = err instanceof Error ? err.message : String(err);
-		}
-	}
+	// The branch and the config do not depend on each other.
+	const [branch, { config, configError }] = await Promise.all([
+		repo ? currentBranch(repo) : null,
+		readProjectConfig(root)
+	]);
 	return { root, repo: repo !== null, branch, config, configError };
+}
+
+/** The config at `root`: null with no error when the file is absent. */
+async function readProjectConfig(
+	root: string
+): Promise<Pick<ProjectInfo, 'config' | 'configError'>> {
+	try {
+		const config = parseProjectConfig(await readFile(join(root, PROJECT_CONFIG_FILE), 'utf-8'));
+		return { config, configError: null };
+	} catch (err) {
+		const missing = (err as NodeJS.ErrnoException).code === 'ENOENT';
+		return { config: null, configError: missing ? null : err instanceof Error ? err.message : String(err) };
+	}
 }

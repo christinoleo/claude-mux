@@ -6,14 +6,7 @@
 	 * something to hold before the Changes, Files and Web panes arrive.
 	 */
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
-
-	interface ProjectInfo {
-		root: string;
-		repo: boolean;
-		branch: string | null;
-		config: { urls: Record<string, string> } | null;
-		configError: string | null;
-	}
+	import type { ProjectInfo } from '$shared/server/project.js';
 
 	let { session, setActions, active }: PaneBodyProps = $props();
 

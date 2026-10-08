@@ -440,11 +440,17 @@
 			onSessionSelect?.();
 			return;
 		}
+		goToSession(machine, tmuxTarget);
+	}
+
+	/** Go to a session's page, on its own host when remote. */
+	function goToSession(machine: Machine, tmuxTarget: string, query = '') {
+		const path = `/session/${encodeURIComponent(tmuxTarget)}${query}`;
 		if (machine.local) {
-			goto(`/session/${encodeURIComponent(tmuxTarget)}`);
+			goto(path);
 			onSessionSelect?.();
 		} else {
-			window.location.href = `${machine.server.url}/session/${encodeURIComponent(tmuxTarget)}`;
+			window.location.href = `${machine.server.url}${path}`;
 		}
 	}
 
@@ -453,15 +459,7 @@
 		return PANES.map((pane) => ({
 			label: `Open ${pane.label.toLowerCase()}`,
 			icon: pane.icon,
-			run: () => {
-				const path = `/session/${encodeURIComponent(tmuxTarget)}?panel=${pane.kind}`;
-				if (machine.local) {
-					goto(path);
-					onSessionSelect?.();
-				} else {
-					window.location.href = `${machine.server.url}${path}`;
-				}
-			}
+			run: () => goToSession(machine, tmuxTarget, `?panel=${pane.kind}`)
 		}));
 	}
 

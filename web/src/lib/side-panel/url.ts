@@ -8,7 +8,7 @@
  * (`view`, `embed`, `with`) are never touched.
  */
 
-export const PANEL_PARAM = 'panel';
+const PANEL_PARAM = 'panel';
 
 /** Which pane the URL asks for, if it is one of `kinds`. */
 export function readPanel<K extends string>(params: URLSearchParams, kinds: readonly K[]): K | null {

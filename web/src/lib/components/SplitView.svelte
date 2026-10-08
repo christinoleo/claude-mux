@@ -110,7 +110,6 @@
 
 <div
 	class="split"
-	class:resizing
 	class:dragging={splitStore.dragging}
 	style="grid-template-columns: {columns}"
 	bind:this={root}
