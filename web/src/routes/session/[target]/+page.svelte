@@ -711,6 +711,23 @@
 		transcriptStore.setSession(null);
 	});
 
+	// A subagent's "Message <parent>" lands here with `?compose`: the reader
+	// came to type, so the box takes the focus and the param goes.
+	$effect(() => {
+		if (!$page.url.searchParams.has('compose') || !textareaElement) return;
+		untrack(() => {
+			textareaElement!.focus();
+			const params = new URLSearchParams($page.url.searchParams);
+			params.delete('compose');
+			const query = params.toString();
+			goto(`${$page.url.pathname}${query ? `?${query}` : ''}`, {
+				replaceState: true,
+				noScroll: true,
+				keepFocus: true
+			});
+		});
+	});
+
 	// The page has been seen showing one session while the URL named another,
 	// and only sometimes. A beat after every navigation, compare the two and
 	// write what the page believed to the server log, so the next report
@@ -2024,7 +2041,11 @@
 					/>
 				{/if}
 			</div>
-			<AgentRail agents={railAgents} onReveal={revealAgent} />
+			<AgentRail
+				agents={railAgents}
+				onReveal={revealAgent}
+				agentHref={(id) => `/session/${encodeURIComponent(target ?? '')}/agent/${encodeURIComponent(id)}`}
+			/>
 			{#if userScrolledUp}
 				<button class="jump-bottom" onclick={scrollToBottom} title="Jump to bottom">
 					<iconify-icon icon="mdi:arrow-down"></iconify-icon>

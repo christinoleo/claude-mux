@@ -7,12 +7,15 @@
 
 	let {
 		agents,
-		onReveal
+		onReveal,
+		agentHref
 	}: {
 		/** Every subagent the transcript knows about, running or not. */
 		agents: SubagentPayload[];
 		/** Brings the agent's Task card into view, loading history if it has to. */
 		onReveal?: (toolUseId: string) => void | Promise<void>;
+		/** Where an agent opens as a window of its own. */
+		agentHref?: (agentId: string) => string;
 	} = $props();
 
 	/**
@@ -246,6 +249,11 @@
 							<div class="report">{agent.report}</div>
 						{/if}
 						<div class="actions">
+							{#if agentHref}
+								<a class="btn" href={agentHref(agent.agentId)}>
+									<iconify-icon icon="mdi:open-in-new"></iconify-icon>Open
+								</a>
+							{/if}
 							{#if agent.toolUseId}
 								<button type="button" class="btn" onclick={() => void onReveal?.(agent.toolUseId!)}>
 									<iconify-icon icon="mdi:arrow-up-thin"></iconify-icon>Go to its card
@@ -574,6 +582,7 @@
 		border: 1px solid #2c2926;
 		border-radius: 5px;
 		background: #171512;
+		text-decoration: none;
 		color: #a8a29e;
 		font-size: 11px;
 		cursor: pointer;

@@ -31,6 +31,8 @@ export interface SubagentPayload {
   trimmed: number;
   /** The subagent's final message: what it reported back. */
   report: string | null;
+  /** The brief the parent wrote it (the Task prompt); full payloads only. */
+  prompt: string | null;
   running: boolean;
   /**
    * Whether this carries the whole activity list and the report. A lean
@@ -67,7 +69,9 @@ export function subagentPayload(
   const limit = full ? SUBAGENT_ACTIVITY_LIMIT : SUBAGENT_ACTIVITY_LEAN;
   const activity: SubagentPayload['activity'] = [];
   let report: string | null = null;
+  let prompt: string | null = null;
   for (const entry of state.builder.entries) {
+    if (entry.kind === 'user' && prompt === null) prompt = entry.text;
     if (entry.kind === 'tool') {
       activity.push({
         id: entry.id,
@@ -93,6 +97,7 @@ export function subagentPayload(
     activity: activity.slice(-limit),
     trimmed,
     report: full ? report : null,
+    prompt: full ? prompt : null,
     running,
     full
   };
