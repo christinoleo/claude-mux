@@ -11,6 +11,7 @@
  */
 
 import { execFileSync, execSync } from 'child_process';
+import { randomUUID } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getAllSessions } from '../db/index.js';
@@ -177,7 +178,12 @@ function loadPersisted(): { queues: Map<string, QueuedMessage[]>; persist: boole
 			// Expiry belongs to pruneQueues, which runs on the first drain tick.
 			const restored = (messages ?? [])
 				.filter((m) => m && typeof m.text === 'string')
-				.map((m) => ({ ...m, kind: m.kind === 'control' ? 'control' : ('user' as QueuedMessageKind) }));
+				.map((m) => ({
+					...m,
+					// Files written before items carried an id get one on the way in.
+					id: typeof m.id === 'string' ? m.id : randomUUID(),
+					kind: m.kind === 'control' ? 'control' : ('user' as QueuedMessageKind)
+				}));
 			if (restored.length > 0) queues.set(target, restored);
 		}
 		if (queues.size > 0) {
@@ -242,7 +248,7 @@ function queueFor(target: string): QueuedMessage[] {
 
 export function enqueue(target: string, text: string, kind: QueuedMessageKind = 'user'): QueuedMessage[] {
 	const queue = queueFor(target);
-	queue.push({ text, queuedAt: Date.now(), kind });
+	queue.push({ id: randomUUID(), text, queuedAt: Date.now(), kind });
 	missingSince.delete(target);
 	persistQueues();
 	ensureDrainLoop();
@@ -271,42 +277,49 @@ export function removeFromQueue(target: string, index: number): QueuedMessage[] 
 	return queue ?? [];
 }
 
-/** Replace one item's text in place; its position and timestamp stay. */
-export function editQueueItem(target: string, index: number, text: string): QueuedMessage[] {
-	const queue = queues.get(target);
-	if (!queue || index < 0 || index >= queue.length) return queue ?? [];
-	queue[index] = { ...queue[index], text };
+/**
+ * Replace one item's text in place; its position and timestamp stay. The item
+ * is named by id rather than position, because the drain may have sent the
+ * head between the client's view of the queue and this call. False when it
+ * has already left the queue.
+ */
+export function editQueueItem(target: string, id: string, text: string): boolean {
+	const item = queues.get(target)?.find((m) => m.id === id);
+	if (!item) return false;
+	item.text = text;
 	persistQueues();
-	return queue;
+	return true;
 }
 
 /**
- * Take one item out of the queue to steer it into the pane, and put it back
- * where it was when the pane does not take it. Taken out first so the drain
- * loop cannot send the same message while the steer is in flight.
+ * How promoting a queued item went: `sent` into the turn, `missing` because it
+ * had already left the queue, or `in-box` when Claude Code left the pasted
+ * text sitting in its input box.
  */
-export async function promoteToSteer(
-	target: string,
-	index: number,
-	busy: boolean
-): Promise<{ ok: boolean; queue: QueuedMessage[] }> {
+export type PromoteResult = 'sent' | 'missing' | 'in-box';
+
+/**
+ * Take one item out of the queue and steer it into the pane. Taken out first,
+ * so the drain loop cannot send it while the steer is in flight. It goes back
+ * only when the paste itself failed: text Claude Code left in its box is
+ * already in the pane, and queueing it again would deliver it twice.
+ */
+export async function promoteToSteer(target: string, id: string, busy: boolean): Promise<PromoteResult> {
 	const queue = queues.get(target);
-	if (!queue || index < 0 || index >= queue.length) return { ok: false, queue: queue ?? [] };
+	const index = queue?.findIndex((m) => m.id === id) ?? -1;
+	if (!queue || index === -1) return 'missing';
 	const [message] = queue.splice(index, 1);
 	if (queue.length === 0) queues.delete(target);
 	persistQueues();
-	let ok = false;
 	try {
-		ok = await steerIntoPane(target, message.text, busy);
-	} finally {
-		if (!ok) {
-			const restored = queueFor(target);
-			restored.splice(Math.min(index, restored.length), 0, message);
-			persistQueues();
-			ensureDrainLoop();
-		}
+		return (await steerIntoPane(target, message.text, busy)) ? 'sent' : 'in-box';
+	} catch (err) {
+		const restored = queueFor(target);
+		restored.splice(Math.min(index, restored.length), 0, message);
+		persistQueues();
+		ensureDrainLoop();
+		throw err;
 	}
-	return { ok, queue: getQueue(target) };
 }
 
 export function reorderQueue(target: string, fromIndex: number, toIndex: number): QueuedMessage[] {

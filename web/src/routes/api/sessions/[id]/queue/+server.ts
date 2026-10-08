@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
 	enqueue,
+	getQueue,
 	removeFromQueue,
 	reorderQueue,
 	clearQueue,
@@ -16,6 +17,11 @@ function changed(queue: QueuedMessage[]) {
 	broadcastSessions();
 	return json({ queue });
 }
+
+export const GET: RequestHandler = async ({ params }) => {
+	const target = decodeURIComponent(params.id);
+	return json({ queue: getQueue(target) });
+};
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);
@@ -42,20 +48,23 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 };
 
 /**
- * `{ index, text }` replaces that item's text in place; `{ fromIndex, toIndex }`
- * moves an item.
+ * `{ id, text }` replaces that item's text in place (404 once it has left the
+ * queue); `{ fromIndex, toIndex }` moves an item.
  */
 export const PATCH: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);
 	const body = await request.json();
-	const { index, text, fromIndex, toIndex } = body;
-	if (typeof index === 'number' && typeof text === 'string') {
+	const { id, text, fromIndex, toIndex } = body;
+	if (typeof id === 'string' && typeof text === 'string') {
 		if (!text.trim()) return json({ error: 'text must not be empty' }, { status: 400 });
-		return changed(editQueueItem(target, index, text.trim()));
+		if (!editQueueItem(target, id, text.trim())) {
+			return json({ error: 'That message has already left the queue', queue: getQueue(target) }, { status: 404 });
+		}
+		return changed(getQueue(target));
 	}
 	if (typeof fromIndex !== 'number' || typeof toIndex !== 'number') {
 		return json(
-			{ error: 'either index and text, or fromIndex and toIndex, are required' },
+			{ error: 'either id and text, or fromIndex and toIndex, are required' },
 			{ status: 400 }
 		);
 	}

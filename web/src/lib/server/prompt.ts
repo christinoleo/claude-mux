@@ -15,6 +15,16 @@ export function sessionForTarget(target: string): Session | undefined {
 }
 
 /**
+ * The tmux pane a route's URL param names, and the state its session is in.
+ * A session id resolves to its pane; a raw tmux target passes through, with
+ * no state.
+ */
+export function paneForTarget(target: string): { pane: string; state: Session['state'] | undefined } {
+	const session = sessionForTarget(target);
+	return { pane: session?.tmux_target ?? target, state: session?.state };
+}
+
+/**
  * The text to deliver, with any attachments folded in. Attachments are keyed
  * by session id, so a pane no session claims can take none.
  */

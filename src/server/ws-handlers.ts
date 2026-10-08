@@ -476,7 +476,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 			issue: issueFor(s.git_root, s.maestro_issue),
 			// Whole, so the composer can draw and edit it without polling the queue route.
 			queue: s.tmux_target
-				? getQueue(s.tmux_target).map(({ text, queuedAt, kind }) => ({ text, queuedAt, kind }))
+				? getQueue(s.tmux_target).map(({ id, text, queuedAt, kind }) => ({ id, text, queuedAt, kind }))
 				: [],
 		};
 

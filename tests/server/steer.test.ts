@@ -10,10 +10,15 @@ process.env.CLAUDE_MUX_QUEUE_PATH = join(queueDir, 'queue.json');
 const tmuxCalls: string[][] = [];
 /** What the next box reads return: typed text left in the box, or null for empty. */
 let boxText: string | null = null;
+/** Make the paste itself fail, as tmux does for a pane that has gone. */
+let failPaste = false;
 
 vi.mock('child_process', () => ({
 	execSync: vi.fn((cmd: string) => tmuxCalls.push(cmd.split(' ').slice(1))),
-	execFileSync: vi.fn((_bin: string, args: string[]) => tmuxCalls.push(args))
+	execFileSync: vi.fn((_bin: string, args: string[]) => {
+		if (failPaste && args[0] === 'paste-buffer') throw new Error('no such pane');
+		tmuxCalls.push(args);
+	})
 }));
 
 vi.mock('../../src/tmux/pane.js', () => ({
@@ -21,7 +26,7 @@ vi.mock('../../src/tmux/pane.js', () => ({
 	readPromptBox: vi.fn(() => (boxText === null ? null : { kind: 'typed', text: boxText }))
 }));
 
-const { enqueue, getQueue, clearQueue, editQueueItem, promoteToSteer, steerIntoPane } =
+const { enqueue, dequeue, getQueue, clearQueue, editQueueItem, promoteToSteer, steerIntoPane } =
 	await import('../../src/server/message-queue.js');
 
 const TARGET = 'steer-session:1.1';
@@ -44,6 +49,7 @@ beforeEach(() => {
 	vi.useFakeTimers();
 	tmuxCalls.length = 0;
 	boxText = null;
+	failPaste = false;
 	clearQueue(TARGET);
 });
 
@@ -75,32 +81,50 @@ describe('steer', () => {
 	});
 });
 
+const texts = () => getQueue(TARGET).map((m) => m.text);
+const idOf = (text: string) => getQueue(TARGET).find((m) => m.text === text)!.id;
+
 describe('promote to steer', () => {
 	it('takes the item out of the queue and steers it', async () => {
 		enqueue(TARGET, 'first');
 		enqueue(TARGET, 'second');
 		enqueue(TARGET, 'third');
-		const { ok, queue } = await settle(promoteToSteer(TARGET, 1, true));
-		expect(ok).toBe(true);
-		expect(queue.map((m) => m.text)).toEqual(['first', 'third']);
+		expect(await settle(promoteToSteer(TARGET, idOf('second'), true))).toBe('sent');
+		expect(texts()).toEqual(['first', 'third']);
 		expect(chorded()).toBe(true);
 	});
 
-	it('puts the item back where it was when the pane does not take it', async () => {
+	it('steers the item it was asked for after the head has drained', async () => {
+		enqueue(TARGET, 'first');
+		enqueue(TARGET, 'second');
+		enqueue(TARGET, 'third');
+		const id = idOf('second');
+		dequeue(TARGET);
+		expect(await settle(promoteToSteer(TARGET, id, true))).toBe('sent');
+		expect(texts()).toEqual(['third']);
+	});
+
+	it('does not queue text again that Claude Code left in its box', async () => {
 		enqueue(TARGET, 'first');
 		enqueue(TARGET, 'second');
 		boxText = 'second';
-		const { ok, queue } = await settle(promoteToSteer(TARGET, 1, true));
-		expect(ok).toBe(false);
-		expect(queue.map((m) => m.text)).toEqual(['first', 'second']);
+		expect(await settle(promoteToSteer(TARGET, idOf('second'), true))).toBe('in-box');
+		expect(texts()).toEqual(['first']);
 	});
 
-	it('refuses an index outside the queue without touching the pane', async () => {
+	it('puts the item back where it was when the paste fails', async () => {
+		enqueue(TARGET, 'first');
+		enqueue(TARGET, 'second');
+		failPaste = true;
+		await expect(settle(promoteToSteer(TARGET, idOf('first'), true))).rejects.toThrow();
+		expect(texts()).toEqual(['first', 'second']);
+	});
+
+	it('reports an item already gone without touching the pane', async () => {
 		enqueue(TARGET, 'only');
-		const { ok } = await settle(promoteToSteer(TARGET, 3, true));
-		expect(ok).toBe(false);
+		expect(await settle(promoteToSteer(TARGET, 'gone', true))).toBe('missing');
 		expect(tmuxCalls).toEqual([]);
-		expect(getQueue(TARGET)).toHaveLength(1);
+		expect(texts()).toEqual(['only']);
 	});
 });
 
@@ -109,14 +133,24 @@ describe('edit a queued item', () => {
 		enqueue(TARGET, 'first');
 		enqueue(TARGET, '/rename x', 'control');
 		const before = getQueue(TARGET)[1];
-		const queue = editQueueItem(TARGET, 1, '/rename y');
-		expect(queue.map((m) => m.text)).toEqual(['first', '/rename y']);
-		expect(queue[1]).toMatchObject({ kind: 'control', queuedAt: before.queuedAt });
+		expect(editQueueItem(TARGET, before.id, '/rename y')).toBe(true);
+		expect(texts()).toEqual(['first', '/rename y']);
+		expect(getQueue(TARGET)[1]).toMatchObject({ kind: 'control', queuedAt: before.queuedAt });
 	});
 
-	it('ignores an index outside the queue', () => {
+	it('edits the item it was asked for after the head has drained', () => {
 		enqueue(TARGET, 'first');
-		expect(editQueueItem(TARGET, 5, 'nope').map((m) => m.text)).toEqual(['first']);
+		enqueue(TARGET, 'second');
+		const id = idOf('second');
+		dequeue(TARGET);
+		expect(editQueueItem(TARGET, id, 'second, edited')).toBe(true);
+		expect(texts()).toEqual(['second, edited']);
+	});
+
+	it('reports an item already gone', () => {
+		enqueue(TARGET, 'first');
+		expect(editQueueItem(TARGET, 'gone', 'nope')).toBe(false);
+		expect(texts()).toEqual(['first']);
 	});
 });
 

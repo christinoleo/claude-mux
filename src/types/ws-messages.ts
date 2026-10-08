@@ -74,6 +74,8 @@ const PaneActivitySchema = z.object({
 export type PaneActivity = z.infer<typeof PaneActivitySchema>;
 
 const QueuedMessageSchema = z.object({
+	/** Stable across reorders and drains, so an edit or steer names the item it meant. */
+	id: z.string(),
 	text: z.string(),
 	queuedAt: z.number(),
 	kind: z.enum(['user', 'control'])

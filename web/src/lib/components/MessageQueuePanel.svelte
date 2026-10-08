@@ -41,7 +41,7 @@
 		<p class="empty-text">No queued messages</p>
 	{:else}
 		<div class="queue-list">
-			{#each queue as item, i (item.queuedAt)}
+			{#each queue as item, i (item.id)}
 				<div class="queue-item">
 					<div class="queue-item-content">
 						<span class="queue-text">{truncate(item.text)}</span>
