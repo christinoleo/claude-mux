@@ -185,6 +185,18 @@ async function refresh(repo: RepoState): Promise<void> {
 	repo.fetchedAt = Date.now();
 }
 
+/** Watch the repos the given sessions sit in, and the issues their workers own. */
+export function watchSessionRepos(sessions: Iterable<{ git_root?: string | null; maestro_issue?: number | null }>): void {
+	const wants = new Map<string, Set<number>>();
+	for (const s of sessions) {
+		if (!s.git_root) continue;
+		const set = wants.get(s.git_root) ?? new Set<number>();
+		if (s.maestro_issue) set.add(s.maestro_issue);
+		wants.set(s.git_root, set);
+	}
+	watchRepos(wants);
+}
+
 /**
  * Say which repos the sessions are in, and which issues they work. Called by
  * the session poll every tick; starts a background read for any repo whose

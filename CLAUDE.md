@@ -249,6 +249,22 @@ toast. The sidebar foot holds the per-browser settings (mode
 a red count of sessions that want a person. The sounds are synthesised with
 WebAudio in `web/src/lib/notifications.ts`, so there are no audio assets.
 
+Web Push carries the same events to a device with no tab open, so its
+detection runs on the server: `startPushMonitor()` in `src/server/push.ts`
+feeds the session JSON through the same `detectNotifications()` on every
+watcher change (and keeps the GitHub cache warm so a worker is named by its
+issue), from the moment the server starts (the `init` hook in
+`hooks.server.ts`), not when a page connects. It reads the dialog's question
+off the pane for the body and sends to the devices in
+`~/.claude-mux/push-subscriptions.json` that want that event, dropping any the
+push service answers 404/410. `web/src/lib/server/push.ts` holds the VAPID
+keys (`~/.claude-mux/vapid.json`) and the `web-push` call, which must stay a
+web devDependency so Vite bundles it into the server. `web/src/service-worker.ts`
+shows the push (skipping it while any claude-mux window has focus, since the
+page alerts for itself there) and on a
+tap hands an open page the URL by `postMessage`, which `NotificationCoordinator`
+routes; it has no fetch handler and caches nothing.
+
 The sidebar row is `SessionRow.svelte`: a `meta` slot on line 1 after the time,
 for badges that come later, and a `children` snippet for rows nested under it.
 

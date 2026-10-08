@@ -55,6 +55,7 @@
 - **Voice input** &mdash; local Whisper transcription (CPU or CUDA, auto-detected). Trigger with `F2`, `Pause`, or `Ctrl+\`` while the input is focused; press `Enter` to stop and submit, `Esc` or the `×` overlay to discard. Long-press the mic button for language, microphone, and auto-submit settings
 - **Orchestrator pairing** &mdash; main + orchestrator sessions grouped together with role labels
 - **Remote Control** &mdash; auto-detects Claude's `/rc` and opens it in a new window
+- **Phone notifications** &mdash; Web Push when a session needs you or finishes, with claude-mux closed (see [Push notifications](#push-notifications-phone))
 - **Mobile-first** &mdash; touch toolbar, hamburger sidebar, swipe gestures
 - **Screenshots panel** &mdash; view and dismiss captured screenshots
 - **Dead pane detection** &mdash; visual indication when a tmux pane closes
@@ -140,6 +141,28 @@ systemctl --user restart claude-mux.service
 ```
 
 Edit the file then `systemctl --user restart claude-mux.service` to pick up changes.
+
+---
+
+## Push notifications (phone)
+
+The server can notify a phone, tablet or desktop browser when a session asks a question, wants an approval, or finishes its turn, even with every claude-mux tab closed. The server watches the sessions itself and sends through the browser's push service (Web Push with VAPID), so nothing needs to stay open on the device.
+
+**It needs HTTPS.** Browsers only allow service workers and push on a secure origin (`localhost` aside). The simplest way is `tailscale serve`, which puts a certificate in front of the local server:
+
+```bash
+tailscale serve --bg --https=8443 http://127.0.0.1:3456
+# then open https://<machine>.<tailnet>.ts.net:8443 on the phone
+```
+
+To turn it on for a device, open claude-mux there and choose **Push → This device** at the foot of the sidebar, then allow notifications. Two checkboxes pick the events (**Needs you**, **Done**), and **Send a test** checks the whole path.
+
+- **Android (Chrome):** works from the browser tab or an installed app.
+- **iPhone / iPad (iOS 16.4+):** Safari only offers push to web apps on the Home Screen. Open the HTTPS address in Safari, tap Share → **Add to Home Screen**, open claude-mux from the new icon, and turn push on from there.
+
+Tapping a notification opens that session. A device with claude-mux open in front gets no push, because the page alerts for itself there (a toast, per the sidebar's settings).
+
+The server keeps its VAPID key pair in `~/.claude-mux/vapid.json` (made on first use) and the devices in `~/.claude-mux/push-subscriptions.json`. Deleting the key file orphans every subscription; turn push off and on again on each device. A device the push service reports as gone (HTTP 404/410) is dropped automatically. Each claude-mux server pushes for its own sessions, so with several machines on the tailnet, turn push on once per machine's address.
 
 ---
 

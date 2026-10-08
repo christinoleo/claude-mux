@@ -120,6 +120,17 @@
 		};
 	});
 
+	// A tapped push notification hands an open page the session to show (see service-worker.ts).
+	$effect(() => {
+		if (!('serviceWorker' in navigator)) return;
+		const onMessage = (event: MessageEvent) => {
+			const data = event.data as { type?: string; url?: string } | null;
+			if (data?.type === 'open' && data.url) void goto(data.url);
+		};
+		navigator.serviceWorker.addEventListener('message', onMessage);
+		return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+	});
+
 	$effect(() => {
 		if (!hasNotificationSound(mode)) return;
 		document.addEventListener('pointerdown', unlockNotificationAudio);

@@ -1,4 +1,4 @@
-import { type Handle } from '@sveltejs/kit';
+import { type Handle, type ServerInit } from '@sveltejs/kit';
 import {
 	handleWsMessage,
 	parseWsPath,
@@ -7,6 +7,13 @@ import {
 	type WsMessageHandlers
 } from '$shared/server/ws-handlers.js';
 import { sessionsWsManager, terminalWsManager, transcriptWsManager } from '$lib/server/ws-managers.js';
+import { ensurePushMonitor } from '$lib/server/push.js';
+
+// Pushes go to phones with every tab closed, so their events are watched from
+// the moment the server starts rather than when the first page connects.
+export const init: ServerInit = () => {
+	ensurePushMonitor();
+};
 
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
 const wsDataMap = new WeakMap<

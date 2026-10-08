@@ -58,7 +58,7 @@ import { sessionWatcher } from './watcher.js';
 import { getQueue, enqueue, getDeliveries } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
 import type { DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
-import { inboxTickets, issueFor, watchRepos } from './github.js';
+import { inboxTickets, issueFor, watchSessionRepos } from './github.js';
 
 // ============================================================================
 // Configuration
@@ -411,14 +411,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 
 	// GitHub holds the other half of what a session is waiting on: the issue a
 	// maestro worker owns, and the tickets in its repo that want a person.
-	const wants = new Map<string, Set<number>>();
-	for (const s of sessions) {
-		if (!s.git_root) continue;
-		const set = wants.get(s.git_root) ?? new Set<number>();
-		if (s.maestro_issue) set.add(s.maestro_issue);
-		wants.set(s.git_root, set);
-	}
-	watchRepos(wants);
+	watchSessionRepos(sessions);
 
 	// Scan for Remote Control URLs in pane content (detect new URLs and clear stale ones)
 	for (const s of sessions) {
