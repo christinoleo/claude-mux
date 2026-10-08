@@ -52,10 +52,6 @@ export class TranscriptStore extends ReliableWebSocket {
 	entries = $state<TranscriptEntry[]>([]);
 	/** All subagents, keyed by their own id — some have no parent Task id. */
 	subagents = $state<Record<string, SubagentPayload>>({});
-	/** Subagents working right now, newest last. */
-	running: SubagentPayload[] = $derived(
-		Object.values(this.subagents).filter((sub) => sub.running)
-	);
 	/** The subset that can be attached to a Task card, keyed by that card's id. */
 	subagentsByTask: Record<string, SubagentPayload> = $derived(
 		Object.fromEntries(

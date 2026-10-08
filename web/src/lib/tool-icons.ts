@@ -8,7 +8,7 @@ const MCP_FAMILIES: [RegExp, string][] = [
 	[/slack/i, 'mdi:slack']
 ];
 
-/** The icon a tool call is drawn with, in the transcript and in the agent rail. */
+/** The icon a tool call is drawn with in the transcript. */
 export function toolIcon(name: string): string {
 	const mcp = parseMcpToolName(name);
 	if (mcp) {

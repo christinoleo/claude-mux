@@ -15,7 +15,6 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import TerminalView from '$lib/components/TerminalView.svelte';
 	import TranscriptView from '$lib/components/TranscriptView.svelte';
-	import AgentRail from '$lib/components/AgentRail.svelte';
 	import { transcriptStore } from '$lib/stores/transcript.svelte';
 	import ContextGauge from '$lib/components/ContextGauge.svelte';
 	import RailStats from '$lib/components/RailStats.svelte';
@@ -688,13 +687,6 @@
 	} as const;
 	const queue = $derived(currentSession?.queue ?? []);
 	const queueCount = $derived(queue.length);
-	/** Shown only in the transcript, which is the view that streams them. */
-	/** Every subagent the transcript knows; the rail decides which to show. */
-	const railAgents = $derived(
-		viewMode === 'transcript' ? Object.values(transcriptStore.subagents) : []
-	);
-	const railShowing = $derived(railAgents.some((a) => a.running));
-
 	function findEntry(id: string): HTMLElement | null {
 		return outputElement?.querySelector<HTMLElement>(`[data-entry-id="${CSS.escape(id)}"]`) ?? null;
 	}
@@ -703,8 +695,7 @@
 	const REVEAL_PAGES = 40;
 
 	/**
-	 * Scroll the transcript to an entry (an agent's Task card, a turn's
-	 * prompt) and open it if it folds. A long session holds only its tail, so
+	 * Scroll the transcript to an entry (a turn's prompt, a tool row) and open it if it folds. A long session holds only its tail, so
 	 * an entry the socket never sent is asked for, slice by slice, until it is
 	 * on the page or the history runs out.
 	 */
@@ -2187,7 +2178,7 @@
 >
 <div class="session-container">
 
-	<div class="output-wrap" class:has-rail={railShowing}>
+	<div class="output-wrap">
 			<div
 				class="output"
 				bind:this={outputElement}
@@ -2230,6 +2221,7 @@
 						entries={transcriptStore.entries}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
 						{fileLink}
+						agentLink={(id) => `/session/${encodeURIComponent(target ?? '')}/agent/${encodeURIComponent(id)}`}
 						turnChanges={sessionChanges}
 						{changesLink}
 						available={transcriptStore.available}
@@ -2260,11 +2252,6 @@
 					/>
 				{/if}
 			</div>
-			<AgentRail
-				agents={railAgents}
-				onReveal={revealEntry}
-				agentHref={(id) => `/session/${encodeURIComponent(target ?? '')}/agent/${encodeURIComponent(id)}`}
-			/>
 			{#if userScrolledUp}
 				<button class="jump-bottom" onclick={scrollToBottom} title="Jump to bottom">
 					<iconify-icon icon="mdi:arrow-down"></iconify-icon>
@@ -2872,15 +2859,6 @@
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
-		container-type: inline-size;
-	}
-	/* The agent rail sits on the transcript's right margin. When the column
-	   has no margin to spare — a split pane, a narrow window — the rows keep
-	   clear of it, the one bit of space the rail reserves. */
-	@container (max-width: 960px) {
-		.output-wrap.has-rail .output {
-			padding-right: 52px;
-		}
 	}
 
 	.jump-bottom {
