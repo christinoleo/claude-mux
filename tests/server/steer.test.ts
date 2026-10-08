@@ -116,7 +116,11 @@ describe('promote to steer', () => {
 		enqueue(TARGET, 'first');
 		enqueue(TARGET, 'second');
 		failPaste = true;
-		await expect(settle(promoteToSteer(TARGET, idOf('first'), true))).rejects.toThrow();
+		const steer = promoteToSteer(TARGET, idOf('first'), true);
+		// Handled before the timers run, or the rejection lands unhandled.
+		const rejected = expect(steer).rejects.toThrow();
+		await settle(steer).catch(() => {});
+		await rejected;
 		expect(texts()).toEqual(['first', 'second']);
 	});
 
