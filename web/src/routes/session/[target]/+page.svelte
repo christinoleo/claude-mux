@@ -160,6 +160,15 @@
 	}
 
 	let textInput = $state('');
+	/** Ctrl/⌘ is held, so the primary button shows what Ctrl/⌘+Enter would do. */
+	let steerHeld = $state(false);
+	/**
+	 * A queued message loaded into the composer. What was typed before is put
+	 * aside and comes back once the edit is saved or cancelled.
+	 */
+	let editing = $state<{ target: string; id: string; draft: string } | null>(null);
+	/** Said once, when an edit outlived the message it was editing. */
+	let editNotice = $state<string | null>(null);
 	let showConfirmKill = $state(false);
 	let showConfirmRestart = $state(false);
 	let moreOpen = $state(false);
@@ -1176,13 +1185,6 @@
 
 	// ─── Editing a queued message ───────────────────────────────────────────
 
-	/**
-	 * A queued message loaded into the composer. What was typed before is put
-	 * aside and comes back once the edit is saved or cancelled.
-	 */
-	let editing = $state<{ target: string; id: string; draft: string } | null>(null);
-	/** Said once, when an edit outlived the message it was editing. */
-	let editNotice = $state<string | null>(null);
 
 	function startEdit(item: QueuedMessageInfo) {
 		if (!target) return;
@@ -1240,8 +1242,6 @@
 		}
 	});
 
-	/** Ctrl/⌘ is held, so the primary button shows what Ctrl/⌘+Enter would do. */
-	let steerHeld = $state(false);
 	const syncSteerHeld = (e: KeyboardEvent) => (steerHeld = e.ctrlKey || e.metaKey);
 
 
