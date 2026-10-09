@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { agentView, childSummary, agentTypeLabel, AGENT_ROW_MS } from "../src/subagents.js";
+import { agentView, childSummary, agentTypeLabel } from "../src/subagents.js";
 import type { Subagent } from "../src/db/sessions-json.js";
 
 const NOW = 1_000_000_000;
@@ -17,18 +17,18 @@ function agent(id: string, state: Subagent["state"], endedAgo: number | null, st
 }
 
 describe("agentView", () => {
-  it("draws running and recently finished agents, and folds the rest into a count", () => {
+  it("draws running agents and folds finished ones into a count at once", () => {
     const view = agentView(
-      [agent("run", "running", null, 3), agent("fresh", "done", 60_000, 2), agent("stale", "done", AGENT_ROW_MS + 1, 1)],
+      [agent("run", "running", null, 3), agent("fresh", "done", 1_000, 2), agent("stale", "done", 30 * 60 * 1000, 1)],
       NOW,
       new Set()
     );
-    expect(view.rows.map((a) => a.id)).toEqual(["fresh", "run"]);
-    expect(view).toMatchObject({ running: 1, folded: 1 });
+    expect(view.rows.map((a) => a.id)).toEqual(["run"]);
+    expect(view).toMatchObject({ running: 1, folded: 2 });
   });
 
-  it("keeps a failed agent's row until it is opened, then lets it age", () => {
-    const failed = [agent("bad", "failed", AGENT_ROW_MS * 3)];
+  it("keeps a failed agent's row until it is opened, then drops it", () => {
+    const failed = [agent("bad", "failed", 1_000)];
     expect(agentView(failed, NOW, new Set()).rows.map((a) => a.id)).toEqual(["bad"]);
     expect(agentView(failed, NOW, new Set(["bad"]))).toMatchObject({ rows: [], folded: 0 });
   });

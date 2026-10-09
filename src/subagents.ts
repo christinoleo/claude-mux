@@ -1,23 +1,21 @@
 import type { Subagent } from "./db/sessions-json.js";
 
-/** How long a finished subagent keeps its own row before it folds into a count. */
-export const AGENT_ROW_MS = 10 * 60 * 1000;
 /** How long the count remembers it: the hook keeps it this long, but only prunes on its next write. */
 export const AGENT_COUNT_MS = 60 * 60 * 1000;
 
 /** What the sidebar draws for one session's subagents. */
 export interface AgentView {
-  /** Rows to draw, oldest first: running, failed and not yet opened, recently finished. */
+  /** Rows to draw, oldest first: running, and failed but not yet opened. */
   rows: Subagent[];
   running: number;
-  /** Done long enough ago that only the parent's status line counts them. */
+  /** Finished agents, which only the parent's status line counts. */
   folded: number;
 }
 
 /**
- * Sorts a session's subagents into rows and a folded count. A failed agent
- * keeps its row until someone opens it; after that it ages like a finished
- * one, but is never counted as done.
+ * Sorts a session's subagents into rows and a folded count. A finished agent
+ * folds into the count the moment it ends. A failed agent keeps its row until
+ * someone opens it, and is never counted as done.
  */
 export function agentView(agents: Subagent[] | undefined, now: number, opened: ReadonlySet<string>): AgentView {
   const rows: Subagent[] = [];
@@ -25,10 +23,8 @@ export function agentView(agents: Subagent[] | undefined, now: number, opened: R
   let folded = 0;
   for (const agent of agents ?? []) {
     if (agent.state === "running") running++;
-    const pinned = agent.state === "running" || (agent.state === "failed" && !opened.has(agent.id));
-    const ended = agent.ended_at ?? now;
-    if (pinned || ended > now - AGENT_ROW_MS) rows.push(agent);
-    else if (agent.state === "done" && ended > now - AGENT_COUNT_MS) folded++;
+    if (agent.state === "running" || (agent.state === "failed" && !opened.has(agent.id))) rows.push(agent);
+    else if (agent.state === "done" && (agent.ended_at ?? now) > now - AGENT_COUNT_MS) folded++;
   }
   rows.sort((a, b) => a.started_at - b.started_at);
   return { rows, running, folded };

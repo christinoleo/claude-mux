@@ -89,9 +89,9 @@ pairing goes by agent type alone. A failed `Agent` call marks its agent
 running (Escape never sends its `SubagentStop`). A subagent's own tool calls
 arrive under the parent's session id with `agent_id` set, and the latest one
 rides on the agent as `current_tool`. Finished agents stay an hour and failed
-ones a day: the sidebar (`agentView()` in `src/subagents.ts`) draws a finished
-agent as a dimmed row for ten minutes and then only counts it ("3 agents done"
-on the parent), while a failed one keeps its red row until it is opened from
+ones a day: the sidebar (`agentView()` in `src/subagents.ts`) draws a row only for
+a running agent and folds a finished one into the parent's count the moment it
+ends ("3 agents done"), while a failed one keeps its red row until it is opened from
 this browser.
 
 ### 2. SvelteKit Web Server + WebSocket
