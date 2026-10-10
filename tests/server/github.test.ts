@@ -103,4 +103,21 @@ describe("withLiveAsker", () => {
   it("never filters wayfinder tickets, which have no worker by design", () => {
     expect(withLiveAsker(tickets, new Set()).map((t) => t.number)).toEqual([7]);
   });
+
+  it("lists a ticket once when workers in worktrees have the repo read once per checkout", () => {
+    const raw = [
+      issue({ number: 105, labels: [{ name: "wayfinder:task" }, { name: "needs-help" }] }),
+      issue({ number: 7, labels: [{ name: "wayfinder:grilling" }] }),
+    ];
+    const all = [
+      ...ticketsFromIssues(raw, "o/r", "/repo/.worktree/105"),
+      ...ticketsFromIssues(raw, "o/r", "/repo"),
+      ...ticketsFromIssues(raw, "o/r", "/repo/.worktree/103"),
+    ];
+    const kept = withLiveAsker(all, new Set(["/repo/.worktree/105#105"]));
+    expect(kept.map((t) => [t.number, t.git_root])).toEqual([
+      [105, "/repo/.worktree/105"],
+      [7, "/repo"],
+    ]);
+  });
 });

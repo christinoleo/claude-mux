@@ -265,6 +265,19 @@ export function inboxTickets(liveWorkers: Set<string>): InboxTicket[] {
 	);
 }
 
+/**
+ * A worker in a git worktree has a git root of its own, so one GitHub repo is
+ * read once per checkout and every ticket comes back once for each. The
+ * `needs-help` copies are already down to the asking worker's; of the rest the
+ * shortest root wins, which is the main checkout a worktree hangs under.
+ */
 export function withLiveAsker(tickets: InboxTicket[], liveWorkers: Set<string>): InboxTicket[] {
-	return tickets.filter((t) => t.kind !== 'needs-help' || liveWorkers.has(`${t.git_root}#${t.number}`));
+	const kept = new Map<string, InboxTicket>();
+	for (const t of tickets) {
+		if (t.kind === 'needs-help' && !liveWorkers.has(`${t.git_root}#${t.number}`)) continue;
+		const key = `${t.repo}#${t.number}`;
+		const have = kept.get(key);
+		if (!have || t.git_root.length < have.git_root.length) kept.set(key, t);
+	}
+	return [...kept.values()];
 }
