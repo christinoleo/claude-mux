@@ -36,28 +36,47 @@ const EDGE = 24;
 /** How long after a swipe a click still belongs to it. */
 const CLICK_WINDOW = 500;
 
-/** Can this element scroll under the finger, along the axis being swiped? */
-function scrollsAlong(el: Element, axis: 'x' | 'y'): boolean {
+type Axis = 'x' | 'y';
+
+/**
+ * Can this element scroll under the finger, along the axis and the way it is
+ * being dragged? `forward` is a drag toward the start (right, or down), which
+ * scrolls content back. Three things have to hold, and each one alone used to
+ * swallow the drawer's swipe. `overflow` says the element may scroll, but one
+ * that scrolls down computes `auto` across as well, so a transcript with one
+ * wide line in it claimed every sideways gesture. `touch-action` says whether
+ * a finger is allowed to. And there has to be somewhere left to go: a code
+ * block resting at its left end has nothing to give a drag to the right.
+ */
+function scrollsAlong(el: Element, axis: Axis, forward: boolean): boolean {
 	const style = getComputedStyle(el);
 	const overflow = axis === 'x' ? style.overflowX : style.overflowY;
 	if (overflow !== 'auto' && overflow !== 'scroll') return false;
-	return axis === 'x'
-		? el.scrollWidth > el.clientWidth + 2
-		: el.scrollHeight > el.clientHeight + 2;
+	const touch = style.touchAction;
+	if (touch === 'none' || touch === (axis === 'x' ? 'pan-y' : 'pan-x')) return false;
+	const at = axis === 'x' ? el.scrollLeft : el.scrollTop;
+	const max = axis === 'x' ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
+	return forward ? at > 2 : at < max - 2;
 }
 
 /** Does anything between the finger and the node want this gesture instead? */
-function scrollTakesIt(from: EventTarget | null, node: HTMLElement, axis: 'x' | 'y'): boolean {
-	let el = from instanceof Element ? from : null;
-	while (el) {
-		// A textarea scrolls its own text without saying so in `overflow`.
-		if (axis === 'y' && el instanceof HTMLTextAreaElement && el.scrollHeight > el.clientHeight + 2)
-			return true;
-		if (scrollsAlong(el, axis)) return true;
-		if (el === node) return false;
-		el = el.parentElement;
+function scrollTakesIt(path: Element[], axis: Axis, forward: boolean): boolean {
+	return path.some(
+		(el) =>
+			// A textarea scrolls its own text without saying so in `overflow`.
+			(axis === 'y' && el instanceof HTMLTextAreaElement && el.scrollHeight > el.clientHeight + 2) ||
+			scrollsAlong(el, axis, forward)
+	);
+}
+
+/** The finger's element and everything above it, up to and including the node. */
+function pathTo(from: EventTarget | null, node: HTMLElement): Element[] {
+	const path: Element[] = [];
+	for (let el = from instanceof Element ? from : null; el; el = el.parentElement) {
+		path.push(el);
+		if (el === node) break;
 	}
-	return false;
+	return path;
 }
 
 export function swipe(node: HTMLElement, options: SwipeOptions): SwipeAction {
@@ -65,7 +84,15 @@ export function swipe(node: HTMLElement, options: SwipeOptions): SwipeAction {
 	let startX = 0;
 	let startY = 0;
 	let startAt = 0;
+	/**
+	 * Where the finger came down, and the way up from there, read at once. A
+	 * touch keeps reporting to the element it started on even after that
+	 * element has left the page, and a live pane redraws its lines twice a
+	 * second: the `touchend` then never bubbles to the node, so the gesture has
+	 * to listen on the element itself, and cannot walk its parents afterwards.
+	 */
 	let from: EventTarget | null = null;
+	let path: Element[] = [];
 	let tracking = false;
 	/** When a gesture was last read, so the tap ending it is not a tap. */
 	let swipedAt = 0;
@@ -79,11 +106,22 @@ export function swipe(node: HTMLElement, options: SwipeOptions): SwipeAction {
 		startX = touch.clientX;
 		startY = touch.clientY;
 		startAt = Date.now();
+		release();
 		from = e.target;
+		path = pathTo(from, node);
+		from?.addEventListener('touchend', onTouchEnd as EventListener, { passive: true });
+		from?.addEventListener('touchcancel', onTouchCancel, { passive: true });
 		tracking = true;
 	}
 
+	function release(): void {
+		from?.removeEventListener('touchend', onTouchEnd as EventListener);
+		from?.removeEventListener('touchcancel', onTouchCancel);
+		from = null;
+	}
+
 	function onTouchEnd(e: TouchEvent): void {
+		release();
 		if (!tracking) return;
 		tracking = false;
 		const touch = e.changedTouches[0];
@@ -92,7 +130,7 @@ export function swipe(node: HTMLElement, options: SwipeOptions): SwipeAction {
 		const dx = touch.clientX - startX;
 		const dy = touch.clientY - startY;
 		const threshold = opts.threshold ?? 48;
-		const axis: 'x' | 'y' | null =
+		const axis: Axis | null =
 			Math.abs(dx) >= threshold && Math.abs(dx) > Math.abs(dy) * AXIS_RATIO
 				? 'x'
 				: Math.abs(dy) >= threshold && Math.abs(dy) > Math.abs(dx) * AXIS_RATIO
@@ -103,13 +141,14 @@ export function swipe(node: HTMLElement, options: SwipeOptions): SwipeAction {
 		const run =
 			axis === 'x' ? (dx > 0 ? opts.onRight : opts.onLeft) : dy > 0 ? opts.onDown : opts.onUp;
 		if (!run) return;
-		if (scrollTakesIt(from, node, axis)) return;
+		if (scrollTakesIt(path, axis, (axis === 'x' ? dx : dy) > 0)) return;
 
 		swipedAt = Date.now();
 		run();
 	}
 
 	function onTouchCancel(): void {
+		release();
 		tracking = false;
 	}
 
@@ -133,6 +172,7 @@ export function swipe(node: HTMLElement, options: SwipeOptions): SwipeAction {
 
 	return {
 		destroy(): void {
+			release();
 			node.removeEventListener('touchstart', onTouchStart);
 			node.removeEventListener('touchend', onTouchEnd);
 			node.removeEventListener('touchcancel', onTouchCancel);
