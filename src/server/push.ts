@@ -18,11 +18,10 @@ import {
   type PushSubscriptionRecord,
   type Session,
 } from "../db/index.js";
+import { hostname } from "os";
 import {
-  asking,
   detectNotifications,
-  NOTIFICATION_TITLES,
-  sessionDisplayName,
+  notificationText,
   type NotificationKind,
   type SeenSession,
 } from "../session-notifications.js";
@@ -60,11 +59,9 @@ export function pushMessageFor(
   kind: NotificationKind,
   question: string | null = null,
 ): PushMessage {
-  const name = sessionDisplayName({ ...session, issue: issueFor(session.git_root, session.maestro_issue) });
-  const more = kind === "completion" ? null : asking({ ...session, pane_choice: { question } });
+  const issue = issueFor(session.git_root, session.maestro_issue);
   return {
-    title: NOTIFICATION_TITLES[kind],
-    body: more ? `${name}\n${more}` : name,
+    ...notificationText({ ...session, issue, pane_choice: { question } }, kind, hostname()),
     tag: session.id,
     url: `/session/${encodeURIComponent(session.tmux_target ?? session.id)}`,
     kind,

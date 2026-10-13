@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
+import { hostname, tmpdir } from "os";
 import {
   getPushSubscriptions,
   getPushSubscription,
@@ -81,21 +81,28 @@ describe("push subscriptions (JSON file)", () => {
 });
 
 describe("pushMessageFor", () => {
-  it("says what the desktop notification says, and opens the session", () => {
-    expect(pushMessageFor(session(), "approval", "Do you want to run rm?")).toEqual({
-      title: "Approval needed",
-      body: "fix the build\nDo you want to run rm?",
+  const host = hostname();
+
+  it("names the session in the title, says where it lives, and opens it", () => {
+    const named = session({ git_root: "/home/leo/Projects/zapSell" });
+    expect(pushMessageFor(named, "approval", "Do you want to run rm?")).toEqual({
+      title: "Approval needed: fix the build",
+      body: `Do you want to run rm?\nzapSell · ${host}`,
       tag: "abc",
       url: "/session/main%3A1.0",
       kind: "approval",
     });
-    expect(pushMessageFor(session(), "approval").body).toBe("fix the build\nAsking permission to go on");
+    expect(pushMessageFor(session(), "approval").body).toBe(`Asking permission to go on\n${host}`);
     expect(pushMessageFor(session({ state: "waiting", current_action: ASKING }), "input").body).toBe(
-      "fix the build\nAsking a question",
+      `Asking a question\n${host}`,
     );
-    expect(pushMessageFor(session({ state: "idle", display_name: null }), "completion")).toMatchObject({
-      title: "Turn finished",
-      body: "main:1.0",
-    });
+  });
+
+  it("calls a session nobody named by its project, not by its tmux target", () => {
+    const unnamed = session({ state: "idle", display_name: null, cwd: "/home/leo/Projects/zapSell/.worktree/105" });
+    expect(pushMessageFor(unnamed, "completion")).toMatchObject({ title: "Turn finished: zapSell", body: host });
+    expect(pushMessageFor(session({ state: "idle", display_name: null }), "completion").title).toBe(
+      "Turn finished: main:1.0",
+    );
   });
 });

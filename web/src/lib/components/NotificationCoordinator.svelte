@@ -10,17 +10,12 @@
 	import { toast } from 'svelte-sonner';
 	import {
 		detectNotifications,
-		NOTIFICATION_TITLES,
+		notificationText,
 		type SeenSession,
 		type SessionNotification
 	} from '$shared/session-notifications.js';
-	import {
-		sessionStore,
-		asking,
-		getSessionDisplayName,
-		wantsHuman,
-		type Session
-	} from '$lib/stores/sessions.svelte';
+	import { sessionStore, wantsHuman, type Session } from '$lib/stores/sessions.svelte';
+	import { serverStore } from '$lib/stores/servers.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import {
 		hasDesktopNotifications,
@@ -58,9 +53,8 @@
 
 		if (hasNotificationSound(mode)) playNotificationSound(kind === 'completion' ? 'completion' : 'needs-you');
 
-		const title = NOTIFICATION_TITLES[kind];
-		const name = getSessionDisplayName(s);
-		const more = kind === 'completion' ? null : asking(s);
+		const host = serverStore.self || serverStore.current.hostname || null;
+		const { title, body } = notificationText(s, kind, host);
 		const target = s.tmux_target ?? s.id;
 
 		if (inFront) {
@@ -68,7 +62,7 @@
 			const show = kind === 'completion' ? toast.success : toast.warning;
 			show(title, {
 				id: `session-${s.id}`,
-				description: more ? `${name} · ${more}` : name,
+				description: body.replace('\n', ' · '),
 				action: { label: 'Open', onClick: () => openSession(target) }
 			});
 			return;
@@ -83,7 +77,7 @@
 		try {
 			open.get(s.id)?.close();
 			const n = new Notification(title, {
-				body: more ? `${name}\n${more}` : name,
+				body,
 				tag: s.id,
 				icon: '/icon-192.png'
 			});

@@ -31,7 +31,7 @@ export interface SessionNotification<S extends NotifiableSession = NotifiableSes
   kind: NotificationKind;
 }
 
-export const NOTIFICATION_TITLES: Record<NotificationKind, string> = {
+const NOTIFICATION_TITLES: Record<NotificationKind, string> = {
   input: "Input needed",
   approval: "Approval needed",
   completion: "Turn finished",
@@ -63,6 +63,46 @@ export function asking(s: {
   // A permission dialog's action is only "Waiting..." or "Waiting for
   // permission", which says less than the dialog's own question.
   return s.pane_choice?.question || "Asking permission to go on";
+}
+
+/** The project a session works in, by its folder: the repo, not a worktree inside it. */
+function projectOf(s: { git_root?: string | null; cwd?: string | null }): string | null {
+  const root = (s.git_root ?? s.cwd ?? "").replace(/\/\.worktrees?\/.*$/, "").replace(/\/+$/, "");
+  return root.split("/").pop() || null;
+}
+
+/**
+ * What a notification says, wherever it is shown: a system notification from
+ * the page, a toast, or a push on a phone with no tab open. The title has to
+ * stand alone on a lock screen, so it names what happened and to which
+ * session; the body adds the question being asked, and where the session
+ * lives. A session nobody named is called by its project rather than by its
+ * tmux target, which reads as noise, and the machine is said because the same
+ * project is often open on more than one.
+ */
+export function notificationText(
+  s: {
+    id: string;
+    state: SessionState;
+    display_name?: string | null;
+    tmux_target?: string | null;
+    git_root?: string | null;
+    cwd?: string | null;
+    issue?: { title: string } | null;
+    current_action?: string | null;
+    pane_choice?: { question: string | null } | null;
+  },
+  kind: NotificationKind,
+  host: string | null,
+): { title: string; body: string } {
+  const name = s.issue?.title || s.display_name || null;
+  const project = projectOf(s);
+  const where = [name ? project : null, host].filter(Boolean).join(" · ");
+  const more = kind === "completion" ? null : asking(s);
+  return {
+    title: `${NOTIFICATION_TITLES[kind]}: ${name ?? project ?? s.tmux_target ?? s.id}`,
+    body: [more, where].filter(Boolean).join("\n"),
+  };
 }
 
 /**
