@@ -10,6 +10,7 @@
 	 * one agent's (see TranscriptWsManager.addClient).
 	 */
 	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { sessionStore, getSessionDisplayName } from '$lib/stores/sessions.svelte';
 	import { TranscriptStore } from '$lib/stores/transcript.svelte';
@@ -19,6 +20,8 @@
 	import { compact, formatElapsed } from '$lib/format';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { drawer } from '$lib/stores/drawer.svelte';
+	import { draftsStore } from '$lib/stores/drafts.svelte';
+	import { appendQuote } from '$lib/quote';
 
 	const target = $derived(decodeURIComponent($page.params.target ?? ''));
 	const agentId = $derived(decodeURIComponent($page.params.agentId ?? ''));
@@ -28,6 +31,12 @@
 	);
 	const parentName = $derived(session ? getSessionDisplayName(session) : target);
 	const parentHref = $derived(`/session/${encodeURIComponent(target)}`);
+
+	/** There is no composer here: the quote joins the parent's draft, and the reader follows it there. */
+	function quoteToParent(text: string) {
+		draftsStore.set(target, appendQuote(draftsStore.get(target), text));
+		void goto(`${parentHref}?compose`);
+	}
 
 	/** What the hooks recorded of the agent; gone an hour after it finished. */
 	const hooked = $derived(session?.subagents?.find((a) => a.id === agentId) ?? null);
@@ -184,6 +193,7 @@
 							olderCount={store.firstIndex}
 							loadingEarlier={store.loadingEarlier}
 							onLoadEarlier={() => void loadEarlier()}
+							onQuote={quoteToParent}
 						/>
 					{/key}
 				{/if}
