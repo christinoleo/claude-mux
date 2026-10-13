@@ -29,7 +29,7 @@ describe("renderMarkdown", () => {
 
 describe("renderMarkdown with file links", () => {
   const href = (path: string, line: number | null) => `?file=${path}${line ? `&line=${line}` : ""}`;
-  const render = (text: string) => renderMarkdown(text, href);
+  const render = (text: string) => renderMarkdown(text, { files: href });
 
   it("links a path in backticks and keeps it code", () => {
     expect(render("see `web/src/lib/markdown.ts`")).toBe(
@@ -77,5 +77,71 @@ describe("renderMarkdown with file links", () => {
 
   it("links nothing unless asked", () => {
     expect(renderMarkdown("`src/a.ts` and src/b.ts")).toBe("<p><code>src/a.ts</code> and src/b.ts</p>\n");
+  });
+});
+
+describe("renderMarkdown with GitHub links", () => {
+  const render = (text: string, bare = false) => renderMarkdown(text, { github: { bare } });
+  const pull = "https://github.com/christinoleo/claude-mux/pull/72";
+
+  it("marks a bare URL to a pull request or issue, keeping it a plain link", () => {
+    expect(render(`See ${pull}.`)).toBe(
+      `<p>See <a class="gh-ref" href="${pull}" target="_blank" rel="noopener" data-repo="christinoleo/claude-mux" data-number="72">${pull}</a>.</p>\n`,
+    );
+    expect(render("https://github.com/o/r/issues/7")).toContain('data-repo="o/r" data-number="7"');
+  });
+
+  it("keeps the words the author wrote", () => {
+    const html = render(`[the **file** PR](${pull})`);
+    expect(html).toContain("data-words>the <strong>file</strong> PR</a>");
+  });
+
+  it("does not take a name for the target as the author's words", () => {
+    expect(render(`[#72](${pull})`)).not.toContain("data-words");
+    expect(render(`[christinoleo/claude-mux#72](${pull})`)).not.toContain("data-words");
+    expect(render(`[${pull}](${pull})`)).not.toContain("data-words");
+  });
+
+  it("reads through what GitHub hangs after the number", () => {
+    expect(render(`${pull}/files`)).toContain('data-number="72"');
+    expect(render(`${pull}#issuecomment-1`)).toContain('data-number="72"');
+  });
+
+  it("leaves other links alone", () => {
+    for (const text of [
+      "https://github.com/christinoleo/claude-mux",
+      "https://github.com/christinoleo/claude-mux/pulls",
+      "https://github.com/christinoleo/claude-mux/commit/94a3a79",
+      "https://github.com/christinoleo/claude-mux/pull/0",
+      "https://example.com/o/r/pull/3",
+      "[x](https://gitlab.com/o/r/issues/3)",
+      "`https://github.com/o/r/pull/3`",
+      "```\nhttps://github.com/o/r/pull/3\n```",
+    ]) {
+      expect(render(text, true), text).not.toContain("gh-ref");
+    }
+  });
+
+  it("marks a bare #n only where the session has a repo to look it up in", () => {
+    expect(render("Closes #70.")).toBe("<p>Closes #70.</p>\n");
+    expect(render("Closes #70.", true)).toBe('<p>Closes <a class="gh-ref" data-number="70">#70</a>.</p>\n');
+    expect(render("- (#12)\n- #13, #14", true).match(/data-number/g)).toHaveLength(3);
+  });
+
+  it("takes no #n out of a word, an entity, a link or code", () => {
+    for (const text of ["a#12", "#12a", "#12-x", "&#123;", "#0", "# 12", "#111827", "`#12`", "[#12](https://example.com)", "x/#12"]) {
+      expect(render(text, true), text).not.toContain("gh-ref");
+    }
+  });
+
+  it("marks both files and GitHub links in one message", () => {
+    const html = renderMarkdown(`src/a.ts fixes #3, see ${pull}`, { files: (p) => `/f/${p}`, github: { bare: true } });
+    expect(html).toContain('data-file="src/a.ts"');
+    expect(html).toContain('<a class="gh-ref" data-number="3">#3</a>');
+    expect(html).toContain('data-repo="christinoleo/claude-mux"');
+  });
+
+  it("marks nothing unless asked", () => {
+    expect(renderMarkdown(`#3 ${pull}`)).not.toContain("gh-ref");
   });
 });

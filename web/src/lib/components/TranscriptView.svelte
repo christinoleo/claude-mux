@@ -4,6 +4,7 @@
 	import { renderMarkdown } from '$lib/markdown';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
 	import DictateButton from './DictateButton.svelte';
+	import GithubRefCards from './GithubRefCards.svelte';
 	import { appendSaid } from '$lib/stores/voice.svelte';
 	import DialogCard from '$lib/components/DialogCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
@@ -47,6 +48,7 @@
 		onSendReply,
 		dictateTarget = null,
 		fileLink,
+		repoSession = null,
 		agentLink,
 		turnChanges = null,
 		changesLink
@@ -94,6 +96,8 @@
 		dictateTarget?: string | null;
 		/** The link that opens a file a tool row touched or a message names, at a line; without it neither draws one. */
 		fileLink?: (path: string, line: number | null) => string;
+		/** The session whose repo a bare `#123` in a message is looked up in; null where it has none. */
+		repoSession?: string | null;
 		/** Where a subagent opens as a page of its own; without it agent cards link nowhere. */
 		agentLink?: (agentId: string) => string;
 		/** The session's turns that edited files, from the changes API's session source. */
@@ -102,7 +106,11 @@
 		changesLink?: (n: number, file: string | null) => string;
 	} = $props();
 
-	// ── file paths in messages ───────────────────────────────────────────
+	let transcriptEl = $state<HTMLElement | null>(null);
+
+	// ── file paths and GitHub links in messages ──────────────────────────
+	// A link to a pull request or issue is only marked here; `GithubRefCards`
+	// draws it as a chip once GitHub has answered.
 	// A message's HTML is rendered once, so the href written into it is the
 	// link as it stood then (read untracked: tracking it would render every
 	// message again each time the URL moved). It serves a middle click or a
@@ -110,7 +118,10 @@
 
 	function markdown(text: string): string {
 		const link = fileLink;
-		return renderMarkdown(text, link && ((path, line) => untrack(() => link(path, line))));
+		return renderMarkdown(text, {
+			files: link && ((path, line) => untrack(() => link(path, line))),
+			github: { bare: repoSession != null }
+		});
 	}
 
 	function openFileLink(e: MouseEvent) {
@@ -525,7 +536,7 @@
 	{/if}
 {/snippet}
 
-<div class="transcript" use:fileLinks>
+<div class="transcript" use:fileLinks bind:this={transcriptEl}>
 	{#if !loaded}
 		<div class="empty">
 			<iconify-icon class="spin" icon="mdi:loading" style="font-size: 32px;"></iconify-icon>
@@ -963,6 +974,10 @@
 		</button>
 	{/if}
 </div>
+
+{#if transcriptEl}
+	<GithubRefCards root={transcriptEl} session={repoSession} />
+{/if}
 
 <style>
 	.transcript {

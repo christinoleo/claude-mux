@@ -2297,6 +2297,7 @@
 						entries={transcriptStore.entries}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
 						{fileLink}
+						repoSession={currentSession?.git_root ? currentSession.id : null}
 						agentLink={(id) => `/session/${encodeURIComponent(target ?? '')}/agent/${encodeURIComponent(id)}`}
 						turnChanges={sessionChanges}
 						{changesLink}
