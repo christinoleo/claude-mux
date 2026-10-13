@@ -13,6 +13,7 @@
 import { execFile } from 'child_process';
 import { StringDecoder } from 'string_decoder';
 import { realpath, readdir, readFile, stat, open } from 'fs/promises';
+import { homedir } from 'os';
 import { isAbsolute, join, relative, resolve, sep } from 'path';
 import type { Session } from '../db/sessions-json.js';
 import { git, repoRoot } from './git.js';
@@ -237,6 +238,37 @@ export async function readProjectImage(root: string, path: string): Promise<{ by
 	if (!s.isFile()) throw new FileAccessError('Not a file', 400);
 	if (s.size > IMAGE_LIMIT_BYTES) throw new FileAccessError('Image too large', 413);
 	return { bytes: await readFile(abs), mime };
+}
+
+/**
+ * Where a path written in a message points, as a path `resolveInRoot` takes.
+ * Such a path is rarely spelled from the root: it is tried as given, then
+ * against the session's `cwd` (and `~` as the home directory), and last as
+ * the tail of a repo file's path, taken only when exactly one file ends with
+ * it (`TranscriptView.svelte`, `lib/markdown.ts`). One that is nowhere comes
+ * back as given, for the read to refuse in its own words. The root goes
+ * first so that a path which is exact, as the panes' own are, stays exact.
+ */
+export async function locateProjectFile(root: string, path: string, cwd: string): Promise<string> {
+	const found = async (candidate: string): Promise<boolean> => {
+		try {
+			await resolveInRoot(root, candidate);
+			return true;
+		} catch (err) {
+			if (err instanceof FileAccessError) return false;
+			throw err;
+		}
+	};
+	if (path.startsWith('~/')) return join(homedir(), path.slice(2));
+	if (isAbsolute(path) || (await found(path))) return path;
+	const fromCwd = join(cwd, path);
+	if (await found(fromCwd)) return fromCwd;
+	const tail = path.replace(/^(?:\.\/)+/, '');
+	const listed = await listRepoFiles(root);
+	// A list that was cut cannot say a match is the only one.
+	if (!listed || listed.truncated) return path;
+	const matches = listed.files.filter((f) => f.endsWith(`/${tail}`));
+	return matches.length === 1 ? matches[0] : path;
 }
 
 /**

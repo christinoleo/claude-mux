@@ -4,6 +4,7 @@ import { getSession } from '$shared/db/index.js';
 import {
 	FileAccessError,
 	filesRoot,
+	locateProjectFile,
 	readProjectFile,
 	readProjectImage
 } from '$shared/server/files.js';
@@ -11,16 +12,20 @@ import {
 /**
  * One file of the session's project. Text comes back as JSON, cut at 1 MB
  * (`truncated`); an image answers `kind: 'image'`, and with `raw=1` its bytes;
- * a binary answers 415.
+ * a binary answers 415. With `locate=1` the path may be spelled the way a
+ * message spells it (see `locateProjectFile`); the answer's `path` is the one
+ * from the root.
  */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const id = decodeURIComponent(params.id);
 	const session = getSession(id);
 	if (!session) return json({ error: 'Session not found', id }, { status: 404 });
-	const path = url.searchParams.get('path');
-	if (!path) return json({ error: 'path is required' }, { status: 400 });
+	const asked = url.searchParams.get('path');
+	if (!asked) return json({ error: 'path is required' }, { status: 400 });
 	const { root } = await filesRoot(session);
 	try {
+		const locate = url.searchParams.get('locate') === '1';
+		const path = locate ? await locateProjectFile(root, asked, session.cwd) : asked;
 		if (url.searchParams.get('raw') === '1') {
 			const { bytes, mime } = await readProjectImage(root, path);
 			return new Response(new Uint8Array(bytes), {

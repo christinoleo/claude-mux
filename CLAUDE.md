@@ -295,6 +295,23 @@ back, so a file can be reached with the tree hidden; a row's context menu and
 dragging a row onto the composer both produce the `@path` mention the header's
 button does.
 
+A file path in a message opens that pane too. `renderMarkdown()`
+(`web/src/lib/markdown.ts`), given a link function, turns a path into an
+`a.file-link` carrying `data-file` and `data-line`: an inline code span that
+is a path and nothing else, or a path in plain text, never one inside a link
+or a code block. `web/src/lib/file-paths.ts` decides what a path is by its
+last part being a file's name (a known extension, or a name such as
+`Makefile` or `.gitignore`), with an optional `:line`, so `and/or`,
+`origin/main`, `/api/sessions` and `v0.30.8` stay prose; plain text also
+needs a directory, so `Node.js` is not a file there. The transcript renders a
+message once, so the `href` in it is the link as it stood then and one click
+listener on the transcript (`openFileLink()`) asks the page's `fileLink`
+afresh. A message seldom spells a path from the root, so the Files pane reads
+with `locate=1`, which sends the read route through `locateProjectFile()`
+(`src/server/files.ts`): as given, then against
+the session's `cwd`, then as the tail of the one repo file that ends with it.
+A path that is nowhere gets the pane's ordinary error.
+
 ### 8. What a project serves
 
 The side panel's Web pane frames the project's site. `src/server/web-preview.ts`
