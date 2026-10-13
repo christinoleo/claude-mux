@@ -53,6 +53,8 @@ export interface WebInfo {
 	detected: DevServer[];
 	/** Local port → the HTTPS URL tailscale serve proxies to it. */
 	serves: Record<number, string>;
+	/** The MCP entry whose remote browser the pane can show (see browser-view.ts), or null. */
+	browser: string | null;
 }
 
 export type FrameCheck =

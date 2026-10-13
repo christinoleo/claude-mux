@@ -2,11 +2,18 @@ import { type Handle, type ServerInit } from '@sveltejs/kit';
 import {
 	handleWsMessage,
 	parseWsPath,
+	TRUSTED_ORIGIN,
 	resizePane,
 	type WsClient,
 	type WsMessageHandlers
 } from '$shared/server/ws-handlers.js';
-import { sessionsWsManager, terminalWsManager, transcriptWsManager } from '$lib/server/ws-managers.js';
+import { browserOriginAllowed } from '$shared/server/browser-view.js';
+import {
+	browserWsManager,
+	sessionsWsManager,
+	terminalWsManager,
+	transcriptWsManager
+} from '$lib/server/ws-managers.js';
 import { ensurePushMonitor } from '$lib/server/push.js';
 
 // Pushes go to phones with every tab closed, so their events are watched from
@@ -15,8 +22,8 @@ export const init: ServerInit = () => {
 	ensurePushMonitor();
 };
 
-/** What a socket was upgraded for: its channel, and the pane or session (and agent) it reads. */
-type WsData = { type: 'sessions' | 'terminal' | 'transcript'; target?: string; agent?: string };
+/** What a socket was upgraded for: its channel, and the pane, session (and agent) or browser tab it reads. */
+type WsData = { type: 'sessions' | 'terminal' | 'transcript' | 'browser'; target?: string; agent?: string };
 
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
 const wsDataMap = new WeakMap<WebSocket, WsData & { client: WsClient }>();
@@ -28,10 +35,9 @@ const wsDataMap = new WeakMap<WebSocket, WsData & { client: WsClient }>();
  * by one host fetches and streams from the others. Browsers allow that only
  * when the other host says so, and it says so for tailnet origins alone —
  * `*.ts.net`, plus the loopback names a dev server answers on. There is no
- * login to protect here beyond the tailnet itself, so the tailnet is the line.
+ * login to protect here beyond the tailnet itself, so the tailnet is the line
+ * (`TRUSTED_ORIGIN`).
  */
-const CORS_ORIGIN = /^https?:\/\/(?:[a-z0-9-]+\.)*[a-z0-9-]+\.ts\.net(?::\d+)?$|^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i;
-
 function corsHeaders(origin: string): Record<string, string> {
 	return {
 		'Access-Control-Allow-Origin': origin,
@@ -44,7 +50,7 @@ function corsHeaders(origin: string): Record<string, string> {
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const origin = event.request.headers.get('origin');
-	const crossSite = !!origin && origin !== event.url.origin && CORS_ORIGIN.test(origin);
+	const crossSite = !!origin && origin !== event.url.origin && TRUSTED_ORIGIN.test(origin);
 	if (crossSite && event.request.method === 'OPTIONS' && event.url.pathname.startsWith('/api/')) {
 		return new Response(null, { status: 204, headers: corsHeaders(origin) });
 	}
@@ -60,6 +66,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 		const url = new URL(event.request.url);
 		const parsed = parseWsPath(url.pathname);
 
+		// The browser stream takes input for a logged-in browser, and a WebSocket is not held to CORS.
+		if (parsed?.type === 'browser' && !browserOriginAllowed(origin, event.request.headers.get('host'))) {
+			return new Response('Forbidden', { status: 403 });
+		}
+
 		if (parsed) {
 			// @ts-expect-error - platform is provided by svelte-adapter-bun
 			await event.platform.server.upgrade(event.platform.request, {
@@ -70,7 +81,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	const response = await resolve(event);
-	if (crossSite && event.url.pathname.startsWith('/api/')) {
+	// The remote browser's tabs are this server's own page's business, never another origin's.
+	if (crossSite && event.url.pathname.startsWith('/api/') && !event.url.pathname.startsWith('/api/browser/')) {
 		for (const [name, value] of Object.entries(corsHeaders(origin))) response.headers.set(name, value);
 	}
 	return response;
@@ -93,7 +105,9 @@ export const websocket = {
 			send: (msg: string) => ws.send(msg),
 			isOpen: () => ws.readyState === WebSocket.OPEN,
 			close: () => ws.close(),
-			getBufferedAmount: () => ws.bufferedAmount
+			getBufferedAmount: () => ws.bufferedAmount,
+			// Bun's ServerWebSocket takes the compress flag as a second argument.
+			sendUncompressed: (msg: string) => (ws as unknown as { send(data: string, compress: boolean): void }).send(msg, false)
 		};
 
 		// Store client reference for proper cleanup in close handler
@@ -106,6 +120,8 @@ export const websocket = {
 			accepted = terminalWsManager.addClient(client, data.target);
 		} else if (data.type === 'transcript' && data.target) {
 			accepted = transcriptWsManager.addClient(client, data.target, data.agent);
+		} else if (data.type === 'browser' && data.target) {
+			accepted = browserWsManager.addClient(client, data.target);
 		}
 
 		// If not accepted (max clients reached), close the connection
@@ -135,6 +151,8 @@ export const websocket = {
 				subagentRequest: (agentId: string) =>
 					transcriptWsManager.requestSubagent(data.client, target, agentId)
 			};
+		} else if (target && data?.type === 'browser') {
+			handlers = { input: (text: string) => browserWsManager.handleMessage(data.client, target, text) };
 		}
 		const response = handleWsMessage(msgStr, handlers);
 
@@ -153,6 +171,8 @@ export const websocket = {
 			terminalWsManager.removeClient(data.client, data.target);
 		} else if (data.type === 'transcript') {
 			transcriptWsManager.removeClient(data.client, data.target);
+		} else if (data.type === 'browser') {
+			browserWsManager.removeClient(data.client, data.target);
 		}
 
 		wsDataMap.delete(ws);
@@ -175,6 +195,8 @@ export const websocket = {
 				terminalWsManager.removeClient(data.client, data.target);
 			} else if (data.type === 'transcript') {
 				transcriptWsManager.removeClient(data.client, data.target);
+			} else if (data.type === 'browser') {
+				browserWsManager.removeClient(data.client, data.target);
 			}
 			wsDataMap.delete(ws);
 		}

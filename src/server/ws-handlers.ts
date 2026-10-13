@@ -136,6 +136,8 @@ export interface WsClient {
 	close: () => void;
 	/** Optional: Get buffered amount for backpressure detection */
 	getBufferedAmount?: () => number;
+	/** Optional: send without per-message deflate, for payloads that are compressed already. */
+	sendUncompressed?: (data: string) => void;
 }
 
 // ============================================================================
@@ -1947,11 +1949,17 @@ export interface WsMessageHandlers {
 	historyRequest?: (before: number, count: number) => void;
 	/** Transcript: a reader opened an agent's card and wants all of it. */
 	subagentRequest?: (agentId: string) => void;
+	/** Browser view: everything but the ping is the channel's own, handed over as it came. */
+	input?: (text: string) => void;
 }
 
 export function handleWsMessage(msgStr: string, handlers?: WsMessageHandlers): 'pong' | null {
 	if (msgStr === 'ping') return 'pong';
 	if (!handlers) return null;
+	if (handlers.input) {
+		handlers.input(msgStr);
+		return null;
+	}
 
 	try {
 		const msg = JSON.parse(msgStr) as ResizeMessage | HistoryRequestMessage | SubagentRequestMessage;
@@ -1980,6 +1988,17 @@ export function handleWsMessage(msgStr: string, handlers?: WsMessageHandlers): '
 }
 
 // ============================================================================
+// Origins
+// ============================================================================
+
+/**
+ * The origins a page may be served from and still read this server: tailnet
+ * names (`*.ts.net`) and the loopback names a dev server answers on.
+ */
+export const TRUSTED_ORIGIN =
+	/^https?:\/\/(?:[a-z0-9-]+\.)*[a-z0-9-]+\.ts\.net(?::\d+)?$|^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i;
+
+// ============================================================================
 // URL Parsing
 // ============================================================================
 
@@ -1987,11 +2006,18 @@ export type WsPathResult =
 	| { type: 'sessions' }
 	| { type: 'terminal'; target: string }
 	| { type: 'transcript'; target: string; agent?: string }
+	/** The Web pane's view of a remote browser tab; `target` is the tab's id. */
+	| { type: 'browser'; target: string }
 	| null;
 
 export function parseWsPath(pathname: string): WsPathResult {
 	if (pathname === '/api/sessions/stream') {
 		return { type: 'sessions' };
+	}
+
+	const browserMatch = pathname.match(/^\/api\/browser\/([^/]+)\/stream$/);
+	if (browserMatch) {
+		return { type: 'browser', target: decodeURIComponent(browserMatch[1]) };
 	}
 
 	const agentMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/agents\/([^/]+)\/transcript\/stream$/);

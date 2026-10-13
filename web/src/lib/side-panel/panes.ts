@@ -90,7 +90,7 @@ export const PANES: readonly PaneDef[] = [
 		label: 'Web',
 		icon: 'mdi:web',
 		key: 'W',
-		params: ['url'],
+		params: ['url', 'tab'],
 		body: WebPane,
 		unavailable: (s) => (s ? null : 'Not a Claude session')
 	},

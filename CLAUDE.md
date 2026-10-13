@@ -327,6 +327,41 @@ machine: a `localhost` URL is framed through its tailscale serve mapping, as it
 is when the page itself is on localhost, and otherwise becomes a card with
 "Open in new tab" and the `tailscale serve` command that would map it.
 
+One source in the same picker is not a site: "Browser" (`?url=browser`, the tab
+in `?tab=`) shows a tab of the remote browser a session drives, live and
+interactive (`BrowserView.svelte`). The browser is the one `~/.claude.json`
+names, the `mcpServers` entry whose arguments carry `--browserUrl`; an entry
+run through `sh -c` has that one word expanded by a shell, as the entry itself
+would, and the address is used by IP because Chrome refuses a hostname in the
+Host header. `src/server/browser-view.ts` holds the DevTools connection, so
+the page only ever talks to claude-mux: `GET /api/browser/tabs` lists the
+page targets (`/json/list`), and the WebSocket `/api/browser/<tab id>/stream`
+(`BrowserWsManager`) attaches to one, starts `Page.startScreencast`, relays
+each JPEG with the viewport size it shows, and holds the ack to pace the
+stream. Screenshots take over while a tab reports itself not visible or the
+screencast never starts. A tab's connection opens with its first viewer and
+closes with its last, and the pane keeps its socket only while it is showing.
+What a viewer sends is rebuilt field by field in `toCdpInput()` into mouse,
+wheel, key, text and touch calls, plus reload; nothing there closes,
+navigates, reorders or activates a tab, and nothing should. The upgrade
+checks `Origin` (`browserOriginAllowed()`), since a WebSocket is not held to
+CORS and this one types into a logged-in browser: only the page this server
+served gets in, not the tailnet origins the rest of the API trusts, and
+`/api/browser/` answers no cross-origin read either. A viewer turned away is
+sent a `closed` message with the reason, which is what stops its reconnecting.
+
+The tab shown defaults to the one the session last opened or selected:
+`src/transcript/browser-tab.ts` reads the last page list the MCP server
+printed in the log (`## Pages`, one marked `[selected]`) and the route matches
+its URL to an open tab; picking that tab follows the session, picking another
+pins it in the URL. That URL stops matching once the page goes anywhere, so
+the pane stays on the tab it is showing until the session moves to another
+(`pickTab()`), rather than fall through to some unrelated tab. In the pane (`web/src/lib/side-panel/browser.ts`) a point
+on the canvas maps back to the page's CSS pixels by one ratio, one finger is
+the page's touch, and two fingers or Ctrl+wheel magnify the picture on this
+side only. A phone types through a field whose text is mirrored by
+`textDelta()`, because autocorrect rewrites what is already there.
+
 ## Key Data Flow
 
 ```
