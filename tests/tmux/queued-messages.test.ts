@@ -104,3 +104,26 @@ describe("readQueuedMessages, queue above the spinner", () => {
     expect(readQueuedMessages(direct)).toHaveLength(2);
   });
 });
+
+describe("readQueuedMessages, October 2026 layout", () => {
+  // Captured 2026-10-13: the dim grey now starts before the marker, a sent
+  // message differs only in turning white after it, and only the first queued
+  // row is painted.
+  const lines = [
+    "\u001b[38;5;246m\u001b[48;5;237m❯ \u001b[38;5;231mreply with just: ok\u001b[39m",
+    "\u001b[49m",
+    "\u001b[38;5;211m\u001b[48;5;59m! \u001b[38;5;231msleep 20\u001b[39m",
+    "\u001b[49m  ⎿  Running… (3s)",
+    "\u001b[38;5;246m\u001b[48;5;237m❯ first queued one\u001b[39m",
+    "\u001b[38;5;246m❯ second queued one\u001b[39m",
+    "\u001b[49m  \u001b[38;5;246mctrl+x ctrl+s to send now\u001b[39m",
+    SEP,
+    "\u001b[38;5;246m❯ \u001b[2mPress up to edit queued messages\u001b[22m\u001b[39m",
+    SEP,
+    STATUS,
+  ];
+
+  it("reads the rows still waiting and stops at the message already sent", () => {
+    expect(readQueuedMessages(lines.join("\n"))).toEqual(["first queued one", "second queued one"]);
+  });
+});

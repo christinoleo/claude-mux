@@ -1,18 +1,20 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { confirmSubmitted, sendTextToPane } from '$shared/server/message-queue.js';
 import { transcribeAudio } from '$lib/server/voice/index.js';
-import { discoverCommands, type DiscoveredCommand } from '$shared/claude/commands.js';
+import { discoverCommands } from '$shared/claude/commands.js';
 import { hasSpokenCommandTrigger, resolveSpokenCommand } from '$shared/claude/voice-command.js';
 import { resolveSession } from '$shared/commands/resolve-session.js';
-import { recordDictation } from '$shared/server/dictation-marks.js';
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
+/**
+ * Speech to text, and nothing else: the words go back to the browser, which
+ * puts them in whichever field asked and delivers them the way it delivers
+ * anything typed there. The session only says where to look for the slash
+ * commands a spoken "barra model" may mean.
+ */
 export const POST: RequestHandler = async ({ params, request, url }) => {
 	const target = decodeURIComponent(params.id);
-	const inject = url.searchParams.get('inject') !== 'false';
-	const submit = url.searchParams.get('submit') === '1';
 	const language = url.searchParams.get('lang') ?? undefined;
 
 	const contentType = request.headers.get('content-type') ?? 'audio/webm';
@@ -37,45 +39,22 @@ export const POST: RequestHandler = async ({ params, request, url }) => {
 		throw error(500, message);
 	}
 
-	const session = resolveSession(target);
-
 	// "Barra model" / "slash model" spoken at the start of an utterance becomes
 	// the real slash command, matched against what this session's cwd can see.
 	// The trigger pre-check keeps the command-discovery directory scan off the
 	// path of ordinary dictated prose.
-	let command: DiscoveredCommand | null = null;
+	let command = false;
 	if (text && hasSpokenCommandTrigger(text)) {
 		try {
-			const resolved = resolveSpokenCommand(text, discoverCommands(session?.cwd));
+			const resolved = resolveSpokenCommand(text, discoverCommands(resolveSession(target)?.cwd));
 			text = resolved.text;
-			command = resolved.command;
+			command = resolved.command !== null;
 		} catch (err) {
 			console.error('[voice] spoken-command resolution failed:', err);
 		}
 	}
 
-	if (inject && text) {
-		try {
-			sendTextToPane(target, text, { appendEnter: submit });
-			if (submit && !(await confirmSubmitted(target))) {
-				return json(
-					{ text, injected: true, submitted: false, error: 'Claude Code did not take the message; it is still in its input box' },
-					{ status: 200 }
-				);
-			}
-			// Remember what went in by voice, so the transcript can badge it. A
-			// resolved slash command renders as its own kind of turn instead, so
-			// only prose is recorded.
-			if (session && !command) recordDictation(session.id, text);
-		} catch (err) {
-			const message = err instanceof Error ? err.message : 'send-keys failed';
-			return json({ text, injected: false, error: message }, { status: 200 });
-		}
-	}
-
-	return json({
-		text,
-		injected: inject && Boolean(text),
-		submitted: inject && submit && Boolean(text)
-	});
+	// The browser needs to know which it got: a slash command renders as its
+	// own kind of turn, and is not marked as dictated when it is delivered.
+	return json({ text, command });
 };

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { renderMarkdown } from '$lib/markdown';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
+	import DictateButton from './DictateButton.svelte';
+	import { appendSaid } from '$lib/stores/voice.svelte';
 	import DialogCard from '$lib/components/DialogCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { toolIcon } from '$lib/tool-icons';
@@ -41,6 +43,7 @@
 		loadingEarlier = false,
 		onLoadEarlier,
 		onSendReply,
+		dictateTarget = null,
 		fileLink,
 		agentLink,
 		turnChanges = null,
@@ -85,6 +88,8 @@
 		 * resolves false when the pane did not take it.
 		 */
 		onSendReply?: (text: string) => Promise<boolean>;
+		/** The session a question's own microphone records for; null where voice is off. */
+		dictateTarget?: string | null;
 		/** The link that opens a file a tool row touched, at a line; without it the rows draw none. */
 		fileLink?: (path: string, line: number | null) => string;
 		/** Where a subagent opens as a page of its own; without it agent cards link nowhere. */
@@ -175,7 +180,11 @@
 
 	let grillAnswers = $state<Record<string, Record<number, GrillAnswer>>>({});
 	let grillSending = $state<string | null>(null);
-	let grillSent = $state<Record<string, boolean>>({});
+	/**
+	 * What you have done with a round on this page: sent its answers, or opened
+	 * a past one to answer again (a second thought, or a reply that went astray).
+	 */
+	let grillPhase = $state<Record<string, 'sent' | 'reopened'>>({});
 
 	function answerOf(id: string, q: GrillRound['questions'][number]): GrillAnswer {
 		return grillAnswers[id]?.[q.n] ?? (q.recommended ? { mode: 'accept' } : { mode: 'own', text: '' });
@@ -219,7 +228,7 @@
 		for (const q of round.questions) answers[q.n] = answerOf(id, q);
 		grillSending = id;
 		try {
-			if (await onSendReply(composeGrillReply(round, answers))) grillSent[id] = true;
+			if (await onSendReply(composeGrillReply(round, answers))) grillPhase[id] = 'sent';
 		} finally {
 			grillSending = null;
 		}
@@ -371,7 +380,9 @@
 </script>
 
 {#snippet grill(id: string, round: GrillRound)}
-	{@const live = id === liveGrillId && !grillSent[id] && onSendReply != null}
+	{@const phase = grillPhase[id]}
+	{@const live =
+		onSendReply != null && (phase === 'reopened' || (id === liveGrillId && phase !== 'sent'))}
 	<!-- A busy session takes the reply into Claude Code's own queue, as the
 	     composer's does; only an open dialog would swallow it as keystrokes. -->
 	{@const ready = live && sessionState !== 'waiting' && sessionState !== 'permission'}
@@ -421,6 +432,12 @@
 								oninput={(e) => typeAnswer(id, q, e.currentTarget.value)}
 								class:filled={a.mode === 'own' && a.text.trim() !== ''}
 							></textarea>
+							{#if dictateTarget}
+								<DictateButton
+									target={dictateTarget}
+									onText={(text) => typeAnswer(id, q, appendSaid(ownText(id, q), text))}
+								/>
+							{/if}
 							<button
 								type="button"
 								class="gq-skip"
@@ -451,9 +468,25 @@
 				>
 					{grillSending === id ? 'Sending…' : 'Send answers'}
 				</button>
+				{#if id !== liveGrillId}
+					<button type="button" class="grill-again" onclick={() => delete grillPhase[id]}>
+						Cancel
+					</button>
+				{/if}
 			</footer>
-		{:else if grillSent[id]}
-			<footer class="grill-foot"><span class="grill-tally">Answers sent</span></footer>
+		{:else if onSendReply}
+			<footer class="grill-foot">
+				<span class="grill-tally">{phase === 'sent' ? 'Answers sent' : ''}</span>
+				<button
+					type="button"
+					class="grill-again"
+					title="Open these questions again and send another set of answers"
+					onclick={() => (grillPhase[id] = 'reopened')}
+				>
+					<iconify-icon icon="mdi:reply-outline"></iconify-icon>
+					Answer again
+				</button>
+			</footer>
 		{/if}
 	</section>
 	{#if round.outro}
@@ -627,6 +660,7 @@
 					onKeys={(keys) => onSendKeys?.(keys)}
 					onText={(text) => onSendPaneText?.(text)}
 					onSubmitted={() => (submitted = entry.id)}
+					{dictateTarget}
 				/>
 			{:else}
 				<div class="row note">
@@ -833,6 +867,7 @@
 			permission={sessionState === 'permission'}
 			onKeys={(keys) => onSendKeys?.(keys)}
 			onText={(text) => onSendPaneText?.(text)}
+			{dictateTarget}
 		/>
 	{/if}
 
@@ -1589,6 +1624,29 @@
 		font-size: 11.5px;
 		color: #a8a29e;
 	}
+	.grill-again {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 34px;
+		padding: 0 12px;
+		border: 1px solid #292524;
+		border-radius: 8px;
+		background: transparent;
+		color: #a8a29e;
+		font: inherit;
+		font-size: 12.5px;
+		cursor: pointer;
+	}
+	.grill-again:hover {
+		color: #e7e5e4;
+		border-color: #44403c;
+	}
+	.grill-again:focus-visible {
+		outline: 2px solid #78716c;
+		outline-offset: 1px;
+	}
 	.grill-send {
 		flex: none;
 		height: 34px;
@@ -1616,6 +1674,7 @@
 	}
 	@media (pointer: coarse) {
 		.gq-skip,
+		.grill-again,
 		.grill-send {
 			height: 40px;
 		}

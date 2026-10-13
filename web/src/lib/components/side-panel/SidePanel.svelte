@@ -1,14 +1,17 @@
 <script lang="ts">
 	/**
-	 * The side panel's header and its panes. One pane shows at a time, but a
+	 * The side panel's header and its panes. The header names every pane as a
+	 * tab, so the session's status line needs only the one button that opens
+	 * the panel. One pane shows at a time, but a
 	 * pane stays mounted once opened (hidden, not destroyed), so its scroll
 	 * and selection survive switching to another and back. Whether this sits
 	 * in a column beside the session or in a sheet over it is the page's call.
 	 */
 	import type { Session } from '$lib/stores/sessions.svelte';
-	import { PANES, paneDef, MAXIMIZE_KEYS, CLOSE_KEYS, type PaneAction } from '$lib/side-panel/panes';
+	import { PANES, paneKeys, MAXIMIZE_KEYS, CLOSE_KEYS, type PaneAction } from '$lib/side-panel/panes';
 	import { readPaneParams } from '$lib/side-panel/url';
 	import Hint from '$lib/components/Hint.svelte';
+	import DiffBadge from '$lib/components/DiffBadge.svelte';
 
 	let {
 		kind,
@@ -18,6 +21,7 @@
 		query,
 		maximized,
 		canMaximize,
+		onSelect,
 		onSetParams,
 		onToggleMaximize,
 		onClose,
@@ -34,6 +38,8 @@
 		maximized: boolean;
 		/** Maximize applies to the inline column; a sheet has nothing to grow into. */
 		canMaximize: boolean;
+		/** Show another pane. */
+		onSelect: (kind: string) => void;
 		onSetParams: (kind: string, own: Record<string, string | null>, opts?: { push?: boolean }) => void;
 		onToggleMaximize: () => void;
 		onClose: () => void;
@@ -47,15 +53,29 @@
 
 	let actions = $state<Record<string, PaneAction[]>>({});
 
-	const def = $derived(paneDef(kind));
 </script>
 
 <div class="panel">
 	<header>
-		{#if def}
-			<iconify-icon icon={def.icon}></iconify-icon>
-			<h2>{def.label}</h2>
-		{/if}
+		<div class="tabs" role="tablist" aria-label="Side panel">
+			{#each PANES as pane (pane.kind)}
+				{@const reason = pane.unavailable?.(session) ?? null}
+				<button
+					type="button"
+					role="tab"
+					class="tab"
+					class:on={pane.kind === kind}
+					aria-selected={pane.kind === kind}
+					disabled={reason !== null}
+					title={reason ?? `${pane.label} (${paneKeys(pane)})`}
+					onclick={() => onSelect(pane.kind)}
+				>
+					<iconify-icon icon={pane.icon}></iconify-icon>
+					<span class="tab-label">{pane.label}</span>
+					<span class="count"><DiffBadge changes={pane.count?.(session)} /></span>
+				</button>
+			{/each}
+		</div>
 		<span class="sp"></span>
 		{#each actions[kind] ?? [] as action (action.label)}
 			<button
@@ -102,6 +122,7 @@
 
 <style>
 	.panel {
+		container-type: inline-size;
 		height: 100%;
 		display: flex;
 		flex-direction: column;
@@ -114,18 +135,69 @@
 		align-items: center;
 		gap: 8px;
 		min-height: 44px;
-		padding: 6px 8px 6px 14px;
+		padding: 6px 8px;
 		border-bottom: 1px solid #222;
 		flex: none;
 	}
-	header > iconify-icon {
-		font-size: 16px;
-		color: #a8a29e;
+	/* Every pane is a tab; only the one showing spells its name where room is short. */
+	.tabs {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		min-width: 0;
 	}
-	h2 {
-		margin: 0;
-		font-size: 13.5px;
+	.tab {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 30px;
+		padding: 0 8px;
+		border: 0;
+		border-radius: 7px;
+		background: transparent;
+		color: #a8a29e;
+		font: inherit;
+		font-size: 13px;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+	.tab iconify-icon {
+		font-size: 16px;
+	}
+	.tab:hover:not(:disabled) {
+		background: #1f1f1f;
+		color: #f5f5f4;
+	}
+	.tab:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+	.tab.on {
+		background: #232326;
+		color: #f5f5f4;
 		font-weight: 600;
+	}
+	.tab:not(.on) .tab-label {
+		display: none;
+	}
+	.count {
+		display: inline-flex;
+		font-weight: 400;
+	}
+	.tab:not(.on) .count {
+		display: none;
+	}
+	@container (min-width: 40rem) {
+		.tab:not(.on) .tab-label,
+		.tab:not(.on) .count {
+			display: inline-flex;
+		}
+	}
+	@media (pointer: coarse) {
+		.tab {
+			height: 38px;
+			padding: 0 10px;
+		}
 	}
 	.sp {
 		flex: 1;

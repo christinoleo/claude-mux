@@ -8,13 +8,19 @@ interface Preferences {
 	notificationMode: NotificationMode;
 	/** A toast inside the page for the same events, while it has focus. */
 	inAppToasts: boolean;
+	/** The Files pane keeps its tree beside an open file, or puts it away. */
+	fileExplorerOpen: boolean;
+	/** Long lines of an open file fold at the pane's edge rather than scroll past it. */
+	fileWordWrap: boolean;
 }
 
 const persisted = createPersisted<Preferences>('claude-mux-preferences', {
 	terminalTheming: true,
 	keepAwake: false,
 	notificationMode: 'off',
-	inAppToasts: true
+	inAppToasts: true,
+	fileExplorerOpen: true,
+	fileWordWrap: false
 });
 
 class PreferencesStore {
@@ -65,6 +71,24 @@ class PreferencesStore {
 			(this.prefs[key] as boolean) = !this.prefs[key];
 			persisted.save(this.prefs);
 		}
+	}
+
+	get fileExplorerOpen(): boolean {
+		return this.prefs.fileExplorerOpen ?? true;
+	}
+
+	set fileExplorerOpen(value: boolean) {
+		this.prefs.fileExplorerOpen = value;
+		persisted.save(this.prefs);
+	}
+
+	get fileWordWrap(): boolean {
+		return this.prefs.fileWordWrap ?? false;
+	}
+
+	set fileWordWrap(value: boolean) {
+		this.prefs.fileWordWrap = value;
+		persisted.save(this.prefs);
 	}
 }
 

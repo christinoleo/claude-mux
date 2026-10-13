@@ -1,9 +1,11 @@
 <script lang="ts">
 	/**
-	 * The session's project, read-only: a tree on the left, the open file on
-	 * the right. With no file open the tree takes the whole pane; once one is,
-	 * the tree narrows to a column docked inside the viewer, and on a narrow
-	 * pane the two take turns.
+	 * The session's project, read-only. With no file open the tree takes the
+	 * whole pane; once one is, the file has the pane and the tree narrows to a
+	 * column on its far side, which a button in the file's header puts away
+	 * and brings back. On a narrow pane the two take turns instead. The
+	 * arrangement and its measures follow t3code's FilePreviewPanel
+	 * (https://github.com/pingdotgg/t3code, MIT, © T3 Tools Inc.).
 	 *
 	 * The URL holds the file (`file`, relative to the project root) and the
 	 * line to show (`line`). Which directories are open, the last file, and
@@ -11,15 +13,18 @@
 	 * first time a file is drawn.
 	 */
 	import { untrack } from 'svelte';
-	import { toast } from 'svelte-sonner';
 	import type { ThemedToken } from 'shiki/core';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
 	import { Toggle } from '$lib/components/ui/toggle';
+	import * as ContextMenu from '$lib/components/ui/context-menu';
+	import * as Popover from '$lib/components/ui/popover';
 	import { Input } from '$lib/components/ui/input';
 	import {
 		ancestors,
+		baseName,
 		fuzzyFilter,
 		isMarkdown,
+		parentOf,
 		shikiLanguage,
 		type DirListing,
 		type FileEntry,
@@ -29,6 +34,8 @@
 	import { highlightFile } from '$lib/side-panel/shiki';
 	import { renderMarkdown } from '$lib/markdown';
 	import { filesPaneStore } from '$lib/stores/filesPane.svelte';
+	import { preferences } from '$lib/stores/preferences.svelte';
+	import { copyWithToast } from '$lib/side-panel/clipboard';
 
 	let { session, params, setParams, setActions, mention, active }: PaneBodyProps = $props();
 
@@ -69,10 +76,12 @@
 		for (const dir of expanded) void loadDir(dir);
 	}
 
-	const rootListing = $derived.by(() => {
-		const r = dirs[''];
-		return r && r !== 'loading' && 'entries' in r ? r : null;
-	});
+	/** A directory's entries, once they have been read. */
+	function listingOf(dir: string): DirListing | null {
+		const d = dirs[dir];
+		return d && d !== 'loading' && 'entries' in d ? d : null;
+	}
+	const rootListing = $derived(listingOf(''));
 	const root = $derived(rootListing?.root ?? null);
 	const repo = $derived(rootListing?.repo ?? false);
 
@@ -91,6 +100,36 @@
 		else next.delete(dir);
 		filesPaneStore.update(sessionId, { expanded: [...next] });
 		if (open && !dirs[dir]) void loadDir(dir);
+	}
+
+	/** Enough to open any project worth reading as a tree, and a stop for one that is not. */
+	const EXPAND_ALL_DIRS = 400;
+
+	/**
+	 * Open every directory, a level at a time. Ignored directories and links
+	 * stay shut: `node_modules` is nobody's idea of "everything", and a link
+	 * can lead back up the tree.
+	 */
+	async function expandAll() {
+		const open: string[] = [];
+		let level = [''];
+		while (level.length > 0 && open.length < EXPAND_ALL_DIRS) {
+			const next: string[] = [];
+			// All at once: the browser already holds a host to a few requests at a time.
+			await Promise.all(level.filter((dir) => !listingOf(dir)).map(loadDir));
+			for (const dir of level) {
+				for (const entry of listingOf(dir)?.entries ?? []) {
+					if (entry.type === 'dir' && !entry.ignored && !entry.link) next.push(entry.path);
+				}
+			}
+			open.push(...next);
+			level = next;
+		}
+		filesPaneStore.update(sessionId, { expanded: open.slice(0, EXPAND_ALL_DIRS) });
+	}
+
+	function collapseAll() {
+		filesPaneStore.update(sessionId, { expanded: [] });
 	}
 
 	function toggleIgnored() {
@@ -222,28 +261,73 @@
 		setParams({ line: wantedLine === n ? null : String(n) });
 	}
 
-	async function copyPath() {
-		if (!openPath) return;
-		const text = wantedLine ? `${openPath}:${wantedLine}` : openPath;
-		try {
-			await navigator.clipboard.writeText(text);
-			toast.success('Path copied', { description: text });
-		} catch {
-			toast.error('Could not copy the path');
-		}
+	const copyText = (text: string) => copyWithToast(text, 'Path copied');
+
+	function copyPath() {
+		if (openPath) void copyText(wantedLine ? `${openPath}:${wantedLine}` : openPath);
 	}
 
 	/**
-	 * Claude Code reads an `@path` from the session's cwd, which may sit below
-	 * the root this pane lists from: the path is made relative to the cwd, or
-	 * left absolute when the cwd is not inside the root.
+	 * How Claude Code is told about a path. It reads an `@path` from the
+	 * session's cwd, which may sit below the root this pane lists from: the
+	 * path is made relative to the cwd, or left absolute when the cwd is not
+	 * inside the root.
 	 */
-	function mentionOpen() {
-		if (!openPath || !root) return;
-		const abs = `${root}/${openPath}`;
+	function mentionOf(path: string): string | null {
+		if (!root) return null;
 		const cwd = session?.cwd ?? root;
-		mention(`@${cwd === root ? openPath : displayPath(abs, cwd)}`);
+		return `@${cwd === root ? path : displayPath(`${root}/${path}`, cwd)}`;
 	}
+
+	function mentionPath(path: string | null) {
+		const text = path && mentionOf(path);
+		if (text) mention(text);
+	}
+
+	// ── a row's own menu, and dragging it to the composer ────────────────
+
+	/** The row the context menu was opened on; one menu serves the whole tree. */
+	let menuEntry = $state<{ path: string; dir: boolean } | null>(null);
+
+	/** Right-clicking the list between rows is the browser's business, not ours. */
+	function onListContextMenu(e: MouseEvent) {
+		const row = (e.target as Element | null)?.closest<HTMLElement>('[data-path]');
+		const path = row?.dataset.path;
+		if (!path) return e.stopPropagation();
+		menuEntry = { path, dir: row.dataset.type === 'dir' };
+	}
+
+	/** Dropped on the composer, a row becomes a mention of it; anywhere else, its path. */
+	function onRowDrag(e: DragEvent, path: string) {
+		if (!e.dataTransfer) return;
+		e.dataTransfer.setData('text/plain', `${mentionOf(path) ?? path} `);
+		e.dataTransfer.effectAllowed = 'copy';
+	}
+
+	// ── the breadcrumb, which finds its way around without the tree ──────
+
+	/** The crumb whose menu is open, and the directory that menu is showing. */
+	let crumbFor = $state<string | null>(null);
+	let browsing = $state('');
+
+	function browse(dir: string) {
+		browsing = dir;
+		if (!dirs[dir]) void loadDir(dir);
+	}
+
+	const crumbs = $derived(openPath ? ancestors(openPath) : []);
+	const rootName = $derived((root && baseName(root)) || 'root');
+	const explorerLabel = $derived(preferences.fileExplorerOpen ? 'Hide file explorer' : 'Show file explorer');
+
+	/** The file's own name is what was asked for, so the row of crumbs rests on it. */
+	let crumbsEl = $state<HTMLElement | null>(null);
+	$effect(() => {
+		// Everything that changes how wide the row or its box is.
+		void [openPath, rootName, read, markdown, preferences.fileExplorerOpen];
+		const el = crumbsEl;
+		// After the frame: the crumbs for the new path are not laid out yet.
+		if (el) requestAnimationFrame(() => (el.scrollLeft = el.scrollWidth));
+	});
 
 	function formatSize(bytes: number): string {
 		if (bytes < 1024) return `${bytes} B`;
@@ -316,6 +400,9 @@
 						}
 					]
 				: []),
+			expanded.size > 0
+				? { icon: 'mdi:unfold-less-horizontal', label: 'Collapse all folders', run: collapseAll }
+				: { icon: 'mdi:unfold-more-horizontal', label: 'Expand all folders', run: () => void expandAll() },
 			{
 				icon: 'mdi:refresh',
 				label: 'Reload',
@@ -357,6 +444,10 @@
 			style:--depth={depth}
 			aria-expanded={open}
 			title={entry.path}
+			data-path={entry.path}
+			data-type="dir"
+			draggable="true"
+			ondragstart={(e) => onRowDrag(e, entry.path)}
 			onclick={() => setExpanded(entry.path, !open)}
 		>
 			<iconify-icon class="chev" class:open icon="mdi:chevron-right"></iconify-icon>
@@ -374,6 +465,10 @@
 			aria-current={openPath === entry.path ? 'true' : undefined}
 			style:--depth={depth}
 			title={entry.path}
+			data-path={entry.path}
+			data-type="file"
+			draggable="true"
+			ondragstart={(e) => onRowDrag(e, entry.path)}
 			onclick={() => openFile(entry.path)}
 		>
 			<span class="chev"></span>
@@ -384,7 +479,63 @@
 	{/if}
 {/snippet}
 
-<div class="files" class:picked={!!wantedFile}>
+<!-- A folder in the breadcrumb opens onto what it holds, and from there onto any folder below it. -->
+{#snippet crumb(dir: string, label: string)}
+	<Popover.Root
+		bind:open={() => crumbFor === dir, (open) => {
+			crumbFor = open ? dir : null;
+			if (open) browse(dir);
+		}}
+	>
+		<Popover.Trigger class="shrink-0 cursor-pointer rounded px-1 py-0.5 font-mono text-xs text-stone-400 hover:bg-[#1f1f1f] hover:text-stone-100">
+			{label}
+		</Popover.Trigger>
+		<Popover.Content align="start" class="w-64 max-w-[80vw] border-[#333] bg-[#1a1a1a] p-1">
+			{@const listing = listingOf(browsing)}
+			<div class="flex max-h-72 flex-col overflow-y-auto font-mono text-xs">
+				{#if browsing !== dir}
+					<button
+						type="button"
+						class="flex min-h-8 items-center gap-1.5 rounded px-2 text-left text-stone-400 hover:bg-[#262626]"
+						onclick={() => browse(parentOf(browsing))}
+					>
+						<iconify-icon icon="mdi:arrow-left"></iconify-icon>
+						Back to {baseName(parentOf(browsing)) || rootName}
+					</button>
+				{/if}
+				{#if !listing}
+					<div class="px-2 py-1.5 text-stone-500">
+						{dirs[browsing] && dirs[browsing] !== 'loading' ? 'Could not read this folder' : 'Loading…'}
+					</div>
+				{:else}
+					{#each listing.entries as entry (entry.path)}
+						<button
+							type="button"
+							class="flex min-h-8 items-center gap-1.5 rounded px-2 text-left text-stone-200 hover:bg-[#262626] {entry.path ===
+							openPath
+								? 'bg-[#262626]'
+								: ''} {entry.ignored ? 'text-stone-500' : ''}"
+							onclick={() => {
+								if (entry.type === 'dir') return browse(entry.path);
+								crumbFor = null;
+								openFile(entry.path);
+							}}
+						>
+							<iconify-icon icon={entry.type === 'dir' ? 'mdi:folder-outline' : 'mdi:file-outline'}></iconify-icon>
+							<span class="min-w-0 flex-1 truncate">{entry.name}</span>
+							{#if entry.type === 'dir'}<iconify-icon icon="mdi:chevron-right"></iconify-icon>{/if}
+						</button>
+					{/each}
+					{#if listing.entries.length === 0}
+						<div class="px-2 py-1.5 text-stone-500">Empty</div>
+					{/if}
+				{/if}
+			</div>
+		</Popover.Content>
+	</Popover.Root>
+{/snippet}
+
+<div class="files" class:picked={!!wantedFile} class:tree-off={!preferences.fileExplorerOpen}>
 	<nav aria-label="Project files">
 		{#if repo}
 			<div class="search">
@@ -401,7 +552,8 @@
 				/>
 			</div>
 		{/if}
-		<div class="list">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="list" oncontextmenucapture={onListContextMenu}>
 			{#if query.trim()}
 				{#if listError}
 					<div class="note err">{listError}</div>
@@ -419,16 +571,50 @@
 							title={path}
 							onclick={() => openResult(path)}
 						>
-							<span class="name">{path.split('/').pop()}</span>
-							<span class="dirname"><bdi>{path.split('/').slice(0, -1).join('/')}</bdi></span>
+							<span class="name">{baseName(path)}</span>
+							<span class="dirname"><bdi>{parentOf(path)}</bdi></span>
 						</button>
 					{/each}
 				{/if}
 			{:else}
 				{#if root}
-					<div class="root" title={root}>{root.split('/').pop() || root}</div>
+					<div class="root" title={root}>{rootName}</div>
 				{/if}
-				{@render tree('', 0)}
+				<ContextMenu.Root>
+					<ContextMenu.Trigger>{@render tree('', 0)}</ContextMenu.Trigger>
+					<ContextMenu.Content class="min-w-44">
+						{#if menuEntry}
+							{@const entry = menuEntry}
+							{#if !entry.dir}
+								<ContextMenu.Item onSelect={() => openFile(entry.path)}>
+									<iconify-icon icon="mdi:file-eye-outline"></iconify-icon>
+									Open
+								</ContextMenu.Item>
+							{:else}
+								<ContextMenu.Item onSelect={() => setExpanded(entry.path, !expanded.has(entry.path))}>
+									<iconify-icon icon={expanded.has(entry.path) ? 'mdi:folder-outline' : 'mdi:folder-open-outline'}
+									></iconify-icon>
+									{expanded.has(entry.path) ? 'Collapse' : 'Expand'}
+								</ContextMenu.Item>
+							{/if}
+							<ContextMenu.Item onSelect={() => mentionPath(entry.path)}>
+								<iconify-icon icon="mdi:at"></iconify-icon>
+								Add to chat
+							</ContextMenu.Item>
+							<ContextMenu.Separator />
+							<ContextMenu.Item onSelect={() => void copyText(entry.path)}>
+								<iconify-icon icon="mdi:content-copy"></iconify-icon>
+								Copy path
+							</ContextMenu.Item>
+							{#if root}
+								<ContextMenu.Item onSelect={() => void copyText(`${root}/${entry.path}`)}>
+									<iconify-icon icon="mdi:content-copy"></iconify-icon>
+									Copy absolute path
+								</ContextMenu.Item>
+							{/if}
+						{/if}
+					</ContextMenu.Content>
+				</ContextMenu.Root>
 				{#if rootListing && !showIgnored && rootListing.hidden > 0}
 					<button type="button" class="more" onclick={toggleIgnored}>
 						+ {rootListing.hidden} ignored at the top level (show)
@@ -444,7 +630,15 @@
 				<button type="button" class="icon back" aria-label="Back to files" onclick={closeFile}>
 					<iconify-icon icon="mdi:arrow-left"></iconify-icon>
 				</button>
-				<span class="path" title={openPath}><bdi>{openPath}</bdi></span>
+				<div class="crumbs" bind:this={crumbsEl} title={openPath}>
+					{@render crumb('', rootName)}
+					{#each crumbs as dir (dir)}
+						<iconify-icon class="sep" icon="mdi:chevron-right"></iconify-icon>
+						{@render crumb(dir, baseName(dir))}
+					{/each}
+					<iconify-icon class="sep" icon="mdi:chevron-right"></iconify-icon>
+					<span class="leaf">{openPath ? baseName(openPath) : ''}</span>
+				</div>
 				{#if read}<span class="dim size">{formatSize(read.size)}</span>{/if}
 				{#if markdown}
 					<div class="seg" role="group" aria-label="Markdown view">
@@ -468,9 +662,34 @@
 					class="icon"
 					title="Mention in composer"
 					aria-label="Mention in composer"
-					onclick={mentionOpen}
+					onclick={() => mentionPath(openPath)}
 				>
 					<iconify-icon icon="mdi:at"></iconify-icon>
+				</button>
+				{#if read?.kind === 'text' && !rendered}
+					{@const wrapLabel = preferences.fileWordWrap ? 'Let long lines scroll' : 'Wrap long lines'}
+					<button
+						type="button"
+						class="icon"
+						class:on={preferences.fileWordWrap}
+						aria-pressed={preferences.fileWordWrap}
+						title={wrapLabel}
+						aria-label={wrapLabel}
+						onclick={() => (preferences.fileWordWrap = !preferences.fileWordWrap)}
+					>
+						<iconify-icon icon="mdi:wrap"></iconify-icon>
+					</button>
+				{/if}
+				<button
+					type="button"
+					class="icon wide-only"
+					class:on={preferences.fileExplorerOpen}
+					aria-pressed={preferences.fileExplorerOpen}
+					title={explorerLabel}
+					aria-label={explorerLabel}
+					onclick={() => (preferences.fileExplorerOpen = !preferences.fileExplorerOpen)}
+				>
+					<iconify-icon icon="mdi:file-tree"></iconify-icon>
 				</button>
 				<button type="button" class="icon wide-only" title="Close file" aria-label="Close file" onclick={closeFile}>
 					<iconify-icon icon="mdi:close"></iconify-icon>
@@ -495,7 +714,7 @@
 			{:else if lines.length === 0}
 				<p class="msg">Empty file.</p>
 			{:else}
-				<div class="code" bind:this={codeEl} style:--gutter="{String(lines.length).length + 1}ch">
+				<div class="code" class:wrap={preferences.fileWordWrap} bind:this={codeEl} style:--gutter="{String(lines.length).length + 1}ch">
 					{#each chunks as start (start)}
 						<div class="chunk" style:--rows={Math.min(CHUNK, lines.length - start)}>
 							{#each lines.slice(start, start + CHUNK) as text, j (j)}
@@ -533,10 +752,16 @@
 		font-family: var(--font-mono);
 		font-size: 12px;
 	}
+	/* Beside an open file the tree sits past it, on the pane's far edge. */
 	.picked nav {
+		order: 1;
 		flex: none;
 		width: min(22rem, 46%);
-		border-right: 1px solid #222;
+		min-width: 16rem;
+		border-left: 1px solid #222;
+	}
+	.picked.tree-off nav {
+		display: none;
 	}
 	.search {
 		display: flex;
@@ -681,14 +906,27 @@
 		border-bottom: 1px solid #222;
 		flex: none;
 	}
-	.path {
+	/* The way to the file, scrolled to its end: the name is what was asked for. */
+	.crumbs {
 		flex: 1;
 		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		display: flex;
+		align-items: center;
+		overflow-x: auto;
+		scrollbar-width: none;
 		white-space: nowrap;
-		direction: rtl;
-		text-align: left;
+	}
+	.crumbs::-webkit-scrollbar {
+		display: none;
+	}
+	.crumbs .sep {
+		flex: none;
+		font-size: 13px;
+		color: #57534e;
+	}
+	.leaf {
+		flex: none;
+		padding: 0 4px;
 		font-family: var(--font-mono);
 		font-size: 12px;
 		color: #e7e5e4;
@@ -714,7 +952,8 @@
 		font-size: 15px;
 		cursor: pointer;
 	}
-	.icon:hover {
+	.icon:hover,
+	.icon.on {
 		background: #1f1f1f;
 		color: #f5f5f4;
 	}
@@ -828,6 +1067,15 @@
 	.src {
 		white-space: pre;
 		padding-right: 14px;
+	}
+	/* Folded at the pane's edge: a block is then as wide as the pane, not as its longest line. */
+	.wrap .chunk {
+		width: auto;
+	}
+	.wrap .src {
+		min-width: 0;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 
 	/* Too narrow for both: the tree, or the open file with a way back. */

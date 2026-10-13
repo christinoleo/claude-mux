@@ -28,13 +28,17 @@ import { basename } from "path";
 import { setTimeout as delay } from "timers/promises";
 
 import { getSession, updateSession, type Session } from "../db/sessions-json.js";
-import { runTmux } from "../tmux/pane.js";
+import { capturePaneContentAsync, isBangRunning, readUpdateNotice, runTmux } from "../tmux/pane.js";
 import { shellQuote } from "../utils/shell.js";
 import { terminate } from "../utils/pid.js";
 
 const SHELL_TIMEOUT_MS = 5_000;
 const RESUME_TIMEOUT_MS = 20_000;
 const POLL_MS = 100;
+/** How long a `!` command gets to show its "Running…" line; a quick one may never. */
+const BANG_START_MS = 3_000;
+/** How long an upgrade may take before the restart is given up on. */
+const UPGRADE_TIMEOUT_MS = 5 * 60_000;
 
 export type RestartOutcome = { ok: true; command: string } | { ok: false; error: string };
 
@@ -179,5 +183,70 @@ export async function restartClaude(session: Session): Promise<RestartOutcome> {
   const typed = await runTmux(["send-keys", "-t", target, "C-u", command, "Enter"]);
   if (typed === null) return { ok: false, error: "could not type into the pane" };
   void restoreAfterResume(session);
+  return { ok: true, command };
+}
+
+/** How often the pane is read while a shell line runs; an upgrade takes tens of seconds. */
+const BANG_POLL_MS = 1_000;
+
+/** The sessions whose upgrade is under way, so a second click starts nothing. */
+const upgrading = new Set<string>();
+
+/** Resolves once the pane no longer shows a `!` command running, or false at the timeout. */
+async function bangFinished(target: string): Promise<boolean> {
+  const running = async () => isBangRunning((await capturePaneContentAsync(target)) ?? "");
+  // A quick command may never be seen running, so not seeing it start is no failure.
+  await waitUntil(running, BANG_START_MS);
+  const deadline = Date.now() + UPGRADE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (!(await running())) return true;
+    await delay(BANG_POLL_MS);
+  }
+  return false;
+}
+
+/**
+ * Run the upgrade Claude Code's own notice asks for, then restart into it.
+ *
+ * The command is typed into Claude Code itself with a leading `!`, its way of
+ * running a shell line: that works whatever the pane was started with, runs as
+ * the user in the session's own environment, and leaves the output in the
+ * conversation where it can be read. Nothing reports such a command ending, so
+ * its "Running…" line is watched until it goes.
+ *
+ * It answers as soon as the command is typed and does the waiting and the
+ * restart afterwards: the server drops a request that sits idle for ten
+ * seconds, and an upgrade takes longer. Whether the upgrade worked is not
+ * checked; a restart after one that failed shows the same notice again.
+ */
+export async function upgradeThenRestart(session: Session): Promise<RestartOutcome> {
+  const target = session.tmux_target;
+  if (!target) return { ok: false, error: "session has no tmux pane" };
+  if (upgrading.has(session.id)) return { ok: false, error: "an upgrade is already running here" };
+  if (session.state !== "idle") {
+    return { ok: false, error: "Claude Code is busy; upgrade once it is waiting for you" };
+  }
+  // Read off the pane here, never taken from the request: only a known upgrade command is typed.
+  const command = readUpdateNotice((await capturePaneContentAsync(target)) ?? "")?.command;
+  if (!command) return { ok: false, error: "the pane shows no upgrade command claude-mux can run" };
+  // C-u clears a draft or a suggestion first: `!` only means "shell" at the start of the box.
+  if ((await runTmux(["send-keys", "-t", target, "C-u", `!${command}`, "Enter"])) === null) {
+    return { ok: false, error: "could not type into the pane" };
+  }
+
+  upgrading.add(session.id);
+  void (async () => {
+    try {
+      if (!(await bangFinished(target))) {
+        console.warn(`[upgrade] ${command} was still running after five minutes in ${target}`);
+        return;
+      }
+      // The file is read again: the command's output started a turn of its own.
+      const outcome = await restartClaude(getSession(session.id) ?? session);
+      if (!outcome.ok) console.warn(`[upgrade] restart failed in ${target}: ${outcome.error}`);
+    } finally {
+      upgrading.delete(session.id);
+    }
+  })();
   return { ok: true, command };
 }

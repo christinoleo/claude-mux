@@ -66,6 +66,16 @@ export function isMarkdown(path: string): boolean {
 }
 
 /** The directories that hold `path`, outermost first: `a/b/c.ts` → `a`, `a/b`. */
+/** The last part of a path: the file's or folder's own name. */
+export function baseName(path: string): string {
+	return path.split('/').pop() ?? path;
+}
+
+/** The folder a path sits in, '' for one at the root. */
+export function parentOf(path: string): string {
+	return path.split('/').slice(0, -1).join('/');
+}
+
 export function ancestors(path: string): string[] {
 	const parts = path.split('/').slice(0, -1);
 	return parts.map((_, i) => parts.slice(0, i + 1).join('/'));

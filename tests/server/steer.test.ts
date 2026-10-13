@@ -59,8 +59,15 @@ afterEach(() => {
 });
 
 describe('steer', () => {
-	it('pastes into a busy pane, then sends the send-now chord', async () => {
+	it('hands a busy pane the message and leaves Claude Code to read it in its own time', async () => {
 		expect(await settle(steerIntoPane(TARGET, 'look at this', true))).toBe(true);
+		expect(pasted()).toBe(true);
+		expect(callIndex(['send-keys', '-t', TARGET, 'Enter'])).toBeGreaterThan(-1);
+		expect(chorded()).toBe(false);
+	});
+
+	it('with now, pastes into a busy pane and then sends the send-now chord', async () => {
+		expect(await settle(steerIntoPane(TARGET, 'look at this', true, { mode: 'now' }))).toBe(true);
 		expect(pasted()).toBe(true);
 		const enter = callIndex(['send-keys', '-t', TARGET, 'Enter']);
 		const chord = callIndex(CHORD);
@@ -69,14 +76,14 @@ describe('steer', () => {
 	});
 
 	it('is a normal send when the pane is not busy', async () => {
-		expect(await settle(steerIntoPane(TARGET, 'hello', false))).toBe(true);
+		expect(await settle(steerIntoPane(TARGET, 'hello', false, { mode: 'now' }))).toBe(true);
 		expect(pasted()).toBe(true);
 		expect(chorded()).toBe(false);
 	});
 
 	it('sends no chord when Claude Code left the text in its box', async () => {
 		boxText = 'look at this';
-		expect(await settle(steerIntoPane(TARGET, 'look at this', true))).toBe(false);
+		expect(await settle(steerIntoPane(TARGET, 'look at this', true, { mode: 'now' }))).toBe(false);
 		expect(chorded()).toBe(false);
 	});
 });
@@ -91,6 +98,14 @@ describe('promote to steer', () => {
 		enqueue(TARGET, 'third');
 		expect(await settle(promoteToSteer(TARGET, idOf('second'), true))).toBe('sent');
 		expect(texts()).toEqual(['first', 'third']);
+		expect(pasted()).toBe(true);
+		expect(chorded()).toBe(false);
+	});
+
+	it('with now, also makes Claude Code read it at once', async () => {
+		enqueue(TARGET, 'first');
+		expect(await settle(promoteToSteer(TARGET, idOf('first'), true, 'now'))).toBe('sent');
+		expect(texts()).toEqual([]);
 		expect(chorded()).toBe(true);
 	});
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import DictateButton from './DictateButton.svelte';
+	import { appendSaid } from '$lib/stores/voice.svelte';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
 	import type { PaneChoice } from '$shared/types/ws-messages.js';
 	import {
@@ -19,6 +21,7 @@
 		permission = false,
 		closed = false,
 		onKeys,
+		dictateTarget = null,
 		onText,
 		onSubmitted
 	}: {
@@ -32,6 +35,8 @@
 		closed?: boolean;
 		/** Sends a tmux key sequence (space-separated) to the pane. */
 		onKeys: (keys: string) => Promise<void> | void;
+		/** The session the answer field's microphone records for; null where voice is off. */
+		dictateTarget?: string | null;
 		/** Types text into the pane as-is, with no Enter after it. */
 		onText: (text: string) => Promise<void> | void;
 		/** The card sent the keys that close the dialog without the pane to confirm it. */
@@ -349,6 +354,13 @@
 			disabled={closed}
 			onkeydown={freeKeydown}
 		/>
+		{#if dictateTarget}
+			<DictateButton
+				target={dictateTarget}
+				disabled={closed}
+				onText={(text) => (draft = appendSaid(draft, text))}
+			/>
+		{/if}
 		<Button
 			type="submit"
 			variant="warning"

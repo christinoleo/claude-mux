@@ -35,7 +35,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		return json({ error: 'text or attachments are required' }, { status: 400 });
 	}
 	// Kept apart from the text, so an edit changes the words and the files stay.
-	return changed(enqueue(target, text, 'user', attachments.paths));
+	return changed(enqueue(target, text, 'user', attachments.paths, body.dictated === true));
 };
 
 export const DELETE: RequestHandler = async ({ params, request }) => {

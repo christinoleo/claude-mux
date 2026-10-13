@@ -13,7 +13,11 @@ const config = {
 		}),
 		alias: {
 			$shared: join(__dirname, '../src')
-		}
+		},
+		// A tab outlives the server it was loaded from: an update restarts the
+		// server under it, and the old page then talks to routes that have moved
+		// on. The page asks for the version now and then (see +layout.svelte).
+		version: { pollInterval: 60_000 }
 	}
 };
 

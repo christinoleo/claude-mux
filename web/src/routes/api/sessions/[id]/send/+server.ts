@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { execFileSync } from 'child_process';
-import { confirmSubmitted, sendTextToPane } from '$shared/server/message-queue.js';
+import { confirmSubmitted, markDictated, sendTextToPane } from '$shared/server/message-queue.js';
 import { composePrompt } from '$lib/server/prompt.js';
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -23,6 +23,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 					{ status: 502 }
 				);
 			}
+			if (body.dictated === true) markDictated(target, prompt.text);
 		} else {
 			// Send each key separately so repeated keys (e.g. C-b C-b) work correctly
 			for (const key of keys.split(' ')) {

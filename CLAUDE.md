@@ -156,17 +156,40 @@ rather than read as a description.
 Delivery goes the other way through the same box. `sendTextToPane()` in
 `src/server/message-queue.ts` pastes the text and sends Enter; Claude Code
 sometimes folds an Enter that lands inside the paste burst into the text, so
-the send and voice routes then call `confirmSubmitted()`, which reads the box
+the send and steer routes then call `confirmSubmitted()`, which reads the box
 back: a taken message has left it (the turn started, or Claude Code queued it
 and shows its own hint), text still sitting there typed gets one more Enter,
 and if it stays the route answers 502 and the composer keeps the draft.
+
+A draft has one way out of the composer, `deliver()` in the session page, and
+four places it can go: `send` (start a turn), `queue` (wait for the running
+turn to end, in claude-mux's own queue), `steer` (hand it to Claude Code, which
+reads it when it next stops for input) and `now` (the same, then the send-now
+chord so it reads at once; `/steer` with `mode: 'now'`). Voice has no path of
+its own. `/voice` only transcribes and answers with the text; `finishVoice()`
+adds it to the draft and runs the same function a typed draft goes through, so
+the recording bar offers the composer's verbs. The request says `dictated:
+true`, a queued item carries it, and `markDictated()` records the mark the
+transcript badges at the moment the pane is handed the text, as pasted. A
+question's own microphone (`DictateButton.svelte`, in a grilling round and a
+dialog card's text field) starts a take under a field id, so the composer's
+controls leave it alone, and puts the words in that field.
+
+The queue's drain does not take the hooks' word alone for a pane being free.
+Before each send it reads the pane (`readPaneHold()`) and holds while a
+spinner turns, while Claude Code holds messages of its own, or while text sits
+typed in the box: compaction fires no hook, and a message sent into it was
+parked by Claude Code and later run together with every one that followed.
 
 The session poll captures with colour once per tick and hands the stripped copy
 to every other check, so adding a detector there costs no extra `tmux` calls.
 `draft_input`, `draft_kind`, `pane_queue`, `pane_choice` and `pane_update` (Claude
 Code's notice about its own update, which `readUpdateNotice()` finds in the
 footer below the box, or right-aligned just above the box in the fullscreen
-layout), `pane_activity`, and `queue` (everything claude-mux's own send queue
+layout; an "Update available! Run: …" notice carries its `command` when it is
+one of the known upgrade commands, and the status line's button then has
+`upgradeThenRestart()` type it into Claude Code as a `!` shell line, wait for
+its "Running…" line to go, and restart the session), `pane_activity`, and `queue` (everything claude-mux's own send queue
 holds for the pane, each item with a stable `id` that the queue-edit and
 `/steer` routes address it by; attachments ride beside the text and are
 folded in only on delivery), `last_visited_at` (see Session States), and `delivered` (what the queue and steers handed
@@ -247,6 +270,14 @@ file only when it sits inside the repo root and git lists it as changed. Its
 cache is re-read when a session in the repo writes its JSON, at most every
 2s, never on a timer. The live field `changes` carries the count: git's when
 the session is in a repo, the log's otherwise.
+
+The side panel's Files pane (`FilesPane.svelte`) follows t3code's file
+preview: with a file open the tree is a column on the file's far side, which a
+button in the file's header puts away, and on a narrow pane the two take turns.
+The header's breadcrumb opens each folder as a menu that can drill down and
+back, so a file can be reached with the tree hidden; a row's context menu and
+dragging a row onto the composer both produce the `@path` mention the header's
+button does.
 
 ### 8. What a project serves
 
@@ -331,7 +362,12 @@ web devDependency so Vite bundles it into the server. `web/src/service-worker.ts
 shows the push (skipping it while any claude-mux window has focus, since the
 page alerts for itself there) and on a
 tap hands an open page the URL by `postMessage`, which `NotificationCoordinator`
-routes; it has no fetch handler and caches nothing.
+routes, or opens the session afresh when no window can be brought forward; what
+the tap did is written to the server log as `client:push-click`. It has no
+fetch handler and caches nothing. Every surface words an alert through
+`notificationText()`: the title names the event and the session (its name, or
+its project folder when nobody named it), the body the question and the
+machine.
 
 The sidebar row is `SessionRow.svelte`: a `meta` slot on line 1 after the time,
 for badges that come later, and a `children` snippet for rows nested under it.

@@ -12,6 +12,17 @@ export type VoiceLanguage = 'auto' | 'en' | 'pt';
 
 const MIN_UTTERANCE_MS = 200;
 
+/** What a take came to: the words, and whether they resolved to a slash command. */
+export interface Dictation {
+	text: string;
+	command: boolean;
+}
+
+/** A field's text with what was just said added to the end of it. */
+export function appendSaid(draft: string, said: string): string {
+	return draft.trim() ? `${draft.trimEnd()} ${said}` : said;
+}
+
 interface PersistedSettings {
 	language: VoiceLanguage;
 	autoSubmit: boolean;
@@ -34,6 +45,12 @@ class VoiceStore {
 	startedAt = $state<number | null>(null);
 	level = $state<{ rms: number; peak: number }>({ rms: 0, peak: 0 });
 	ownerTarget = $state<string | null>(null);
+	/**
+	 * Which field of that session asked for the take: null for the composer,
+	 * otherwise the id a question's own microphone gave itself. Only the field
+	 * that started a take may stop it, since the words are its to receive.
+	 */
+	ownerField = $state<string | null>(null);
 
 	private prefs = $state<PersistedSettings>(persisted.load());
 	private recorder: VoiceRecorder | null = null;
@@ -53,8 +70,8 @@ class VoiceStore {
 		return this.status === 'recording' || this.status === 'transcribing';
 	}
 
-	isOwnedBy(target: string | null): boolean {
-		return target != null && this.ownerTarget === target;
+	isOwnedBy(target: string | null, field: string | null = null): boolean {
+		return target != null && this.ownerTarget === target && this.ownerField === field;
 	}
 
 	get language(): VoiceLanguage {
@@ -103,8 +120,8 @@ class VoiceStore {
 		persisted.save(this.prefs);
 	}
 
-	async startRecording(target: string): Promise<void> {
-		if (this.status === 'recording' || this.status === 'transcribing') return;
+	async startRecording(target: string, field: string | null = null): Promise<void> {
+		if (this.isActive) return;
 		if (!this.supported) {
 			this.fail('Voice not supported in this browser');
 			return;
@@ -125,6 +142,7 @@ class VoiceStore {
 				this.deviceId = null;
 			}
 			this.ownerTarget = target;
+			this.ownerField = field;
 			this.status = 'recording';
 			this.error = null;
 			this.startedAt = Date.now();
@@ -156,7 +174,13 @@ class VoiceStore {
 		this.level = { rms: 0, peak: 0 };
 	}
 
-	async stopAndSend(submit = this.autoSubmit): Promise<string | null> {
+	/**
+	 * End the take and resolve with what was said, or null when there is
+	 * nothing to show for it (too short, cancelled, or failed, in which case
+	 * `error` says why). The words are the caller's to place: this store
+	 * records and transcribes, and delivers nothing.
+	 */
+	async stop(): Promise<Dictation | null> {
 		if (this.status !== 'recording' || !this.recorder) return null;
 		const target = this.ownerTarget;
 		if (!target) {
@@ -178,26 +202,19 @@ class VoiceStore {
 		if (this.status !== 'recording') return null;
 
 		if (result.blob.size === 0 || result.durationMs < MIN_UTTERANCE_MS) {
-			this.status = 'idle';
-			this.startedAt = null;
-			this.ownerTarget = null;
+			this.release();
 			return null;
 		}
 
 		this.status = 'transcribing';
 		this.startedAt = null;
 
-		const params = new URLSearchParams();
-		if (this.language !== 'auto') params.set('lang', this.language);
-		if (submit) params.set('submit', '1');
-
 		const ac = new AbortController();
 		this.inflightAbort = ac;
-		const qs = params.toString();
-		const url = `/api/sessions/${encodeURIComponent(target)}/voice${qs ? `?${qs}` : ''}`;
+		const qs = this.language === 'auto' ? '' : `?lang=${this.language}`;
 
 		try {
-			const res = await fetch(url, {
+			const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/voice${qs}`, {
 				method: 'POST',
 				headers: { 'Content-Type': result.mimeType },
 				body: result.blob,
@@ -209,16 +226,10 @@ class VoiceStore {
 				throw new Error(body || `HTTP ${res.status}`);
 			}
 
-			const data = (await res.json()) as { text?: string; error?: string };
-			const text = data.text ?? '';
-			if (data.error) {
-				// Transcribed, but not delivered: say so rather than pretend it went.
-				this.fail(data.error);
-				return text;
-			}
-			this.status = 'idle';
-			this.ownerTarget = null;
-			return text;
+			const data = (await res.json()) as { text?: string; command?: boolean };
+			this.release();
+			const text = (data.text ?? '').trim();
+			return text ? { text, command: data.command === true } : null;
 		} catch (err) {
 			if (ac.signal.aborted) {
 				this.error = null;
@@ -231,42 +242,30 @@ class VoiceStore {
 		}
 	}
 
+	private release(): void {
+		this.status = 'idle';
+		this.startedAt = null;
+		this.ownerTarget = null;
+		this.ownerField = null;
+	}
+
 	cancelTranscribing(): void {
 		if (this.status !== 'transcribing' || !this.inflightAbort) return;
 		// Flip status synchronously so a follow-up startRecording() in the same tick
 		// doesn't bail on the still-transcribing guard before the catch handler runs.
-		this.status = 'idle';
-		this.ownerTarget = null;
+		this.release();
 		this.inflightAbort.abort();
 	}
 
-	async cancelRecording(): Promise<void> {
+	private async cancelRecording(): Promise<void> {
 		if (this.status !== 'recording' || !this.recorder) return;
-		this.status = 'idle';
-		this.startedAt = null;
-		this.ownerTarget = null;
+		this.release();
 		this.stopLevelLoop();
 		try {
 			await this.recorder.stop();
 		} catch {
 			// recorder already torn down; nothing to do
 		}
-	}
-
-	async toggle(target: string): Promise<void> {
-		if (!this.supported) return;
-		// Cross-target toggles are no-ops: a different page must not steal an
-		// in-flight recording or transcription owned by another session.
-		if (this.isActive && this.ownerTarget !== target) return;
-		if (this.status === 'transcribing') {
-			this.cancelTranscribing();
-			return;
-		}
-		if (this.status === 'recording') {
-			await this.stopAndSend();
-			return;
-		}
-		await this.startRecording(target);
 	}
 
 	async cancel(): Promise<void> {
@@ -277,15 +276,10 @@ class VoiceStore {
 		}
 	}
 
-	async stopAndSubmit(): Promise<string | null> {
-		return this.stopAndSend(true);
-	}
-
 	private fail(message: string): void {
+		this.release();
 		this.status = 'error';
 		this.error = message;
-		this.startedAt = null;
-		this.ownerTarget = null;
 	}
 }
 

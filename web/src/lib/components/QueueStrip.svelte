@@ -12,6 +12,9 @@
 	 */
 	import * as Collapsible from '$lib/components/ui/collapsible';
 	import type { QueuedMessageInfo } from '$shared/types/ws-messages.js';
+	import { STEERS, type SteerMode } from '$lib/constants';
+
+	const STEER_MODES = Object.keys(STEERS) as SteerMode[];
 	import { imageMimeFor } from '$shared/utils/image-types.js';
 
 	let {
@@ -66,7 +69,7 @@
 		if (toIndex < 0 || toIndex >= queue.length || toIndex === fromIndex) return;
 		void call('queue', 'PATCH', { id: queue[fromIndex].id, toIndex });
 	};
-	const steer = (id: string) => call('steer', 'POST', { id });
+	const steer = (id: string, mode: SteerMode) => call('steer', 'POST', { id, mode });
 	const sendNow = () => call('send-now', 'POST');
 
 	function onGripKey(e: KeyboardEvent, index: number) {
@@ -175,15 +178,17 @@
 									<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
 								</button>
 								{#if busy}
-									<button
-										type="button"
-										class="qs-btn"
-										title="Steer: make Claude read this now"
-										aria-label="Steer"
-										onclick={() => void steer(item.id)}
-									>
-										<iconify-icon icon="mdi:arrow-right-top"></iconify-icon>
-									</button>
+									{#each STEER_MODES as mode (mode)}
+										<button
+											type="button"
+											class="qs-btn"
+											title={STEERS[mode].title}
+											aria-label={STEERS[mode].label}
+											onclick={() => void steer(item.id, mode)}
+										>
+											<iconify-icon icon={STEERS[mode].icon}></iconify-icon>
+										</button>
+									{/each}
 								{/if}
 							{/if}
 							<button

@@ -30,6 +30,17 @@ vi.mock('../../src/tmux/pane.js', () => ({
 	readPaneHold: vi.fn(() => hold)
 }));
 
+/** What was marked as dictated, as [session id, text]. */
+const dictations: [string, string][] = [];
+
+vi.mock('../../src/server/dictation-marks.js', () => ({
+	recordDictation: vi.fn((id: string, text: string) => dictations.push([id, text]))
+}));
+
+vi.mock('../../src/db/index.js', () => ({
+	getAllSessions: vi.fn(() => [{ id: 'session-id', tmux_target: TARGET }])
+}));
+
 const { enqueue, getQueue, clearQueue, drainQueues, editQueueItem, getDeliveries, promoteToSteer } =
 	await import('../../src/server/message-queue.js');
 
@@ -53,6 +64,7 @@ beforeEach(() => {
 	vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
 	pastes.length = 0;
 	keys.length = 0;
+	dictations.length = 0;
 	hold = null;
 	TARGET = `delivery-session:1.${++pane}`;
 });
@@ -84,6 +96,15 @@ describe('queue delivery', () => {
 		enqueue(TARGET, 'next task');
 		drainOnce();
 		expect(getDeliveries(TARGET)).toEqual([{ text: 'next task', via: 'queue', at: Date.now() }]);
+	});
+
+	it('marks a spoken message as dictated when it is delivered, with the text as pasted', () => {
+		enqueue(TARGET, 'said aloud', 'user', ['/tmp/a.png'], true);
+		enqueue(TARGET, 'typed');
+		expect(dictations).toEqual([]);
+
+		drainOnce();
+		expect(dictations).toEqual([['session-id', '@/tmp/a.png said aloud']]);
 	});
 
 	it('records a promoted item as a steer', async () => {

@@ -11,6 +11,7 @@
 	 * that opens it in a tab of its own instead of a blank frame. Discovery is
 	 * polled only while the pane is showing.
 	 */
+	import { copyWithToast } from '$lib/side-panel/clipboard';
 	import { untrack } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
@@ -177,14 +178,7 @@
 		if (sessionId) void loadInfo(sessionId);
 	}
 
-	async function copy(text: string) {
-		try {
-			await navigator.clipboard.writeText(text);
-			toast.success('Copied', { description: text });
-		} catch {
-			toast.error('Could not copy');
-		}
-	}
+	const copy = (text: string) => copyWithToast(text);
 
 	$effect(() => {
 		setActions([

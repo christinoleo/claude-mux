@@ -2,7 +2,8 @@
 	import '../app.css';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
-	import { afterNavigate } from '$app/navigation';
+	import { afterNavigate, beforeNavigate } from '$app/navigation';
+	import { updated } from '$app/state';
 	import { reportClient, watchClientErrors, watchViewport } from '$lib/client-log';
 	import { onMount, onDestroy } from 'svelte';
 	import { drawer } from '$lib/stores/drawer.svelte';
@@ -93,6 +94,21 @@
 	// Connect session store at layout level so sidebar always has data
 	onMount(() => watchClientErrors());
 	onMount(() => (embed ? undefined : watchViewport()));
+
+	// The server was updated under this tab. Its next move to another session
+	// is taken as a full load, so the page and the routes it calls match again
+	// (when voice delivery moved into the page, a tab from before it recorded,
+	// got its words back and sent nothing). A take in progress is
+	// left alone; the navigation after it reloads instead.
+	beforeNavigate(({ willUnload, to }) => {
+		if (!updated.current || willUnload || !to?.url || voiceStore.isActive) return;
+		location.href = to.url.href;
+	});
+	onMount(() => {
+		const check = () => document.visibilityState === 'visible' && void updated.check();
+		document.addEventListener('visibilitychange', check);
+		return () => document.removeEventListener('visibilitychange', check);
+	});
 
 	afterNavigate((nav) => {
 		reportClient('nav', {

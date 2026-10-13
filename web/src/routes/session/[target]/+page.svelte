@@ -18,7 +18,7 @@
 	import { transcriptStore } from '$lib/stores/transcript.svelte';
 	import ContextGauge from '$lib/components/ContextGauge.svelte';
 	import RailStats from '$lib/components/RailStats.svelte';
-	import VoiceMeter from '$lib/components/VoiceMeter.svelte';
+	import VoiceMeter, { type VoiceAction } from '$lib/components/VoiceMeter.svelte';
 	import PaneDraftBar from '$lib/components/PaneDraftBar.svelte';
 	import QueueStrip from '$lib/components/QueueStrip.svelte';
 	import type { QueuedMessageInfo } from '$shared/types/ws-messages.js';
@@ -33,19 +33,19 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
 	import RenameSessionDialog from '$lib/components/RenameSessionDialog.svelte';
-	import { voiceStore } from '$lib/stores/voice.svelte';
+	import { appendSaid, voiceStore } from '$lib/stores/voice.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { attachmentsStore, type Attachment } from '$lib/stores/attachments.svelte';
 	import { untrack } from 'svelte';
 	import { swipe } from '$lib/actions/swipe';
-	import { STORAGE_KEYS, MOD_LABEL } from '$lib/constants';
+	import { STORAGE_KEYS, MOD_LABEL, STEERS, type SteerMode } from '$lib/constants';
 	import { useGamepad, STICK_DEADZONE } from '$lib/gamepad.svelte';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import { viewModesStore } from '$lib/stores/viewModes.svelte';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import ResizeDivider from '$lib/components/ResizeDivider.svelte';
 	import SidePanel from '$lib/components/side-panel/SidePanel.svelte';
-	import PanelToggles from '$lib/components/side-panel/PanelToggles.svelte';
+	import PanelToggle from '$lib/components/side-panel/PanelToggle.svelte';
 	import { sidePanelStore } from '$lib/stores/sidePanel.svelte';
 	import { PANES, PANE_KINDS, PANE_PARAMS, paneDef, panelKeyAction } from '$lib/side-panel/panes';
 	import { MediaQuery } from 'svelte/reactivity';
@@ -251,11 +251,17 @@
 		navigateQuery(panelQuery($page.url.searchParams, kind, PANE_PARAMS));
 	}
 
-	/** A pane's toggle: a pressed one closes the panel, another switches to its pane. */
-	/** Returns whether it did anything. */
+	/** A pane's key: pressed for the pane showing it closes the panel, otherwise it switches. Returns whether it did anything. */
 	function togglePane(kind: string): boolean {
 		if (paneDef(kind)?.unavailable?.(currentSession ?? null)) return false;
 		openPanel(panelKind === kind ? null : kind);
+		return true;
+	}
+
+	/** The panel's own toggle: close it, or open it on the pane last shown. */
+	function togglePanel(): boolean {
+		if (!panelKind) return togglePane((paneDef(panelPrefs.last ?? null) ?? PANES[0]).kind);
+		openPanel(null);
 		return true;
 	}
 
@@ -357,20 +363,23 @@
 		if (!action) return false;
 		let done: boolean;
 		if (action === 'maximize') done = toggleMaximize();
-		else if (action === 'toggle') {
-			if (panelKind) {
-				openPanel(null);
-				done = true;
-			} else done = togglePane((paneDef(panelPrefs.last ?? null) ?? PANES[0]).kind);
-		} else done = togglePane(action.kind);
+		else if (action === 'toggle') done = togglePanel();
+		else done = togglePane(action.kind);
 		// A key that changed nothing is left to whatever else wants it.
 		if (done) e.preventDefault();
 		return done;
 	}
 
 	let textInput = $state('');
-	/** Ctrl/⌘ is held, so the primary button shows what Ctrl/⌘+Enter would do. */
-	let steerHeld = $state(false);
+	/** Ctrl/⌘ is held, so the primary button shows what Enter would do with it. */
+	let heldDelivery = $state<'steer' | 'now' | null>(null);
+	/**
+	 * What was last dictated into the draft. While the draft still holds it the
+	 * message is sent as spoken, so its turn is badged; a draft rewritten or
+	 * swapped for another session's stops matching, with nothing to reset.
+	 */
+	let said = $state<string | null>(null);
+	const dictated = $derived(said !== null && textInput.includes(said));
 	/**
 	 * A queued message loaded into the composer. What was typed before is put
 	 * aside and comes back once the edit is saved or cancelled.
@@ -524,8 +533,8 @@
 		}
 		if (editing) return 'save' as const;
 		if (isIdle) return 'send' as const;
-		// Holding Ctrl/⌘ turns the button into what Ctrl/⌘+Enter does.
-		return isBusy && steerHeld ? ('steer' as const) : ('queue' as const);
+		// Holding Ctrl/⌘ turns the button into what Enter does with it held.
+		return isBusy && heldDelivery ? heldDelivery : ('queue' as const);
 	});
 
 	const ACTIONS = {
@@ -534,7 +543,7 @@
 		enter: { label: 'Enter', icon: 'mdi:keyboard-return' },
 		send: { label: 'Send', icon: 'mdi:arrow-up' },
 		queue: { label: 'Queue', icon: 'mdi:playlist-plus' },
-		steer: { label: 'Steer', icon: 'mdi:arrow-right-top' },
+		...STEERS,
 		save: { label: 'Save', icon: 'mdi:content-save-outline' }
 	} as const;
 	/** An armed modifier names the sequence it will send, not the verb. */
@@ -581,9 +590,7 @@
 		// itself when it has focus, and marks the event so it is not taken twice.
 		if (!e.defaultPrevented && !e.repeat && isVoiceHotkey(e)) {
 			e.preventDefault();
-			if (target && (!voiceStore.isActive || voiceStore.isOwnedBy(target))) {
-				void voiceStore.toggle(target);
-			}
+			void toggleVoice();
 			return;
 		}
 		if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
@@ -1154,7 +1161,7 @@
 	let emptyEnterTimer: ReturnType<typeof setTimeout> | null = null;
 	async function sendFromButton() {
 		if (!target || !canSend) return;
-		if (textInput.trim() || readyPaths.length > 0) {
+		if (hasDraft) {
 			await sendText();
 			return;
 		}
@@ -1179,8 +1186,7 @@
 			await saveEdit();
 			return;
 		}
-		const paths = readyPaths;
-		if (!textInput.trim() && paths.length === 0) {
+		if (!hasDraft) {
 			// Empty input: just send Enter key — unless the dialog's text field
 			// is open, where an empty Enter declines the question.
 			if (paneTyping) return focusDialogField();
@@ -1194,23 +1200,7 @@
 			return;
 		}
 		// Busy, or a dialog open: the message waits in the queue for its own turn.
-		if (!isIdle) {
-			await queueText();
-			return;
-		}
-		const sent = composed(target);
-		const res = await fetch(`/api/sessions/${encodeURIComponent(sent.target)}/send`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: sent.text, attachments: paths })
-		});
-		if (!res.ok) {
-			// The draft stays put, so nothing typed is lost on a failed send.
-			const body = (await res.json().catch(() => ({}))) as { error?: string };
-			alert(`Could not send: ${body.error ?? res.statusText}`);
-			return;
-		}
-		clearSent(sent);
+		await deliver(isIdle ? 'send' : 'queue');
 	}
 
 	interface Composed {
@@ -1241,34 +1231,35 @@
 		if (textareaElement) textareaElement.style.height = 'auto';
 	}
 
-	/** A message composed elsewhere on the page — a grilling round's answers. */
-	async function sendReply(text: string): Promise<boolean> {
-		if (!target) return false;
-		const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+	/**
+	 * Hand a session a message through one of the routes that deliver one.
+	 * Resolves false, having said why, when the session did not take it.
+	 */
+	async function post(
+		to: string,
+		route: 'send' | 'queue' | 'steer',
+		message: Record<string, unknown>
+	): Promise<boolean> {
+		const res = await fetch(`/api/sessions/${encodeURIComponent(to)}/${route}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text })
+			body: JSON.stringify(message)
 		});
-		if (!res.ok) {
-			const body = (await res.json().catch(() => ({}))) as { error?: string };
-			alert(`Could not send: ${body.error ?? res.statusText}`);
-			return false;
-		}
-		return true;
+		if (res.ok) return true;
+		const body = (await res.json().catch(() => ({}))) as { error?: string };
+		alert(`Could not ${route}: ${body.error ?? res.statusText}`);
+		return false;
 	}
 
+	/** A message composed elsewhere on the page — a grilling round's answers. */
+	const sendReply = async (text: string) => target != null && (await post(target, 'send', { text }));
+
+	/** Put the draft in the pane's prompt box and leave the Enter to the pane. */
 	async function sendTextRaw() {
-		if (!target) return;
-		if (!canSend) return;
-		const paths = readyPaths;
-		if (!textInput && paths.length === 0) return;
+		if (!target || !canSend || (!textInput && readyPaths.length === 0)) return;
 		const sent = composed(target);
-		const res = await fetch(`/api/sessions/${encodeURIComponent(sent.target)}/send`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: sent.text, raw: true, attachments: paths })
-		});
-		if (res.ok) clearSent(sent);
+		const message = { text: sent.text, raw: true, attachments: readyPaths };
+		if (await post(sent.target, 'send', message)) clearSent(sent);
 	}
 
 	/** Ask the session to turn Remote Control on; the poll picks up the URL. */
@@ -1281,24 +1272,28 @@
 		await sendKeys('Tab Enter');
 	}
 
-	/** Post the draft to a route that delivers it; it leaves the composer only once taken. */
-	async function deliver(route: 'queue' | 'steer') {
+	/**
+	 * The ways a draft reaches the session, whether it was typed or spoken:
+	 * `send` starts a turn, `queue` waits for the running one to end, `steer`
+	 * hands it to Claude Code to read when it next stops for input, and `now`
+	 * makes it read at once.
+	 */
+	type Delivery = 'send' | 'queue' | SteerMode;
+
+	/** Deliver the draft; it leaves the composer only once the session has taken it. */
+	async function deliver(how: Delivery) {
 		if (!target || !canSend || !hasDraft) return;
 		const sent = composed(target);
-		const res = await fetch(`/api/sessions/${encodeURIComponent(sent.target)}/${route}`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text: sent.text, attachments: readyPaths })
-		});
-		if (!res.ok) {
-			const body = (await res.json().catch(() => ({}))) as { error?: string };
-			alert(`Could not ${route}: ${body.error ?? res.statusText}`);
-			return;
-		}
-		clearSent(sent);
+		const message = { text: sent.text, attachments: readyPaths, dictated };
+		// The draft stays put on a refusal, so nothing typed or said is lost.
+		const taken =
+			how === 'send' || how === 'queue'
+				? await post(sent.target, how, message)
+				: await post(sent.target, 'steer', { ...message, mode: how });
+		if (taken) clearSent(sent);
 	}
-	const queueText = () => deliver('queue');
 	const steerText = () => deliver('steer');
+	const nowText = () => deliver('now');
 
 	// ─── Editing a queued message ───────────────────────────────────────────
 
@@ -1365,7 +1360,8 @@
 		}
 	});
 
-	const syncSteerHeld = (e: KeyboardEvent) => (steerHeld = e.ctrlKey || e.metaKey);
+	const syncHeldDelivery = (e: KeyboardEvent) =>
+		(heldDelivery = e.ctrlKey || e.metaKey ? (e.shiftKey ? 'now' : 'steer') : null);
 
 
 	// ─── Attachments ────────────────────────────────────────────────────────
@@ -1518,12 +1514,62 @@
 		};
 	});
 
-	async function finishVoiceIfRecording(): Promise<boolean> {
-		if (!voiceEnabled) return false;
-		if (voiceStore.status !== 'recording' || !voiceStore.isOwnedBy(target)) return false;
-		await voiceStore.stopAndSubmit();
+	/** The composer's own take is running, as opposed to a question field's. */
+	const speaking = $derived(
+		voiceEnabled && voiceStore.status === 'recording' && voiceStore.isOwnedBy(target)
+	);
+
+	/**
+	 * End the composer's take and put what was said through `run`, the same
+	 * function a typed draft goes through: the words join the draft, and from
+	 * there voice has no path of its own. Without a `run` the setting decides
+	 * between sending and leaving the words in the box to be read first.
+	 * Resolves false when there was no take of the composer's to end.
+	 */
+	async function finishVoice(run?: () => unknown): Promise<boolean> {
+		if (!speaking) return false;
+		const from = target;
+		const heard = await voiceStore.stop();
+		if (!heard || !from) return true;
+		if (from !== target) {
+			// The page moved on while the words were being worked out: they wait
+			// in the composer of the session they were said to.
+			draftsStore.set(from, appendSaid(draftsStore.get(from), heard.text));
+			return true;
+		}
+		textInput = appendSaid(textInput, heard.text);
+		// A slash command renders as its own kind of turn, not as something said.
+		said = heard.command ? null : heard.text;
+		await tick();
+		autoResize();
+		if (run) await run();
+		else if (voiceStore.autoSubmit) await sendText();
 		return true;
 	}
+
+	/** The microphone's one key: start a take, end it, or give up on its transcription. */
+	async function toggleVoice() {
+		if (!target || !voiceEnabled) return;
+		if (voiceStore.isActive && !voiceStore.isOwnedBy(target)) return;
+		if (voiceStore.status === 'transcribing') voiceStore.cancelTranscribing();
+		else if (voiceStore.status === 'recording') await finishVoice();
+		else await voiceStore.startRecording(target);
+	}
+
+	/** The ways to end a take that keep it: the composer's own verbs for a draft. */
+	const voiceActions = $derived.by((): VoiceAction[] => {
+		const first = editing ? ACTIONS.save : isIdle ? ACTIONS.send : ACTIONS.queue;
+		const actions: VoiceAction[] = [
+			{ ...first, title: `Stop recording and ${first.label.toLowerCase()}`, run: () => void finishVoice(sendText) }
+		];
+		if (steerable) {
+			actions.push(
+				{ ...STEERS.steer, run: () => void finishVoice(steerText) },
+				{ ...STEERS.now, run: () => void finishVoice(nowText) }
+			);
+		}
+		return actions;
+	});
 
 	function isVoiceHotkey(e: KeyboardEvent): boolean {
 		if (!voiceEnabled) return false;
@@ -1542,7 +1588,9 @@
 	}
 	const modArmed = $derived(ctrlCount > 0 || altCount > 0);
 	/** Steer is offered as its own control whenever there is a turn to steer into. */
-	const canSteer = $derived(isBusy && hasDraft && !editing && !modArmed);
+	/** A turn is running and the composer is not busy with an edit, so a steer has somewhere to go. */
+	const steerable = $derived(isBusy && !editing);
+	const canSteer = $derived(steerable && hasDraft && !modArmed);
 
 
 	/** One line, and it never doubles: the most important thing right now. */
@@ -1613,12 +1661,7 @@
 	}
 
 	async function runText(text: string) {
-		if (!target) return;
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ text })
-		});
+		if (target) await post(target, 'send', { text });
 	}
 
 	function chordStep(delta: number) {
@@ -1717,10 +1760,7 @@
 			},
 			X: async () => {
 				if (chordMenuOpen) return;
-				if (!target) return;
-				if (!voiceStore.isActive || voiceStore.isOwnedBy(target)) {
-					await voiceStore.toggle(target);
-				}
+				await toggleVoice();
 			},
 			Y: () => {
 				if (chordMenuOpen) return;
@@ -1777,9 +1817,7 @@
 			e.preventDefault();
 			ctrlTapCandidate = false;
 			altTapCandidate = false;
-			if (target && (!voiceStore.isActive || voiceStore.isOwnedBy(target))) {
-				await voiceStore.toggle(target);
-			}
+			await toggleVoice();
 			return;
 		}
 		if (e.key === 'Control') {
@@ -1837,16 +1875,16 @@
 			sendKeys('Tab');
 			return;
 		}
-		if (e.key === 'Enter' && !e.shiftKey) {
+		// Shift+Enter alone is a new line; with Ctrl/⌘ it is the stronger steer.
+		const mod = e.ctrlKey || e.metaKey;
+		if (e.key === 'Enter' && (!e.shiftKey || mod)) {
 			e.preventDefault();
-			if (await finishVoiceIfRecording()) return;
-			if (modArmed) {
-				sendModSequence();
-			} else if ((e.ctrlKey || e.metaKey) && canSteer) {
-				steerText();
-			} else {
-				sendText();
-			}
+			// A take has no draft yet, but its words are about to be one.
+			const steering = mod && (canSteer || (speaking && steerable));
+			const run = steering ? (e.shiftKey ? nowText : steerText) : sendText;
+			if (await finishVoice(run)) return;
+			if (modArmed) sendModSequence();
+			else run();
 		}
 	}
 
@@ -1914,16 +1952,38 @@
 	 * Quits Claude Code and reopens this conversation in the same pane — the
 	 * way to pick up an update or re-read skills without losing the session.
 	 */
-	async function restartSession() {
-		if (!currentSession) return;
+	async function restartSession(upgrade = false): Promise<boolean> {
+		if (!currentSession) return false;
 		const res = await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/restart`, {
-			method: 'POST'
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ upgrade })
 		});
 		if (!res.ok) {
 			const body = (await res.json().catch(() => ({}))) as { error?: string };
-			alert(`Could not restart Claude Code: ${body.error ?? res.statusText}`);
+			alert(`Could not ${upgrade ? 'upgrade' : 'restart'} Claude Code: ${body.error ?? res.statusText}`);
 		}
+		return res.ok;
 	}
+
+	/**
+	 * The session an upgrade was started in from here. The server answers once
+	 * the command is typed and restarts when it has run, so the button waits on
+	 * what the pane shows: the notice going, or long enough that it failed.
+	 */
+	let upgrading = $state<string | null>(null);
+	const UPGRADE_WAIT_MS = 6 * 60_000;
+	async function upgradeSession() {
+		if (!currentSession) return;
+		const id = currentSession.id;
+		if (await restartSession(true)) upgrading = id;
+	}
+	$effect(() => {
+		if (!upgrading) return;
+		if (upgrading === currentSession?.id && !paneUpdate?.command) return void (upgrading = null);
+		const giveUp = setTimeout(() => (upgrading = null), UPGRADE_WAIT_MS);
+		return () => clearTimeout(giveUp);
+	});
 
 	function copySelection() {
 		const text = selectedText;
@@ -1970,11 +2030,11 @@
 
 <svelte:window
 	onkeydown={(e) => {
-		syncSteerHeld(e);
+		syncHeldDelivery(e);
 		handleGlobalKeys(e);
 	}}
-	onkeyup={syncSteerHeld}
-	onblur={() => (steerHeld = false)}
+	onkeyup={syncHeldDelivery}
+	onblur={() => (heldDelivery = null)}
 />
 
 <svelte:head>
@@ -2100,6 +2160,22 @@
 					<iconify-icon icon="mdi:restart"></iconify-icon>
 					{UPDATE_LABEL.installed}
 				</button>
+			{:else if paneUpdate.command && isAlive && isClaudeSession}
+				<!-- The notice names its own fix. It is typed into Claude Code as a
+				     shell line, which only a session waiting for input will run. -->
+				{@const running = upgrading === currentSession?.id}
+				<button
+					type="button"
+					class="say upd installed"
+					disabled={running || !isIdle}
+					title={isIdle
+						? `Run "${paneUpdate.command}" in this session, then restart Claude Code`
+						: `${paneUpdate.text} — available once Claude Code is waiting for you`}
+					onclick={() => void upgradeSession()}
+				>
+					<iconify-icon icon={running ? 'mdi:loading' : 'mdi:update'} class:spin={running}></iconify-icon>
+					{running ? 'Upgrading…' : 'Update available · upgrade and restart'}
+				</button>
 			{:else}
 				<span class="say upd {paneUpdate.kind}" title={paneUpdate.text}>
 					<iconify-icon icon="mdi:update"></iconify-icon>
@@ -2116,7 +2192,7 @@
 			</span>
 		{/each}
 		{#if isClaudeSession}
-			<PanelToggles kind={panelKind} session={currentSession ?? null} onToggle={togglePane} />
+			<PanelToggle open={panelKind !== null} session={currentSession!} onToggle={() => void togglePanel()} />
 		{/if}
 		{#if !embed}
 			<Hint
@@ -2236,6 +2312,7 @@
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={sendKeys}
 						onSendPaneText={sendPaneText}
+						dictateTarget={voiceEnabled ? target : null}
 						olderCount={transcriptStore.firstIndex}
 						loadingEarlier={transcriptStore.loadingEarlier}
 						onLoadEarlier={() => holdPlaceThrough(transcriptStore.loadEarlier())}
@@ -2293,12 +2370,7 @@
 			>
 				<ContextGauge context={transcriptStore.context}>
 					{#snippet notch()}
-						<VoiceMeter
-							{target}
-							onConfirm={async () => {
-								if (await finishVoiceIfRecording()) handleResize();
-							}}
-						/>
+						<VoiceMeter {target} actions={voiceActions} />
 					{/snippet}
 				</ContextGauge>
 
@@ -2498,7 +2570,7 @@
 					<!-- the rail — the two controls a thumb reaches for, given the
 					     height of both lanes rather than the footer's alone -->
 					<div class="rail">
-						{#if voiceEnabled}<VoiceButton {target} round />{/if}
+						{#if voiceEnabled}<VoiceButton {target} onToggle={() => void toggleVoice()} />{/if}
 						<div class="act-wrap">
 							<button
 								type="button"
@@ -2507,12 +2579,9 @@
 								aria-label={actionLabel}
 								title={actionLabel}
 								onclick={async () => {
-									if (await finishVoiceIfRecording()) {
-										handleResize();
-										return;
-									}
+									if (await finishVoice(sendText)) return;
 									if (modArmed) await sendModSequence();
-									else if (actionKind === 'steer') await steerText();
+									else if (actionKind === 'steer' || actionKind === 'now') await deliver(actionKind);
 									else await sendFromButton();
 								}}
 							>
@@ -2522,16 +2591,28 @@
 						{#if canSteer}
 							<!-- Its own button, so a phone has a way to steer that is not a
 							     held key or a long press. -->
-							<button
-								type="button"
-								class="act steer"
-								disabled={!canSend}
-								aria-label="Steer"
-								title={`Steer: make Claude read this now (${MOD_LABEL}+Enter)`}
-								onclick={() => void steerText()}
-							>
-								<iconify-icon icon={ACTIONS.steer.icon}></iconify-icon>
-							</button>
+							<div class="steers">
+								<button
+									type="button"
+									class="act steer"
+									disabled={!canSend}
+									aria-label="Steer"
+									title={`${STEERS.steer.title} (${MOD_LABEL}+Enter)`}
+									onclick={() => void steerText()}
+								>
+									<iconify-icon icon={ACTIONS.steer.icon}></iconify-icon>
+								</button>
+								<button
+									type="button"
+									class="act steer"
+									disabled={!canSend}
+									aria-label="Now"
+									title={`${STEERS.now.title} (${MOD_LABEL}+Shift+Enter)`}
+									onclick={() => void nowText()}
+								>
+									<iconify-icon icon={ACTIONS.now.icon}></iconify-icon>
+								</button>
+							</div>
 						{/if}
 					</div>
 				</div>
@@ -2550,6 +2631,7 @@
 			canMaximize={panelInline}
 			onSetParams={setPaneParams}
 			onToggleMaximize={toggleMaximize}
+			onSelect={openPanel}
 			onClose={() => openPanel(null)}
 			onMention={mentionInComposer}
 		/>
@@ -2615,7 +2697,7 @@
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-			<AlertDialog.Action onclick={restartSession}>Restart</AlertDialog.Action>
+			<AlertDialog.Action onclick={() => void restartSession()}>Restart</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
@@ -3123,8 +3205,12 @@
 		font: inherit;
 		cursor: pointer;
 	}
-	button.say.upd:hover {
+	button.say.upd:hover:not(:disabled) {
 		background: #064e3b;
+	}
+	button.say.upd:disabled {
+		opacity: 0.55;
+		cursor: default;
 	}
 	.say.upd.available {
 		color: #a8a29e;
@@ -3504,6 +3590,18 @@
 	}
 	.act.steer:hover:not(:disabled) {
 		background: #3a3532;
+	}
+	/* The two steers share one column of the rail, so a phone keeps its field. */
+	.steers {
+		flex: none;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.steers .act {
+		flex: 1;
+		height: auto;
+		min-height: 0;
 	}
 
 	.editbar {

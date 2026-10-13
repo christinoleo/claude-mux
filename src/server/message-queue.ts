@@ -20,6 +20,7 @@ import { writeFileAtomic } from '../utils/atomic-write.js';
 import { isPidAlive } from '../utils/pid.js';
 import { capturePaneContentAsync, readPaneHold, readPromptBox } from '../tmux/pane.js';
 import { composePromptWithAttachments } from './attachments.js';
+import { recordDictation } from './dictation-marks.js';
 import type { DeliveryInfo, QueuedMessageInfo } from '../types/ws-messages.js';
 
 // ============================================================================
@@ -145,17 +146,38 @@ export function sendNowInPane(target: string): void {
 	execFileSync('tmux', ['send-keys', '-t', target, 'C-x', 'C-s'], { stdio: 'ignore' });
 }
 
+/** How hard a steer pushes: `steer` leaves the reading to Claude Code, `now` makes it read at once. */
+export type SteerMode = 'steer' | 'now';
+
 /**
- * Deliver text into the running turn now. A busy pane takes the pasted line
- * into Claude Code's own queue, and the chord then pushes that queue into the
- * turn; any other pane just takes it as a normal send. Resolves false when
- * Claude Code left the text in its box, as `confirmSubmitted` does.
+ * Remember that what a pane was just handed had been spoken, so the transcript
+ * badges the turn it becomes. Done on delivery, with the text as pasted: the
+ * mark is matched against the prompt Claude Code logs, within a few minutes of
+ * it, and a message can sit in the queue far longer than that.
  */
-export async function steerIntoPane(target: string, text: string, busy: boolean): Promise<boolean> {
+export function markDictated(target: string, text: string): void {
+	const session = getAllSessions().find((s) => s.tmux_target === target || s.id === target);
+	if (session) recordDictation(session.id, text);
+}
+
+/**
+ * Deliver text into the running turn. A busy pane takes the pasted line into
+ * Claude Code's own queue, where Claude reads it when it next stops for input;
+ * in `now` mode the chord then pushes that queue into the turn at once. Any
+ * other pane just takes it as a normal send. Resolves false when Claude Code
+ * left the text in its box, as `confirmSubmitted` does.
+ */
+export async function steerIntoPane(
+	target: string,
+	text: string,
+	busy: boolean,
+	opts: { mode?: SteerMode; dictated?: boolean } = {}
+): Promise<boolean> {
 	sendTextToPane(target, text);
 	if (!(await confirmSubmitted(target))) return false;
-	if (busy) sendNowInPane(target);
+	if (busy && opts.mode === 'now') sendNowInPane(target);
 	recordDelivery(target, text, 'steer');
+	if (opts.dictated) markDictated(target, text);
 	return true;
 }
 
@@ -311,11 +333,13 @@ export function enqueue(
 	target: string,
 	text: string,
 	kind: QueuedMessageKind = 'user',
-	attachments: string[] = []
+	attachments: string[] = [],
+	dictated = false
 ): QueuedMessage[] {
 	const queue = queueFor(target);
 	const message: QueuedMessage = { id: randomUUID(), text, queuedAt: Date.now(), kind };
 	if (attachments.length > 0) message.attachments = attachments;
+	if (dictated) message.dictated = true;
 	queue.push(message);
 	missingSince.delete(target);
 	persistQueues();
@@ -389,7 +413,12 @@ export type PromoteResult = 'sent' | 'missing' | 'in-box';
  * only when the paste itself failed: text Claude Code left in its box is
  * already in the pane, and queueing it again would deliver it twice.
  */
-export async function promoteToSteer(target: string, id: string, busy: boolean): Promise<PromoteResult> {
+export async function promoteToSteer(
+	target: string,
+	id: string,
+	busy: boolean,
+	mode: SteerMode = 'steer'
+): Promise<PromoteResult> {
 	const queue = queues.get(target);
 	const index = queue?.findIndex((m) => m.id === id) ?? -1;
 	if (!queue || index === -1) return 'missing';
@@ -397,7 +426,8 @@ export async function promoteToSteer(target: string, id: string, busy: boolean):
 	if (queue.length === 0) queues.delete(target);
 	persistQueues();
 	try {
-		return (await steerIntoPane(target, promptOf(message), busy)) ? 'sent' : 'in-box';
+		const opts = { mode, dictated: message.dictated };
+		return (await steerIntoPane(target, promptOf(message), busy, opts)) ? 'sent' : 'in-box';
 	} catch (err) {
 		const restored = queueFor(target);
 		restored.splice(Math.min(index, restored.length), 0, message);
@@ -561,6 +591,7 @@ export function drainQueues(sessions: SessionLike[]): void {
 			sendTextToPane(target, prompt);
 			dequeue(target);
 			recordDelivery(target, prompt, 'queue');
+			if (message.dictated) markDictated(target, prompt);
 			recentlySent.set(target, now);
 			console.log(`[queue] Auto-sent queued message to ${target}`);
 		} catch (err) {

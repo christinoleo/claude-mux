@@ -87,7 +87,13 @@
 	);
 	$effect(() => {
 		void pulse;
-		if (sessionId && active) void loadList(sessionId, source);
+		const id = sessionId;
+		const src = source;
+		// Untracked: `loadList` reads its own `loadingList`, and an effect that
+		// depended on that ran again the moment each read finished. The list was
+		// then read without pause, every read asked for the diff afresh, and each
+		// diff was thrown away as stale before it could be drawn.
+		if (id && active) untrack(() => void loadList(id, src));
 	});
 
 	// A listing for the other source is no answer for this one.
@@ -144,6 +150,8 @@
 	let diff = $state<Diff | null>(null);
 	let diffError = $state<{ file: string; message: string } | null>(null);
 	let diffSeq = 0;
+	/** The answer `diff` was parsed from, to tell a new one from the same again. */
+	let diffText: string | null = null;
 	/** Highlighted HTML per row index, filled in once highlight.js has loaded. */
 	let painted = $state<(string | null)[] | null>(null);
 
@@ -154,13 +162,19 @@
 		if (turnId !== undefined) q.set('turn', turnId ?? '');
 		try {
 			const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/changes/diff?${q}`);
-			const body = await res.json();
+			const text = await res.text();
 			if (mine !== diffSeq) return;
-			if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
-			diff = body as Diff;
+			if (!res.ok) throw new Error((JSON.parse(text) as { error?: string }).error ?? `HTTP ${res.status}`);
+			// The diff is asked for again with every hook; an answer that says
+			// the same thing is not even parsed, and the rows and their colouring stay.
+			if (text !== diffText) {
+				diffText = text;
+				diff = JSON.parse(text) as Diff;
+			}
 			diffError = null;
 		} catch (err) {
 			if (mine === diffSeq) {
+				diffText = null;
 				diff = null;
 				diffError = { file, message: err instanceof Error ? err.message : String(err) };
 			}

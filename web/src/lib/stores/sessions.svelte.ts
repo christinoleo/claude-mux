@@ -63,7 +63,7 @@ export interface Session {
 	/** Numbered options a dialog is offering in the pane. Gate on `state`. */
 	pane_choice?: PaneChoice | null;
 	/** Claude Code's footer notice about its own update. */
-	pane_update?: { kind: 'installed' | 'available' | 'failed'; text: string } | null;
+	pane_update?: { kind: 'installed' | 'available' | 'failed'; text: string; command?: string } | null;
 	/** The spinner line while a turn runs, split into its parts; `started_at` is in this browser's clock. */
 	pane_activity?: PaneActivity | null;
 	/** Share of the context window in use as of the latest reply; null when unknown. */

@@ -2,18 +2,20 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { longPress } from '$lib/actions/longPress';
-	import { formatElapsed } from '$lib/format';
 	import { clickOutside } from '$lib/actions/clickOutside';
 	import { voiceStore, type VoiceLanguage } from '$lib/stores/voice.svelte';
 	import { listAudioInputs, type AudioInputDevice } from '$lib/voice/recorder';
 
 	interface Props {
 		target: string | null;
-		/** Icon-only circle, for the transcript composer's edge. */
-		round?: boolean;
+		/**
+		 * The tap. The composer owns the take and what becomes of the words, so
+		 * this button, the hotkey and the gamepad all go through its one toggle.
+		 */
+		onToggle: () => void;
 	}
 
-	let { target, round = false }: Props = $props();
+	let { target, onToggle }: Props = $props();
 
 	const supported = $derived(voiceStore.supported);
 	// Voice is a single-mic singleton owned by the page that started it; non-owner
@@ -22,14 +24,10 @@
 	const busyElsewhere = $derived(voiceStore.isActive && !isOwner);
 	const status = $derived(isOwner ? voiceStore.status : 'idle');
 	const errorMsg = $derived(isOwner ? voiceStore.error : null);
-	const variant = $derived(
-		status === 'recording' || status === 'error' ? 'destructive' : 'secondary'
-	);
 
 	const MAX_RECORDING_MS = 10 * 60 * 1000;
 	const LONG_TRANSCRIBE_MS = 5000;
 
-	let elapsed = $state(0);
 	let isLongTranscribe = $state(false);
 	let menuOpen = $state(false);
 	let devices = $state<AudioInputDevice[]>([]);
@@ -45,30 +43,15 @@
 		return () => clearTimeout(id);
 	});
 
+	// A take left running is stopped, and kept, before it outgrows what one upload carries.
 	$effect(() => {
-		if (status !== 'recording') {
-			elapsed = 0;
-			return;
-		}
-		elapsed = 0;
-		const tick = setInterval(() => {
-			const next = voiceStore.startedAt
-				? Math.floor((Date.now() - voiceStore.startedAt) / 1000)
-				: 0;
-			if (next !== elapsed) elapsed = next;
-		}, 1000);
-		const auto = setTimeout(() => void toggleVoice(), MAX_RECORDING_MS);
-		return () => {
-			clearInterval(tick);
-			clearTimeout(auto);
-		};
+		if (status !== 'recording') return;
+		const auto = setTimeout(toggleVoice, MAX_RECORDING_MS);
+		return () => clearTimeout(auto);
 	});
 
-	const transcribingLabel = $derived(isLongTranscribe ? 'Setting up' : 'Working');
-
-	async function toggleVoice(): Promise<void> {
-		if (busyElsewhere) return;
-		if (target) await voiceStore.toggle(target);
+	function toggleVoice(): void {
+		if (!busyElsewhere && target) onToggle();
 	}
 
 	async function openMenu(): Promise<void> {
@@ -100,7 +83,7 @@
 				? 'First-run setup. ✕ or Esc to cancel.'
 				: 'Transcribing. ✕ or Esc to cancel.';
 		if (status === 'recording')
-			return 'Tap or F2/Pause/Ctrl+` to send. ✕ or Esc to discard.';
+			return 'Tap or F2/Pause/Ctrl+` to stop. ✕ or Esc to discard.';
 		return 'Tap or focus input then F2/Pause/Ctrl+` to record. Long-press or right-click for settings.';
 	});
 
@@ -133,8 +116,7 @@
 </script>
 
 <div
-	class="voice-btn-wrapper"
-	class:round
+	class="voice-btn-wrapper round"
 	oncontextmenu={supported ? handleContextMenu : undefined}
 	role="presentation"
 	use:longPress={{
@@ -157,7 +139,7 @@
 			<iconify-icon icon="mdi:microphone-off"></iconify-icon>
 			<span>Mic</span>
 		</Button>
-	{:else if round}
+	{:else}
 		<button
 			type="button"
 			class="voice-round {status}"
@@ -176,62 +158,7 @@
 				<iconify-icon icon="mdi:microphone"></iconify-icon>
 			{/if}
 		</button>
-	{:else}
-		<Button
-			{variant}
-			size="toolbar"
-			class="flex-1 voice-btn {status}"
-			disabled={!target || busyElsewhere}
-			onclick={() => void toggleVoice()}
-			title={buttonTitle}
-		>
-			{#if busyElsewhere}
-				<iconify-icon icon="mdi:microphone-off"></iconify-icon>
-				<span>In use</span>
-			{:else if status === 'transcribing'}
-				<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>
-				<span>{transcribingLabel}</span>
-			{:else if status === 'recording'}
-				<iconify-icon icon="mdi:microphone"></iconify-icon>
-				<span>{formatElapsed(elapsed)}</span>
-			{:else if status === 'error'}
-				<iconify-icon icon="mdi:microphone-off"></iconify-icon>
-				<span>Mic</span>
-			{:else}
-				<iconify-icon icon="mdi:microphone"></iconify-icon>
-				<span>Talk</span>
-			{/if}
-		</Button>
 	{/if}
-
-	{#if isOwner && voiceStore.isActive && !round}
-			<button
-				type="button"
-				class="voice-cancel"
-				aria-label="Cancel voice"
-				title="Discard recording / transcription"
-				onclick={() => void voiceStore.cancel()}
-			>
-				<iconify-icon icon="mdi:close"></iconify-icon>
-				<span>Discard</span>
-			</button>
-		{/if}
-
-		{#if status === 'recording' && !round}
-			{@const rms = voiceStore.level.rms}
-			{@const peak = voiceStore.level.peak}
-			{@const fillPct = Math.min(100, Math.round(rms * 220))}
-			{@const tooSoft = peak < 0.04}
-			{@const clipping = peak >= 0.98}
-			<div
-				class="voice-meter"
-				class:too-soft={tooSoft}
-				class:clipping={clipping}
-				title={clipping ? 'Clipping — too loud' : tooSoft ? 'Too soft — speak louder or boost gain' : `Level ${(rms * 100).toFixed(0)}%`}
-			>
-				<div class="voice-meter-fill" style="width: {fillPct}%"></div>
-			</div>
-		{/if}
 
 		{#if menuOpen}
 			<div class="voice-menu">
@@ -264,7 +191,7 @@
 						checked={voiceStore.autoSubmit}
 						onCheckedChange={setAutoSubmit}
 					/>
-					<span class="setting-label inline">Auto-submit (Enter after transcript)</span>
+					<span class="setting-label inline">Send when the recording stops</span>
 				</label>
 
 				<div class="setting-row">
@@ -363,15 +290,6 @@
 		width: 100%;
 	}
 
-	:global(.voice-btn.recording) {
-		animation: voice-pulse 1.2s ease-in-out infinite;
-	}
-
-	@keyframes voice-pulse {
-		0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
-		50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
-	}
-
 	.spin {
 		animation: voice-spin 1s linear infinite;
 		display: inline-block;
@@ -395,110 +313,6 @@
 		border-radius: 6px;
 		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
 		z-index: var(--z-floating);
-	}
-
-	.voice-meter {
-		position: absolute;
-		left: 6px;
-		right: 26px;
-		bottom: 3px;
-		height: 4px;
-		background: rgba(255, 255, 255, 0.12);
-		border-radius: 2px;
-		overflow: hidden;
-		pointer-events: none;
-	}
-
-	.voice-meter-fill {
-		height: 100%;
-		background: linear-gradient(90deg, #16a34a 0%, #84cc16 60%, #facc15 85%, #dc2626 100%);
-		transition: width 60ms linear;
-	}
-
-	.voice-meter.too-soft .voice-meter-fill {
-		background: #6b7280;
-	}
-
-	.voice-meter.clipping {
-		background: rgba(220, 38, 38, 0.4);
-		animation: voice-meter-clip 0.4s ease-in-out infinite;
-	}
-
-	@keyframes voice-meter-clip {
-		0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
-		50% { box-shadow: 0 0 0 2px rgba(220, 38, 38, 0); }
-	}
-
-	.voice-cancel {
-		position: absolute;
-		bottom: calc(100% + 10px);
-		right: 0;
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		min-height: 44px;
-		padding: 6px 14px;
-		background: #1a1a1a;
-		color: #fca5a5;
-		border: 1px solid rgba(220, 38, 38, 0.55);
-		border-radius: 999px;
-		font-size: 0.72rem;
-		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		cursor: pointer;
-		touch-action: manipulation;
-		-webkit-tap-highlight-color: rgba(220, 38, 38, 0.3);
-		box-shadow:
-			0 6px 18px rgba(0, 0, 0, 0.4),
-			0 0 0 1px rgba(220, 38, 38, 0.15);
-		z-index: var(--z-floating);
-		white-space: nowrap;
-		animation: voice-cancel-rise 180ms cubic-bezier(0.2, 0.9, 0.2, 1);
-	}
-
-	.voice-cancel iconify-icon {
-		font-size: 1.05rem;
-	}
-
-	.voice-cancel::after {
-		content: '';
-		position: absolute;
-		top: 100%;
-		right: 18px;
-		width: 8px;
-		height: 8px;
-		background: #1a1a1a;
-		border-right: 1px solid rgba(220, 38, 38, 0.55);
-		border-bottom: 1px solid rgba(220, 38, 38, 0.55);
-		transform: translateY(-5px) rotate(45deg);
-	}
-
-	.voice-cancel:hover,
-	.voice-cancel:active,
-	.voice-cancel:focus-visible {
-		background: #dc2626;
-		color: #fff;
-		border-color: #dc2626;
-		outline: none;
-	}
-
-	.voice-cancel:hover::after,
-	.voice-cancel:active::after,
-	.voice-cancel:focus-visible::after {
-		background: #dc2626;
-		border-color: #dc2626;
-	}
-
-	@keyframes voice-cancel-rise {
-		from {
-			opacity: 0;
-			transform: translateY(6px) scale(0.96);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0) scale(1);
-		}
 	}
 
 	.voice-menu-close {

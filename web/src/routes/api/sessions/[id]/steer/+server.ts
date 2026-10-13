@@ -7,9 +7,10 @@ import { broadcastSessions } from '$lib/server/ws-managers.js';
 const NOT_TAKEN = 'Claude Code did not take the message; it is still in its input box';
 
 /**
- * Push a message into the running turn now. The body is either what `/send`
- * takes (`text`, `attachments`), or `{ id }` to steer that item out of the
- * server queue. A session that is not busy takes it as a normal send; one
+ * Put a message into the running turn. The body is either what `/send` takes
+ * (`text`, `attachments`), or `{ id }` to steer that item out of the server
+ * queue. Claude Code reads it when it next stops for input; `mode: 'now'` makes
+ * it read at once. A session that is not busy takes it as a normal send; one
  * showing a dialog refuses it, since pasted text would answer the dialog.
  */
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -21,8 +22,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	try {
 		const body = await request.json();
+		const mode = body.mode === 'now' ? 'now' : 'steer';
 		if (typeof body.id === 'string') {
-			const result = await promoteToSteer(pane, body.id, busy);
+			const result = await promoteToSteer(pane, body.id, busy, mode);
 			broadcastSessions();
 			const queue = getQueue(pane);
 			if (result === 'missing') {
@@ -35,7 +37,8 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		const prompt = composePrompt(pane, text, body.attachments);
 		if (!prompt.ok) return json({ error: prompt.error }, { status: 400 });
 		if (!prompt.text) return json({ error: 'text, attachments or id is required' }, { status: 400 });
-		if (!(await steerIntoPane(pane, prompt.text, busy))) {
+		const opts = { mode, dictated: body.dictated === true } as const;
+		if (!(await steerIntoPane(pane, prompt.text, busy, opts))) {
 			return json({ error: NOT_TAKEN }, { status: 502 });
 		}
 		return json({ ok: true });

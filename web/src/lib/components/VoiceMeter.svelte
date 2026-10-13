@@ -1,3 +1,13 @@
+<script lang="ts" module>
+	/** One way to end a take: where what was said goes. */
+	export interface VoiceAction {
+		label: string;
+		title: string;
+		icon: string;
+		run: () => void;
+	}
+</script>
+
 <script lang="ts">
 	import { formatElapsed } from '$lib/format';
 	import { voiceStore } from '$lib/stores/voice.svelte';
@@ -5,15 +15,15 @@
 	interface Props {
 		target: string | null;
 		/**
-		 * Stop the take and submit what it transcribes. The composer's action
-		 * button already does this, but the panel is where the eye is during a
-		 * recording, so it carries the same verb rather than sending the thumb
-		 * back down for it.
+		 * The ways out of a recording that keep it, in the order the composer
+		 * offers them for typed text: the panel is where the eye is during a
+		 * take, so it carries the same verbs rather than sending the thumb back
+		 * down for them.
 		 */
-		onConfirm?: () => void;
+		actions?: VoiceAction[];
 	}
 
-	let { target, onConfirm }: Props = $props();
+	let { target, actions = [] }: Props = $props();
 
 	const BARS = 12;
 
@@ -69,16 +79,20 @@
 		>
 			<iconify-icon icon="mdi:close"></iconify-icon>
 		</button>
-		{#if status === 'recording' && onConfirm}
-			<button
-				type="button"
-				class="btn keep"
-				aria-label="Stop and send"
-				title="Stop recording and send the transcript"
-				onclick={onConfirm}
-			>
-				<iconify-icon icon="mdi:check"></iconify-icon>
-			</button>
+		{#if status === 'recording'}
+			{#each actions as action, i (action.label)}
+				<button
+					type="button"
+					class="btn"
+					class:keep={i === 0}
+					class:also={i > 0}
+					aria-label={action.label}
+					title={action.title}
+					onclick={action.run}
+				>
+					<iconify-icon icon={action.icon}></iconify-icon>
+				</button>
+			{/each}
 		{/if}
 	</div>
 {/if}
@@ -132,7 +146,7 @@
 		color: #a8a29e;
 	}
 
-	/* Both verbs are the same key, sized for a thumb rather than a cursor —
+	/* Every verb is the same key, sized for a thumb rather than a cursor —
 	   the panel is read at arm's length on a phone, mid-sentence. */
 	.btn {
 		display: inline-flex;
@@ -158,5 +172,11 @@
 	}
 	.keep:hover {
 		background: rgba(22, 163, 74, 0.2);
+	}
+	.also {
+		color: #d6d3d1;
+	}
+	.also:hover {
+		background: rgba(255, 255, 255, 0.1);
 	}
 </style>

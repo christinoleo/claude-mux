@@ -242,14 +242,16 @@ export type PaneHold = "working" | "queued" | "typed";
 
 /**
  * Whether a pane the hooks call idle would really start a turn on a message
- * pasted now. It would not while a spinner turns (compaction fires no hook),
+ * pasted now. It would not while a spinner turns (compaction fires no hook)
+ * or a `!` shell line runs (an upgrade, which the message would interrupt),
  * while Claude Code holds messages of its own (it is busy, and would add this
  * one to them and run the lot as a single prompt), or while text sits typed
  * in the box (the paste would be appended to it). Needs a capture with colour.
  */
 export function readPaneHold(raw: string): PaneHold | null {
   if (readQueuedMessages(raw).length > 0) return "queued";
-  if (isPaneShowingSpinner(stripAnsi(raw))) return "working";
+  const clean = stripAnsi(raw);
+  if (isPaneShowingSpinner(clean) || isBangRunning(clean)) return "working";
   const box = readPromptBox(raw);
   return box?.kind === "typed" && box.text.trim() ? "typed" : null;
 }
@@ -455,23 +457,29 @@ const QUEUE_HINT = /^\s*ctrl\+x ctrl\+s to send now\s*$/;
 const QUEUE_HINT_REACH = 40;
 
 /**
- * A queued row as the newer layout draws it: the marker at column 0, then the
- * text in the dim grey that tells it from a sent message, drawn in white.
+ * A row that opens with the marker and then turns white is a message already
+ * sent. A queued one stays in the dim grey from end to end; where that grey is
+ * switched on has moved (after the marker in September 2026, before it since
+ * October), so a queued row is told by never turning white rather than by
+ * where it turns grey.
  */
 // eslint-disable-next-line no-control-regex -- matching the escape codes is the point
-const DIM_QUEUED_START = /❯ (?:\x1b\[[0-9;]*m)*\x1b\[38;5;246m/;
+const SENT_ROW_START = /❯ (?:\x1b\[[0-9;]*m)*\x1b\[38;5;231m/;
 const DIM_TEXT = "38;5;246";
 
 /**
  * The queue in the newer layout: a run above the spinner, closed by the hint.
  * Walking up from the hint, a row that starts with the marker in dim grey
- * begins a message, an indented dim row continues the one above it, a blank
+ * (and never white) begins a message, an indented dim row continues the one above it, a blank
  * row separates two, and anything else — a sent message, tool output — is
  * where the queue ends. Null when the pane draws no such hint.
  */
 function readSpinnerQueue(lines: string[], clean: string[]): string[] | null {
+  // From the last row drawn: a tall pane redrawn from the top ends in blank rows.
+  let foot = clean.length - 1;
+  while (foot > 0 && !clean[foot].trim()) foot--;
   let hint = -1;
-  for (let i = clean.length - 1; i >= Math.max(0, clean.length - QUEUE_HINT_REACH); i--) {
+  for (let i = foot; i >= Math.max(0, foot - QUEUE_HINT_REACH); i--) {
     if (QUEUE_HINT.test(clean[i])) {
       hint = i;
       break;
@@ -483,8 +491,9 @@ function readSpinnerQueue(lines: string[], clean: string[]): string[] | null {
   for (let i = hint - 1; i >= 0; i--) {
     const text = clean[i];
     if (text.trim() === '') continue;
-    const starts = /^❯ /.test(text) && DIM_QUEUED_START.test(lines[i]);
-    if (!starts && !(/^ {2,}\S/.test(text) && lines[i].includes(DIM_TEXT))) break;
+    if (!lines[i].includes(DIM_TEXT)) break;
+    const starts = /^❯ /.test(text) && !SENT_ROW_START.test(lines[i]);
+    if (!starts && !/^ {2,}\S/.test(text)) break;
     rows.push({ text: text.replace(/^❯ /, '').trim(), starts });
     if (rows.length > MAX_QUEUED_MESSAGES * 4) break;
   }
@@ -632,7 +641,51 @@ export function detectRemoteControlUrl(content: string): string | null {
  * - `available`: a new version exists and has to be installed by hand.
  * - `failed`: the auto-updater tried and gave up.
  */
-export type UpdateNotice = { kind: "installed" | "available" | "failed"; text: string } | null;
+export type UpdateNotice = {
+  kind: "installed" | "available" | "failed";
+  text: string;
+  /** The command an `available` notice says to run, when it is one claude-mux will run for you. */
+  command?: string;
+} | null;
+
+/**
+ * The upgrade commands Claude Code is known to ask for, one per way it gets
+ * installed. The notice is text off a pane, and what it names is typed back
+ * into that pane to be run, so only these shapes are ever taken from it.
+ */
+const UPGRADE_COMMANDS = [
+  /^mise (?:upgrade|up) claude(?:-code)?$/,
+  /^claude (?:update|upgrade)$/,
+  /^(?:npm (?:i|install) -g|pnpm add -g|bun (?:add|install) -g|yarn global add) @anthropic-ai\/claude-code(?:@latest)?$/,
+  /^brew upgrade (?:--cask )?claude(?:-code)?$/,
+];
+
+/** The command an update notice says to run, if it is one of the known ones. */
+export function upgradeCommand(text: string): string | null {
+  const command = /Run:\s*(.+)$/.exec(text)?.[1].trim();
+  return command && UPGRADE_COMMANDS.some((known) => known.test(command)) ? command : null;
+}
+
+/**
+ * Whether a `!` command typed into Claude Code is still running: its result
+ * line reads "Running…" until the command exits. No hook fires for one, so
+ * the pane is the only place that says. Claude Code leaves blank rows under
+ * the line for the output to come, so it is looked for as the last thing
+ * written above the prompt box, however far above that is, with only the
+ * "run in background" hint allowed under it.
+ */
+export function isBangRunning(content: string): boolean {
+  const lines = content.split("\n");
+  const box = findPromptBox(lines);
+  if (!box) return false;
+  let seen = 0;
+  for (let i = box.topSepIdx - 1; i >= 0 && seen < 2; i--) {
+    if (!lines[i].trim()) continue;
+    if (/^\s*⎿\s+Running…/.test(lines[i])) return true;
+    seen++;
+  }
+  return false;
+}
 
 /** How far short of the right edge a right-aligned notice may stop. */
 const RIGHT_EDGE_SLACK = 4;
@@ -679,7 +732,10 @@ export function readUpdateNotice(content: string): UpdateNotice {
   for (const line of candidates) {
     for (const [kind, pattern] of UPDATE_NOTICES) {
       const m = pattern.exec(line);
-      if (m) return { kind, text: line.slice(m.index).replace(/\s{2,}/g, " ").trim() };
+      if (!m) continue;
+      const text = line.slice(m.index).replace(/\s{2,}/g, " ").trim();
+      const command = kind === "available" ? upgradeCommand(text) : null;
+      return command ? { kind, text, command } : { kind, text };
     }
   }
   return null;

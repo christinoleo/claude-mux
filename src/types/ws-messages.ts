@@ -80,7 +80,9 @@ const QueuedMessageSchema = z.object({
 	queuedAt: z.number(),
 	kind: z.enum(['user', 'control']),
 	/** Attachment paths, folded into the text only when the message is delivered. */
-	attachments: z.array(z.string()).optional()
+	attachments: z.array(z.string()).optional(),
+	/** It was spoken, so the turn it becomes is badged as dictated. */
+	dictated: z.boolean().optional()
 });
 /** One message in claude-mux's send queue, as the broadcast carries it. */
 export type QueuedMessageInfo = z.infer<typeof QueuedMessageSchema>;
@@ -173,7 +175,12 @@ const EnrichedSessionSchema = z.object({
 	pane_choice: PaneChoiceSchema.nullable().optional(),
 	/** Claude Code's footer notice about its own update — live only. */
 	pane_update: z
-		.object({ kind: z.enum(['installed', 'available', 'failed']), text: z.string() })
+		.object({
+			kind: z.enum(['installed', 'available', 'failed']),
+			text: z.string(),
+			/** The upgrade command it names, when claude-mux can run it. */
+			command: z.string().optional()
+		})
 		.nullable()
 		.optional(),
 	/** The spinner line while a turn runs, split into its parts — live only. */
