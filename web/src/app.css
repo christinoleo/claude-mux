@@ -331,6 +331,20 @@ a.gh-ref[data-state='draft'] .gh-title {
 	color: #a8a29e;
 }
 
+/*
+ * While a selection is read to be quoted (takeQuote() in lib/quote.ts): a
+ * chip is a box, which a selection's text sets on lines of its own, and its
+ * title is GitHub's words, not the message's. Inline and without the title it
+ * reads as the `#n` it was written as.
+ */
+.quoting a.gh-ref.resolved {
+	display: inline;
+}
+
+.quoting a.gh-ref .gh-title {
+	display: none;
+}
+
 /* The chip's hover card, in the popover layer. */
 .gh-card[data-slot='popover-content'] {
 	width: min(340px, calc(100vw - 24px));

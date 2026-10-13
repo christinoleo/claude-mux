@@ -15,6 +15,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import TerminalView from '$lib/components/TerminalView.svelte';
 	import TranscriptView from '$lib/components/TranscriptView.svelte';
+	import { appendQuote } from '$lib/quote';
 	import { transcriptStore } from '$lib/stores/transcript.svelte';
 	import ContextGauge from '$lib/components/ContextGauge.svelte';
 	import RailStats from '$lib/components/RailStats.svelte';
@@ -279,6 +280,25 @@
 			autoResize();
 			textareaElement?.focus();
 		});
+	}
+
+	/** The composer takes the focus with the caret after everything in it. */
+	function focusComposerEnd() {
+		void tick().then(() => {
+			autoResize();
+			if (!textareaElement) return;
+			textareaElement.focus();
+			const end = textareaElement.value.length;
+			textareaElement.setSelectionRange(end, end);
+			textareaElement.scrollTop = textareaElement.scrollHeight;
+			syncCaret();
+		});
+	}
+
+	/** The transcript's "Add to prompt": the selection joins the draft as a quote, and the reply goes under it. */
+	function quoteInComposer(text: string) {
+		textInput = appendQuote(textInput, text);
+		focusComposerEnd();
 	}
 
 	/** A link that opens the side panel on `kind`, with that pane's own params. */
@@ -912,13 +932,15 @@
 	});
 
 	// A subagent's "Message <parent>" lands here with `?compose`: the reader
-	// came to type, so the box takes the focus and the param goes.
+	// came to type, so the box takes the focus and the param goes. A quote
+	// made on the agent's page is already in this session's draft, so the
+	// caret goes to its end.
 	$effect(() => {
 		if (!$page.url.searchParams.has('compose')) return;
 		// The param goes either way: a pane with no composer up (terminal
 		// view, a dead pane) should not grab the focus on some later visit.
 		untrack(() => {
-			textareaElement?.focus();
+			focusComposerEnd();
 			const params = new URLSearchParams($page.url.searchParams);
 			params.delete('compose');
 			const query = params.toString();
@@ -2297,6 +2319,7 @@
 						entries={transcriptStore.entries}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
 						{fileLink}
+						onQuote={quoteInComposer}
 						repoSession={currentSession?.git_root ? currentSession.id : null}
 						agentLink={(id) => `/session/${encodeURIComponent(target ?? '')}/agent/${encodeURIComponent(id)}`}
 						turnChanges={sessionChanges}

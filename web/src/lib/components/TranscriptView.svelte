@@ -4,6 +4,7 @@
 	import { renderMarkdown } from '$lib/markdown';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
 	import DictateButton from './DictateButton.svelte';
+	import QuoteSelection from './QuoteSelection.svelte';
 	import GithubRefCards from './GithubRefCards.svelte';
 	import { appendSaid } from '$lib/stores/voice.svelte';
 	import DialogCard from '$lib/components/DialogCard.svelte';
@@ -51,7 +52,8 @@
 		repoSession = null,
 		agentLink,
 		turnChanges = null,
-		changesLink
+		changesLink,
+		onQuote
 	}: {
 		entries: TranscriptEntry[];
 		available: boolean;
@@ -104,6 +106,8 @@
 		turnChanges?: TranscriptChanges | null;
 		/** Where the Changes pane opens on turn `n`, at `file` or its first file; without it no summaries draw. */
 		changesLink?: (n: number, file: string | null) => string;
+		/** Takes text selected in the transcript ("Add to prompt", Ctrl+L); without it a selection offers nothing. */
+		onQuote?: (text: string) => void;
 	} = $props();
 
 	let transcriptEl = $state<HTMLElement | null>(null);
@@ -536,6 +540,7 @@
 	{/if}
 {/snippet}
 
+{#if onQuote}<QuoteSelection root={transcriptEl} {onQuote} />{/if}
 <div class="transcript" use:fileLinks bind:this={transcriptEl}>
 	{#if !loaded}
 		<div class="empty">

@@ -226,7 +226,8 @@ feeds the Task cards — and is sent the same messages carrying that agent's
 entries, its payload (with the brief, the Task prompt, as `prompt`) and its
 context instead of the session's. An agent whose file is not on disk is
 `available: false` until it turns up. The page takes no input; its "Message"
-button returns to the parent with `?compose`, which focuses the composer.
+button returns to the parent with `?compose`, which focuses the composer with
+the caret at the end of its draft.
 
 ### 6. What GitHub says a session is waiting on
 
@@ -337,6 +338,29 @@ private repo, a number nobody filed. A null leaves the link as written, so a
 `#1` that names nothing stays prose. `githubRefVisual()` holds the states'
 icons and colours: emerald open, grey draft, violet merged, red for a pull
 request closed unmerged; amber is not used.
+
+Text selected in the transcript can be quoted into the draft.
+`QuoteSelection.svelte`, mounted by `TranscriptView` when it is given
+`onQuote`, floats an "Add to prompt" button by the selection and takes
+Ctrl/Cmd+L; with nothing quotable selected it calls no `preventDefault`, so
+the key stays the browser's. `quotableRanges()` (`web/src/lib/quote.ts`)
+decides what is quotable: the selection clipped to the message parts it
+touches (`.user-text`, `.markdown`, `.thinking-text`, a tool's `pre`), so a
+tool row's summary or a timestamp between two messages is left out, and a
+selection of nothing else, or one in the composer or the side panel, offers
+nothing. `takeQuote()` reads each part by selecting it, because only a
+selection's `toString()` keeps the line breaks between blocks, and leaves the
+selection cleared. While it reads, the transcript carries the class `quoting`, under
+which `app.css` draws a GitHub chip inline and without its title: a chip is a
+box, which a selection's text would set on lines of its own, and quoted it
+should read as the `#n` the message wrote. The button waits for the mouse to be released; on a touch
+screen it waits for the handles to rest and sits below the selection, the
+system's menu having the space above, and it keeps the ranges because the tap
+may end the selection before the click arrives. The session page's
+`quoteInComposer()` runs the text through `appendQuote()` (`> ` on each line,
+a blank line after, the earlier draft kept above) and puts the caret at the
+end. A subagent's page has no composer, so there the quote is appended to the
+parent's draft in `draftsStore` and the reader is sent back with `?compose`.
 
 ### 8. What a project serves
 
