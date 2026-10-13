@@ -23,9 +23,10 @@ function devWebSocket() {
 
 			// Use globalThis-backed singletons so API mutation routes and
 			// this WS plugin share the same client registry.
-			const { sessionsWsManager, terminalWsManager, transcriptWsManager } = await import(
+			const { browserWsManager, sessionsWsManager, terminalWsManager, transcriptWsManager } = await import(
 				'./src/lib/server/ws-managers.js'
 			);
+			const { browserOriginAllowed } = await import('../src/server/browser-view.js');
 
 			// Track WebSocket -> target mapping for cleanup
 			const wsTargets = new WeakMap<WebSocket, string>();
@@ -36,7 +37,8 @@ function devWebSocket() {
 					send: (msg: string) => ws.send(msg),
 					isOpen: () => ws.readyState === WebSocket.OPEN,
 					close: () => ws.close(),
-					getBufferedAmount: () => ws.bufferedAmount
+					getBufferedAmount: () => ws.bufferedAmount,
+					sendUncompressed: (msg: string) => ws.send(msg, { compress: false })
 				};
 			}
 
@@ -54,6 +56,12 @@ function devWebSocket() {
 
 				if (!parsed) {
 					ws.close();
+					return;
+				}
+
+				// The browser stream takes input for a logged-in browser, and a WebSocket is not held to CORS.
+				if (parsed.type === 'browser' && !browserOriginAllowed(req.headers.origin, req.headers.host)) {
+					ws.close(1008, 'Forbidden');
 					return;
 				}
 
@@ -125,6 +133,21 @@ function devWebSocket() {
 						const t = wsTargets.get(ws);
 						transcriptWsManager.removeClient(client, t);
 					});
+				} else if (parsed.type === 'browser') {
+					const { target } = parsed;
+					if (!browserWsManager.addClient(client, target)) {
+						ws.close(1013, 'Max clients reached');
+						return;
+					}
+
+					ws.on('message', (data) => {
+						const response = handleWsMessage(data.toString(), {
+							input: (text) => browserWsManager.handleMessage(client, target, text)
+						});
+						if (response === 'pong') ws.send('pong');
+					});
+
+					ws.on('close', () => browserWsManager.removeClient(client, target));
 				}
 			});
 

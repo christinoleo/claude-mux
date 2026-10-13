@@ -10,6 +10,9 @@
 	 * here (mixed content, X-Frame-Options, CSP frame-ancestors) gets a card
 	 * that opens it in a tab of its own instead of a blank frame. Discovery is
 	 * polled only while the pane is showing.
+	 *
+	 * One more source is not a site at all: `?url=browser` shows a tab of the
+	 * remote browser a session drives (`BrowserView.svelte`), `?tab=` naming it.
 	 */
 	import { copyWithToast } from '$lib/side-panel/clipboard';
 	import { untrack } from 'svelte';
@@ -26,7 +29,9 @@
 		type WebChoice,
 		type WebInfo
 	} from '$lib/side-panel/web';
+	import { BROWSER_CHOICE } from '$lib/side-panel/browser';
 	import { webPaneStore } from '$lib/stores/webPane.svelte';
+	import BrowserView from './BrowserView.svelte';
 
 	let { session, params, setParams, setActions, active }: PaneBodyProps = $props();
 
@@ -74,7 +79,12 @@
 		devConfigured || info?.detected.length ? 'dev' : info?.urls.prod ? 'prod' : null
 	);
 	const choice = $derived(params.url ?? fallback);
-	const target = $derived(choice ? choiceUrl(choice, info) : null);
+	/** The remote browser is showing, not a site. */
+	const browsing = $derived(choice === BROWSER_CHOICE);
+	const target = $derived(choice && !browsing ? choiceUrl(choice, info) : null);
+	let browserView = $state<ReturnType<typeof BrowserView> | null>(null);
+	/** The URL of the remote tab on show, which the bar displays and "Open in new tab" opens. */
+	let browserUrl = $state<string | null>(null);
 
 	// No URL in the address: put the one last shown here back.
 	let restored = false;
@@ -99,25 +109,27 @@
 	function choose(next: string) {
 		if (next === choice) return;
 		if (choice) trail = [...trail, choice];
-		setParams({ url: next });
+		setParams({ url: next, tab: null });
 	}
 
 	function goBack() {
 		const prev = trail.at(-1);
 		if (!prev) return;
 		trail = trail.slice(0, -1);
-		setParams({ url: prev });
+		setParams({ url: prev, tab: null });
 	}
 
 	// ── the bar ──────────────────────────────────────────────────────────
 
 	let typed = $state('');
 	$effect(() => {
-		typed = target ?? '';
+		typed = (browsing ? browserUrl : target) ?? '';
 	});
 
 	function submitTyped(e: SubmitEvent) {
 		e.preventDefault();
+		// The bar only reads a remote tab's address: typing there must not send someone's tab elsewhere.
+		if (browsing) return;
 		const url = normalizeTyped(typed);
 		if (!url) {
 			toast.error('Not an http(s) URL', { description: typed });
@@ -142,7 +154,7 @@
 	});
 	const frameSrc = $derived(embed !== 'invalid' && embed?.kind === 'frame' ? embed.src : null);
 	const openUrl = $derived(
-		embed === 'invalid' ? null : embed ? (embed.kind === 'frame' ? embed.src : embed.open) : target
+		browsing ? browserUrl : embed === 'invalid' ? null : embed ? (embed.kind === 'frame' ? embed.src : embed.open) : target
 	);
 
 	/** The frame check for the frame's URL; until it lands the frame is not drawn. */
@@ -174,6 +186,7 @@
 	let reloads = $state(0);
 
 	function reload() {
+		if (browsing) browserView?.reload();
 		if (frameSrc) reloads++;
 		if (sessionId) void loadInfo(sessionId);
 	}
@@ -219,6 +232,13 @@
 					choice === 'dev' || (!devConfigured && !!info?.detected.some((d) => d.url === choice)),
 				(on) => on && choose('dev')}>Dev</Toggle
 			>
+			{#if info?.browser}
+				<Toggle
+					size="sm"
+					title={`The browser sessions drive through ${info.browser}, live`}
+					bind:pressed={() => browsing, (on) => on && choose(BROWSER_CHOICE)}>Browser</Toggle
+				>
+			{/if}
 		</div>
 		<Input
 			bind:value={typed}
@@ -227,85 +247,97 @@
 			inputmode="url"
 			placeholder="Type a URL…"
 			aria-label="URL"
+			readonly={browsing}
 			autocomplete="off"
 			spellcheck={false}
 		/>
 	</form>
 
-	{#if info && !devConfigured && info.detected.length > 0}
-		<div class="detected">
-			<span class="label">Detected dev servers</span>
-			{#each info.detected as server, i (server.port)}
-				<Toggle
-					variant="outline"
-					size="sm"
-					class="chip"
-					title={`${server.process} (pid ${server.pid}) · ${server.url}`}
-					bind:pressed={() => target === server.url, (on) => on && choose(i === 0 ? 'dev' : server.url)}
-				>
-					<span class="dot"></span>:{server.port}
-					<span class="proc">{server.process}</span>
-					{#if server.loopbackOnly}<iconify-icon icon="mdi:lock-outline" title="127.0.0.1 only"></iconify-icon>{/if}
-				</Toggle>
-			{/each}
+	{#if browsing}
+		<BrowserView
+			bind:this={browserView}
+			{sessionId}
+			{active}
+			tab={params.tab}
+			onPick={(id) => setParams({ tab: id })}
+			onUrl={(url) => (browserUrl = url)}
+		/>
+	{:else}
+		{#if info && !devConfigured && info.detected.length > 0}
+			<div class="detected">
+				<span class="label">Detected dev servers</span>
+				{#each info.detected as server, i (server.port)}
+					<Toggle
+						variant="outline"
+						size="sm"
+						class="chip"
+						title={`${server.process} (pid ${server.pid}) · ${server.url}`}
+						bind:pressed={() => target === server.url, (on) => on && choose(i === 0 ? 'dev' : server.url)}
+					>
+						<span class="dot"></span>:{server.port}
+						<span class="proc">{server.process}</span>
+						{#if server.loopbackOnly}<iconify-icon icon="mdi:lock-outline" title="127.0.0.1 only"></iconify-icon>{/if}
+					</Toggle>
+				{/each}
+			</div>
+		{/if}
+
+		<div class="view">
+			{#if infoError && !info}
+				<p class="msg err">{infoError}</p>
+			{:else if !info && !params.url}
+				<p class="msg dim">Looking for the project's URLs…</p>
+			{:else if !target}
+				<div class="empty">
+					<iconify-icon icon="mdi:web-off"></iconify-icon>
+					{#if choice === 'prod'}
+						<h3>No prod URL</h3>
+						<p>Name one as <code>urls.prod</code> in <code>.claude-mux.json</code> at the repo root.</p>
+					{:else if choice === 'dev'}
+						<h3>No dev server running</h3>
+						<p>
+							Nothing inside <code>{info?.root}</code> is serving HTML. Start the dev server, or name one as
+							<code>urls.dev</code> in <code>.claude-mux.json</code>.
+						</p>
+					{:else}
+						<h3>Nothing to show yet</h3>
+						<p>Type a URL above, start a dev server in the project, or commit a <code>.claude-mux.json</code>:</p>
+						<pre>{CONFIG_SAMPLE}</pre>
+					{/if}
+					{#if info?.configError}<p class="err">.claude-mux.json: {info.configError}</p>{/if}
+				</div>
+			{:else if embed === 'invalid'}
+				<p class="msg err">Not a URL: {target}</p>
+			{:else if !embed}
+				<p class="msg dim">Resolving {target}…</p>
+			{:else if blocked}
+				{@const command = blocked.command}
+				<div class="empty card">
+					<iconify-icon icon="mdi:application-brackets-outline"></iconify-icon>
+					<h3>Can't show {hostLabel(blocked.open)} here</h3>
+					<p>{blocked.reason}</p>
+					<Button href={blocked.open} target="_blank" rel="noopener noreferrer" size="sm">
+						<iconify-icon icon="mdi:open-in-new"></iconify-icon> Open in new tab
+					</Button>
+					{#if command}
+						<p class="dim">To show it here, map the port over HTTPS on this machine:</p>
+						<div class="cmd">
+							<code>{command}</code>
+							<Button variant="ghost" size="icon-sm" title="Copy command" aria-label="Copy command" onclick={() => copy(command)}>
+								<iconify-icon icon="mdi:content-copy"></iconify-icon>
+							</Button>
+						</div>
+					{/if}
+				</div>
+			{:else if frameSrc && !verdict}
+				<p class="msg dim">Checking {hostLabel(frameSrc)}…</p>
+			{:else if frameSrc}
+				{#key `${frameSrc}\0${reloads}`}
+					<iframe src={frameSrc} title="Web preview" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+				{/key}
+			{/if}
 		</div>
 	{/if}
-
-	<div class="view">
-		{#if infoError && !info}
-			<p class="msg err">{infoError}</p>
-		{:else if !info && !params.url}
-			<p class="msg dim">Looking for the project's URLs…</p>
-		{:else if !target}
-			<div class="empty">
-				<iconify-icon icon="mdi:web-off"></iconify-icon>
-				{#if choice === 'prod'}
-					<h3>No prod URL</h3>
-					<p>Name one as <code>urls.prod</code> in <code>.claude-mux.json</code> at the repo root.</p>
-				{:else if choice === 'dev'}
-					<h3>No dev server running</h3>
-					<p>
-						Nothing inside <code>{info?.root}</code> is serving HTML. Start the dev server, or name one as
-						<code>urls.dev</code> in <code>.claude-mux.json</code>.
-					</p>
-				{:else}
-					<h3>Nothing to show yet</h3>
-					<p>Type a URL above, start a dev server in the project, or commit a <code>.claude-mux.json</code>:</p>
-					<pre>{CONFIG_SAMPLE}</pre>
-				{/if}
-				{#if info?.configError}<p class="err">.claude-mux.json: {info.configError}</p>{/if}
-			</div>
-		{:else if embed === 'invalid'}
-			<p class="msg err">Not a URL: {target}</p>
-		{:else if !embed}
-			<p class="msg dim">Resolving {target}…</p>
-		{:else if blocked}
-			{@const command = blocked.command}
-			<div class="empty card">
-				<iconify-icon icon="mdi:application-brackets-outline"></iconify-icon>
-				<h3>Can't show {hostLabel(blocked.open)} here</h3>
-				<p>{blocked.reason}</p>
-				<Button href={blocked.open} target="_blank" rel="noopener noreferrer" size="sm">
-					<iconify-icon icon="mdi:open-in-new"></iconify-icon> Open in new tab
-				</Button>
-				{#if command}
-					<p class="dim">To show it here, map the port over HTTPS on this machine:</p>
-					<div class="cmd">
-						<code>{command}</code>
-						<Button variant="ghost" size="icon-sm" title="Copy command" aria-label="Copy command" onclick={() => copy(command)}>
-							<iconify-icon icon="mdi:content-copy"></iconify-icon>
-						</Button>
-					</div>
-				{/if}
-			</div>
-		{:else if frameSrc && !verdict}
-			<p class="msg dim">Checking {hostLabel(frameSrc)}…</p>
-		{:else if frameSrc}
-			{#key `${frameSrc}\0${reloads}`}
-				<iframe src={frameSrc} title="Web preview" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
-			{/key}
-		{/if}
-	</div>
 </div>
 
 <style>
