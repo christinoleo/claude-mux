@@ -280,3 +280,107 @@ a.file-link:hover code,
 a.file-link:focus-visible code {
 	background: #35302b;
 }
+
+/* A link to a GitHub pull request or issue. Until GitHub has answered it is
+   the link (or the plain `#12`) the author wrote; `.resolved` makes it a chip:
+   the state's icon in the state's colour, the number, and the title on one
+   line. A bare `#12` in prose gets only the icon, so the sentence keeps its
+   shape. */
+a.gh-ref:not([href]) {
+	color: inherit;
+	text-decoration: none;
+}
+a.gh-ref.resolved {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	max-width: min(100%, 420px);
+	vertical-align: bottom;
+	padding: 0 7px 0 5px;
+	border: 1px solid #3a342c;
+	border-radius: 999px;
+	background: #211d19;
+	color: #e7e5e4;
+	font-size: 0.92em;
+	line-height: 1.5;
+	text-decoration: none;
+	white-space: nowrap;
+	overflow: hidden;
+}
+a.gh-ref.resolved:hover,
+a.gh-ref.resolved:focus-visible {
+	border-color: #57534e;
+	background: #292524;
+}
+a.gh-ref .gh-icon {
+	flex: none;
+	color: var(--gh);
+	font-size: 14px;
+}
+a.gh-ref .gh-num {
+	flex: none;
+	color: #a8a29e;
+	font-family: var(--mono);
+	font-size: 0.92em;
+}
+a.gh-ref .gh-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+a.gh-ref[data-state='draft'] .gh-title {
+	color: #a8a29e;
+}
+
+/* The chip's hover card, in the popover layer. */
+.gh-card[data-slot='popover-content'] {
+	width: min(340px, calc(100vw - 24px));
+	padding: 10px 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 13px;
+}
+.gh-card p {
+	margin: 0;
+}
+.gh-card-repo,
+.gh-card-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 10px;
+	color: #a8a29e;
+	font-size: 12px;
+}
+.gh-card-repo {
+	gap: 5px;
+	font-family: var(--mono);
+}
+.gh-card-num {
+	color: #78716c;
+}
+.gh-card-title {
+	color: #fafaf9;
+	font-weight: 600;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+}
+.gh-card-state {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--gh);
+	font-weight: 600;
+}
+.gh-card-open {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	align-self: flex-start;
+	margin-top: 2px;
+	color: #93c5fd;
+	font-size: 12px;
+}
+.gh-card-open:hover {
+	text-decoration: underline;
+}

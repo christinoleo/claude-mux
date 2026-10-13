@@ -249,6 +249,11 @@ export function issueFor(gitRoot: string | null, n: number | null | undefined): 
 	return repos.get(gitRoot)?.issues.get(n) ?? null;
 }
 
+/** The `owner/name` of the repo checked out at `gitRoot`, once `gh` has named it; null until then. */
+export function repoSlugFor(gitRoot: string | null | undefined): string | null {
+	return (gitRoot && repos.get(gitRoot)?.slug) || null;
+}
+
 /**
  * Every ticket waiting on a person, across the repos being watched.
  *

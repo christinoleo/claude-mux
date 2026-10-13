@@ -312,6 +312,32 @@ with `locate=1`, which sends the read route through `locateProjectFile()`
 the session's `cwd`, then as the tail of the one repo file that ends with it.
 A path that is nowhere gets the pane's ordinary error.
 
+A link to a GitHub pull request or issue is drawn as a chip. `renderMarkdown()`
+with `github` only marks it: `https://github.com/<owner>/<repo>/(pull|issues)/<n>`
+becomes an `a.gh-ref` carrying `data-repo` and `data-number`, plus `data-words`
+when the link's text is the author's own and not the URL or `#n`. With
+`github.bare` (the transcript passes it for a session in a repo) a `#123`
+standing alone in plain text is marked too, as an `a.gh-ref` with no `href`.
+`GithubRefCards.svelte`, mounted once per transcript, watches for those
+elements, asks about each when it scrolls into view (never at load) and has
+`drawChip()` (`web/src/lib/github-refs.ts`) draw the answer in: the state's
+icon and colour, `#n`, and the title on one line, or the author's words in the
+title's place; a bare `#n` gets the icon alone and only now becomes a link. The
+same component holds the one hover card (a shadcn `Popover` anchored to the
+chip under the pointer): repo, title, state, author, last change, "Open on
+GitHub". A tap on a chip opens the card instead of following the link, a
+second tap puts it away. The answer comes from `GET /api/github/ref?repo=&number=`
+(or `?session=&number=` for a bare `#n`, resolved through the slug `github.ts`
+already holds for the session's git root). `src/server/github-refs.ts` reads
+`repos/<slug>/issues/<n>` through `gh` with `execFile`, after `isRepoSlug()`
+and `parseRefNumber()` (`src/github-ref.ts`) have passed both, caches each
+answer for a minute, and answers `ref: null` for anything it cannot read: `gh`
+missing or logged out (then nothing is asked for a minute), someone else's
+private repo, a number nobody filed. A null leaves the link as written, so a
+`#1` that names nothing stays prose. `githubRefVisual()` holds the states'
+icons and colours: emerald open, grey draft, violet merged, red for a pull
+request closed unmerged; amber is not used.
+
 ### 8. What a project serves
 
 The side panel's Web pane frames the project's site. `src/server/web-preview.ts`
