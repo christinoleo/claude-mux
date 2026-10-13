@@ -52,14 +52,14 @@ describe("Changes pane: a diff's rows", () => {
       { header: "@@ -20,2 +21,2 @@ fn", lines: [" x", "-y", "+Y", "\\ No newline at end of file"] },
     ]);
     expect(rows).toEqual([
-      { type: "gap", count: 2 },
+      { type: "gap", count: 2, from: 1, old: 1 },
       { type: "hunk", header: "@@ -3,3 +3,4 @@" },
       { type: "context", old: 3, new: 3, text: "a" },
       { type: "del", old: 4, new: null, text: "b" },
       { type: "add", old: null, new: 4, text: "B" },
       { type: "add", old: null, new: 5, text: "C" },
       { type: "context", old: 5, new: 6, text: "d" },
-      { type: "gap", count: 14 },
+      { type: "gap", count: 14, from: 7, old: 6 },
       { type: "hunk", header: "@@ -20,2 +21,2 @@ fn" },
       { type: "context", old: 20, new: 21, text: "x" },
       { type: "del", old: 21, new: null, text: "y" },
@@ -79,9 +79,14 @@ describe("Changes pane: a diff's rows", () => {
       { header: "@@ -10,2 +12,2 @@", lines: ["-a", "+b", " c"] },
     ]);
     expect(rows.filter((r) => r.type === "gap")).toEqual([
-      { type: "gap", count: 3 },
-      { type: "gap", count: 6 },
+      { type: "gap", count: 3, from: 1, old: 1 },
+      { type: "gap", count: 6, from: 6, old: 4 },
     ]);
+  });
+
+  it("ends with a row for the rest of the file when asked, saying where it starts", () => {
+    const rows = diffRows([{ header: "@@ -3,3 +3,4 @@", lines: [" a", "-b", "+B", "+C", " d"] }], { tail: true });
+    expect(rows.at(-1)).toEqual({ type: "gap", count: null, from: 7, old: 6 });
   });
 
   it("still draws a hunk whose header it cannot read, without numbers", () => {

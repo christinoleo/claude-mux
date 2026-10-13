@@ -106,7 +106,7 @@ export function fileChangeFromSidecar(sidecar: unknown): FileChange | null {
 const HARNESS_PROMPT = /^<(task-notification|system-reminder|local-command-)/;
 
 /** The text that opens a turn, or null when the line is not a prompt. */
-function promptText(record: Record<string, unknown>): string | null {
+export function promptText(record: Record<string, unknown>): string | null {
   if (record.isMeta === true || record.isCompactSummary === true) return null;
   const kind = asRecord(record.origin)?.kind;
   if (kind !== undefined && kind !== "human") return null;
@@ -137,7 +137,7 @@ function isCommand(record: Record<string, unknown>): boolean {
   return typeof content === "string" && parseSlashCommand(content.trim()) !== null;
 }
 
-function parseTs(value: unknown): number {
+export function parseTs(value: unknown): number {
   const ts = typeof value === "string" ? Date.parse(value) : NaN;
   return Number.isFinite(ts) ? ts : 0;
 }

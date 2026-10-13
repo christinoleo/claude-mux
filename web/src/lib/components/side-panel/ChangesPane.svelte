@@ -15,20 +15,17 @@
 	import { Toggle } from '$lib/components/ui/toggle';
 	import { Button } from '$lib/components/ui/button';
 	import {
-		diffRows,
 		displayPath,
 		isGenerated,
-		languageFor,
 		statusLetter,
 		sumCounts,
 		type Diff,
-		type DiffRow,
 		type Listing,
 		type Source
 	} from '$lib/side-panel/changes';
-	import { highlightLines } from '$lib/side-panel/highlight';
+	import DiffLines from './DiffLines.svelte';
 
-	let { session, params, setParams, setActions, active }: PaneBodyProps = $props();
+	let { session, params, setParams, setActions, openPane, active }: PaneBodyProps = $props();
 
 	const sessionId = $derived(session?.id ?? null);
 	/** Git when the session sits in a repo, else its log; a `source` param overrides. */
@@ -152,8 +149,6 @@
 	let diffSeq = 0;
 	/** The answer `diff` was parsed from, to tell a new one from the same again. */
 	let diffText: string | null = null;
-	/** Highlighted HTML per row index, filled in once highlight.js has loaded. */
-	let painted = $state<(string | null)[] | null>(null);
 
 	async function loadDiff(id: string, src: Source, file: string, turnId: string | null | undefined) {
 		const mine = ++diffSeq;
@@ -192,26 +187,22 @@
 		untrack(() => void loadDiff(id, source, selected!.file, turn ? turn.id : undefined));
 	});
 
+	/**
+	 * The file as it is on disk, for the lines the git diff leaves out: its new
+	 * side is the working tree. The session source's hunks are from the log,
+	 * whose new side may no longer be what is on disk, so it offers none.
+	 */
+	async function workingText(file: string): Promise<string | null> {
+		if (!sessionId) return null;
+		const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/files/read?${new URLSearchParams({ path: file })}`);
+		if (!res.ok) return null;
+		const read = (await res.json()) as { kind: string; text?: string };
+		return read.kind === 'text' ? (read.text ?? null) : null;
+	}
+
 	const shownDiff = $derived(diff && diff.file === selected?.file ? diff : null);
 	const shownError = $derived(diffError?.file === selected?.file ? diffError!.message : null);
-	const rows = $derived<DiffRow[]>(shownDiff ? diffRows(shownDiff.hunks) : []);
 	const hunkCount = $derived(shownDiff?.hunks.length ?? 0);
-
-	const SIGN = { add: '+', del: '−', context: ' ' } as const;
-
-	/** Rows past this many are drawn plain: colouring them costs more than it gives. */
-	const PAINT_LIMIT = 4000;
-	$effect(() => {
-		painted = null;
-		if (rows.length === 0 || rows.length > PAINT_LIMIT) return;
-		const lines = rows.map((r) => ('text' in r ? r.text : ''));
-		const language = untrack(() => languageFor(selected!.file));
-		let stale = false;
-		void highlightLines(lines, language).then((html) => {
-			if (!stale && html) painted = html;
-		});
-		return () => (stale = true);
-	});
 
 	// ── header actions and keys ──────────────────────────────────────────
 
@@ -357,29 +348,28 @@
 						<span class="path" title={selected.file}>{displayPath(selected.file, root)}</span>
 						<span class="sp"></span>
 						{#if hunkCount}<span class="dim">{hunkCount} {hunkCount === 1 ? 'hunk' : 'hunks'}</span>{/if}
+						{#if selected.kind !== 'deleted'}
+							<button
+								type="button"
+								class="tofiles"
+								title="Open this file in the Files pane"
+								aria-label="Open in Files"
+								onclick={() => openPane('files', { file: selected.file, line: null })}
+							>
+								<iconify-icon icon="mdi:file-tree-outline"></iconify-icon>
+							</button>
+						{/if}
 					</div>
 					{#if shownError}
 						<p class="msg err">{shownError}</p>
 					{:else if shownDiff?.binary}
 						<p class="msg">Binary file; no text diff.</p>
-					{:else if rows.length > 0}
-						<div class="lines">
-							{#each rows as row, i (i)}
-								{#if row.type === 'hunk'}
-									<div class="hunk">{row.header}</div>
-								{:else if row.type === 'gap'}
-									<div class="gap">⋯ {row.count} unchanged {row.count === 1 ? 'line' : 'lines'} ⋯</div>
-								{:else}
-									<div class="ln {row.type}">
-										<span class="no">{row.old ?? ''}</span><span class="no">{row.new ?? ''}</span><span
-											class="sign">{SIGN[row.type]}</span
-										><!-- eslint-disable-next-line svelte/no-at-html-tags -- highlight.js escapes the text it colours --><span
-											class="code">{#if painted?.[i] != null}{@html painted[i]}{:else}{row.text}{/if}</span
-										>
-									</div>
-								{/if}
-							{/each}
-						</div>
+					{:else if shownDiff && shownDiff.hunks.length > 0}
+						<DiffLines
+							hunks={shownDiff.hunks}
+							file={selected.file}
+							loadText={source === 'git' && selected.kind !== 'deleted' ? () => workingText(selected.file) : undefined}
+						/>
 					{:else if diff}
 						<p class="msg">No line changes.</p>
 					{/if}
@@ -620,6 +610,24 @@
 		border-bottom: 1px solid #222;
 		flex: none;
 	}
+	.tofiles {
+		flex: none;
+		width: 30px;
+		height: 30px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border: 0;
+		border-radius: 7px;
+		background: transparent;
+		color: #a8a29e;
+		font-size: 15px;
+		cursor: pointer;
+	}
+	.tofiles:hover {
+		background: #1f1f1f;
+		color: #f5f5f4;
+	}
 	.back {
 		display: none;
 		flex: none;
@@ -633,100 +641,6 @@
 		color: #a8a29e;
 		font-size: 18px;
 		cursor: pointer;
-	}
-	.lines {
-		flex: 1;
-		overflow: auto;
-		padding: 6px 0 16px;
-		line-height: 1.65;
-	}
-	.hunk {
-		padding: 2px 14px;
-		color: #78716c;
-		background: #161616;
-		white-space: pre;
-	}
-	.gap {
-		padding: 3px 14px;
-		color: #78716c;
-		background: #141414;
-		text-align: center;
-	}
-	.ln {
-		display: flex;
-		width: max-content;
-		min-width: 100%;
-		color: #a8a29e;
-	}
-	.ln.add {
-		background: #0f2417;
-		color: #bbf7d0;
-	}
-	.ln.del {
-		background: #2a1215;
-		color: #fecaca;
-	}
-	.no {
-		flex: none;
-		width: 4ch;
-		padding-right: 1ch;
-		text-align: right;
-		color: #57534e;
-		user-select: none;
-	}
-	.sign {
-		flex: none;
-		width: 2ch;
-		text-align: center;
-		user-select: none;
-	}
-	.ln.add .sign {
-		color: #4ade80;
-	}
-	.ln.del .sign {
-		color: #f87171;
-	}
-	.code {
-		white-space: pre;
-		padding-right: 14px;
-	}
-	/* highlight.js tokens, muted so the add/del backgrounds still lead. */
-	.code :global(.hljs-keyword),
-	.code :global(.hljs-built_in),
-	.code :global(.hljs-literal),
-	.code :global(.hljs-selector-tag) {
-		color: #c4b5fd;
-	}
-	.code :global(.hljs-string),
-	.code :global(.hljs-regexp),
-	.code :global(.hljs-attr),
-	.code :global(.hljs-selector-attr) {
-		color: #fcd34d;
-	}
-	.code :global(.hljs-number),
-	.code :global(.hljs-symbol) {
-		color: #fdba74;
-	}
-	.code :global(.hljs-comment),
-	.code :global(.hljs-meta) {
-		color: #78716c;
-		font-style: italic;
-	}
-	.code :global(.hljs-title),
-	.code :global(.hljs-function),
-	.code :global(.hljs-section) {
-		color: #93c5fd;
-	}
-	.code :global(.hljs-type),
-	.code :global(.hljs-class),
-	.code :global(.hljs-name),
-	.code :global(.hljs-selector-class) {
-		color: #5eead4;
-	}
-	.code :global(.hljs-variable),
-	.code :global(.hljs-template-variable),
-	.code :global(.hljs-property) {
-		color: #f9a8d4;
 	}
 	.foot {
 		flex: none;

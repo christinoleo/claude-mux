@@ -25,7 +25,8 @@
 		onSetParams,
 		onToggleMaximize,
 		onClose,
-		onMention
+		onMention,
+		onOpenPane
 	}: {
 		/** The pane showing. */
 		kind: string;
@@ -44,6 +45,8 @@
 		onToggleMaximize: () => void;
 		onClose: () => void;
 		onMention: (text: string) => void;
+		/** A pane asking for another one, with that pane's own params. */
+		onOpenPane: (kind: string, own: Record<string, string | null>) => void;
 	} = $props();
 
 	let mounted = $state<string[]>([]);
@@ -114,6 +117,7 @@
 					setActions={(list) => (actions[pane.kind] = list)}
 					active={open && pane.kind === kind}
 					mention={onMention}
+					openPane={onOpenPane}
 				/>
 			</div>
 		{/each}

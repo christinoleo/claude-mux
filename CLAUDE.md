@@ -271,6 +271,22 @@ cache is re-read when a session in the repo writes its JSON, at most every
 2s, never on a timer. The live field `changes` carries the count: git's when
 the session is in a repo, the log's otherwise.
 
+The History pane (`HistoryPane.svelte`) lists the repo's commits, read-only.
+`src/server/git-history.ts` reads them on request (`GET
+/api/sessions/<id>/history`, then `/history/commit?hash=` for a commit's files
+and `/history/diff?hash=&file=` for one file, each against the commit's first
+parent); a hash is checked to be a hash and nothing else before git sees it.
+"List" follows the checked-out branch; "Graph" (`scope=all`) adds the branch of
+every worktree and the upstream, and `layoutGraph()` in `src/git-graph.ts`
+gives each a lane that never shifts sideways. A tip's branch is named after
+the worker whose session sits in that worktree. Two marks come from outside
+git: `pushed` is false while no remote branch holds the commit, and `mine`
+says this session made it. The second is read off the log by
+`src/transcript/commits.ts`, by time and not by output, since `git commit -q`
+prints nothing: a commit whose committer time falls inside a run of a
+commit-writing command belongs to that run's turn, which "Go to turn" reveals.
+`DiffLines.svelte` draws a diff for this pane and for Changes.
+
 The side panel's Files pane (`FilesPane.svelte`) follows t3code's file
 preview: with a file open the tree is a column on the file's far side, which a
 button in the file's header puts away, and on a narrow pane the two take turns.

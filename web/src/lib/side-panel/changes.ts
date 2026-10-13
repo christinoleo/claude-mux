@@ -94,7 +94,15 @@ export function displayPath(path: string, root: string | null): string {
 
 export type DiffRow =
 	| { type: 'hunk'; header: string }
-	| { type: 'gap'; count: number }
+	| {
+			/** Unchanged lines the diff leaves out. */
+			type: 'gap';
+			/** How many, or null after the last hunk, where only the file itself knows. */
+			count: number | null;
+			/** The line the gap starts at, on the new side and on the old. */
+			from: number;
+			old: number;
+	  }
 	| { type: 'context' | 'add' | 'del'; old: number | null; new: number | null; text: string };
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
@@ -102,12 +110,16 @@ const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 /**
  * A file's hunks as the rows a unified diff draws: each hunk's header, its
  * lines with the old and new line numbers they sit at, and between hunks a
- * row counting the unchanged lines left out. Lines before the first hunk are
- * counted too; after the last, the file's length is not known, so nothing is.
+ * row counting the unchanged lines left out, which says where they sit so
+ * they can be read from the file and shown. Lines before the first hunk are
+ * counted too. After the last, the file's length is not known: with `tail` a
+ * row with no count stands for whatever is left.
  */
-export function diffRows(hunks: Hunk[]): DiffRow[] {
+export function diffRows(hunks: Hunk[], opts: { tail?: boolean } = {}): DiffRow[] {
 	const rows: DiffRow[] = [];
 	let nextOld = 1;
+	let nextNew = 1;
+	let readable = hunks.length > 0;
 	for (const hunk of hunks) {
 		const m = HUNK_HEADER.exec(hunk.header);
 		let oldLine: number | null = null;
@@ -115,11 +127,15 @@ export function diffRows(hunks: Hunk[]): DiffRow[] {
 		if (m) {
 			oldLine = Number(m[1]);
 			newLine = Number(m[3]);
-			// A hunk that removes no lines names the line it inserts after.
+			// A hunk that touches no lines on one side names the line it sits after.
 			const oldCount = Number(m[2] ?? 1);
+			const newCount = Number(m[4] ?? 1);
 			const start = oldCount === 0 ? oldLine + 1 : oldLine;
-			if (start > nextOld) rows.push({ type: 'gap', count: start - nextOld });
+			if (start > nextOld) rows.push({ type: 'gap', count: start - nextOld, from: nextNew, old: nextOld });
 			nextOld = start + oldCount;
+			nextNew = (newCount === 0 ? newLine + 1 : newLine) + newCount;
+		} else {
+			readable = false;
 		}
 		rows.push({ type: 'hunk', header: hunk.header });
 		for (const line of hunk.lines) {
@@ -141,6 +157,7 @@ export function diffRows(hunks: Hunk[]): DiffRow[] {
 			}
 		}
 	}
+	if (opts.tail && readable) rows.push({ type: 'gap', count: null, from: nextNew, old: nextOld });
 	return rows;
 }
 

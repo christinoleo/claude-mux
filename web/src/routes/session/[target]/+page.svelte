@@ -2634,6 +2634,7 @@
 			onSelect={openPanel}
 			onClose={() => openPanel(null)}
 			onMention={mentionInComposer}
+			onOpenPane={(kind, own) => navigateQuery(panelQuery($page.url.searchParams, kind, PANE_PARAMS, own), false)}
 		/>
 	{/key}
 {/snippet}

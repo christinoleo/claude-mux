@@ -11,6 +11,7 @@ import type { ChangesInfo } from '$shared/types/ws-messages.js';
 import ProjectPane from '$lib/components/side-panel/ProjectPane.svelte';
 import ChangesPane from '$lib/components/side-panel/ChangesPane.svelte';
 import FilesPane from '$lib/components/side-panel/FilesPane.svelte';
+import HistoryPane from '$lib/components/side-panel/HistoryPane.svelte';
 import WebPane from '$lib/components/side-panel/WebPane.svelte';
 import { IS_MAC } from '$lib/constants';
 
@@ -36,6 +37,8 @@ export interface PaneBodyProps {
 	active: boolean;
 	/** Put `text` into the session's composer, at the end of the draft. */
 	mention: (text: string) => void;
+	/** Show another pane, with the params it owns set to `own`. */
+	openPane: (kind: string, own: Record<string, string | null>) => void;
 }
 
 export interface PaneDef {
@@ -63,6 +66,15 @@ export const PANES: readonly PaneDef[] = [
 		body: ChangesPane,
 		unavailable: (s) => (s ? null : 'Not a Claude session'),
 		count: (s) => s?.changes ?? null
+	},
+	{
+		kind: 'history',
+		label: 'History',
+		icon: 'mdi:source-commit',
+		key: 'H',
+		params: ['commit', 'file', 'view'],
+		body: HistoryPane,
+		unavailable: (s) => (s ? null : 'Not a Claude session')
 	},
 	{
 		kind: 'files',
