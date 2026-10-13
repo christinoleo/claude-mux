@@ -12,13 +12,17 @@ const QUOTABLE = '.user-text, .markdown, .thinking-text, pre';
 /** Fields and buttons keep their own selection and keys. */
 const NOT_QUOTABLE = 'button, textarea, input';
 
+/** Without the blank lines around it; the first line keeps its indentation, which a plain trim would take from code. */
+function trimBlankLines(text: string): string {
+	return text.replace(/^(?:[^\S\n]*\n)+/, '').trimEnd();
+}
+
 /** The selection as a markdown blockquote: `> ` on each line, runs of blank lines folded to one. */
 export function quoteBlock(text: string): string {
-	const lines = text
-		.replace(/\r\n?/g, '\n')
-		.replace(/\n[^\S\n]*(?:\n[^\S\n]*)+/g, '\n\n')
-		.trim();
-	if (!lines) return '';
+	const lines = trimBlankLines(
+		text.replace(/\r\n?/g, '\n').replace(/\n[^\S\n]*(?:\n[^\S\n]*)+/g, '\n\n')
+	);
+	if (!lines.trim()) return '';
 	return lines
 		.split('\n')
 		.map((line) => (line.trim() ? `> ${line.trimEnd()}` : '>'))
@@ -75,12 +79,13 @@ export function quotableRanges(root: Element, selection: Selection | null): Rang
 		if (clipped.compareBoundaryPoints(Range.END_TO_END, whole) > 0) {
 			clipped.setEnd(whole.endContainer, whole.endOffset);
 		}
-		if (clipped.toString().trim()) ranges.push(clipped);
+		// A closed tool row's output is in the page but not on it: no boxes, nothing the reader selected.
+		if (clipped.toString().trim() && clipped.getClientRects().length > 0) ranges.push(clipped);
 	}
 	return ranges;
 }
 
-/** On the page while a quote is read: app.css draws a GitHub chip as the plain `#n` it stands for. */
+/** On the transcript while a quote is read: app.css draws a GitHub chip as the plain `#n` it stands for. */
 const QUOTING = 'quoting';
 
 /**
@@ -89,21 +94,20 @@ const QUOTING = 'quoting';
  * (a range's joins every text node end to end), so each range is selected in
  * turn to be read; a part is parted from the next by a blank line.
  */
-export function takeQuote(ranges: Range[]): string {
+export function takeQuote(root: Element, ranges: Range[]): string {
 	const selection = window.getSelection();
-	if (!selection) return ranges.map((r) => r.toString().trim()).join('\n\n');
-	const page = document.documentElement;
+	if (!selection) return '';
 	const parts: string[] = [];
-	page.classList.add(QUOTING);
+	root.classList.add(QUOTING);
 	try {
 		for (const range of ranges) {
 			selection.removeAllRanges();
 			selection.addRange(range);
-			parts.push(selection.toString().trim());
+			parts.push(trimBlankLines(selection.toString()));
 		}
 	} finally {
 		selection.removeAllRanges();
-		page.classList.remove(QUOTING);
+		root.classList.remove(QUOTING);
 	}
-	return parts.filter(Boolean).join('\n\n');
+	return parts.filter((part) => part.trim()).join('\n\n');
 }

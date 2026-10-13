@@ -350,7 +350,7 @@ tool row's summary or a timestamp between two messages is left out, and a
 selection of nothing else, or one in the composer or the side panel, offers
 nothing. `takeQuote()` reads each part by selecting it, because only a
 selection's `toString()` keeps the line breaks between blocks, and leaves the
-selection cleared. While it reads, the page carries the class `quoting`, under
+selection cleared. While it reads, the transcript carries the class `quoting`, under
 which `app.css` draws a GitHub chip inline and without its title: a chip is a
 box, which a selection's text would set on lines of its own, and quoted it
 should read as the `#n` the message wrote. The button waits for the mouse to be released; on a touch

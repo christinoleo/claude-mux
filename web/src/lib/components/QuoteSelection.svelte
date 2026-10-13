@@ -45,6 +45,8 @@
 	let dragging = false;
 	/** A finger is on the button: the selection it ends by landing there must not take the button away. */
 	let pressing = false;
+	/** The shortcut's key is still down from a quote it made. */
+	let held = false;
 	let settle: ReturnType<typeof setTimeout> | null = null;
 	let frame = 0;
 
@@ -87,8 +89,8 @@
 	}
 
 	function quote(from: Range[]) {
-		if (from.length === 0) return false;
-		const text = takeQuote(from);
+		if (!root || from.length === 0) return false;
+		const text = takeQuote(root, from);
 		pressing = false;
 		ranges = [];
 		place = null;
@@ -102,7 +104,9 @@
 			if (settle) clearTimeout(settle);
 			// Mid-drag the button would sit under the pointer; it waits for the release.
 			if (dragging || pressing) return;
-			place = null;
+			// Handles being dragged would have the button under the finger; a
+			// selection grown from the keyboard just moves it along.
+			if (coarse) place = null;
 			readAfter(coarse ? SETTLE_MS : 0);
 		};
 		const onDown = (e: PointerEvent) => {
@@ -131,8 +135,22 @@
 			frame = requestAnimationFrame(position);
 		};
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key.toLowerCase() !== 'l' || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
-			if (quote(selected())) e.preventDefault();
+			// By position, as the side panel's keys are: `key` is another letter on a non-Latin layout.
+			if (e.code !== 'KeyL' || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+			if (e.defaultPrevented) return;
+			// A key held down repeats after the quote is taken, and would then reach the address bar.
+			if (e.repeat) {
+				if (held) e.preventDefault();
+				return;
+			}
+			// Typed into something else (a field, the Browser pane), the key is that thing's.
+			const focus = document.activeElement;
+			if (focus && focus !== document.body && !root.contains(focus)) return;
+			held = quote(selected());
+			if (held) e.preventDefault();
+		};
+		const onKeyUp = (e: KeyboardEvent) => {
+			if (e.code === 'KeyL') held = false;
 		};
 
 		document.addEventListener('selectionchange', onSelection);
@@ -140,6 +158,7 @@
 		document.addEventListener('pointerup', onUp, true);
 		document.addEventListener('pointercancel', onUp, true);
 		document.addEventListener('keydown', onKey);
+		document.addEventListener('keyup', onKeyUp);
 		window.addEventListener('scroll', onScroll, true);
 		window.addEventListener('resize', onScroll);
 		return () => {
@@ -148,6 +167,7 @@
 			document.removeEventListener('pointerup', onUp, true);
 			document.removeEventListener('pointercancel', onUp, true);
 			document.removeEventListener('keydown', onKey);
+			document.removeEventListener('keyup', onKeyUp);
 			window.removeEventListener('scroll', onScroll, true);
 			window.removeEventListener('resize', onScroll);
 			if (settle) clearTimeout(settle);

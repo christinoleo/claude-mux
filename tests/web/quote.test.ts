@@ -12,8 +12,12 @@ describe("quoteBlock", () => {
   });
 
   it("drops the blank lines around a selection and the spaces a line ends on", () => {
-    expect(quoteBlock("\n\n  indented stays  \nlast\n\n")).toBe("> indented stays\n> last");
+    expect(quoteBlock("\n \nfirst  \nlast\n\n")).toBe("> first\n> last");
     expect(quoteBlock("a\r\nb\rc")).toBe("> a\n> b\n> c");
+  });
+
+  it("keeps the first line's indentation, so code selected from its margin stays aligned", () => {
+    expect(quoteBlock("\n    foo();\n    bar();\n")).toBe(">     foo();\n>     bar();");
   });
 
   it("keeps the indentation of code", () => {
