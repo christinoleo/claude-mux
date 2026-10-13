@@ -8,6 +8,7 @@ import {
   READ_LIMIT_BYTES,
   listDir,
   listRepoFiles,
+  locateProjectFile,
   readProjectFile,
   readProjectImage,
   resolveInRoot,
@@ -188,5 +189,37 @@ describe("listRepoFiles", () => {
 
   it("answers null outside a repo", async () => {
     expect(await listRepoFiles(outside)).toBeNull();
+  });
+});
+
+describe("locateProjectFile", () => {
+  beforeEach(() => {
+    mkdirSync(join(root, "web", "lib"), { recursive: true });
+    writeFileSync(join(root, "web", "lib", "markdown.ts"), "export {};\n");
+    writeFileSync(join(root, "web", "a.ts"), "export {};\n");
+    git("init", "-q");
+  });
+
+  it("keeps a path that is there from the root, and an absolute one", async () => {
+    expect(await locateProjectFile(root, "src/a.ts", root)).toBe("src/a.ts");
+    expect(await locateProjectFile(root, "/etc/hosts", root)).toBe("/etc/hosts");
+  });
+
+  it("tries the session's cwd when the root does not have it", async () => {
+    const found = await locateProjectFile(root, "lib/markdown.ts", join(root, "web"));
+    expect((await resolveInRoot(root, found)).rel).toBe("web/lib/markdown.ts");
+  });
+
+  it("finds the one file a tail names, and leaves an ambiguous or missing one as given", async () => {
+    expect(await locateProjectFile(root, "markdown.ts", root)).toBe("web/lib/markdown.ts");
+    expect(await locateProjectFile(root, "./lib/markdown.ts", root)).toBe("web/lib/markdown.ts");
+    expect(await locateProjectFile(root, "a.ts", root)).toBe("a.ts");
+    expect(await locateProjectFile(root, "nope.ts", root)).toBe("nope.ts");
+    expect(await locateProjectFile(root, "../secret/key.txt", root)).toBe("../secret/key.txt");
+  });
+
+  it("never finds a way out of the root", async () => {
+    const found = await locateProjectFile(root, "../secret/key.txt", join(root, "src"));
+    expect(await refused(readProjectFile(root, found))).toBe(403);
   });
 });

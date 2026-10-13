@@ -162,7 +162,8 @@
 		if (!api) return;
 		const mine = ++fileSeq;
 		try {
-			const res = await fetch(`${api}/read?${new URLSearchParams({ path })}`);
+			// The URL's file may come from a message, which seldom spells it from the root.
+			const res = await fetch(`${api}/read?${new URLSearchParams({ path, locate: '1' })}`);
 			const body = await res.json();
 			if (mine !== fileSeq) return;
 			if (!res.ok) {

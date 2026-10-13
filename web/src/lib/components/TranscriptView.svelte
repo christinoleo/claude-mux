@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { renderMarkdown } from '$lib/markdown';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
 	import DictateButton from './DictateButton.svelte';
@@ -90,7 +92,7 @@
 		onSendReply?: (text: string) => Promise<boolean>;
 		/** The session a question's own microphone records for; null where voice is off. */
 		dictateTarget?: string | null;
-		/** The link that opens a file a tool row touched, at a line; without it the rows draw none. */
+		/** The link that opens a file a tool row touched or a message names, at a line; without it neither draws one. */
 		fileLink?: (path: string, line: number | null) => string;
 		/** Where a subagent opens as a page of its own; without it agent cards link nowhere. */
 		agentLink?: (agentId: string) => string;
@@ -99,6 +101,33 @@
 		/** Where the Changes pane opens on turn `n`, at `file` or its first file; without it no summaries draw. */
 		changesLink?: (n: number, file: string | null) => string;
 	} = $props();
+
+	// ── file paths in messages ───────────────────────────────────────────
+	// A message's HTML is rendered once, so the href written into it is the
+	// link as it stood then (read untracked: tracking it would render every
+	// message again each time the URL moved). It serves a middle click or a
+	// long press; a plain click asks `fileLink` afresh.
+
+	function markdown(text: string): string {
+		const link = fileLink;
+		return renderMarkdown(text, link && ((path, line) => untrack(() => link(path, line))));
+	}
+
+	function openFileLink(e: MouseEvent) {
+		if (!fileLink || e.defaultPrevented || e.button !== 0) return;
+		if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+		const a = e.target instanceof Element ? e.target.closest<HTMLAnchorElement>('a.file-link') : null;
+		const path = a?.dataset.file;
+		if (!path) return;
+		e.preventDefault();
+		void goto(fileLink(path, Number(a.dataset.line) || null), { noScroll: true, keepFocus: true });
+	}
+
+	/** One listener for every file link in the transcript, since they arrive as HTML. */
+	function fileLinks(node: HTMLElement) {
+		node.addEventListener('click', openFileLink);
+		return { destroy: () => node.removeEventListener('click', openFileLink) };
+	}
 
 	// ── live activity line ───────────────────────────────────────────────
 	// The pane's elapsed count would move every second; the server sends the
@@ -388,7 +417,7 @@
 	{@const ready = live && sessionState !== 'waiting' && sessionState !== 'permission'}
 	{#if round.intro}
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
-		<div class="assistant-text markdown">{@html renderMarkdown(round.intro)}</div>
+		<div class="assistant-text markdown">{@html markdown(round.intro)}</div>
 	{/if}
 	<section class="grill" class:live aria-label="Questions from Claude">
 		{#each round.questions as q (q.n)}
@@ -398,7 +427,7 @@
 				<div class="gq-main">
 					{#if q.title}<p class="gq-title">{q.title}</p>{/if}
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
-					<div class="gq-body markdown">{@html renderMarkdown(q.body)}</div>
+					<div class="gq-body markdown">{@html markdown(q.body)}</div>
 					{#if q.recommended}
 						{#if live}
 							<button
@@ -411,6 +440,7 @@
 								<iconify-icon
 									icon={a.mode === 'accept' ? 'mdi:check-circle' : 'mdi:circle-outline'}
 								></iconify-icon>
+								<!-- No file links here: the whole row is the button. -->
 								<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
 								<span class="markdown">{@html renderMarkdown(q.recommended)}</span>
 							</button>
@@ -418,7 +448,7 @@
 							<div class="gq-rec past">
 								<iconify-icon icon="mdi:arrow-right"></iconify-icon>
 								<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
-								<span class="markdown">{@html renderMarkdown(q.recommended)}</span>
+								<span class="markdown">{@html markdown(q.recommended)}</span>
 							</div>
 						{/if}
 					{/if}
@@ -491,11 +521,11 @@
 	</section>
 	{#if round.outro}
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
-		<div class="assistant-text markdown">{@html renderMarkdown(round.outro)}</div>
+		<div class="assistant-text markdown">{@html markdown(round.outro)}</div>
 	{/if}
 {/snippet}
 
-<div class="transcript">
+<div class="transcript" use:fileLinks>
 	{#if !loaded}
 		<div class="empty">
 			<iconify-icon class="spin" icon="mdi:loading" style="font-size: 32px;"></iconify-icon>
@@ -613,7 +643,7 @@
 					<span class="time">{formatTime(entry.ts)}</span>
 				</summary>
 				{#if entry.summary}
-					<div class="compact-summary">{@html renderMarkdown(entry.summary)}</div>
+					<div class="compact-summary">{@html markdown(entry.summary)}</div>
 				{:else}
 					<p class="compact-summary muted">Summary not written yet.</p>
 				{/if}
@@ -675,7 +705,7 @@
 			{@render grill(entry.id, grillRound(entry.text)!)}
 		{:else if entry.kind === 'text'}
 			<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
-			<div class="assistant-text markdown">{@html renderMarkdown(entry.text)}</div>
+			<div class="assistant-text markdown">{@html markdown(entry.text)}</div>
 		{:else if entry.kind === 'thinking'}
 			<details class="row thinking">
 				<summary>
@@ -771,7 +801,7 @@
 							<div class="agent-report">
 								<header class="pane-head">Report</header>
 								<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
-								<div class="markdown">{@html renderMarkdown(sub.report)}</div>
+								<div class="markdown">{@html markdown(sub.report)}</div>
 							</div>
 						{/if}
 					</div>

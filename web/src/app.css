@@ -259,3 +259,24 @@
 .markdown a {
 	color: #93c5fd;
 }
+/* A file path that opens in the Files pane: it keeps the look of what it was
+   written as, and says it is a link only under the pointer. Outside backticks
+   nothing else would mark it, so there it carries a faint dotted rule. */
+a.file-link {
+	color: inherit;
+	text-decoration: underline dotted #57534e;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+a.file-link:has(code) {
+	text-decoration: none;
+}
+a.file-link:hover,
+a.file-link:focus-visible {
+	color: #e7e5e4;
+	text-decoration: underline solid #a8a29e;
+}
+a.file-link:hover code,
+a.file-link:focus-visible code {
+	background: #35302b;
+}
