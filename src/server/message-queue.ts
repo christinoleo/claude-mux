@@ -18,7 +18,7 @@ import { getAllSessions } from '../db/index.js';
 import { CLAUDE_MUX_DIR } from '../utils/paths.js';
 import { writeFileAtomic } from '../utils/atomic-write.js';
 import { isPidAlive } from '../utils/pid.js';
-import { capturePaneContentAsync, readPromptBox } from '../tmux/pane.js';
+import { capturePaneContentAsync, readPaneHold, readPromptBox } from '../tmux/pane.js';
 import { composePromptWithAttachments } from './attachments.js';
 import type { DeliveryInfo, QueuedMessageInfo } from '../types/ws-messages.js';
 
@@ -84,6 +84,32 @@ export function sendTextToPane(target: string, text: string, opts: { appendEnter
 	execFileSync('tmux', ['delete-buffer', '-b', 'claude-mux-input'], { stdio: 'ignore' });
 	if (appendEnter) {
 		execFileSync('tmux', ['send-keys', '-t', target, 'Enter'], { stdio: 'ignore' });
+	}
+}
+
+/**
+ * What keeps a pane from taking a message right now, read off the pane itself;
+ * null when nothing does, or when the pane cannot be read (the send that
+ * follows then fails on its own account, and is counted there).
+ */
+function paneHold(target: string): ReturnType<typeof readPaneHold> {
+	try {
+		const raw: unknown = execFileSync('tmux', ['capture-pane', '-p', '-e', '-t', target], {
+			encoding: 'utf-8',
+			stdio: ['ignore', 'pipe', 'ignore'],
+			timeout: 1000
+		});
+		return typeof raw === 'string' ? readPaneHold(raw) : null;
+	} catch {
+		return null;
+	}
+}
+
+function pressEnter(target: string): void {
+	try {
+		execFileSync('tmux', ['send-keys', '-t', target, 'Enter'], { stdio: 'ignore' });
+	} catch {
+		/* the pane is gone; the next send finds that out */
 	}
 }
 
@@ -483,6 +509,9 @@ export function drainQueues(sessions: SessionLike[]): void {
 		const queue = queues.get(target);
 		if (!queue || queue.length === 0) {
 			pendingDrain.delete(target);
+			// Nothing left to hold back, and a send remembered past this point
+			// would make a draft typed later look like our own unsubmitted message.
+			recentlySent.delete(target);
 			continue;
 		}
 
@@ -497,10 +526,7 @@ export function drainQueues(sessions: SessionLike[]): void {
 		// hook) before sending the next message, so two queued messages don't get
 		// pasted into the same prompt. Falls back after 10s in case the hook never fires.
 		const sentAt = recentlySent.get(target);
-		if (sentAt !== undefined) {
-			if (now - sentAt < RESEND_FALLBACK_MS) continue;
-			recentlySent.delete(target);
-		}
+		if (sentAt !== undefined && now - sentAt < RESEND_FALLBACK_MS) continue;
 
 		const pendingTime = pendingDrain.get(target);
 		if (pendingTime === undefined) {
@@ -508,6 +534,22 @@ export function drainQueues(sessions: SessionLike[]): void {
 			continue;
 		}
 		if (now - pendingTime < IDLE_GRACE_MS) continue;
+
+		// The hooks say idle, but only the pane knows whether a message pasted
+		// now starts a turn. Compaction fires no hook, so a compacting session
+		// reads idle: Claude Code parked each message sent into it, no prompt hook
+		// answered, the fallback above let the next one through ten seconds
+		// later, and the whole queue then ran as one prompt.
+		const hold = paneHold(target);
+		if (hold) {
+			// Our own last message, still in the box: its Enter was folded into
+			// the paste. One more submits it; anything else typed there is a
+			// person's draft, and waits for them.
+			if (hold === 'typed' && sentAt !== undefined) pressEnter(target);
+			pendingDrain.set(target, now);
+			if (sentAt !== undefined) recentlySent.set(target, now);
+			continue;
+		}
 
 		pendingDrain.delete(target);
 		// Peek rather than dequeue: a message only leaves the queue once tmux has
