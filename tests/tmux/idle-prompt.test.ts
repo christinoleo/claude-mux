@@ -17,6 +17,20 @@ describe("isPaneShowingIdlePrompt", () => {
     expect(isPaneShowingIdlePrompt(pane)).toBe(true);
   });
 
+  it("finds the prompt above the blank rows of a pane redrawn from the top", () => {
+    // distilo, 2026-10-09: "Compacted while idle" redrew a tall pane from the
+    // top, and the session read busy for three days with its prompt in sight.
+    const pane = [
+      "✻ Sautéed for 2m 43s · done 9:34 PM",
+      "",
+      "● Compacted while idle, before the prompt cache expired",
+      "",
+      STATUS_FOOTER,
+      ...Array(30).fill(""),
+    ].join("\n");
+    expect(isPaneShowingIdlePrompt(pane)).toBe(true);
+  });
+
   it("stays busy while an activity spinner line is visible", () => {
     const pane = ["✻ Julienning… (1m 39s · ↓ 4.8k tokens · thought for 18s)", "", STATUS_FOOTER].join("\n");
     expect(isPaneShowingIdlePrompt(pane)).toBe(false);

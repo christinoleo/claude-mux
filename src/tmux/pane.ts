@@ -135,6 +135,20 @@ const ACTIVITY_LINE = /^(?:\s*[⠀-⣿✻✢✳✶✽·]\s+(\S[^…]*…)\s*(?:\
 const ACTIVITY_WINDOW = 12;
 
 /**
+ * The last `count` lines Claude Code actually drew. A capture is as tall as
+ * the pane, and Claude Code redraws from the top after it compacts or clears,
+ * so the rows under its footer can be blank: read straight off the end of the
+ * capture, "the foot of the pane" was then twelve empty lines, and a session
+ * that compacted while idle never looked ready again.
+ */
+function footLines(content: string, count: number): string[] {
+  const lines = content.split("\n");
+  let end = lines.length;
+  while (end > 0 && !lines[end - 1].trim()) end--;
+  return lines.slice(Math.max(0, end - count), end);
+}
+
+/**
  * Everything the spinner line says, split into its parts:
  * `✻ Moonwalking… (running PostToolUse hook · 5m 19s · ↓ 21.3k tokens · thought for 9s)`.
  * Any part may be missing; the detail in brackets comes and goes as the turn
@@ -197,7 +211,7 @@ function parseActivityDetail(detail: string, closed: boolean): Omit<PaneActivity
  */
 export function readActivity(content: string): PaneActivity | null {
   if (!content) return null;
-  for (const line of content.split("\n").slice(-ACTIVITY_WINDOW)) {
+  for (const line of footLines(content, ACTIVITY_WINDOW)) {
     const m = ACTIVITY_LINE.exec(line);
     if (!m) continue;
     // The second alternative is the bare "*" frame, which must carry its detail.
@@ -223,6 +237,23 @@ export function isPaneShowingSpinner(content: string): boolean {
   return readActivityLine(content) !== null;
 }
 
+/** Why a pane cannot take a new message, though the hooks call its session idle. */
+export type PaneHold = "working" | "queued" | "typed";
+
+/**
+ * Whether a pane the hooks call idle would really start a turn on a message
+ * pasted now. It would not while a spinner turns (compaction fires no hook),
+ * while Claude Code holds messages of its own (it is busy, and would add this
+ * one to them and run the lot as a single prompt), or while text sits typed
+ * in the box (the paste would be appended to it). Needs a capture with colour.
+ */
+export function readPaneHold(raw: string): PaneHold | null {
+  if (readQueuedMessages(raw).length > 0) return "queued";
+  if (isPaneShowingSpinner(stripAnsi(raw))) return "working";
+  const box = readPromptBox(raw);
+  return box?.kind === "typed" && box.text.trim() ? "typed" : null;
+}
+
 /**
  * Heuristic for the Esc edge case hooks can't see: a `busy` session whose
  * pane shows no work indicator anymore was interrupted (Esc during thinking
@@ -231,7 +262,7 @@ export function isPaneShowingSpinner(content: string): boolean {
  */
 export function isPaneShowingIdlePrompt(content: string): boolean {
   if (!content) return false;
-  const bottom = content.split("\n").slice(-ACTIVITY_WINDOW);
+  const bottom = footLines(content, ACTIVITY_WINDOW);
   const joined = bottom.join("\n");
   // Any active-work or dialog indicator vetoes idle.
   if (readActivityLine(content) !== null) return false;
@@ -544,7 +575,7 @@ export function detectRecentInterruption(content: string): 'interrupted' | 'decl
   const lines = content.split('\n');
 
   // If there's active UI (menu or working), don't detect old interruptions
-  const bottomLines = lines.slice(-5).join('\n');
+  const bottomLines = footLines(content, 5).join('\n');
   if (
     bottomLines.includes('Esc to cancel') ||
     bottomLines.includes('Esc to interrupt') ||
