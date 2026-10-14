@@ -307,6 +307,39 @@ describe("FleetState", () => {
     second.stop();
   });
 
+  it("keeps what a machine says about its plugins, passes on a newer report, and restores it", async () => {
+    const path = join(dir, "fleet.json");
+    const plugins = {
+      marketplaces: [{ name: "ak-plugins", repo: "christinoleo/ak-plugins", commit: "a".repeat(40), latest: "a".repeat(40) }],
+      plugins: [{ id: "ak@ak-plugins", version: "1.10.0", enabled: true }],
+      readAt: 1,
+    };
+    const first = fleet(path);
+    first.update([ENGAGE]);
+    latest(ENGAGE.url).open();
+    expect(first.snapshot()[0].plugins).toBeNull();
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [], plugins });
+    expect(first.snapshot()[0].plugins).toEqual(plugins);
+
+    const listener = vi.fn();
+    first.subscribe(listener);
+    const newer = { ...plugins, plugins: [], readAt: 2 };
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [], plugins: newer });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // One it cannot read, or none at all (not read yet, an older machine), leaves what was known.
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [], plugins: { marketplaces: "?" } });
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [session("a")], plugins: null });
+    expect(first.snapshot()[0].plugins).toEqual(newer);
+    await vi.advanceTimersByTimeAsync(PERSIST_DELAY_MS);
+    first.stop();
+
+    sockets = [];
+    const second = fleet(path);
+    expect(second.snapshot()[0].plugins).toEqual(newer);
+    second.stop();
+  });
+
   it("starts empty from a missing or broken file", () => {
     expect(fleet(join(dir, "missing.json")).snapshot()).toEqual([]);
   });

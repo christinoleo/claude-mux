@@ -63,6 +63,7 @@ import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
 import type { ChangesInfo, DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 import { inboxTickets, issueFor, watchSessionRepos } from './github.js';
 import { projectReports } from './project-icons.js';
+import { pluginReader } from './plugins.js';
 import { peekGitSummary } from './git.js';
 import { sessionChanges } from '../transcript/changes.js';
 
@@ -837,6 +838,8 @@ export class SessionsWsManager {
 			projects,
 			// What the fleet matches one project across machines by, and its icon.
 			projectReports: projectReports(projects),
+			// Its Claude Code marketplaces and plugins, for the fleet to keep in step.
+			plugins: pluginReader().current(),
 			settings: getSettings(),
 			inbox: inboxTickets(
 				new Set(
@@ -876,8 +879,8 @@ export class SessionsWsManager {
 				// (queue draining runs in its own server loop — see message-queue.ts ensureDrainLoop)
 
 				// The inbox changes on GitHub's clock, not the sessions', so it counts
-				// too, and so do the project reports, read in the background.
-				const hash = JSON.stringify([message.sessions, message.inbox, message.projectReports]);
+				// too, and so do the project reports and plugins, read in the background.
+				const hash = JSON.stringify([message.sessions, message.inbox, message.projectReports, message.plugins]);
 				if (hash === this.lastHash) {
 					return;
 				}

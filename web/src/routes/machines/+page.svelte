@@ -5,12 +5,17 @@
 	import { apiBase, blockedReason, fleetStore, liveCount, machineName, offlineLabel, offlineReason, versionDrifts, type Machine } from '$lib/stores/fleet.svelte';
 	import { browserIO, updateAll, updateMachine, updateOrder, type StepProgress } from '$lib/fleet-update';
 	import { VERSION } from '$shared/utils/version.js';
+	import PluginMatrix from '$lib/components/PluginMatrix.svelte';
+	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
+	import { alignPlan, comparePlugins, onlyHereKey, type MachineStanding } from '$shared/fleet-plugins.js';
 
 	/**
 	 * The Machines view: every machine in the fleet with its version, whether
 	 * it answers, its live sessions, and an update button; "Update all" runs
 	 * them in turn with this page's own machine last, since its restart takes
-	 * the page's server with it (`$lib/fleet-update`).
+	 * the page's server with it (`$lib/fleet-update`). Each machine's plugins
+	 * are compared with the rest (`comparePlugins()`), and "Bring in line"
+	 * updates its marketplaces and installs or enables what it lacks.
 	 */
 
 	onMount(() => fleetStore.start());
@@ -66,6 +71,56 @@
 		}
 	}
 
+	const comparison = $derived(
+		comparePlugins(
+			rows.map((r) => ({ id: r.id, report: r.machine.plugins })),
+			{ has: (key) => fleetPrefsStore.get(onlyHereKey(key), false) }
+		)
+	);
+
+	type Aligning = { state: 'running' } | { state: 'done'; failed: { command: string; output: string }[] };
+	let aligning = $state<Record<string, Aligning>>({});
+
+	/** "Bring in line": the plan worked out from the whole fleet, run on that machine (`POST /api/plugins`). */
+	async function bringInLine(row: Row) {
+		const plan = alignPlan(comparison, row.id);
+		aligning[row.id] = { state: 'running' };
+		const failed: { command: string; output: string }[] = plan.unreachable.map((id) => ({
+			command: `install ${id}`,
+			output: 'Its marketplace is not on this machine and has no repo to add it from.'
+		}));
+		try {
+			const res = await fetch(`${apiBase(row.machine)}/api/plugins`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ install: plan.install, enable: plan.enable })
+			});
+			const data = (await res.json().catch(() => ({}))) as { steps?: { command: string; ok: boolean; output: string }[]; error?: string };
+			if (!res.ok) {
+				const why = res.status === 404 ? 'This machine’s claude-mux predates plugins; update it first.' : (data.error ?? `HTTP ${res.status}`);
+				failed.push({ command: 'Bring in line', output: why });
+			}
+			for (const step of data.steps ?? []) if (!step.ok) failed.push(step);
+		} catch (err) {
+			failed.push({ command: 'Bring in line', output: String(err) });
+		}
+		aligning[row.id] = { state: 'done', failed };
+	}
+
+	/** One line on how a machine's plugins stand against the fleet's. */
+	function pluginLine(s: MachineStanding | undefined): string {
+		if (!s?.known) return 'Plugins not reported';
+		if (s.inLine) return 'Plugins in line';
+		const parts: string[] = [];
+		const names = (list: { name: string }[]) =>
+			list.length <= 3 ? list.map((p) => p.name).join(', ') : `${list.length} plugins`;
+		if (s.missing.length) parts.push(`lacks ${names(s.missing)}`);
+		if (s.disabled.length) parts.push(`${names(s.disabled)} turned off`);
+		if (s.behind.length) parts.push(`${names(s.behind)} behind`);
+		const text = parts.join('; ');
+		return text.charAt(0).toUpperCase() + text.slice(1);
+	}
+
 	function stateLabel(m: Machine): string {
 		if (m.local) return 'this page’s machine';
 		return m.online ? 'online' : offlineLabel(m, clock.now);
@@ -96,6 +151,8 @@
 			{@const blocked = blockedReason(m, clock.now)}
 			{@const offline = offlineReason(m, clock.now)}
 			{@const drift = versionDrifts(m)}
+			{@const standing = comparison.machines[row.id]}
+			{@const align = aligning[row.id]}
 			<li class="station {p?.state ?? 'idle'}" class:off={!m.online}>
 				<span class="node" aria-hidden="true">
 					{#if p?.state === 'ok'}<iconify-icon icon="mdi:check"></iconify-icon>
@@ -125,6 +182,33 @@
 						<span>{stateLabel(m)}</span>
 						{#if row.origin}<span class="note">updated last; the page reconnects after</span>{/if}
 					</div>
+					<div class="line2 plugins-line" class:drift={standing?.known && !standing.inLine}>
+						<iconify-icon
+							icon={!standing?.known ? 'mdi:help-circle-outline' : standing.inLine ? 'mdi:puzzle-check-outline' : 'mdi:puzzle-remove-outline'}
+						></iconify-icon>
+						<span>{pluginLine(standing)}</span>
+						{#if standing?.known && !standing.inLine}
+							<Button
+								variant="outline"
+								size="sm"
+								class="align"
+								disabled={align?.state === 'running' || !!blocked}
+								title={blocked ?? `Update ${machineName(m)}’s marketplaces and install or enable what it lacks`}
+								onclick={() => void bringInLine(row)}
+							>
+								{#if align?.state === 'running'}<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>{/if}
+								{align?.state === 'running' ? 'Bringing in line…' : 'Bring in line'}
+							</Button>
+						{/if}
+					</div>
+					{#if align?.state === 'done' && align.failed.length > 0}
+						<details class="align-failed" open>
+							<summary>{align.failed.length === 1 ? 'One step failed' : `${align.failed.length} steps failed`}</summary>
+							{#each align.failed as f, i (i)}
+								<pre><b>{f.command}</b>{'\n'}{f.output}</pre>
+							{/each}
+						</details>
+					{/if}
 					{#if blocked && m.online}
 						<p class="refused" role="status">{blocked}</p>
 					{/if}
@@ -150,6 +234,12 @@
 			<Button size="sm" variant="outline" onclick={() => location.reload()}>Reload the page</Button>
 		</div>
 	{/if}
+
+	<PluginMatrix
+		{comparison}
+		machines={rows.map((r) => ({ id: r.id, name: machineName(r.machine) }))}
+		onOnlyHere={(key, value) => void fleetPrefsStore.set(onlyHereKey(key), value)}
+	/>
 
 	{#if summary}
 		<section class="summary" aria-live="polite">
@@ -306,6 +396,21 @@
 		margin-top: 3px;
 		color: var(--ink-muted);
 		font-size: 12px;
+	}
+	.plugins-line iconify-icon {
+		font-size: 14px;
+		color: var(--ink-dim);
+	}
+	.plugins-line.drift,
+	.plugins-line.drift iconify-icon {
+		color: var(--bad);
+	}
+	.plugins-line :global(.align) {
+		margin-left: auto;
+		height: 26px;
+	}
+	.align-failed summary {
+		color: var(--bad);
 	}
 	.dot {
 		width: 6px;

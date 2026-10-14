@@ -5,7 +5,7 @@
  * Each machine subscribes to every other machine's sessions broadcast, the
  * same `/api/sessions/stream` a page reads, and keeps per machine its last
  * known sessions, projects (with what matches them across machines), inbox,
- * version and when it was last heard from.
+ * plugins, version and when it was last heard from.
  * The page reads all of it from its origin machine, so a fresh browser on any
  * link sees the whole fleet at once, and a machine that is off keeps what it
  * last said, marked with when that was.
@@ -26,6 +26,7 @@ import { ProjectReportSchema, type ProjectReport } from "../fleet-projects.js";
 import { eachOf } from "../types/ws-messages.js";
 import { openForwardedSocket } from "./fleet-relay.js";
 import { protocolOf } from "../fleet-protocol.js";
+import { PluginsReportSchema, type PluginsReport } from "../fleet-plugins.js";
 
 /** A machine discovery found: its stable id, its name, and where its API is. */
 export interface PeerAddress {
@@ -52,6 +53,8 @@ export interface FleetMachineState extends PeerAddress {
   /** What it says about each project, to match it across machines (`src/fleet-projects.ts`). */
   projectReports: ProjectReport[];
   inbox: unknown[];
+  /** Its Claude Code marketplaces and plugins (`src/fleet-plugins.ts`); null until it reports them. */
+  plugins: PluginsReport | null;
 }
 
 /** One open link to a peer's sessions socket. */
@@ -309,6 +312,7 @@ export class FleetState {
       projects?: unknown;
       projectReports?: unknown;
       inbox?: unknown;
+      plugins?: unknown;
       prefs?: unknown;
     };
     try {
@@ -322,7 +326,7 @@ export class FleetState {
     }
     if (msg?.type !== "sessions" && msg?.type !== "connected") return;
     if (!Array.isArray(msg.sessions)) return;
-    const frame = JSON.stringify([msg.sessions, msg.projects, msg.projectReports, msg.inbox]);
+    const frame = JSON.stringify([msg.sessions, msg.projects, msg.projectReports, msg.inbox, msg.plugins]);
     if (frame === peer.lastFrame) return;
     peer.lastFrame = frame;
     this.setState(peer, {
@@ -331,6 +335,7 @@ export class FleetState {
       ...(Array.isArray(msg.projects) ? { projects: msg.projects.filter((p): p is string => typeof p === "string") } : {}),
       ...(Array.isArray(msg.projectReports) ? { projectReports: ReportsSchema.parse(msg.projectReports) } : {}),
       ...(Array.isArray(msg.inbox) ? { inbox: msg.inbox } : {}),
+      ...(msg.plugins ? { plugins: readPlugins(msg.plugins) ?? peer.state.plugins } : {}),
     });
   }
 
@@ -394,6 +399,7 @@ export class FleetState {
         projects: Array.isArray(m.projects) ? m.projects : [],
         projectReports: Array.isArray(m.projectReports) ? ReportsSchema.parse(m.projectReports) : [],
         inbox: Array.isArray(m.inbox) ? m.inbox : [],
+        plugins: readPlugins(m.plugins),
       }));
   }
 }
@@ -412,7 +418,14 @@ function emptyState(address: PeerAddress): FleetMachineState {
     projects: [],
     projectReports: [],
     inbox: [],
+    plugins: null,
   };
+}
+
+/** A plugins report a peer sent, or null when this version cannot read it. */
+function readPlugins(raw: unknown): PluginsReport | null {
+  const parsed = PluginsReportSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
 }
 
 /** The reports a peer sent that this version can read; any other is dropped. */
