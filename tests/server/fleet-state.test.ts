@@ -388,6 +388,34 @@ describe("FleetState", () => {
     second.stop();
   });
 
+  it("keeps a machine's plain panes, drops one it cannot read, and restores them", async () => {
+    const path = join(dir, "fleet.json");
+    const shell = { target: "main:1.0", session: "main", command: "zsh", cwd: "/home/leo", title: "engage" };
+    const first = fleet(path);
+    first.update([ENGAGE]);
+    latest(ENGAGE.url).open();
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [], projects: [], panes: [shell, { target: 7 }] });
+    expect(first.snapshot()[0].panes).toEqual([shell]);
+
+    // A pane that opens is a change worth passing on, though no session moved.
+    const listener = vi.fn();
+    first.subscribe(listener);
+    const server = { ...shell, target: "dev:1.0", session: "dev", command: "node", cwd: "/home/leo/Projects/site" };
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [], projects: [], panes: [shell, server] });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // An older machine sends none: what was known stands.
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [session("a")], projects: [] });
+    expect(first.snapshot()[0].panes).toEqual([shell, server]);
+    await vi.advanceTimersByTimeAsync(PERSIST_DELAY_MS);
+    first.stop();
+
+    sockets = [];
+    const second = fleet(path);
+    expect(second.snapshot()[0].panes).toEqual([shell, server]);
+    second.stop();
+  });
+
   it("keeps what a machine says about its plugins, passes on a newer report, and restores it", async () => {
     const path = join(dir, "fleet.json");
     const plugins = {

@@ -40,15 +40,15 @@ function hardTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 }
 
 /**
- * Batch-fetch all pane titles in a single tmux command.
- * Returns a Map of "session:window.pane" -> title (or null if pane has no title).
+ * Batch-fetch every pane in a single tmux command.
+ * Returns a Map of "session:window.pane" -> its title, size, command and folder.
  */
 export async function getAllPaneTitles(): Promise<Map<string, PaneInfo>> {
   const result = new Map<string, PaneInfo>();
   const stdout = await hardTimeout(
     execFileAsync("tmux", [
       "list-panes", "-a", "-F",
-      "#{session_name}:#{window_index}.#{pane_index}\t#{session_attached}\t#{pane_width}\t#{pane_title}"
+      "#{session_name}:#{window_index}.#{pane_index}\t#{session_attached}\t#{pane_width}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}"
     ], { encoding: "utf-8", timeout: 2000 }).then((r) => r.stdout),
     2500,
     "",
@@ -56,13 +56,15 @@ export async function getAllPaneTitles(): Promise<Map<string, PaneInfo>> {
   for (const line of stdout.trim().split("\n")) {
     if (!line) continue;
     // The title comes last because it is the one field that may hold a tab.
-    const [target, attached, width, ...rest] = line.split("\t");
+    const [target, attached, width, command, cwd, ...rest] = line.split("\t");
     if (!target || rest.length === 0) continue;
     const title = rest.join("\t").trim();
     result.set(target, {
       title: title || null,
       attached: Number(attached) || 0,
       width: Number(width) || 0,
+      command: command ?? "",
+      cwd: cwd ?? "",
     });
   }
   return result;
@@ -98,6 +100,10 @@ export type PaneInfo = {
   attached: number;
   /** Columns the pane is drawn at, which is what its text wraps to. */
   width: number;
+  /** What runs in it now. */
+  command: string;
+  /** The folder it sits in; '' when tmux did not say. */
+  cwd: string;
 };
 
 /**

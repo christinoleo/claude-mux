@@ -18,7 +18,7 @@ import { isDictated } from './dictation-marks.js';
 import { homeDiskPercent } from './disk.js';
 import { findTranscriptById, JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
 import { currentRemoteControlUrl, answerRemoteControlDialog, setRemoteControl } from './remote-control.js';
-import { getAllPaneTitles, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
+import { getAllPaneTitles, type PaneInfo, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
 import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { upgradeStatus } from './restart-claude.js';
@@ -70,6 +70,7 @@ import { projectReports } from './project-icons.js';
 import { pluginReader } from './plugins.js';
 import { PastSessionIndex, withoutLive } from '../transcript/past-sessions.js';
 import type { PastSession } from '../past-session.js';
+import type { PlainPane } from '../fleet-places.js';
 import { peekGitSummary } from './git.js';
 import { sessionChanges } from '../transcript/changes.js';
 
@@ -401,6 +402,25 @@ function liveChanges(s: Session): ChangesInfo | null {
 }
 
 export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFields)[]> {
+	return (await readSessionsAndPanes()).sessions;
+}
+
+/**
+ * The tmux panes no Claude session runs in (a shell, a dev server), which the
+ * drawer places under their projects beside the sessions.
+ */
+function plainPanes(panes: Map<string, PaneInfo>, sessions: Session[]): PlainPane[] {
+	const claude = new Set(sessions.map((s) => s.tmux_target));
+	const out: PlainPane[] = [];
+	for (const [target, pane] of panes) {
+		if (claude.has(target)) continue;
+		out.push({ target, session: target.split(':')[0], command: pane.command, cwd: pane.cwd, title: pane.title });
+	}
+	return out;
+}
+
+/** This machine's sessions, enriched with what their panes show, and its plain panes, off one `list-panes`. */
+async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFields)[]; panes: PlainPane[] }> {
 	const [{ captures, rawCaptures, sessions }, paneTitles] = await Promise.all([
 		captureAndSyncSessions(),
 		getAllPaneTitles()
@@ -514,7 +534,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 		return enriched;
 	});
 
-	return deduplicateByTmuxTarget(enrichedSessions);
+	return { sessions: deduplicateByTmuxTarget(enrichedSessions), panes: plainPanes(paneTitles, sessions) };
 }
 
 // ============================================================================
@@ -928,7 +948,7 @@ export class SessionsWsManager {
 	}
 
 	private async createSessionsMessageAsync(type: 'sessions' | 'connected') {
-		const sessions = await getEnrichedSessionsAsync();
+		const { sessions, panes } = await readSessionsAndPanes();
 		// A closed pane's row is not live: its conversation can be resumed from the past list.
 		this.liveIds = new Set(sessions.filter((s) => s.pane_alive !== false).map((s) => s.id));
 		// The server remembers every directory a session has run in, so the
@@ -940,6 +960,8 @@ export class SessionsWsManager {
 			type,
 			sessions,
 			count: sessions.length,
+			// Its panes that run no Claude session, for the drawer to place under their projects.
+			panes,
 			projects,
 			// What the fleet matches one project across machines by, and its icon.
 			projectReports: projectReports(projects),
@@ -986,7 +1008,7 @@ export class SessionsWsManager {
 				// The inbox changes on GitHub's clock, not the sessions', so it counts
 				// too, and so do the project reports and plugins, read in the background
 				// (a plugins report is never changed once read, so its time stands for it).
-				const hash = JSON.stringify([message.sessions, message.inbox, message.projectReports, message.plugins?.readAt]);
+				const hash = JSON.stringify([message.sessions, message.panes, message.inbox, message.projectReports, message.plugins?.readAt]);
 				if (hash === this.lastHash) {
 					return;
 				}

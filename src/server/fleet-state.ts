@@ -28,6 +28,7 @@ import { FLEET_STATE_SENDER, openForwardedSocket } from "./fleet-relay.js";
 import { protocolOf } from "../fleet-protocol.js";
 import { PluginsReportSchema, type PluginsReport } from "../fleet-plugins.js";
 import { PastSessionSchema, type PastSession } from "../past-session.js";
+import { PlainPaneSchema, type PlainPane } from "../fleet-places.js";
 
 /** A machine discovery found: its stable id, its name, and where its API is. */
 export interface PeerAddress {
@@ -53,6 +54,8 @@ export interface FleetMachineState extends PeerAddress {
   projects: string[];
   /** What it says about each project, to match it across machines (`src/fleet-projects.ts`). */
   projectReports: ProjectReport[];
+  /** Its tmux panes that run no Claude session (`src/fleet-places.ts`). */
+  panes: PlainPane[];
   inbox: unknown[];
   /** Its Claude Code marketplaces and plugins (`src/fleet-plugins.ts`); null until it reports them. */
   plugins: PluginsReport | null;
@@ -389,6 +392,7 @@ export class FleetState {
       sessions?: unknown;
       projects?: unknown;
       projectReports?: unknown;
+      panes?: unknown;
       inbox?: unknown;
       plugins?: unknown;
       prefs?: unknown;
@@ -415,7 +419,7 @@ export class FleetState {
     if (!Array.isArray(msg.sessions)) return;
     // A plugins report is never changed once read, so its time stands for it.
     const pluginsAt = (msg.plugins as { readAt?: unknown } | null | undefined)?.readAt;
-    const frame = JSON.stringify([msg.sessions, msg.projects, msg.projectReports, msg.inbox, pluginsAt]);
+    const frame = JSON.stringify([msg.sessions, msg.panes, msg.projects, msg.projectReports, msg.inbox, pluginsAt]);
     if (frame === peer.lastFrame) return;
     peer.lastFrame = frame;
     this.setState(peer, {
@@ -423,6 +427,7 @@ export class FleetState {
       // An older broadcast may leave these out; what was known stands.
       ...(Array.isArray(msg.projects) ? { projects: msg.projects.filter((p): p is string => typeof p === "string") } : {}),
       ...(Array.isArray(msg.projectReports) ? { projectReports: ReportsSchema.parse(msg.projectReports) } : {}),
+      ...(Array.isArray(msg.panes) ? { panes: PanesSchema.parse(msg.panes) } : {}),
       ...(Array.isArray(msg.inbox) ? { inbox: msg.inbox } : {}),
       ...(msg.plugins && pluginsAt !== peer.state.plugins?.readAt ? { plugins: readPlugins(msg.plugins) ?? peer.state.plugins } : {}),
     });
@@ -499,6 +504,7 @@ export class FleetState {
           sessions: Array.isArray(m.sessions) ? m.sessions : [],
           projects: Array.isArray(m.projects) ? m.projects : [],
           projectReports: Array.isArray(m.projectReports) ? ReportsSchema.parse(m.projectReports) : [],
+          panes: Array.isArray(m.panes) ? PanesSchema.parse(m.panes) : [],
           inbox: Array.isArray(m.inbox) ? m.inbox : [],
           plugins: readPlugins(m.plugins),
         },
@@ -520,6 +526,7 @@ function emptyState(address: PeerAddress): FleetMachineState {
     sessions: [],
     projects: [],
     projectReports: [],
+    panes: [],
     inbox: [],
     plugins: null,
   };
@@ -534,6 +541,7 @@ function readPlugins(raw: unknown): PluginsReport | null {
 /** The reports a peer sent that this version can read; any other is dropped. */
 const ReportsSchema = eachOf(ProjectReportSchema);
 const PastSchema = eachOf(PastSessionSchema);
+const PanesSchema = eachOf(PlainPaneSchema);
 
 /** How long a peer has to accept its socket before the attempt counts as failed. */
 const CONNECT_TIMEOUT_MS = 10_000;

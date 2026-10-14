@@ -573,13 +573,15 @@ another machine's session), so its frames and the page outside talk by
 `postMessage` to `location.origin` only, and an embedded pane names its
 machine when the route does. Another machine's session counts as missing ten seconds after
 the origin's socket answers without it, since one started from the sidebar is
-on the page before its machine lists it; a non-Claude pane started
-there opens on its own machine, whose broadcast lists Claude sessions only.
+on the page before its machine lists it. A plain pane (a tmux pane that
+runs no Claude session: a shell, a dev server) opens the same way, its
+terminal reached through the relay; the page finds it in its machine's
+broadcast (`routeMachine().pane()`).
 
 Each machine also keeps a fleet state (`src/server/fleet-state.ts`): it
 subscribes to every other machine's `/api/sessions/stream`, as a peer (no
-`Origin`, marked forwarded), and keeps per machine its last sessions, projects,
-inbox, version (read from `/api/health`) and when it was last heard. A link
+`Origin`, marked forwarded), and keeps per machine its last sessions, plain
+panes, projects, inbox, version (read from `/api/health`) and when it was last heard. A link
 that closes, fails or stays silent past `SILENCE_MS` (it is pinged every
 `PING_MS`) marks the machine offline and is retried after 5 s, doubling to a
 minute; `POST /api/fleet/<id>/retry` ("Try now") skips the wait. A machine
@@ -748,10 +750,15 @@ sessions, then "New session", one button per machine that holds the folder
 is offline. Its menu offers the other agents, clearing closed sessions,
 copying the path, and closing the project on every machine that answers;
 "Remove" in the new-session dialog only where the dialog was opened. A
-Claude session in a directory that is nobody's project (`~`, `/tmp/x`) makes
-that directory a project of its own on its machine, and sessions that have not
-said where they run make a "no folder" project, so there are no loose rows; a
-plain tmux pane only joins a folder that is already a project.
+session or plain pane in a directory that is nobody's project (`~`, `/tmp/x`)
+makes that directory a project of its own on its machine, and those that have
+not said where they run make a "no folder" project, so there are no loose rows
+(`projectRoots()` and `panesByRoot()` in `src/fleet-places.ts`). Every machine
+reports its plain panes (target, command, cwd, title) as `panes` on its
+sessions broadcast, read off the same `list-panes` the poll already runs, so
+another machine's shells and dev servers sit under their projects too, with
+the machine's letter when the project spans machines, dimmed with an offline
+machine's rows. Active never shows a plain pane.
 `SessionRow.svelte` draws its second line only when it says something:
 working, waiting, offline (the machine's reason), open, or a draft.
 

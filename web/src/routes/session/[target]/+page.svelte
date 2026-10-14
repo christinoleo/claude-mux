@@ -8,7 +8,6 @@
 	import { sessionStore, getSessionDisplayName, attentionPrefix, postVisit } from '$lib/stores/sessions.svelte';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual, indicatorStateOf, isUnread, type IndicatorState } from '$shared/session-state.js';
-	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -95,10 +94,8 @@
 
 	const currentSession = $derived(route.session(target));
 
-	// Plain (non-Claude) panes are listed only for this machine.
-	const tmuxPane = $derived(
-		target && !remoteHost ? tmuxPanesStore.panes.find((p) => p.target === target) ?? null : null
-	);
+	// A plain (non-Claude) pane: a shell or a dev server, on whichever machine the route names.
+	const tmuxPane = $derived(route.pane(target) ?? null);
 	const isClaudeSession = $derived(currentSession != null);
 	const isPlainPane = $derived(!isClaudeSession && tmuxPane != null);
 	const claudeSessionDead = $derived(
@@ -111,7 +108,7 @@
 	 * page before its machine lists it.
 	 */
 	const REMOTE_MISSING_GRACE_MS = 10_000;
-	const remoteGone = $derived(!!remoteHost && !isClaudeSession && sessionStore.receivedData);
+	const remoteGone = $derived(!!remoteHost && !isClaudeSession && !isPlainPane && sessionStore.receivedData);
 	let remoteMissing = $state(false);
 	$effect(() => {
 		void ref;
@@ -123,7 +120,7 @@
 	const targetMissing = $derived(
 		remoteHost
 			? remoteMissing
-			: tmuxPanesStore.loaded && sessionStore.sessions.length > 0 && !isClaudeSession && !isPlainPane
+			: sessionStore.receivedData && !isClaudeSession && !isPlainPane
 	);
 	const paneIsDead = $derived(claudeSessionDead || targetMissing);
 	const isAlive = $derived(!paneIsDead && (isClaudeSession || isPlainPane));
@@ -1039,8 +1036,6 @@
 			}
 		}, 800);
 	});
-
-	onMount(() => tmuxPanesStore.subscribe());
 
 	$effect(() => {
 		// The landing page reopens this machine's last session, by target alone.

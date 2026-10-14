@@ -19,6 +19,7 @@ import { fleetPrefsStore } from './fleet-prefs.svelte';
 import { indicatorStateOf, needsYouKind } from '$shared/session-state.js';
 import { sessionDisplayName } from '$shared/session-notifications.js';
 import type { ProjectReport } from '$shared/fleet-projects.js';
+import type { PlainPane } from '$shared/fleet-places.js';
 import type { PluginsReport } from '$shared/fleet-plugins.js';
 import type { PastSession } from '$shared/past-session.js';
 export { asking } from '$shared/session-notifications.js';
@@ -147,6 +148,8 @@ class SessionStore extends ReliableWebSocket {
 	inbox = $state<InboxTicket[]>([]);
 	/** What this machine says about each of its projects, to match them across machines. */
 	projectReports = $state<ProjectReport[]>([]);
+	/** This machine's tmux panes that run no Claude session. */
+	panes = $state.raw<PlainPane[]>([]);
 	/** This machine's Claude Code marketplaces and plugins; null until it has read them. */
 	plugins = $state.raw<PluginsReport | null>(null);
 
@@ -196,6 +199,7 @@ class SessionStore extends ReliableWebSocket {
 				if (msg.projectReports && JSON.stringify(msg.projectReports) !== JSON.stringify(this.projectReports)) {
 					this.projectReports = msg.projectReports;
 				}
+				if (msg.panes && JSON.stringify(msg.panes) !== JSON.stringify(this.panes)) this.panes = msg.panes;
 				if (msg.plugins && msg.plugins.readAt !== this.plugins?.readAt) this.plugins = msg.plugins;
 				break;
 			case 'fleet':

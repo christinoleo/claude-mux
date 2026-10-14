@@ -25,6 +25,7 @@ import { sessionStore, type Session } from './sessions.svelte';
 import { serverStore } from './servers.svelte';
 import type { InboxTicket } from '$shared/types/ws-messages.js';
 import type { ProjectReport } from '$shared/fleet-projects.js';
+import type { PlainPane } from '$shared/fleet-places.js';
 import type { PluginsReport } from '$shared/fleet-plugins.js';
 import type { PastSession } from '$shared/past-session.js';
 import type { ServerInfo } from '$lib/types/servers';
@@ -51,6 +52,8 @@ export interface Machine {
 	projects: string[];
 	/** What it says about each project, to match it across machines. */
 	projectReports: ProjectReport[];
+	/** Its tmux panes that run no Claude session: a shell, a dev server. */
+	panes: PlainPane[];
 	/** Tickets on GitHub waiting on a person, for that machine's repos. */
 	inbox: InboxTicket[];
 	/** Its Claude Code marketplaces and plugins; null until it reports them. */
@@ -79,6 +82,7 @@ class FleetStore {
 			sessions: sessionStore.sessions,
 			projects: sessionStore.savedProjects,
 			projectReports: sessionStore.projectReports,
+			panes: sessionStore.panes,
 			inbox: sessionStore.inbox,
 			plugins: sessionStore.plugins,
 			past: sessionStore.past
@@ -103,6 +107,7 @@ class FleetStore {
 				sessions: m.sessions as Session[],
 				projects: m.projects,
 				projectReports: m.projectReports ?? [],
+				panes: m.panes ?? [],
 				inbox: m.inbox,
 				plugins: m.plugins ?? null,
 				past: sessionStore.fleetPast[m.id] ?? []
@@ -237,6 +242,11 @@ export function routeMachine(host: () => string | null) {
 			if (!target) return undefined;
 			if (remoteHost) return machine?.sessions.find((s) => s.tmux_target === target || s.id === target);
 			return sessionStore.sessionByTarget.get(target) ?? sessionStore.sessionById.get(target);
+		},
+		/** A plain (non-Claude) pane by tmux target, from its machine's broadcast. */
+		pane(target: string | null): PlainPane | undefined {
+			if (!target) return undefined;
+			return (remoteHost ? machine?.panes : sessionStore.panes)?.find((p) => p.target === target);
 		}
 	};
 }

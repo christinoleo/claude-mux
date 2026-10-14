@@ -6,7 +6,6 @@
 		sessionStore,
 		groupSessions,
 		getSessionDisplayName,
-		findDeepestProject,
 		wantsHuman,
 		postVisit,
 		type Session
@@ -31,12 +30,11 @@
 	import SubagentRow from '$lib/components/SubagentRow.svelte';
 	import { agentView, childSummary, type AgentView } from '$shared/subagents.js';
 	import { clock } from '$lib/stores/clock.svelte';
-	import { tmuxPanesStore } from '$lib/stores/tmuxPanes.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { attachmentsStore } from '$lib/stores/attachments.svelte';
 	import { AGENTS, AGENT_IDS } from '$shared/agents.js';
 	import type { SessionAgent } from '$shared/db/index.js';
-	import type { TmuxPane } from '$lib/types/tmux';
+	import { NO_FOLDER, panesByRoot, projectRoots, rootOf, type PlainPane } from '$shared/fleet-places.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -66,7 +64,6 @@
 	import { drawer } from '$lib/stores/drawer.svelte';
 
 	/** The root of a project made of the sessions that have not said where they run. */
-	const NO_FOLDER = '';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
 	import { formatRef, type PaneRef } from '$lib/split-refs';
@@ -175,7 +172,7 @@
 		/** Its live sessions, from which Active picks its own rows. */
 		live: Session[];
 		dead: Session[];
-		panes: TmuxPane[];
+		panes: PlainPane[];
 		/** Live sessions settled by hand, drawn in Settled instead. */
 		settled: Session[];
 		/** Its past sessions, newest first. */
@@ -208,8 +205,6 @@
 		past: { place: Place; past: PastSession }[];
 	}
 
-	const tmuxPanes = $derived(tmuxPanesStore.panes);
-
 	/**
 	 * The session the page shows, as a ref: no host for this machine's, even
 	 * when its route names it, so it compares equal to the row that opens it.
@@ -227,45 +222,9 @@
 			: current.host?.toLowerCase() === machine.server.hostname.toLowerCase();
 	}
 
-	/**
-	 * Whether a directory is nobody's project. The server knows the home
-	 * directory and keeps such paths out of the list it sends; this is the
-	 * browser's guess for a session whose cwd is not under any root — a path
-	 * two segments deep (`/home/leo`, `/tmp`) or a mount point.
-	 */
-	function looksLikeRoot(cwd: string): boolean {
-		const parts = cwd.split('/').filter(Boolean);
-		if (parts.length <= 2) return true;
-		return /^\/(?:mnt|media|Volumes)\/[^/]+$/.test(cwd);
-	}
-
-	function under(child: string, parent: string): boolean {
-		return child === parent || child.startsWith(parent + '/');
-	}
-
-	/**
-	 * The project roots of a machine: what the server remembers, plus any
-	 * session directory under none of them (an older server, or a session
-	 * that started this tick), reduced so no root sits under another. A
-	 * session in a directory that is nobody's project (`~`, `/tmp`) makes
-	 * that directory a project of its own on that machine, last, so it never
-	 * takes in the folders below it.
-	 */
+	/** A machine's project roots (`projectRoots()`): every folder its sessions and plain panes run in has one. */
 	function rootsOf(machine: Machine): string[] {
-		const roots = [...machine.projects];
-		// Only a Claude session makes a folder a project; a plain shell joins one that is.
-		const cwds = machine.sessions.map((s) => s.cwd).filter((cwd): cwd is string => !!cwd);
-		const extra = cwds.filter((cwd) => !looksLikeRoot(cwd)).sort((a, b) => a.length - b.length);
-		for (const cwd of extra) {
-			if (roots.some((r) => under(cwd, r))) continue;
-			roots.push(cwd);
-		}
-		for (const cwd of new Set(cwds.filter(looksLikeRoot))) {
-			if (!roots.includes(cwd) && !roots.some((r) => under(cwd, r))) roots.push(cwd);
-		}
-		// A session that has not said where it runs still has to be somewhere.
-		if (machine.sessions.some((s) => !s.cwd)) roots.push(NO_FOLDER);
-		return roots;
+		return projectRoots(machine.projects, [...machine.sessions.map((s) => s.cwd), ...machine.panes.map((p) => p.cwd)]);
 	}
 
 	/**
@@ -368,23 +327,16 @@
 
 	/** A machine's sessions and panes, put under its project roots (`rootsOf()`). */
 	function placesOf(machine: Machine, roots: string[]): Map<string, Place> {
-		const claudeTargets = new Set(machine.sessions.map((s) => s.tmux_target));
-		// tmux panes are read from this host only.
-		const panes = machine.local ? tmuxPanes.filter((p) => !claudeTargets.has(p.target)) : [];
-
-		const byRoot = new Map<string, { live: Session[]; dead: Session[]; panes: TmuxPane[]; settled: Session[] }>();
-		for (const root of roots) byRoot.set(root, { live: [], dead: [], panes: [], settled: [] });
+		const byRoot = new Map<string, { live: Session[]; dead: Session[]; settled: Session[] }>();
+		for (const root of roots) byRoot.set(root, { live: [], dead: [], settled: [] });
 		for (const s of machine.sessions) {
-			const root = s.cwd ? findDeepestProject(s.cwd, roots) : NO_FOLDER;
+			const root = rootOf(s.cwd, roots);
 			if (root === null) continue;
 			const bucket = byRoot.get(root)!;
 			(s.pane_alive === false ? bucket.dead : isSettled(machine, s.id) ? bucket.settled : bucket.live).push(s);
 		}
 		const past = pastByRoot(machine.past, roots, new Set(machine.sessions.filter((s) => s.pane_alive !== false).map((s) => s.id)));
-		for (const pane of panes) {
-			const root = pane.cwd ? findDeepestProject(pane.cwd, roots) : null;
-			if (root) byRoot.get(root)!.panes.push(pane);
-		}
+		const panes = panesByRoot(machine.panes, roots, new Set(machine.sessions.map((s) => s.tmux_target)));
 
 		const places = new Map<string, Place>();
 		for (const [root, bucket] of byRoot) {
@@ -396,7 +348,7 @@
 				rows: rowsFor(bucket.live, root),
 				live: bucket.live,
 				dead: bucket.dead,
-				panes: bucket.panes,
+				panes: panes.get(root) ?? [],
 				settled: bucket.settled,
 				past: past.get(root) ?? []
 			});
@@ -711,11 +663,7 @@
 	}
 
 	// ── labels ───────────────────────────────────────────────────────────────
-	onMount(() => {
-		fleetStore.start();
-		const unsubscribe = tmuxPanesStore.subscribe();
-		return () => unsubscribe?.();
-	});
+	onMount(() => fleetStore.start());
 
 	function detectPaneAgent(command: string): SessionAgent | null {
 		const cmd = command.toLowerCase();
@@ -1039,14 +987,16 @@
 	{#if !row.workers}{@render agentThread(machine, s, agents)}{/if}
 {/snippet}
 
-{#snippet paneRow(machine: Machine, pane: TmuxPane)}
+{#snippet paneRow(machine: Machine, pane: PlainPane, marked: boolean, offline: string | null)}
 	{@const isActive = isCurrent(machine, pane.target)}
 	{@const detected = detectPaneAgent(pane.command || '')}
 	{@const meta = detected ? AGENTS[detected] : null}
+	{@const mark = marked ? markOf(machine) : null}
 	<a
-		href="/session/{encodeURIComponent(pane.target)}"
+		href={sessionPath(refOf(machine, pane.target))}
 		class="row"
 		class:cur={isActive}
+		title={[pane.title, pane.cwd, machine.local ? null : `On ${machine.server.hostname}`].filter(Boolean).join(' · ')}
 		draggable={canDrag ? 'true' : 'false'}
 		ondragstart={(e) => dragStart(e, machine, pane.target)}
 		ondragend={dragEnd}
@@ -1056,7 +1006,10 @@
 			<iconify-icon icon={meta?.icon ?? 'mdi:console-line'} style={meta ? `color:${meta.color}` : ''}></iconify-icon>
 		</span>
 		<span class="name mono">{pane.target}</span>
-		<span class="meta"><span class="when">{meta?.label ?? pane.command}</span></span>
+		<span class="meta">
+			{#if mark}<span class="mach" style="--m:{mark.color}" title={mark.name}>{mark.letter}</span>{/if}
+			<span class="when">{offline ?? meta?.label ?? pane.command}</span>
+		</span>
 		<span class="ctx none"></span>
 	</a>
 {/snippet}
@@ -1071,7 +1024,7 @@
 		{/each}
 		{#if extras}
 			{#each place.panes as pane (pane.target)}
-				{@render paneRow(place.machine, pane)}
+				{@render paneRow(place.machine, pane, marked, offline)}
 			{/each}
 			{#if place.dead.length > 0}
 				<div class="dead">
