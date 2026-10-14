@@ -620,22 +620,6 @@ export function detectRecentInterruption(content: string): 'interrupted' | 'decl
 }
 
 /**
- * Detect a Remote Control URL in pane content.
- * Strips ANSI escape codes before matching.
- * Returns the URL or null if not found.
- */
-export function detectRemoteControlUrl(content: string): string | null {
-  if (!content) return null;
-
-  const clean = stripAnsi(content);
-
-  // Match claude.ai/code URLs (RC session URLs). The dialog ends its sentence
-  // with the URL, so a trailing full stop is prose, not part of the address.
-  const match = clean.match(/https:\/\/claude\.ai\/code[^\s)\]>]*/);
-  return match ? match[0].replace(/[.,;:]+$/, "") : null;
-}
-
-/**
  * What Claude Code's footer says about its own updates:
  * - `installed`: a new version is on disk and takes effect on restart.
  * - `available`: a new version exists and has to be installed by hand.

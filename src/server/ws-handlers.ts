@@ -16,7 +16,8 @@ import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { isDictated } from './dictation-marks.js';
 import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
-import { getAllPaneTitles, detectRemoteControlUrl, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi, sendKeyAsync } from '../tmux/pane.js';
+import { currentRemoteControlUrl, answerRemoteControlDialog, setRemoteControl } from './remote-control.js';
+import { getAllPaneTitles, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
 import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
@@ -57,7 +58,7 @@ type LivePaneFields = {
 import { resizeTmuxWindow } from '../tmux/resize.js';
 import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
-import { getQueue, enqueue, getDeliveries } from './message-queue.js';
+import { getQueue, getDeliveries } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
 import type { ChangesInfo, DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 import { inboxTickets, issueFor, watchSessionRepos } from './github.js';
@@ -422,7 +423,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 		if (!rcPrimed || !auto) continue;
 		if (s.rc_url || !s.tmux_target || (s.agent ?? 'claude') !== 'claude') continue;
 		if (!isClaudeMuxSessionName(s.tmux_target.split(':')[0])) continue;
-		enqueue(s.tmux_target, '/rc', 'control');
+		setRemoteControl(s, true);
 	}
 	rcPrimed = true;
 
@@ -432,26 +433,19 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 	// maestro worker owns, and the tickets in its repo that want a person.
 	watchSessionRepos(sessions);
 
-	// Scan for Remote Control URLs in pane content (detect new URLs and clear stale ones)
+	// Remote Control: Claude Code's own record of the process says whether it
+	// is on, the pane only where that record is silent. The dialog `/rc` draws
+	// is answered here too, since nobody at the dashboard can see it.
 	for (const s of sessions) {
 		if (!s.tmux_target) continue;
 		const content = captures.get(s.tmux_target);
 		if (!content) continue;
-		const rcUrl = detectRemoteControlUrl(content);
-		if (rcUrl && rcUrl !== s.rc_url) {
+		const rcUrl = currentRemoteControlUrl(s, content);
+		if (rcUrl !== (s.rc_url ?? null)) {
 			updateSession(s.id, { rc_url: rcUrl });
 			s.rc_url = rcUrl;
-			// `/rc` leaves its dialog open on "Continue" until someone presses
-			// Enter. The URL it shows is now recorded, which is all the dialog
-			// was for, so answer it — otherwise a session turned on from the
-			// dashboard sits behind a dialog nobody at the dashboard can see.
-			if (/Disconnect this session[\s\S]*❯\s*Continue/.test(content)) {
-				void sendKeyAsync(s.tmux_target, 'Enter');
-			}
-		} else if (!rcUrl && s.rc_url) {
-			updateSession(s.id, { rc_url: null });
-			s.rc_url = null;
 		}
+		void answerRemoteControlDialog(s.tmux_target, content, rcUrl);
 	}
 
 	const visits = getVisits();

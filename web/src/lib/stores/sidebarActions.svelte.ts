@@ -3,6 +3,8 @@ export type ChordAction = {
 	icon: string;
 	run: () => void;
 	danger?: boolean;
+	/** Drawn but not pickable; menus that cannot grey a row out may ignore it. */
+	disabled?: boolean;
 	flashing?: boolean;
 	variant?: 'destructive' | 'secondary';
 };

@@ -412,6 +412,28 @@ the page's touch, and two fingers or Ctrl+wheel magnify the picture on this
 side only. A phone types through a field whose text is mirrored by
 `textDelta()`, because autocorrect rewrites what is already there.
 
+### 9. Remote Control
+
+`rc_url` says whether a session's Remote Control is on. The poll takes it from
+Claude Code's own record of the process, `~/.claude/sessions/<pid>.json`,
+whose `bridgeSessionId` is the Remote Control session while one is connected
+and `null` once it is not (`readBridgeUrl()` in `src/server/remote-control.ts`).
+Only where that record is missing or has no such field does it read the pane:
+the URL `/rc` prints and the "Remote Control disconnected." it prints on the
+way out, whichever came last, with neither on screen changing nothing, since
+the URL scrolls away in a long session.
+
+Both directions are `/rc` through the control queue (`POST` and `DELETE
+/api/sessions/<id>/rc`). With Remote Control on, `/rc` draws a dialog rather
+than toggling, and `answerRemoteControlDialog()` answers it on the next poll:
+"Disconnect this session" for a pane asked to turn off, "Continue" for one
+asked to turn on, and nothing for a dialog the person opened. The asks live in
+`globalThis` (the route and the poll load the module separately in dev), and a
+second ask while one waits in the queue sends nothing, since another `/rc`
+would undo the first.
+The status line's `RemoteControlMenu.svelte` offers what fits the state and
+holds a pending state until the poll sees the change.
+
 ## Key Data Flow
 
 ```
