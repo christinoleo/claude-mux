@@ -6,19 +6,15 @@
  * session JSON the hooks write. It is the same `detectNotifications()` the
  * page runs, fed from the file watcher, so a push says what a desktop
  * notification would. Encryption and the push service's protocol stay behind
- * `PushSend`, which the web server provides with its VAPID keys.
+ * `PushSend`, which the web server provides with the fleet's VAPID keys.
+ *
+ * Each machine watches only its own sessions and sends to every device the
+ * fleet knows (`src/fleet-push.ts`), so an event leaves from the one machine
+ * that owns the session, once.
  */
 
-import {
-  getAllSessions,
-  getPushSubscriptions,
-  getSession,
-  removePushSubscriptions,
-  type PushEvents,
-  type PushSubscriptionRecord,
-  type Session,
-} from "../db/index.js";
-import { hostname } from "os";
+import { getAllSessions, getSession, type Session } from "../db/index.js";
+import type { PushEvents, PushSubscriptionRecord } from "../fleet-push.js";
 import {
   detectNotifications,
   notificationText,
@@ -35,7 +31,11 @@ export interface PushMessage {
   body: string;
   /** The session id: a newer push about the same session replaces the older one. */
   tag: string;
-  /** Where tapping it goes, relative to the server. */
+  /**
+   * Where tapping it goes: the session's page, naming its machine. Relative,
+   * so it opens on whichever machine's page the device subscribed through,
+   * which relays to the owner.
+   */
   url: string;
   kind: NotificationKind;
 }
@@ -53,19 +53,26 @@ function wantsEvent(events: PushEvents, kind: NotificationKind): boolean {
   return kind === "completion" ? events.done : events.needsYou;
 }
 
-/** The notification for one event, in the desktop notification's words. */
+/** The notification for one event on `machine` (its tailnet name), in the desktop notification's words. */
 export function pushMessageFor(
   session: Session,
   kind: NotificationKind,
+  machine: string,
   question: string | null = null,
 ): PushMessage {
   const issue = issueFor(session.git_root, session.maestro_issue);
   return {
-    ...notificationText({ ...session, issue, pane_choice: { question } }, kind, hostname()),
+    ...notificationText({ ...session, issue, pane_choice: { question } }, kind, machine),
     tag: session.id,
-    url: `/session/${encodeURIComponent(session.tmux_target ?? session.id)}`,
+    url: `/m/${encodeURIComponent(machine)}/session/${encodeURIComponent(session.tmux_target ?? session.id)}`,
     kind,
   };
+}
+
+/** Where the monitor finds the devices to push to, and how it forgets one that is gone. */
+export interface PushDevices {
+  subscriptions(): PushSubscriptionRecord[];
+  forget(endpoints: string[]): number;
 }
 
 /**
@@ -75,7 +82,8 @@ export function pushMessageFor(
 export async function deliverPush(
   message: PushMessage,
   send: PushSend,
-  subscriptions: PushSubscriptionRecord[] = getPushSubscriptions(),
+  devices: PushDevices,
+  subscriptions: PushSubscriptionRecord[] = devices.subscriptions(),
 ): Promise<number> {
   const targets = subscriptions.filter((s) => wantsEvent(s.events, message.kind));
   const results = await Promise.allSettled(targets.map((s) => send(s, message)));
@@ -85,7 +93,7 @@ export async function deliverPush(
     if (isGone(result.reason)) gone.push(targets[i].endpoint);
     else console.warn("[push] Send failed", { endpoint: targets[i].endpoint, error: String(result.reason) });
   });
-  return gone.length > 0 ? removePushSubscriptions(gone) : 0;
+  return gone.length > 0 ? devices.forget(gone) : 0;
 }
 
 /** How often the monitor reminds the GitHub cache which repos and issues it needs. */
@@ -107,10 +115,11 @@ async function dialogQuestion(session: Session): Promise<string | null> {
 
 /**
  * Watch the session files for as long as the server runs, whether or not any
- * page is open, and push each event to the devices that want it. Returns the
- * function that stops watching.
+ * page is open, and push each event to the devices that want it. `machine`
+ * is this machine's tailnet name, asked at each event since discovery learns
+ * it after the monitor starts. Returns the function that stops watching.
  */
-export function startPushMonitor(send: PushSend): () => void {
+export function startPushMonitor(send: PushSend, devices: PushDevices, machine: () => string): () => void {
   let seen = new Map<string, SeenSession>();
   let issuesWatchedAt = 0;
 
@@ -137,13 +146,13 @@ export function startPushMonitor(send: PushSend): () => void {
     }
     keepIssuesWarm();
     if (out.events.length === 0) return;
-    const subscriptions = getPushSubscriptions();
+    const subscriptions = devices.subscriptions();
     for (const { session, kind } of out.events) {
       // Nobody wants it: skip reading the pane for a message no one gets.
       if (!subscriptions.some((s) => wantsEvent(s.events, kind))) continue;
       void (async () => {
         const question = kind === "completion" ? null : await dialogQuestion(session);
-        await deliverPush(pushMessageFor(session, kind, question), send, subscriptions);
+        await deliverPush(pushMessageFor(session, kind, machine(), question), send, devices, subscriptions);
       })().catch((err) => console.warn("[push] Delivery failed", String(err)));
     }
   };

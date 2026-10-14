@@ -625,10 +625,12 @@ const PAST_REFRESH_MS = 30_000;
 /**
  * Where the fleet preferences come from (`src/server/fleet-prefs.ts`). Unlike
  * the fleet, they go to every client: a page reads them, and a peer that
- * follows this machine merges them into its own.
+ * follows this machine merges them into its own. A page is sent them without
+ * the keys the servers keep among themselves (`forPages()`).
  */
 export interface PrefsSource {
 	all(): unknown;
+	forPages(): unknown;
 	subscribe(listener: () => void): () => void;
 }
 
@@ -736,7 +738,7 @@ export class SessionsWsManager {
 					this.sendToClient(client, this.createFleetMessage(this.fleetSource));
 					this.sendToClient(client, this.createFleetPastMessage(this.fleetSource));
 				}
-				if (this.prefsSource) this.sendToClient(client, this.createPrefsMessage(this.prefsSource));
+				if (this.prefsSource) this.sendToClient(client, this.createPrefsMessage(this.prefsSource, !!options.fleet));
 				if (this.pastAll && this.liveIds) this.sendToClient(client, this.createPastMessage(this.pastAll, this.liveIds));
 			}
 		});
@@ -804,13 +806,16 @@ export class SessionsWsManager {
 		this.stopPrefs = source.subscribe(() => this.broadcastPrefs());
 	}
 
-	private createPrefsMessage(source: PrefsSource) {
-		return { type: 'prefs' as const, prefs: source.all(), timestamp: Date.now() };
+	/** The set as a page (`fleet`) or a peer is sent it. */
+	private createPrefsMessage(source: PrefsSource, page: boolean) {
+		return { type: 'prefs' as const, prefs: page ? source.forPages() : source.all(), timestamp: Date.now() };
 	}
 
 	private broadcastPrefs(): void {
 		if (!this.prefsSource || this.clients.size === 0) return;
-		this.broadcastTo(this.clients, this.createPrefsMessage(this.prefsSource));
+		const peers = new Set([...this.clients].filter((c) => !this.fleetClients.has(c)));
+		this.broadcastTo(this.fleetClients, this.createPrefsMessage(this.prefsSource, true));
+		this.broadcastTo(peers, this.createPrefsMessage(this.prefsSource, false));
 	}
 
 	private fleetTimer: ReturnType<typeof setTimeout> | null = null;

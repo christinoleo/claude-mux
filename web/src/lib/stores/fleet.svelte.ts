@@ -28,7 +28,7 @@ import type { ProjectReport } from '$shared/fleet-projects.js';
 import type { PluginsReport } from '$shared/fleet-plugins.js';
 import type { PastSession } from '$shared/past-session.js';
 import type { ServerInfo } from '$lib/types/servers';
-import { parseRef } from '$lib/split-refs';
+import { parseRef, type PaneRef } from '$lib/split-refs';
 import { relayBase } from '$lib/session-route';
 import { VERSION } from '$shared/utils/version.js';
 import { PROTOCOL, belowMinimum, protocolRefusal } from '$shared/fleet-protocol.js';
@@ -125,6 +125,13 @@ class FleetStore {
 	visible: Machine[] = $derived(
 		this.selected === 'all' ? this.machines : this.machines.filter((m) => m.server.id === this.selected)
 	);
+
+	/**
+	 * The sessions of every machine that answers, this one's included: what
+	 * the tab title and the favicon count. An offline machine's last word is
+	 * left out, since nothing there can be answered from here.
+	 */
+	answering: Session[] = $derived(this.machines.filter((m) => m.local || m.online).flatMap((m) => m.sessions));
 
 	/** Whether there is more than this host to show. */
 	fleet: boolean = $derived(this.machines.length > 1);
@@ -253,6 +260,12 @@ export function setSettled(machine: Machine, sessionId: string, settled: boolean
 export function seenLabel(lastSeen: number, now: number): string {
 	const ago = formatAgo(lastSeen, now);
 	return ago === 'now' ? 'seen just now' : `seen ${ago} ago`;
+}
+
+/** How the page's routes name a session on `machine`: by target alone on this one, with the machine's name elsewhere. */
+export function sessionRef(machine: Machine, session: Session): PaneRef {
+	const target = session.tmux_target ?? session.id;
+	return machine.local ? { host: null, target } : { host: machine.server.hostname, target };
 }
 
 /** A machine's name as the page shows it. */

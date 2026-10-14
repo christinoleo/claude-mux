@@ -31,7 +31,7 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { modelDisplayName } from '$shared/claude/model-name.js';
 	import { serverStore } from '$lib/stores/servers.svelte';
-	import { blockedReason, routeMachine, sessionApiAt } from '$lib/stores/fleet.svelte';
+	import { blockedReason, fleetStore, routeMachine, sessionApiAt } from '$lib/stores/fleet.svelte';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { parseSessionPath, sessionPath } from '$lib/session-route';
 	import { formatRef } from '$lib/split-refs';
@@ -133,7 +133,7 @@
 	// Browser tab: the state emoji rides in front of the name, so a background
 	// tab says whether the session wants a human without being opened, and
 	// the count before it says how many sessions anywhere want one or are done.
-	const attention = $derived(attentionPrefix(sessionStore.sessions));
+	const attention = $derived(attentionPrefix(fleetStore.answering));
 	const pageTitle = $derived(
 		`${attention}${sessionStateVisual(indicatorState).emoji} ${
 			currentSession ? getSessionDisplayName(currentSession) : (target || 'Session')

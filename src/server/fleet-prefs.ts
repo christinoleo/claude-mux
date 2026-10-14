@@ -12,7 +12,7 @@
 
 import { readFileSync } from "node:fs";
 import { writeFileAtomic } from "../utils/atomic-write.js";
-import { isPrefKey, mergePrefs, type FleetPrefs } from "../fleet-prefs.js";
+import { isPrefKey, isServerOnlyKey, mergePrefs, type FleetPrefs } from "../fleet-prefs.js";
 
 export interface FleetPrefsOptions {
   selfId: string;
@@ -33,6 +33,11 @@ export class FleetPrefsStore {
 
   all(): FleetPrefs {
     return this.prefs;
+  }
+
+  /** The set without the keys the servers keep among themselves (`isServerOnlyKey()`): what a page is sent. */
+  forPages(): FleetPrefs {
+    return Object.fromEntries(Object.entries(this.prefs).filter(([key]) => !isServerOnlyKey(key)));
   }
 
   /**
