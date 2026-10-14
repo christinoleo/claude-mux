@@ -15,8 +15,10 @@
  */
 
 import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { isPidAlive } from "../utils/pid.js";
+import { writeFileAtomic } from "../utils/atomic-write.js";
 
 export type UpdateState = "running" | "ok" | "failed";
 
@@ -31,8 +33,8 @@ export interface UpdateJob {
   output: string;
 }
 
-/** How much of the update's output a status carries. */
-export const OUTPUT_TAIL = 8_000;
+/** How much of the update's output a status carries, in bytes. */
+const OUTPUT_TAIL = 8_000;
 
 interface JobFile {
   startedAt: number;
@@ -40,13 +42,22 @@ interface JobFile {
   pid: number | null;
 }
 
-/** Whether a process is still there. */
-function alive(pid: number): boolean {
+/** The last `OUTPUT_TAIL` bytes of the log, read without loading the rest. */
+function readTail(path: string): string {
+  let fd: number;
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
+    fd = openSync(path, "r");
+  } catch {
+    return "";
+  }
+  try {
+    const { size } = fstatSync(fd);
+    const length = Math.min(size, OUTPUT_TAIL);
+    const buf = Buffer.alloc(length);
+    readSync(fd, buf, 0, length, size - length);
+    return buf.toString("utf8");
+  } finally {
+    closeSync(fd);
   }
 }
 
@@ -62,7 +73,7 @@ function readText(path: string): string | null {
  * The last update started from `dir`, or null when none was. One whose shell
  * is gone without writing an exit code was killed, and counts as failed.
  */
-export function readUpdateJob(dir: string, isAlive: (pid: number) => boolean = alive): UpdateJob | null {
+export function readUpdateJob(dir: string, isAlive: (pid: number) => boolean = isPidAlive): UpdateJob | null {
   const raw = readText(join(dir, "job.json"));
   if (raw === null) return null;
   let job: JobFile;
@@ -71,8 +82,7 @@ export function readUpdateJob(dir: string, isAlive: (pid: number) => boolean = a
   } catch {
     return null;
   }
-  const log = readText(join(dir, "output.log")) ?? "";
-  const output = log.length > OUTPUT_TAIL ? log.slice(-OUTPUT_TAIL) : log;
+  const output = readTail(join(dir, "output.log"));
   const base = { startedAt: job.startedAt, fromVersion: job.fromVersion, output };
   const exit = readText(join(dir, "exit"));
   if (exit !== null && exit.trim() !== "") {
@@ -132,7 +142,7 @@ export function startUpdate(opts: StartUpdateOptions): { started: boolean; job: 
   closeSync(log);
   child.unref();
   const job: JobFile = { startedAt, fromVersion: opts.fromVersion, pid: child.pid ?? null };
-  writeFileSync(join(opts.dir, "job.json"), JSON.stringify(job));
+  writeFileAtomic(join(opts.dir, "job.json"), JSON.stringify(job));
   return {
     started: true,
     job: { startedAt, fromVersion: opts.fromVersion, state: "running", exitCode: null, finishedAt: null, output: "" },

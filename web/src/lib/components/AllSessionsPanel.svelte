@@ -11,7 +11,7 @@
 		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
-	import { apiBase, blockedReason, fleetStore, offlineReason, reachable, selfName, type Machine } from '$lib/stores/fleet.svelte';
+	import { apiBase, blockedReason, fleetStore, liveCount, offlineReason, reachable, selfName, type Machine } from '$lib/stores/fleet.svelte';
 	import { localRef, parseSessionPath, sessionPath } from '$lib/session-route';
 	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
 	import DiffBadge from '$lib/components/DiffBadge.svelte';
@@ -474,11 +474,6 @@
 	const tooOldMachines = $derived(
 		fleetStore.visible.filter((m) => !offlineReason(m, clock.now) && blockedReason(m, clock.now))
 	);
-
-	/** Live sessions per machine, for the machine filter. */
-	function liveCount(machine: Machine): number {
-		return machine.sessions.filter((s) => s.pane_alive !== false).length;
-	}
 
 	/** Whether a session there wants a person; never on an offline machine, whose dialogs may be long answered. */
 	function machineWants(machine: Machine): boolean {

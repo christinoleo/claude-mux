@@ -6,7 +6,6 @@ import {
   protocolOf,
   protocolRefusal,
   relayRefusal,
-  versionDrifts,
 } from "../src/fleet-protocol.js";
 
 describe("protocolOf", () => {
@@ -43,13 +42,5 @@ describe("the minimum protocol", () => {
     expect(relayRefusal(old, "/api/sessions")).not.toBeNull();
     expect(relayRefusal(old, "/api/update/other")).not.toBeNull();
     expect(relayRefusal(null, "/api/sessions")).toBeNull();
-  });
-});
-
-describe("versionDrifts", () => {
-  it("marks a machine on another version, or one that does not say", () => {
-    expect(versionDrifts("0.31.0", "0.31.0")).toBe(false);
-    expect(versionDrifts("0.30.9", "0.31.0")).toBe(true);
-    expect(versionDrifts(null, "0.31.0")).toBe(true);
   });
 });

@@ -52,8 +52,3 @@ export function relayRefusal(machine: MachineProtocol | null, path: string): str
   if (!machine || ALWAYS_RELAYED.has(path)) return null;
   return protocolRefusal(machine);
 }
-
-/** Whether a machine's version differs from this one's (unknown counts as differing). */
-export function versionDrifts(version: string | null, own: string): boolean {
-  return version !== own;
-}

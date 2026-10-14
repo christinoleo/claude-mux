@@ -186,6 +186,11 @@ export class FleetState {
     return true;
   }
 
+  /** One machine's state by its id, or null for one nobody knows. */
+  machine(id: string): FleetMachineState | null {
+    return this.peers.get(id)?.state ?? null;
+  }
+
   /** Every other machine, by name. */
   snapshot(): FleetMachineState[] {
     return [...this.peers.values()]

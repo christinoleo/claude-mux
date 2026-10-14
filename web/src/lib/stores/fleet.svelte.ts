@@ -231,6 +231,21 @@ export function seenLabel(lastSeen: number, now: number): string {
 	return ago === 'now' ? 'seen just now' : `seen ${ago} ago`;
 }
 
+/** A machine's name as the page shows it. */
+export function machineName(machine: Machine): string {
+	return machine.server.hostname || 'this machine';
+}
+
+/** Its sessions whose pane is still there. */
+export function liveCount(machine: Machine): number {
+	return machine.sessions.filter((s) => s.pane_alive !== false).length;
+}
+
+/** "offline, seen 3m ago", or "offline" for a machine never heard from. */
+export function offlineLabel(machine: Machine, now: number): string {
+	return machine.lastSeen ? `offline, ${seenLabel(machine.lastSeen, now)}` : 'offline';
+}
+
 /**
  * Why nothing can be done on a machine right now, or null when it answers.
  * Shown wherever an action on its sessions is turned off.
@@ -252,5 +267,5 @@ export function reachable(machine: Machine): boolean {
  * would refuse it, naming it the same way).
  */
 export function blockedReason(machine: Machine, now: number): string | null {
-	return offlineReason(machine, now) ?? (machine.local ? null : protocolRefusal({ hostname: machine.server.hostname, version: machine.version, protocol: machine.protocol }));
+	return offlineReason(machine, now) ?? protocolRefusal({ ...machine, hostname: machine.server.hostname });
 }

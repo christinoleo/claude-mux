@@ -62,8 +62,5 @@ export function ensureFleetState(): FleetState {
  * a notice naming it.
  */
 export function relayGate(machine: string, path: string): string | null {
-	const known = ensureFleetState()
-		.snapshot()
-		.find((m) => m.id === machine);
-	return relayRefusal(known ?? null, path);
+	return relayRefusal(ensureFleetState().machine(machine), path);
 }

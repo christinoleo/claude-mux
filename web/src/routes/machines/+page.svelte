@@ -2,10 +2,9 @@
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { clock } from '$lib/stores/clock.svelte';
-	import { apiBase, blockedReason, fleetStore, seenLabel, type Machine } from '$lib/stores/fleet.svelte';
+	import { apiBase, blockedReason, fleetStore, liveCount, machineName, offlineLabel, offlineReason, type Machine } from '$lib/stores/fleet.svelte';
 	import { browserIO, updateAll, updateMachine, updateOrder, type StepProgress } from '$lib/fleet-update';
 	import { VERSION } from '$shared/utils/version.js';
-	import { versionDrifts } from '$shared/fleet-protocol.js';
 
 	/**
 	 * The Machines view: every machine in the fleet with its version, whether
@@ -27,25 +26,18 @@
 	let runningAll = $state(false);
 	/** Set when "Update all" finishes: what failed, in order. */
 	let summary = $state<{ name: string; result: StepProgress }[] | null>(null);
-	let originUpdated = $state(false);
+	/** An update is under way, or queued behind one. */
+	const busy = $derived(Object.values(progress).some((p) => p.state !== 'ok' && p.state !== 'failed'));
+	/** This page's own machine came back on another version, so the page is stale. */
+	const originUpdated = $derived(
+		rows.some((r) => {
+			const p = progress[r.id];
+			return r.origin && p?.state === 'ok' && !!p.version && p.version !== VERSION;
+		})
+	);
 
-	const busy = $derived(Object.values(progress).some((p) => !['ok', 'failed', 'queued'].includes(p.state)));
-
-	function nameOf(m: Machine): string {
-		return m.server.hostname || 'this machine';
-	}
-
-	/** Why a machine cannot be updated from here right now; a machine too old for the relay still can be. */
-	function cannotUpdate(m: Machine): string | null {
-		if (m.local) return null;
-		if (!m.online) return blockedReason(m, clock.now);
-		return null;
-	}
-
-	async function runOne(row: Row): Promise<StepProgress> {
-		const result = await updateMachine(apiBase(row.machine), (p) => (progress[row.id] = p), browserIO);
-		if (row.origin && result.state === 'ok' && result.version && result.version !== VERSION) originUpdated = true;
-		return result;
+	function runOne(row: Row): Promise<StepProgress> {
+		return updateMachine(apiBase(row.machine), (p) => (progress[row.id] = p), browserIO);
 	}
 
 	async function updateOne(row: Row) {
@@ -54,17 +46,19 @@
 	}
 
 	async function updateEverything() {
-		const todo = rows.filter((r) => !cannotUpdate(r.machine));
+		// An offline machine cannot be reached to update; it is reported with the failures.
+		const skipped = rows.flatMap((r) => {
+			const why = offlineReason(r.machine, clock.now);
+			return why ? [{ name: machineName(r.machine), result: { state: 'failed', line: why, output: '', version: null } as StepProgress }] : [];
+		});
+		const todo = rows.filter((r) => !offlineReason(r.machine, clock.now));
 		summary = null;
 		runningAll = true;
 		progress = Object.fromEntries(todo.map((r) => [r.id, { state: 'queued', line: 'Waiting its turn', output: '', version: null }]));
 		try {
 			const results = await updateAll(todo, runOne);
-			const skipped = rows
-				.filter((r) => cannotUpdate(r.machine))
-				.map((r) => ({ name: nameOf(r.machine), result: { state: 'failed', line: cannotUpdate(r.machine) ?? '', output: '', version: null } as StepProgress }));
 			summary = [
-				...results.filter((r) => r.result.state === 'failed').map((r) => ({ name: nameOf(r.machine.machine), result: r.result })),
+				...results.filter((r) => r.result.state === 'failed').map((r) => ({ name: machineName(r.machine.machine), result: r.result })),
 				...skipped
 			];
 		} finally {
@@ -74,12 +68,7 @@
 
 	function stateLabel(m: Machine): string {
 		if (m.local) return 'this page’s machine';
-		if (m.online) return 'online';
-		return m.lastSeen ? `offline, ${seenLabel(m.lastSeen, clock.now)}` : 'offline';
-	}
-
-	function liveCount(m: Machine): number {
-		return m.sessions.filter((s) => s.pane_alive !== false).length;
+		return m.online ? 'online' : offlineLabel(m, clock.now);
 	}
 </script>
 
@@ -90,11 +79,11 @@
 		<div class="title">
 			<h1>Machines</h1>
 			<p class="lede">
-				This page runs on {nameOf(fleetStore.machines[0])}, claude-mux {VERSION}. Updates go one machine at a time,
+				This page runs on {machineName(fleetStore.machines[0])}, claude-mux {VERSION}. Updates go one machine at a time,
 				this one last.
 			</p>
 		</div>
-		<Button onclick={() => void updateEverything()} disabled={runningAll || busy || rows.length === 0}>
+		<Button onclick={() => void updateEverything()} disabled={busy || rows.length === 0}>
 			<iconify-icon icon={runningAll ? 'mdi:loading' : 'mdi:update'} class:spin={runningAll}></iconify-icon>
 			{runningAll ? 'Updating…' : 'Update all'}
 		</Button>
@@ -104,8 +93,9 @@
 		{#each rows as row (row.id)}
 			{@const m = row.machine}
 			{@const p = progress[row.id]}
-			{@const blocked = m.local ? null : blockedReason(m, clock.now)}
-			{@const drift = versionDrifts(m.version, VERSION)}
+			{@const blocked = blockedReason(m, clock.now)}
+			{@const offline = offlineReason(m, clock.now)}
+			{@const drift = m.version !== VERSION}
 			<li class="station {p?.state ?? 'idle'}" class:off={!m.online}>
 				<span class="node" aria-hidden="true">
 					{#if p?.state === 'ok'}<iconify-icon icon="mdi:check"></iconify-icon>
@@ -114,7 +104,7 @@
 				</span>
 				<div class="body">
 					<div class="line1">
-						<span class="name">{nameOf(m)}</span>
+						<span class="name">{machineName(m)}</span>
 						<span class="ver" class:drift title={drift ? `Differs from this page’s ${VERSION}` : 'Same as this page'}>
 							{m.version ?? 'version unknown'}
 						</span>
@@ -123,8 +113,8 @@
 							variant="outline"
 							size="sm"
 							class="upd"
-							disabled={busy || runningAll || !!cannotUpdate(m)}
-							title={cannotUpdate(m) ?? `Run claude-mux update on ${nameOf(m)}`}
+							disabled={busy || !!offline}
+							title={offline ?? `Run claude-mux update on ${machineName(m)}`}
 							onclick={() => void updateOne(row)}
 						>
 							Update
@@ -156,7 +146,7 @@
 
 	{#if originUpdated}
 		<div class="reload" role="status">
-			{nameOf(fleetStore.machines[0])} runs a new version now.
+			{machineName(fleetStore.machines[0])} runs a new version now.
 			<Button size="sm" variant="outline" onclick={() => location.reload()}>Reload the page</Button>
 		</div>
 	{/if}

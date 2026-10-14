@@ -77,14 +77,10 @@ export async function updateMachine(
 		return p;
 	};
 	const fail = (line: string, output = '') => report({ state: 'failed', line, output, version: null });
+	const ask = (method: 'GET' | 'POST') => io.request(url, method).catch((): Answer => null);
 
 	report({ state: 'starting', line: 'Starting the update…', output: '', version: null });
-	let started: Answer;
-	try {
-		started = await io.request(url, 'POST');
-	} catch {
-		started = null;
-	}
+	const started = await ask('POST');
 	if (!started) return fail('Did not answer');
 	// The relay's own 404 (a machine it does not know) carries an `error`; a machine without the route does not.
 	if (started.status === 404 && typeof started.body.error !== 'string') {
@@ -100,12 +96,8 @@ export async function updateMachine(
 
 	while (io.now() < deadline) {
 		await io.sleep(timing.pollMs);
-		let answer: Answer;
-		try {
-			answer = await io.request(url, 'GET');
-		} catch {
-			answer = null;
-		}
+		const answer = await ask('GET');
+		// Nobody answering, or the relay's 502 for a machine it cannot reach: a restart in progress.
 		if (!answer || answer.status >= 500) {
 			report({ state: 'restarting', line: 'Restarting…', output, version: null });
 			continue;
@@ -156,7 +148,6 @@ export const browserIO: UpdateIO = {
 		try {
 			const res = await fetch(url, { method, cache: 'no-store' });
 			const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-			// The relay answers 502 for a machine it cannot reach, which is a restart in progress.
 			return { status: res.status, body };
 		} catch {
 			return null;
