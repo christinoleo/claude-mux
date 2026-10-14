@@ -3,6 +3,8 @@ import {
   BrowserWsManager,
   findBrowserEntry,
   isTabId,
+  openableUrl,
+  openTab,
   parseTabs,
   tabForUrl,
   toCdpInput,
@@ -335,5 +337,133 @@ describe("BrowserWsManager", () => {
     socket.emit({ method: "Page.frameNavigated", params: { frame: { id: TAB, url: "https://a.example/" } } });
     expect(raw).toHaveLength(1);
     expect(JSON.parse(raw[0])).toMatchObject({ type: "frame", data: "AAAA" });
+  });
+});
+
+describe("openableUrl", () => {
+  it("takes a github.com pull request or issue page", () => {
+    expect(openableUrl("https://github.com/christinoleo/claude-mux/pull/124")).toBe(
+      "https://github.com/christinoleo/claude-mux/pull/124",
+    );
+    expect(openableUrl("https://github.com/christinoleo/claude-mux/issues/7")).toBe(
+      "https://github.com/christinoleo/claude-mux/issues/7",
+    );
+  });
+
+  it("refuses anything else", () => {
+    for (const url of [
+      "http://github.com/a/b/pull/1",
+      "https://github.com.evil.example/a/b/pull/1",
+      "https://evil.example/https://github.com/a/b/pull/1",
+      "https://github.com/a/b/pull/1/files",
+      "https://github.com/a/b/pull/1?x=1",
+      "https://github.com/a/b/pull/1#c",
+      "https://github.com/a/b",
+      "https://user@github.com/a/b/pull/1",
+      "javascript:alert(1)",
+      "",
+      42,
+      null,
+    ]) {
+      expect(openableUrl(url), String(url)).toBeNull();
+    }
+  });
+});
+
+describe("openTab", () => {
+  const endpoint = async () => ({ name: "brave-windows", origin: "http://100.1.2.3:9222" });
+  const page = (id: string, url: string) => ({ type: "page", id, url, title: "" });
+
+  function browser(list: unknown[]) {
+    const sent: { url: string; msg: Record<string, unknown> }[] = [];
+    let next = 0;
+    const fetchFake = (async (url: string) => {
+      const body = url.endsWith("/json/list")
+        ? list
+        : { webSocketDebuggerUrl: "ws://localhost:9222/devtools/browser/b-1234567890" };
+      return new Response(JSON.stringify(body));
+    }) as unknown as typeof fetch;
+    const connect = (url: string): CdpSocket => {
+      const socket: CdpSocket = {
+        send(data) {
+          const msg = JSON.parse(data);
+          sent.push({ url, msg });
+          const targetId = `NEWTAB-${String(++next).padStart(4, "0")}`;
+          list.push(page(targetId, String(msg.params.url)));
+          queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify({ id: msg.id, result: { targetId } }) }));
+        },
+        close() {},
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+      };
+      queueMicrotask(() => socket.onopen?.({}));
+      return socket;
+    };
+    return { sent, deps: { endpoint, fetch: fetchFake, connect } };
+  }
+
+  it("opens a background tab through the browser's own socket, reached at the configured address", async () => {
+    const b = browser([page("MINE-00001", "https://example.com/")]);
+    const url = "https://github.com/o/r/pull/1";
+    expect(await openTab(url, b.deps)).toEqual({ tab: "NEWTAB-0001" });
+    expect(b.sent).toEqual([
+      {
+        url: "ws://100.1.2.3:9222/devtools/browser/b-1234567890",
+        msg: { id: 1, method: "Target.createTarget", params: { url, background: true } },
+      },
+    ]);
+  });
+
+  it("reuses the tab it opened while that tab is open, and opens another once it is gone", async () => {
+    const list: Record<string, unknown>[] = [];
+    const b = browser(list);
+    const url = "https://github.com/o/r/issues/2";
+    const first = await openTab(url, b.deps);
+    expect(await openTab(url, b.deps)).toEqual(first);
+    expect(b.sent).toHaveLength(1);
+    list.splice(0);
+    expect(await openTab(url, b.deps)).not.toEqual(first);
+    expect(b.sent).toHaveLength(2);
+  });
+
+  it("keeps reusing its tab on the item's other pages, and opens another once that tab goes elsewhere", async () => {
+    const list: Record<string, unknown>[] = [];
+    const b = browser(list);
+    const url = "https://github.com/o/r/pull/5";
+    const first = await openTab(url, b.deps);
+    list[0].url = "https://github.com/o/r/pull/5/files";
+    expect(await openTab(url, b.deps)).toEqual(first);
+    list[0].url = "https://github.com/o/r/pull/6";
+    expect(await openTab(url, b.deps)).not.toEqual(first);
+    expect(b.sent).toHaveLength(2);
+  });
+
+  it("opens one tab for two asks at once", async () => {
+    const b = browser([]);
+    const url = "https://github.com/o/r/issues/8";
+    const [one, two] = await Promise.all([openTab(url, b.deps), openTab(url, b.deps)]);
+    expect(one).toEqual(two);
+    expect(b.sent).toHaveLength(1);
+  });
+
+  it("never hands over a tab someone else opened on the same page", async () => {
+    const url = "https://github.com/o/r/pull/3";
+    const b = browser([page("THEIRS-0001", url)]);
+    expect(await openTab(url, b.deps)).toEqual({ tab: "NEWTAB-0001" });
+  });
+
+  it("says why when the browser is not there", async () => {
+    const off = await openTab("https://github.com/o/r/pull/4", {
+      endpoint,
+      fetch: (async () => {
+        throw new Error("connect ECONNREFUSED");
+      }) as unknown as typeof fetch,
+    });
+    expect(off).toEqual({ error: expect.stringContaining("brave-windows") });
+    expect(await openTab("https://github.com/o/r/pull/4", { endpoint: async () => null })).toEqual({
+      error: "No browser is configured.",
+    });
   });
 });

@@ -452,6 +452,21 @@ matters more here since this one types into a logged-in browser. A viewer
 turned away is sent a `closed` message with the reason, which is what stops
 its reconnecting.
 
+The one deliberate exception is the GitHub pane's "Open in Browser", which
+shows the real github.com page so a person can comment, review or merge there
+(the pane itself only reads). It is offered only while `/api/browser/tabs`
+answers without an error, and only on a click: `POST /api/browser/open`
+takes a pull request or issue URL and nothing else (`openableUrl()`), and
+`openTab()` opens it with `Target.createTarget` and `background: true` on the
+browser's own socket, so the laptop's window keeps the tab it had in front
+and no tab already open changes. The pane is then switched to the Browser
+source pinned to that tab. A second click for the same page reuses the tab
+opened for it while that tab is open and still on the same pull request or
+issue, and two asks at once open one tab between them; only tabs `openTab()`
+opened are reused, never one a person opened. A tab pinned before the pane's
+list has seen it is looked for again before anything is streamed. Through the relay it opens in the session
+machine's browser, like the rest of the source.
+
 The tab shown defaults to the one the session last opened or selected:
 `src/transcript/browser-tab.ts` reads the last page list the MCP server
 printed in the log (`## Pages`, one marked `[selected]`) and the route matches

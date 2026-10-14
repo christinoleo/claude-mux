@@ -101,11 +101,26 @@
 		return () => clearInterval(timer);
 	});
 
+	/**
+	 * A pinned tab the list has not seen yet (one opened for the GitHub pane a
+	 * moment ago) is looked for once more before anything else is shown, so the
+	 * view never streams some other logged-in tab in its place.
+	 */
+	let lookingFor = $state<string | null>(null);
+	let lookedFor: string | null = null;
+	$effect(() => {
+		const want = tab;
+		if (!active || !want || !info || want === lookedFor || info.tabs.some((t) => t.id === want)) return;
+		lookedFor = want;
+		lookingFor = want;
+		untrack(() => void loadInfo().finally(() => (lookingFor = null)));
+	});
+
 	/** The tab on show, kept while it stays open however its URL changes. */
 	let staying = $state<string | null>(null);
 	/** The session's tab as last reported, to tell when the session moves to another. */
 	let followed: string | null = null;
-	const current = $derived(pickTab(info, tab, staying));
+	const current = $derived(lookingFor && lookingFor === tab ? null : pickTab(info, tab, staying));
 	const currentId = $derived(current?.id ?? null);
 	$effect(() => {
 		if (currentId) staying = currentId;

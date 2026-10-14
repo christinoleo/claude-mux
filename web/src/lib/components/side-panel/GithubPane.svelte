@@ -9,8 +9,14 @@
 	 * request of the session's branch, else the issue the session works on as a
 	 * worker. The row of refs above the header holds both, and the last few
 	 * opened here, to go back with a click.
+	 *
+	 * The pane only reads. To comment, review or merge, "Open in Browser"
+	 * shows the real page in the Web pane's Browser source, in a background
+	 * tab of the remote browser that is already signed in; it is offered only
+	 * while that browser answers.
 	 */
 	import { untrack } from 'svelte';
+	import { toast } from 'svelte-sonner';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
 	import { sessionApiAt } from '$lib/stores/fleet.svelte';
 	import { clock } from '$lib/stores/clock.svelte';
@@ -35,9 +41,10 @@
 		type GithubItemResult,
 		type SessionGithub
 	} from '$lib/github-items';
+	import { BROWSER_CHOICE, browserAnswers, openInBrowser } from '$lib/side-panel/browser';
 	import GithubRefCards from '$lib/components/GithubRefCards.svelte';
 
-	let { session, target, base, params, setParams, setActions, active }: PaneBodyProps = $props();
+	let { session, target, base, params, setParams, setActions, openPane, active }: PaneBodyProps = $props();
 
 	/** How often an item on screen is read again; the server's cache and ETag make most of these free. */
 	const REFRESH_MS = 60_000;
@@ -164,16 +171,49 @@
 	const visual = $derived(item && githubRefVisual(item));
 	const pull = $derived(item?.pull ?? null);
 
+	// ── the real page, in the remote browser ─────────────────────────────
+
+	/** How often the pane asks whether the remote browser answers, while showing. */
+	const BROWSER_POLL_MS = 30_000;
+	let browserUp = $state(false);
+	let opening = $state(false);
+
+	const showing = $derived(!!shown);
+	$effect(() => {
+		const at = base;
+		browserUp = false;
+		if (!active || !showing) return;
+		const ask = () => void browserAnswers(at).then((up) => base === at && (browserUp = up));
+		ask();
+		const id = setInterval(() => document.visibilityState === 'visible' && ask(), BROWSER_POLL_MS);
+		return () => clearInterval(id);
+	});
+
+	async function openInRemote(url: string) {
+		const from = { base, ref: shownKey };
+		opening = true;
+		const opened = await openInBrowser(base, url);
+		opening = false;
+		// The person moved on while the browser answered: leave the panel where they took it.
+		if (!active || base !== from.base || shownKey !== from.ref) return;
+		if ('tab' in opened) openPane('web', { url: BROWSER_CHOICE, tab: opened.tab });
+		else toast.error('Could not open it in the browser', { description: opened.error });
+	}
+
 	$effect(() => {
 		const want = shown;
-		setActions(
-			want
-				? [
-						{ icon: 'mdi:refresh', label: 'Read again', run: () => void load(want.repo, want.number, true), disabled: loading },
-						{ icon: 'mdi:open-in-new', label: 'Open on GitHub', run: () => window.open(item?.url ?? githubUrl(want.repo, want.number), '_blank', 'noopener') }
-					]
-				: []
-		);
+		if (!want) {
+			setActions([]);
+			return;
+		}
+		const pageUrl = item?.url ?? githubUrl(want.repo, want.number);
+		setActions([
+			{ icon: 'mdi:refresh', label: 'Read again', run: () => void load(want.repo, want.number, true), disabled: loading },
+			...(browserUp
+				? [{ icon: 'mdi:monitor-share', label: 'Open in Browser', run: () => void openInRemote(pageUrl), disabled: opening }]
+				: []),
+			{ icon: 'mdi:open-in-new', label: 'Open on GitHub', run: () => window.open(pageUrl, '_blank', 'noopener') }
+		]);
 	});
 
 	function githubUrl(repo: string, number: number): string {
