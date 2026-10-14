@@ -219,7 +219,8 @@ older slices with `history_request` — the same message the terminal uses for i
 scrollback. Delta messages carry each entry's index so a client holding only the
 tail can tell a new entry from an update to one it never received.
 
-A subagent opens as a window of its own at `/session/<target>/agent/<id>`. Its
+A subagent opens as a window of its own at `/session/<target>/agent/<id>`
+(`/m/<machine>/…` for another machine's, see §10). Its
 page connects to `/api/sessions/<id>/agents/<agent id>/transcript/stream`, which
 joins the parent session's state in `TranscriptWsManager` — the same tailer that
 feeds the Task cards — and is sent the same messages carrying that agent's
@@ -459,7 +460,32 @@ was opened on, so a page on `:8443` still finds machines on `:3456`. The server
 learns its own port from `CLAUDE_MUX_PORT`, which `serve` and the dev plugin
 set. The sidebar's actions on another machine's rows (kill, new session, mark
 unread, closing a project, the folder picker) go through `apiBase()` in
-`fleet.svelte.ts`; opening a remote session still navigates to its machine.
+`fleet.svelte.ts`.
+
+Another machine's session opens in this page, at `/m/<name>/session/<target>`
+(and `/m/<name>/session/<target>/agent/<id>`); `/session/<target>` still means
+the origin's own, so old links work. The `m/` routes render the same page
+components, which read the machine off the route. `web/src/lib/session-route.ts`
+builds and parses these paths (`sessionPath()`, `parseSessionPath()`) and turns
+the short name into where its API is reached (`machineBase()`): '' for the
+origin, named or not, and `/fleet/<id>` for another machine; a name discovery
+has not reported is tried as `/fleet/<name>` (`relayBase()`), which the relay
+answers 404. Both session pages read all this through `routeMachine()`
+(`fleet.svelte.ts`).
+Every call and socket the session page makes (transcript, terminal, send,
+queue and its edits, steer, voice, attachments, restart, rename, kill, visit,
+Remote Control, the slash-command list) is prefixed with that base, and the
+session itself comes from the fleet store's copy of that machine's broadcast
+(`fleetStore.remote()`), which the origin's own sessions socket carries. What the
+page keeps per session (drafts, attachments, view, side panel, the voice
+take's owner) is keyed by the ref the split already uses, `target` here and
+`host@target` elsewhere, since tmux targets repeat across machines; the voice
+store reaches the owner's machine through `sessionApi()`. The side panel's
+panes still read this machine (#95), so a remote row offers no "Open
+<pane>" menu. Another machine's session counts as missing ten seconds after
+the origin's socket answers without it, since one started from the sidebar is
+on the page before its machine lists it; a non-Claude pane started
+there opens on its own machine, whose broadcast lists Claude sessions only.
 
 Each machine also keeps a fleet state (`src/server/fleet-state.ts`): it
 subscribes to every other machine's `/api/sessions/stream`, as a peer (no

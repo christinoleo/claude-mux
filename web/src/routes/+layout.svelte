@@ -18,6 +18,9 @@
 	import SplitView from '$lib/components/SplitView.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
 	import { parseRef } from '$lib/split-refs';
+	import { localRef, parseSessionPath } from '$lib/session-route';
+	import { serverStore } from '$lib/stores/servers.svelte';
+	import { fleetStore, selfName } from '$lib/stores/fleet.svelte';
 	import NotificationCoordinator from '$lib/components/NotificationCoordinator.svelte';
 	import { Toaster } from '$lib/components/ui/sonner';
 
@@ -30,11 +33,11 @@
 	const embed = $derived($page.url.searchParams.has('embed'));
 
 	/** The two panes of a split, read off `/session/A?with=B`. */
-	const splitA = $derived(
-		$page.url.pathname.startsWith('/session/')
-			? parseRef(decodeURIComponent($page.url.pathname.split('/session/')[1]))
-			: null
-	);
+	const route = $derived.by(() => {
+		const parsed = parseSessionPath($page.url.pathname);
+		return parsed && { ...parsed, ref: localRef(parsed.ref, fleetStore.servers(), selfName()) };
+	});
+	const splitA = $derived(route && !route.ref.host ? parseRef(route.ref.target) : null);
 	const splitB = $derived.by(() => {
 		const raw = $page.url.searchParams.get('with');
 		return raw ? parseRef(raw) : null;
@@ -69,14 +72,10 @@
 	let isResizing = $state(false);
 
 	// Show sidebar only on session detail pages (not on main page)
-	const showSidebar = $derived($page.url.pathname.startsWith('/session/'));
+	const showSidebar = $derived(route !== null);
 
-	// Current session for screenshots panel
-	const currentTarget = $derived(
-		$page.url.pathname.startsWith('/session/')
-			? decodeURIComponent($page.url.pathname.split('/session/')[1])
-			: null
-	);
+	// This machine's session on the page, for the screenshots panel and alerts
+	const currentTarget = $derived(route && !route.ref.host && !route.rest ? route.ref.target : null);
 
 	/** The sessions on screen, which need no alert while the window is in front. */
 	const viewing = $derived(

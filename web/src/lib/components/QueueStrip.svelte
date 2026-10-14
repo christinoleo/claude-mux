@@ -19,6 +19,7 @@
 
 	let {
 		target,
+		base = '',
 		sessionId = null,
 		queue,
 		paneQueue = [],
@@ -27,6 +28,8 @@
 		onEdit
 	}: {
 		target: string;
+		/** The relay path to the session's machine, '' for this one. */
+		base?: string;
 		/** Attachments are stored per session id, which the thumbnails are fetched by. */
 		sessionId?: string | null;
 		queue: QueuedMessageInfo[];
@@ -48,11 +51,11 @@
 	let midpoints: number[] = [];
 
 	const total = $derived(queue.length + paneQueue.length);
-	const base = $derived(`/api/sessions/${encodeURIComponent(target)}`);
+	const api = $derived(`${base}/api/sessions/${encodeURIComponent(target)}`);
 
 	async function call(path: string, method: string, body?: object): Promise<void> {
 		error = null;
-		const res = await fetch(`${base}/${path}`, {
+		const res = await fetch(`${api}/${path}`, {
 			method,
 			headers: { 'Content-Type': 'application/json' },
 			body: body ? JSON.stringify(body) : undefined
@@ -108,7 +111,7 @@
 
 	const fileName = (path: string) => path.split('/').pop() ?? path;
 	const thumbUrl = (id: string, path: string) =>
-		`/api/sessions/${encodeURIComponent(id)}/attach?path=${encodeURIComponent(path)}`;
+		`${base}/api/sessions/${encodeURIComponent(id)}/attach?path=${encodeURIComponent(path)}`;
 </script>
 
 {#if total > 0}

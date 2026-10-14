@@ -13,11 +13,14 @@
 
 	let {
 		cwd,
+		base = '',
 		pinned = [],
 		query = '',
 		onselect
 	}: {
 		cwd?: string | null;
+		/** The relay path to the machine `cwd` is on, '' for this one. */
+		base?: string;
 		pinned?: string[];
 		query?: string;
 		onselect: (insert: string) => void;
@@ -43,17 +46,20 @@
 		agent: 'text-fuchsia-400'
 	};
 
+	/** What the list was loaded for: the cwd, on the machine it is on. */
+	const key = $derived(`${base}:${cwd}`);
+
 	export async function reload(force = false) {
-		if (!force && loadedFor === cwd && commands.length) return;
+		if (!force && loadedFor === key && commands.length) return;
 		loading = true;
 		error = null;
 		try {
 			const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : '';
-			const res = await fetch(`/api/commands${qs}`);
+			const res = await fetch(`${base}/api/commands${qs}`);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const data = await res.json();
 			commands = data.commands ?? [];
-			loadedFor = cwd;
+			loadedFor = key;
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -61,9 +67,9 @@
 		}
 	}
 
-	// Load on mount and whenever the cwd changes
+	// Load on mount and whenever the cwd, or the machine it is on, changes
 	$effect(() => {
-		cwd;
+		key;
 		void reload();
 	});
 

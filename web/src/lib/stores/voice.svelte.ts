@@ -6,6 +6,7 @@ import {
 	type RecorderResult
 } from '$lib/voice/recorder';
 import { createPersisted } from './persisted';
+import { sessionApi } from './fleet.svelte';
 
 export type VoiceStatus = 'idle' | 'recording' | 'transcribing' | 'error';
 export type VoiceLanguage = 'auto' | 'en' | 'pt';
@@ -44,6 +45,7 @@ class VoiceStore {
 	error = $state<string | null>(null);
 	startedAt = $state<number | null>(null);
 	level = $state<{ rms: number; peak: number }>({ rms: 0, peak: 0 });
+	/** The session a take is for, as a ref: its target here, `host@target` on another machine. */
 	ownerTarget = $state<string | null>(null);
 	/**
 	 * Which field of that session asked for the take: null for the composer,
@@ -214,7 +216,9 @@ class VoiceStore {
 		const qs = this.language === 'auto' ? '' : `?lang=${this.language}`;
 
 		try {
-			const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/voice${qs}`, {
+			const api = sessionApi(target);
+			if (!api) throw new Error('Not a session');
+			const res = await fetch(`${api}/voice${qs}`, {
 				method: 'POST',
 				headers: { 'Content-Type': result.mimeType },
 				body: result.blob,
