@@ -3,10 +3,11 @@
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { sessionStore, attentionPrefix } from '$lib/stores/sessions.svelte';
+	import { fleetStore } from '$lib/stores/fleet.svelte';
 	import { STORAGE_KEYS } from '$lib/constants';
 
 	// Sessions that want a person or finished unseen, so a background tab says so.
-	const attention = $derived(attentionPrefix(sessionStore.sessions));
+	const attention = $derived(attentionPrefix(fleetStore.answering));
 
 	type Phase = 'waiting' | 'redirecting' | 'fallback';
 	let phase = $state<Phase>('waiting');

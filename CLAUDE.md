@@ -587,7 +587,8 @@ machine asks of another would break an older one.
 
 Fleet preferences (what a person chose about the fleet: for now the project
 rail's order, the machine filter, the plugins marked "only here" and which
-sessions are settled) live on the servers and
+sessions are settled; Web Push's devices and key ride the same way, see
+Session States) live on the servers and
 are the same on every link and device; device preferences (notification mode,
 sound, theme, panel width) stay in browser storage. `src/fleet-prefs.ts` holds
 the keys and the merge: each key keeps the last value written to it, stamped
@@ -773,19 +774,29 @@ never touches it) and rides it on the broadcast as the live field
 and whenever a turn finishes while it is visible; the sidebar's "Mark unread"
 posts `{ unread: true }`, which rewinds the watermark to just before the turn
 ended. `isUnread()` compares the two, and a session nobody ever opened counts
-as read. Both tab titles count the sessions that want a person or are done.
+as read. Both tab titles count the sessions that want a person or are done,
+on every machine that answers.
 
 Alerts come from `NotificationCoordinator.svelte`, mounted once in the layout
 (never in a split's frames). `detectNotifications()` in
 `src/session-notifications.ts` compares each broadcast with the last one and
 raises an event when a session starts waiting on a person (or switches between
 a question and an approval) and when `turn_completed_at` advances; sessions
-seen for the first time raise nothing. In the background that becomes a
-system notification tagged with the session id; in front, a svelte-sonner
-toast. The sidebar foot holds the per-browser settings (mode
+seen for the first time raise nothing. The coordinator feeds it every
+machine's sessions (`fleetStore.machines`; session ids are unique across
+machines, so one map holds them all), names the session's machine in each
+alert, opens it at its own route (`sessionRef()`), and keeps quiet only for
+the sessions on screen, matched by machine and target. Only machines that
+answer are fed in, so one that drops out leaves `seen` and its return replays
+nothing it did while away. In the background
+that becomes a system notification tagged with the session id; in front, a
+svelte-sonner toast. The sidebar foot holds the per-browser settings (mode
 `off | notifications | sound | both`, in-page toasts), and the favicon carries
-a red count of sessions that want a person. The sounds are synthesised with
-WebAudio in `web/src/lib/notifications.ts`, so there are no audio assets.
+a red count of sessions that want a person. The favicon and both tab titles
+count the whole fleet (`fleetStore.answering`), leaving out an offline
+machine's last word, which nothing here can answer. The sounds are
+synthesised with WebAudio in `web/src/lib/notifications.ts`, so there are no
+audio assets.
 
 Web Push carries the same events to a device with no tab open, so its
 detection runs on the server: `startPushMonitor()` in `src/server/push.ts`
@@ -793,11 +804,37 @@ feeds the session JSON through the same `detectNotifications()` on every
 watcher change (and keeps the GitHub cache warm so a worker is named by its
 issue), from the moment the server starts (the `init` hook in
 `hooks.server.ts`), not when a page connects. It reads the dialog's question
-off the pane for the body and sends to the devices in
-`~/.claude-mux/push-subscriptions.json` that want that event, dropping any the
-push service answers 404/410. `web/src/lib/server/push.ts` holds the VAPID
-keys (`~/.claude-mux/vapid.json`) and the `web-push` call, which must stay a
-web devDependency so Vite bundles it into the server. `web/src/service-worker.ts`
+off the pane for the body and sends to every device that wants that event,
+forgetting any the push service answers 404/410.
+
+The devices and the key pair belong to the fleet, not to a machine
+(`src/fleet-push.ts`). They live in the fleet preferences under keys that
+start with `push:` (`isServerOnlyKey()`), so they spread between machines
+like any preference, but the sessions socket sends them only to another
+machine's fleet state (`isPeerLink()` in `src/server/fleet-relay.ts`: no
+`Origin`, and the `fleet-state` mark in the forwarded header, neither of which
+a browser can produce, even through the relay); everyone else gets
+`forPages()`, and a page cannot write them: `push:sub:<endpoint>` holds a device's keys, its events and the
+public key it subscribed with (null once forgotten), and `push:vapid` the
+fleet's VAPID pair. That one key keeps its first write rather than its last
+(`replaces()`), so the earliest pair made is the fleet's and every machine
+adopts it. Each machine watches only its own sessions and sends to every
+device on the list, which is how an event leaves once and a device subscribed
+through any machine hears all of them; a device subscribed under another key
+is passed over, and a stored pair that is no key pair never holds
+`push:vapid` against one that is. The push's `url` is `/m/<owner's tailnet name>/session/<target>`
+and relative, so a tap opens it on the origin the device subscribed through,
+whose relay reaches the owner. `FleetPush` (`src/server/fleet-push.ts`) reads
+and writes all this; on start it brings in what a machine kept before
+(`~/.claude-mux/vapid.json`, put forward with the file's time, and
+`push-subscriptions.json`, bound to that key), so of the machines' old pairs
+the oldest wins. When the fleet's key is not the one a device subscribed
+with, the page subscribes it again with the same events, without asking
+(`keepSubscriptionCurrent()` in `web/src/lib/push.ts`, run by the coordinator
+on load and whenever the page comes back into view); the old endpoint is
+forgotten. `web/src/lib/server/push.ts` holds `fleetPush()`, `vapidKeys()`
+and the `web-push` call, which must stay a web devDependency so Vite bundles
+it into the server. `web/src/service-worker.ts`
 shows the push (skipping it while any claude-mux window has focus, since the
 page alerts for itself there) and on a
 tap hands an open page the URL by `postMessage`, which `NotificationCoordinator`

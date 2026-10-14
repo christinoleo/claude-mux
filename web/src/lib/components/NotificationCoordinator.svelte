@@ -1,12 +1,15 @@
 <!--
-	Turns session changes into alerts: a system notification while the window
-	is in the background, a toast while it is in front, an optional sound, and
-	a count on the favicon. Draws nothing itself. Adapted from t3code's
+	Turns session changes on every machine in the fleet into alerts: a system
+	notification while the window is in the background, a toast while it is in
+	front, an optional sound, and a count on the favicon. Each names its
+	machine. Draws nothing itself. Adapted from t3code's
 	ThreadNotificationCoordinator (MIT, © T3 Tools Inc.).
 -->
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
+	import type { PaneRef } from '$lib/split-refs';
+	import { sessionPath } from '$lib/session-route';
 	import { toast } from 'svelte-sonner';
 	import {
 		detectNotifications,
@@ -14,8 +17,9 @@
 		type SeenSession,
 		type SessionNotification
 	} from '$shared/session-notifications.js';
-	import { sessionStore, wantsHuman, type Session } from '$lib/stores/sessions.svelte';
-	import { selfName } from '$lib/stores/fleet.svelte';
+	import { wantsHuman, type Session } from '$lib/stores/sessions.svelte';
+	import { fleetStore, machineName, sessionRef, type Machine } from '$lib/stores/fleet.svelte';
+	import { keepSubscriptionCurrent } from '$lib/push';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import {
 		hasDesktopNotifications,
@@ -25,8 +29,8 @@
 		unlockNotificationAudio
 	} from '$lib/notifications';
 
-	/** The tmux targets of the sessions on screen; a split shows two. */
-	let { viewing }: { viewing: string[] } = $props();
+	/** The sessions on screen, on any machine; a split shows two. */
+	let { viewing }: { viewing: PaneRef[] } = $props();
 
 	const mode = $derived(preferences.notificationMode);
 
@@ -42,20 +46,22 @@
 		return document.visibilityState === 'visible' && document.hasFocus();
 	}
 
-	function openSession(target: string): void {
-		void goto(`/session/${encodeURIComponent(target)}`);
+	function onScreen(machine: Machine, s: Session): boolean {
+		const host = machine.local ? null : machine.server.hostname.toLowerCase();
+		return viewing.some(
+			(ref) => (ref.host?.toLowerCase() ?? null) === host && (ref.target === s.tmux_target || ref.target === s.id)
+		);
 	}
 
-	function alert({ session: s, kind }: SessionNotification<Session>): void {
+	function alert({ session: s, kind }: SessionNotification<Session>, machine: Machine): void {
 		const inFront = windowInFront();
 		// The session you are looking at needs no alert: you can see it.
-		if (inFront && viewing.some((t) => t === s.tmux_target || t === s.id)) return;
+		if (inFront && onScreen(machine, s)) return;
 
 		if (hasNotificationSound(mode)) playNotificationSound(kind === 'completion' ? 'completion' : 'needs-you');
 
-		const host = selfName() || null;
-		const { title, body } = notificationText(s, kind, host);
-		const target = s.tmux_target ?? s.id;
+		const { title, body } = notificationText(s, kind, machineName(machine));
+		const openSession = () => void goto(sessionPath(sessionRef(machine, s)));
 
 		if (inFront) {
 			if (!preferences.inAppToasts) return;
@@ -63,7 +69,7 @@
 			show(title, {
 				id: `session-${s.id}`,
 				description: body.replace('\n', ' · '),
-				action: { label: 'Open', onClick: () => openSession(target) }
+				action: { label: 'Open', onClick: openSession }
 			});
 			return;
 		}
@@ -85,7 +91,7 @@
 			n.addEventListener('click', () => {
 				n.close();
 				window.focus();
-				openSession(target);
+				openSession();
 			});
 			n.addEventListener('close', () => {
 				if (open.get(s.id) === n) open.delete(s.id);
@@ -95,13 +101,19 @@
 		}
 	}
 
+	// Session ids are unique across machines, so one map holds the whole fleet.
+	// Only machines that answer are fed in: one that goes away drops out of
+	// `seen`, so what happened while it was gone is not replayed when it returns.
 	let seen = new Map<string, SeenSession>();
 	$effect(() => {
-		const out = detectNotifications(seen, sessionStore.sessions);
+		const answering = fleetStore.machines.filter((m) => m.local || m.online);
+		const machineOf = new Map<string, Machine>();
+		for (const m of answering) for (const s of m.sessions) machineOf.set(s.id, m);
+		const out = detectNotifications(seen, answering.flatMap((m) => m.sessions));
 		seen = out.seen;
 		// Only a new broadcast should re-run detection, not a preference or a navigation.
 		untrack(() => {
-			for (const event of out.events) alert(event);
+			for (const event of out.events) alert(event, machineOf.get(event.session.id)!);
 		});
 	});
 
@@ -135,6 +147,16 @@
 		};
 	});
 
-	const needingYou = $derived(sessionStore.sessions.filter((s) => s.pane_alive !== false && wantsHuman(s)).length);
+	// A device subscribed under a key the fleet has since replaced is moved to the new one.
+	$effect(() => {
+		const renew = () => {
+			if (document.visibilityState === 'visible') void keepSubscriptionCurrent().catch(() => {});
+		};
+		renew();
+		document.addEventListener('visibilitychange', renew);
+		return () => document.removeEventListener('visibilitychange', renew);
+	});
+
+	const needingYou = $derived(fleetStore.answering.filter((s) => s.pane_alive !== false && wantsHuman(s)).length);
 	$effect(() => setFaviconBadge(needingYou));
 </script>

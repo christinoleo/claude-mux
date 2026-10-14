@@ -17,7 +17,7 @@
 	import { STORAGE_KEYS } from '$lib/constants';
 	import SplitView from '$lib/components/SplitView.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
-	import { parseRef } from '$lib/split-refs';
+	import { parseRef, type PaneRef } from '$lib/split-refs';
 	import { isPastPath, localRef, parseSessionPath } from '$lib/session-route';
 	import { serverStore } from '$lib/stores/servers.svelte';
 	import { fleetStore, selfName } from '$lib/stores/fleet.svelte';
@@ -74,17 +74,14 @@
 	// Show sidebar only on session and past-session pages (not on main page)
 	const showSidebar = $derived(route !== null || isPastPath($page.url.pathname));
 
-	// This machine's session on the page, for the screenshots panel and alerts
+	// This machine's session on the page, for the screenshots panel
 	const currentTarget = $derived(route && !route.ref.host && !route.rest ? route.ref.target : null);
 
-	/** The sessions on screen, which need no alert while the window is in front. */
-	const viewing = $derived(
-		splitOn
-			? [splitA, splitB].filter((r) => r && !r.host).map((r) => r!.target)
-			: currentTarget
-				? [currentTarget]
-				: []
-	);
+	/** The sessions on screen, on any machine, which need no alert while the window is in front. */
+	const viewing = $derived.by((): PaneRef[] => {
+		if (splitOn) return [splitA!, localRef(splitB!, fleetStore.servers(), selfName())];
+		return route && !route.rest ? [route.ref] : [];
+	});
 
 	const currentSession = $derived(
 		sessionStore.sessions.find((s) => s.tmux_target === currentTarget || s.id === currentTarget)

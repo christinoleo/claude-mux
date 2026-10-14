@@ -1,9 +1,10 @@
 /**
- * This device's Web Push subscription, as the browser and the server each
- * hold it. The browser's PushManager owns the subscription itself; the server
- * keeps the events it should carry.
+ * This device's Web Push subscription, as the browser and the fleet each
+ * hold it. The browser's PushManager owns the subscription itself; the fleet
+ * keeps the events it should carry, on every machine (`src/fleet-push.ts`),
+ * so a device subscribed through one machine hears all of them.
  */
-import type { PushEvents } from '$shared/db/index.js';
+import type { PushEvents } from '$shared/fleet-push.js';
 
 export type { PushEvents };
 
@@ -37,11 +38,16 @@ export async function currentSubscription(): Promise<PushSubscription | null> {
 	return (await worker()).pushManager.getSubscription();
 }
 
-/** The events the server sends this device, or null when the server does not know it. */
-export async function serverEvents(subscription: PushSubscription): Promise<PushEvents | null> {
+/**
+ * The events the fleet sends this device, and whether it subscribed under the
+ * fleet's current key; null when the fleet does not know it.
+ */
+export async function serverEvents(
+	subscription: PushSubscription
+): Promise<{ events: PushEvents; current: boolean } | null> {
 	const res = await fetch(`/api/push/subscription?endpoint=${encodeURIComponent(subscription.endpoint)}`);
 	if (!res.ok) return null;
-	return ((await res.json()) as { events: PushEvents }).events;
+	return (await res.json()) as { events: PushEvents; current: boolean };
 }
 
 function toKey(base64url: string): Uint8Array<ArrayBuffer> {
@@ -61,15 +67,22 @@ async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> 
 	return data as T;
 }
 
-/** Tell the server about the subscription, or which events it now takes. */
+/** Tell the fleet about the subscription and the key it was made with, or which events it now takes. */
 export async function saveEvents(subscription: PushSubscription, events: PushEvents): Promise<PushEvents> {
-	return (await api<{ events: PushEvents }>('/api/push/subscription', 'POST', { ...subscription.toJSON(), events })).events;
+	const bound = subscription.options.applicationServerKey;
+	const vapid = bound ? toBase64Url(new Uint8Array(bound)) : undefined;
+	return (await api<{ events: PushEvents }>('/api/push/subscription', 'POST', { ...subscription.toJSON(), events, vapid }))
+		.events;
+}
+
+function toBase64Url(bytes: Uint8Array): string {
+	return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 /**
- * Ask for permission, subscribe with the server's key and register the
- * device. A subscription made under another key (the server's keys were
- * remade) is replaced, since the server could never reach it.
+ * Ask for permission, subscribe with the fleet's key and register the
+ * device. A subscription made under another key (the fleet adopted an older
+ * machine's) is replaced, since no machine could reach it.
  */
 export async function subscribe(events: PushEvents): Promise<PushSubscription> {
 	// The key is fetched while the permission prompt is up; neither waits on the other.
@@ -83,7 +96,7 @@ export async function subscribe(events: PushEvents): Promise<PushSubscription> {
 	let subscription = await manager.getSubscription();
 	const bound = subscription?.options.applicationServerKey;
 	if (subscription && (!bound || !sameBytes(new Uint8Array(bound), key))) {
-		await subscription.unsubscribe();
+		await unsubscribe(subscription);
 		subscription = null;
 	}
 	subscription ??= await manager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
@@ -102,4 +115,36 @@ export async function unsubscribe(subscription: PushSubscription): Promise<void>
 
 export async function sendTestPush(subscription: PushSubscription): Promise<void> {
 	await api('/api/push/test', 'POST', { endpoint: subscription.endpoint });
+}
+
+/**
+ * Keep this device's subscription on the fleet's key, without asking: a
+ * device subscribed under a key the fleet no longer uses (its machine's own,
+ * before the fleet adopted an older one) is subscribed again under the
+ * fleet's, taking the same events. Answers the subscription and its events as
+ * they stand after, or null where push is off.
+ */
+export function keepSubscriptionCurrent(): Promise<PushState | null> {
+	// Callers that overlap (the coordinator and the settings) share one run.
+	return (renewing ??= renew().finally(() => {
+		renewing = null;
+	}));
+}
+
+export interface PushState {
+	subscription: PushSubscription;
+	events: PushEvents;
+}
+
+let renewing: Promise<PushState | null> | null = null;
+
+async function renew(): Promise<PushState | null> {
+	if (pushUnavailable() || Notification.permission !== 'granted') return null;
+	const subscription = await currentSubscription();
+	if (!subscription) return null;
+	const known = await serverEvents(subscription);
+	// A device the fleet forgot (gone, or turned off elsewhere) stays off.
+	if (!known) return null;
+	if (known.current) return { subscription, events: known.events };
+	return { subscription: await subscribe(known.events), events: known.events };
 }

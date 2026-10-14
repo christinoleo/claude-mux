@@ -36,6 +36,15 @@ describe("FleetPrefsStore", () => {
     expect(heard).toBe(1);
   });
 
+  it("keeps the push keys among the servers: a page is sent the set without them", () => {
+    const prefs = store("omarchy");
+    prefs.set("rail-order", ["a"]);
+    prefs.merge({ "push:vapid": { value: { publicKey: "p", privateKey: "k" }, at: 1, by: "engage" } });
+    prefs.set("push:sub:https://push/1", null);
+    expect(Object.keys(prefs.all()).sort()).toEqual(["push:sub:https://push/1", "push:vapid", "rail-order"]);
+    expect(Object.keys(prefs.forPages())).toEqual(["rail-order"]);
+  });
+
   it("refuses a key or value it cannot keep", () => {
     const prefs = store("omarchy");
     expect(prefs.set("", true)).toBe(false);

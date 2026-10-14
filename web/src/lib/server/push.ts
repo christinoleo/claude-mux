@@ -1,10 +1,12 @@
-import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import webpush from 'web-push';
 import { getSessionsDir } from '$shared/db/index.js';
 import { startPushMonitor, type PushMessage } from '$shared/server/push.js';
-import type { PushSubscriptionRecord } from '$shared/db/index.js';
-import { writeFileAtomic } from '$shared/utils/atomic-write.js';
+import { FleetPush } from '$shared/server/fleet-push.js';
+import type { PushSubscriptionRecord, VapidKeys } from '$shared/fleet-push.js';
+import { MACHINE_ID } from '$lib/server/instance';
+import { selfName } from '$lib/server/discover';
+import { ensureFleetPrefs } from '$lib/server/fleet';
 
 /**
  * Who sends the pushes, as the push services see it. Apple refuses a subject
@@ -16,38 +18,32 @@ const VAPID_SUBJECT = 'https://github.com/christinoleo/claude-mux';
 /** How long a push service holds a message for a device that is offline. */
 const TTL_SECONDS = 60 * 60;
 
-interface VapidKeys {
-	publicKey: string;
-	privateKey: string;
-}
-
-let keys: VapidKeys | null = null;
+type GlobalWithPush = typeof globalThis & { __claudeMuxPushMonitor?: () => void; __claudeMuxFleetPush?: FleetPush };
 
 /**
- * The server's VAPID key pair, made once and kept in `~/.claude-mux/vapid.json`.
- * Every subscription is bound to the public key, so a new pair would orphan
- * every device that subscribed under the old one.
+ * The fleet's push keys and devices (`src/server/fleet-push.ts`), kept in the
+ * fleet preferences. On first use it brings in what this machine kept before
+ * push spread across the fleet: its own key pair in `~/.claude-mux/vapid.json`
+ * and its devices in `push-subscriptions.json`.
+ */
+export function fleetPush(): FleetPush {
+	const g = globalThis as GlobalWithPush;
+	if (g.__claudeMuxFleetPush) return g.__claudeMuxFleetPush;
+	const push = new FleetPush(ensureFleetPrefs(), MACHINE_ID);
+	const dir = dirname(getSessionsDir());
+	push.importLocal(join(dir, 'vapid.json'), join(dir, 'push-subscriptions.json'));
+	g.__claudeMuxFleetPush = push;
+	return push;
+}
+
+/**
+ * The fleet's VAPID key pair, made here when no machine has one yet. Every
+ * subscription is bound to the public key, so the fleet keeps the first pair
+ * made (`PUSH_VAPID`), and a page subscribes its device again when the key
+ * it holds is not this one.
  */
 export function vapidKeys(): VapidKeys {
-	if (keys) return keys;
-	const path = join(dirname(getSessionsDir()), 'vapid.json');
-	let raw: string | null = null;
-	try {
-		raw = readFileSync(path, 'utf-8');
-	} catch (err) {
-		// Missing is the first time anyone asked for push. Anything else (a
-		// permission problem) must not be papered over with a new pair.
-		if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-	}
-	if (raw !== null) {
-		const parsed = JSON.parse(raw) as Partial<VapidKeys>;
-		if (!parsed.publicKey || !parsed.privateKey) throw new Error(`${path} holds no VAPID key pair`);
-		keys = { publicKey: parsed.publicKey, privateKey: parsed.privateKey };
-		return keys;
-	}
-	keys = webpush.generateVAPIDKeys();
-	writeFileAtomic(path, JSON.stringify(keys, null, 2), 0o600);
-	return keys;
+	return fleetPush().ensureKeys(() => webpush.generateVAPIDKeys());
 }
 
 export function sendPush(subscription: PushSubscriptionRecord, message: PushMessage) {
@@ -60,10 +56,9 @@ export function sendPush(subscription: PushSubscriptionRecord, message: PushMess
 	});
 }
 
-type GlobalWithPush = typeof globalThis & { __claudeMuxPushMonitor?: () => void };
-
 /** Start the monitor once per process; dev reloads this module, so the guard lives on globalThis. */
 export function ensurePushMonitor(): void {
 	const g = globalThis as GlobalWithPush;
-	g.__claudeMuxPushMonitor ??= startPushMonitor(sendPush);
+	if (g.__claudeMuxPushMonitor) return;
+	g.__claudeMuxPushMonitor = startPushMonitor(sendPush, fleetPush(), selfName);
 }

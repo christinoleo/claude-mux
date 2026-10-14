@@ -45,9 +45,45 @@ export function settledKey(machineId: string, sessionId: string): string {
   return `settled:${machineId}:${sessionId}`;
 }
 
+/**
+ * Keys the servers keep among themselves: they spread from machine to machine
+ * like any other, but a page is never sent them and cannot write them. The
+ * Web Push key pair and the devices subscribed to it live here
+ * (`src/fleet-push.ts`).
+ */
+export const SERVER_ONLY_PREFIX = "push:";
+
+/**
+ * The fleet's Web Push key pair. Unlike every other key, the first write
+ * holds: the key every device subscribed with must not be replaced by one a
+ * machine made later, so the earliest made is the one the fleet keeps.
+ */
+export const PUSH_VAPID = "push:vapid";
+
+export function isServerOnlyKey(key: string): boolean {
+  return key.startsWith(SERVER_ONLY_PREFIX);
+}
+
 /** Whether `a` was written after `b`; the machine id breaks a tie, so every machine picks the same one. */
 export function isLater(a: PrefEntry, b: PrefEntry): boolean {
   return a.at !== b.at ? a.at > b.at : a.by > b.by;
+}
+
+/**
+ * Whether `incoming` replaces `mine` under `key`: the later write, or the
+ * earlier for `PUSH_VAPID`, where a pair that is no pair at all never holds
+ * the key against one that is (it could otherwise never be replaced).
+ */
+export function replaces(key: string, incoming: PrefEntry, mine: PrefEntry): boolean {
+  if (key !== PUSH_VAPID) return isLater(incoming, mine);
+  const usable = isKeyPair(incoming.value);
+  if (usable !== isKeyPair(mine.value)) return usable;
+  return isLater(mine, incoming);
+}
+
+function isKeyPair(value: unknown): boolean {
+  const pair = value as { publicKey?: unknown; privateKey?: unknown } | null;
+  return typeof pair?.publicKey === "string" && pair.publicKey !== "" && typeof pair.privateKey === "string" && pair.privateKey !== "";
 }
 
 export function isPrefKey(key: unknown): key is string {
@@ -55,7 +91,7 @@ export function isPrefKey(key: unknown): key is string {
 }
 
 /**
- * `current` with every entry of `incoming` that was written later, and the
+ * `current` with every entry of `incoming` that replaces its own (`replaces()`), and the
  * keys that changed. `incoming` is read as whatever another machine sent:
  * anything that is not a well-formed entry is skipped.
  */
@@ -67,7 +103,7 @@ export function mergePrefs(current: FleetPrefs, incoming: unknown): { prefs: Fle
     const parsed = PrefEntrySchema.safeParse(raw);
     if (!isPrefKey(key) || !parsed.success) continue;
     const mine = prefs[key];
-    if (mine && !isLater(parsed.data, mine)) continue;
+    if (mine && !replaces(key, parsed.data, mine)) continue;
     if (prefs === current) prefs = { ...current };
     prefs[key] = parsed.data;
     changed.push(key);
