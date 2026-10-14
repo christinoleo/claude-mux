@@ -277,6 +277,8 @@ const FleetMachineSchema = z.object({
 	lastSeen: z.number().nullable(),
 	retryAt: z.number().nullable(),
 	version: z.string().nullable(),
+	// Absent from an older machine's own fleet state.
+	protocol: z.number().nullable().default(null),
 	sessions: eachOf(EnrichedSessionSchema),
 	projects: z.array(z.string()),
 	inbox: eachOf(InboxTicketSchema),

@@ -25,6 +25,7 @@ import { writeFileAtomic } from "../utils/atomic-write.js";
 import { ProjectReportSchema, type ProjectReport } from "../fleet-projects.js";
 import { eachOf } from "../types/ws-messages.js";
 import { openForwardedSocket } from "./fleet-relay.js";
+import { protocolOf } from "../fleet-protocol.js";
 
 /** A machine discovery found: its stable id, its name, and where its API is. */
 export interface PeerAddress {
@@ -43,6 +44,8 @@ export interface FleetMachineState extends PeerAddress {
   retryAt: number | null;
   /** Its claude-mux version, as its health check reports it; null if unknown. */
   version: string | null;
+  /** The protocol its health check reports (`src/fleet-protocol.ts`): 0 for one too old to say, null if unknown. */
+  protocol: number | null;
   /** Its sessions, projects and inbox as its last broadcast had them, untouched. */
   sessions: unknown[];
   projects: string[];
@@ -73,8 +76,8 @@ export interface FleetStateOptions {
   /** Where the state is kept on disk; null keeps it in memory only. */
   path: string | null;
   connect?: PeerConnector;
-  /** A peer's version, read when its socket opens. */
-  version?: (url: string) => Promise<string | null>;
+  /** A peer's version and protocol, read when its socket opens; null when it does not answer. */
+  health?: (url: string) => Promise<PeerHealth | null>;
   /** A peer's fleet preferences, as its socket sent them (`src/server/fleet-prefs.ts`). */
   prefs?: (prefs: unknown) => void;
   now?: () => number;
@@ -118,14 +121,14 @@ export class FleetState {
   private persistedAt = 0;
   private stopped = false;
   private readonly connect: PeerConnector;
-  private readonly readVersion: (url: string) => Promise<string | null>;
+  private readonly readHealth: (url: string) => Promise<PeerHealth | null>;
   private readonly now: () => number;
   readonly selfId: string;
 
   constructor(private readonly options: FleetStateOptions) {
     this.selfId = options.selfId;
     this.connect = options.connect ?? connectPeer;
-    this.readVersion = options.version ?? fetchVersion;
+    this.readHealth = options.health ?? fetchHealth;
     this.now = options.now ?? Date.now;
     for (const saved of this.restore()) {
       this.peers.set(saved.id, this.newPeer({ ...saved, online: false, retryAt: null }));
@@ -228,8 +231,10 @@ export class FleetState {
           link.send("ping");
         }, PING_MS);
         this.setState(peer, { online: true });
-        void this.readVersion(peer.state.url).then((version) => {
-          if (peer.link === link && version && version !== peer.state.version) this.setState(peer, { version });
+        void this.readHealth(peer.state.url).then((health) => {
+          if (peer.link !== link || !health) return;
+          if (health.version === peer.state.version && health.protocol === peer.state.protocol) return;
+          this.setState(peer, health);
         });
       },
       message: (data) => {
@@ -371,6 +376,7 @@ export class FleetState {
         ...emptyState({ id: m.id, hostname: String(m.hostname ?? m.id), url: m.url }),
         lastSeen: typeof m.lastSeen === "number" ? m.lastSeen : null,
         version: typeof m.version === "string" ? m.version : null,
+        protocol: typeof m.protocol === "number" ? m.protocol : null,
         sessions: Array.isArray(m.sessions) ? m.sessions : [],
         projects: Array.isArray(m.projects) ? m.projects : [],
         projectReports: Array.isArray(m.projectReports) ? ReportsSchema.parse(m.projectReports) : [],
@@ -388,6 +394,7 @@ function emptyState(address: PeerAddress): FleetMachineState {
     lastSeen: null,
     retryAt: null,
     version: null,
+    protocol: null,
     sessions: [],
     projects: [],
     projectReports: [],
@@ -441,13 +448,19 @@ export function connectPeer(url: string, handlers: PeerHandlers): PeerLink {
   };
 }
 
-/** A peer's version from its health check; null when it does not say. */
-export async function fetchVersion(url: string): Promise<string | null> {
+/** What a peer's health check says about what it runs. */
+export interface PeerHealth {
+  version: string | null;
+  protocol: number;
+}
+
+/** A peer's version and protocol from its health check; null when it does not answer. */
+export async function fetchHealth(url: string): Promise<PeerHealth | null> {
   try {
     const res = await fetch(new URL("/api/health", url), { signal: AbortSignal.timeout(5_000) });
     if (!res.ok) return null;
-    const data = (await res.json()) as { version?: unknown };
-    return typeof data.version === "string" ? data.version : null;
+    const data = (await res.json()) as { version?: unknown; protocol?: unknown };
+    return { version: typeof data.version === "string" ? data.version : null, protocol: protocolOf(data) };
   } catch {
     return null;
   }

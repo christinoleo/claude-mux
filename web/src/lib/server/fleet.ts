@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { FleetState } from '$shared/server/fleet-state.js';
 import { FleetPrefsStore } from '$shared/server/fleet-prefs.js';
+import { relayRefusal } from '$shared/fleet-protocol.js';
 import { CLAUDE_MUX_DIR } from '$shared/utils/paths.js';
 import { MACHINE_ID } from '$lib/server/instance';
 import { discoverServers, rememberMachines } from '$lib/server/discover';
@@ -53,4 +54,16 @@ export function ensureFleetState(): FleetState {
 	void discover();
 	setInterval(discover, REDISCOVER_MS).unref?.();
 	return state;
+}
+
+/**
+ * The relay's gate (`RelayGate`): a machine whose health check says it is too
+ * old for this one is refused everything but its health and its update, with
+ * a notice naming it.
+ */
+export function relayGate(machine: string, path: string): string | null {
+	const known = ensureFleetState()
+		.snapshot()
+		.find((m) => m.id === machine);
+	return relayRefusal(known ?? null, path);
 }

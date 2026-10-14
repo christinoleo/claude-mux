@@ -56,7 +56,7 @@ function latest(url: string): FakeSocket {
 }
 
 function fleet(path: string | null = join(dir, "fleet.json")) {
-  return new FleetState({ selfId: "self", path, connect, version: async () => "1.2.3" });
+  return new FleetState({ selfId: "self", path, connect, health: async () => ({ version: "1.2.3", protocol: 1 }) });
 }
 
 const ENGAGE = { id: "engage-id", hostname: "engage", url: "https://engage:3456" };
@@ -96,7 +96,7 @@ describe("FleetState", () => {
 
     const snap = state.snapshot();
     expect(snap.map((m) => m.hostname)).toEqual(["distilo", "engage"]);
-    expect(snap[0]).toMatchObject({ online: true, version: "1.2.3", projects: ["/p/b"], retryAt: null });
+    expect(snap[0]).toMatchObject({ online: true, version: "1.2.3", protocol: 1, projects: ["/p/b"], retryAt: null });
     expect(snap[0].sessions).toHaveLength(2);
     expect(snap[1]).toMatchObject({ online: true, sessions: [session("a")], projects: ["/p/a"] });
     state.stop();
@@ -260,6 +260,7 @@ describe("FleetState", () => {
       online: false,
       lastSeen: seen,
       version: "1.2.3",
+      protocol: 1,
       sessions: [session("a")],
       projects: ["/p/a"],
     });
@@ -328,7 +329,7 @@ describe("connectPeer", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 
-    const state = new FleetState({ selfId: "self", path: null, version: async () => null });
+    const state = new FleetState({ selfId: "self", path: null, health: async () => null });
     state.update([{ id: "peer", hostname: "peer", url }]);
     await vi.waitFor(() => expect(state.snapshot()[0].sessions).toEqual([session("a")]));
     expect(state.snapshot()[0].online).toBe(true);

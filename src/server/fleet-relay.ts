@@ -52,6 +52,13 @@ export function parseFleetPath(pathname: string): FleetPath | null {
 /** Where a machine's API is reached, by its id; null for a machine nobody knows. */
 export type MachineResolver = (machine: string) => Promise<string | null>;
 
+/**
+ * Why a page's request may not reach the owner's `path` on `machine` even
+ * though the machine is known (one too old for this one, `src/fleet-protocol.ts`),
+ * or null to let it through.
+ */
+export type RelayGate = (machine: string, path: string) => string | null;
+
 function errorResponse(status: number, error: string, machine: string): Response {
   return new Response(JSON.stringify({ error, machine }), {
     status,
@@ -86,18 +93,24 @@ const RESPONSE_HOP_HEADERS = new Set([
 ]);
 
 /**
- * Where a relayed request or socket goes: the base URL of `machine`, or the
+ * Where a relayed request or socket goes: the base URL of its machine, or the
  * refusal to answer with instead — 403 for another page's origin, 404 for a
- * machine nobody knows, both with a JSON reason.
+ * machine nobody knows, 426 for one the gate turns away, each with a JSON
+ * reason.
  */
 export async function admitRelay(
   origin: string | null | undefined,
   host: string | null | undefined,
-  machine: string,
-  resolve: MachineResolver
+  target: FleetPath,
+  resolve: MachineResolver,
+  gate?: RelayGate
 ): Promise<string | Response> {
+  const { machine } = target;
   if (!pageOriginAllowed(origin, host)) return errorResponse(403, "cross-origin request refused", machine);
-  return (await resolve(machine)) ?? errorResponse(404, "unknown machine", machine);
+  const base = await resolve(machine);
+  if (!base) return errorResponse(404, "unknown machine", machine);
+  const refused = gate?.(machine, target.path);
+  return refused ? errorResponse(426, refused, machine) : base;
 }
 
 /**
@@ -109,9 +122,10 @@ export async function relayRequest(
   request: Request,
   target: FleetPath,
   resolve: MachineResolver,
-  self: string
+  self: string,
+  gate?: RelayGate
 ): Promise<Response> {
-  const base = await admitRelay(request.headers.get("origin"), request.headers.get("host"), target.machine, resolve);
+  const base = await admitRelay(request.headers.get("origin"), request.headers.get("host"), target, resolve, gate);
   if (typeof base !== "string") return base;
 
   const headers = new Headers();

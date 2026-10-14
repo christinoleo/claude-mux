@@ -170,11 +170,12 @@ function devWebSocket() {
 			) {
 				// Loaded through Vite rather than imported: these are app modules,
 				// written against the app's aliases.
-				const [{ machineUrl }, { MACHINE_ID }] = await Promise.all([
+				const [{ machineUrl }, { MACHINE_ID }, { relayGate }] = await Promise.all([
 					server.ssrLoadModule('/src/lib/server/discover.ts'),
-					server.ssrLoadModule('/src/lib/server/instance.ts')
+					server.ssrLoadModule('/src/lib/server/instance.ts'),
+					server.ssrLoadModule('/src/lib/server/fleet.ts')
 				]);
-				const base = await admitRelay(req.headers.origin, req.headers.host, fleet.machine, machineUrl);
+				const base = await admitRelay(req.headers.origin, req.headers.host, fleet, machineUrl, relayGate);
 				if (typeof base !== 'string') {
 					socket.write(
 						`HTTP/1.1 ${base.status} ${STATUS_CODES[base.status]}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n${await base.text()}`

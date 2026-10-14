@@ -14,7 +14,7 @@ import {
 	transcriptWsManager
 } from '$lib/server/ws-managers.js';
 import { ensurePushMonitor } from '$lib/server/push.js';
-import { ensureFleetState } from '$lib/server/fleet.js';
+import { ensureFleetState, relayGate } from '$lib/server/fleet.js';
 import {
 	admitRelay,
 	openRelayUpstream,
@@ -71,7 +71,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		const host = event.request.headers.get('host');
 
 		if (fleet) {
-			const base = await admitRelay(origin, host, fleet.machine, machineUrl);
+			const base = await admitRelay(origin, host, fleet, machineUrl, relayGate);
 			if (typeof base !== 'string') return base;
 			// @ts-expect-error - platform is provided by svelte-adapter-bun
 			await event.platform.server.upgrade(event.platform.request, {
@@ -92,7 +92,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	if (fleet) return relayRequest(event.request, fleet, machineUrl, MACHINE_ID);
+	if (fleet) return relayRequest(event.request, fleet, machineUrl, MACHINE_ID, relayGate);
 
 	return resolve(event);
 };

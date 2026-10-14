@@ -11,6 +11,7 @@ import {
   parseFleetPath,
   relayRequest,
 } from "../../src/server/fleet-relay.js";
+import { relayRefusal } from "../../src/fleet-protocol.js";
 
 /**
  * The relay seam: an origin server running the relay, with a fake peer
@@ -61,7 +62,13 @@ const seenSockets: SeenSocket[] = [];
 async function resolveMachine(id: string): Promise<string | null> {
   if (id === "peer") return peerUrl;
   if (id === "gone") return deadUrl;
+  if (id === "old") return peerUrl;
   return null;
+}
+
+/** "old" is the same peer, reported as running a claude-mux older than the minimum protocol. */
+function gate(machine: string, path: string): string | null {
+  return relayRefusal(machine === "old" ? { hostname: "engage", version: "0.30.9", protocol: 0 } : null, path);
 }
 
 beforeAll(async () => {
@@ -131,7 +138,8 @@ beforeAll(async () => {
       new Request(url, { method: req.method, headers, body: body && new Uint8Array(body) }),
       target,
       resolveMachine,
-      ORIGIN_ID
+      ORIGIN_ID,
+      gate
     );
     res.writeHead(response.status, Object.fromEntries(response.headers));
     res.end(Buffer.from(await response.arrayBuffer()));
@@ -140,9 +148,9 @@ beforeAll(async () => {
   origin.on("upgrade", async (req, socket, head) => {
     const url = new URL(req.url ?? "/", originUrl);
     const target = parseFleetPath(url.pathname);
-    const base = target && (await admitRelay(req.headers.origin, req.headers.host, target.machine, resolveMachine));
+    const base = target && (await admitRelay(req.headers.origin, req.headers.host, target, resolveMachine, gate));
     if (!target || typeof base !== "string") {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.write(`HTTP/1.1 ${base ? base.status : 404} Refused\r\n\r\n`);
       socket.destroy();
       return;
     }
@@ -348,3 +356,31 @@ describe("relay over WebSocket", () => {
   });
 });
 
+
+describe("a machine below the minimum protocol", () => {
+  it("is refused with a notice naming it, before anything reaches it", async () => {
+    const before = seenRequests.length;
+    const res = await fetch(`${originUrl}/fleet/old/api/sessions/main%3A1.0/send`, { method: "POST", body: "hi" });
+    expect(res.status).toBe(426);
+    const body = await res.json();
+    expect(body.machine).toBe("old");
+    expect(body.error).toMatch(/^engage runs claude-mux 0\.30\.9, too old/);
+    expect(body.error).toMatch(/update engage first/);
+    expect(seenRequests.length).toBe(before);
+  });
+
+  it("still answers its health check and its update", async () => {
+    expect((await fetch(`${originUrl}/fleet/old/api/health`)).status).toBe(200);
+    const res = await fetch(`${originUrl}/fleet/old/api/update`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(seenRequests.at(-1)).toMatchObject({ method: "POST", url: "/api/update" });
+  });
+
+  it("has its sockets refused too", async () => {
+    const before = seenSockets.length;
+    const { closed, opened } = connect("/fleet/old/api/sessions/stream");
+    await expect(opened).rejects.toThrow();
+    await closed;
+    expect(seenSockets.length).toBe(before);
+  });
+});
