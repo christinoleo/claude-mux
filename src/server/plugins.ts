@@ -33,6 +33,8 @@ const READ_TIMEOUT_MS = 30_000;
 const STEP_TIMEOUT_MS = 90_000;
 /** A marketplace fetch, or an install that adds one: a large checkout far behind its remote takes minutes. */
 export const FETCH_TIMEOUT_MS = 10 * 60_000;
+/** How much of a step's output a job keeps, in characters. */
+const OUTPUT_TAIL = 8_000;
 
 export interface RunResult {
   code: number;
@@ -72,7 +74,8 @@ const defaultRun: Runner = (cmd, args, timeoutMs) =>
       },
       (err, stdout, stderr) => {
         const code = err ? (typeof err.code === "number" ? err.code : -1) : 0;
-        const timedOut = !!err && err.killed === true && !!err.signal;
+        // Killed for printing past maxBuffer is a failure of its own, not a timeout.
+        const timedOut = !!err && err.killed === true && !!err.signal && err.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
         done({ code, stdout: String(stdout), stderr: String(stderr || (err && code === -1 && !timedOut ? err.message : "")), timedOut });
       },
     );
@@ -205,7 +208,8 @@ export class PluginReader {
           (err): RunResult => ({ code: -1, stdout: "", stderr: String(err) }),
         );
         step.finishedAt = this.now();
-        const output = `${res.stdout}${res.stderr}`.trim();
+        // The page reads the job every second, through the relay for another machine.
+        const output = `${res.stdout}${res.stderr}`.trim().slice(-OUTPUT_TAIL);
         if (res.timedOut) {
           step.state = "timeout";
           step.output = `${output}\n(stopped after ${Math.round(limit / 60_000)} min without finishing)`.trimStart();

@@ -224,6 +224,8 @@ describe("alignPlan", () => {
       { name: "marketing-skills", repo: "coreyhaines31/marketingskills" },
     ]);
     expect(plan.unreachable).toEqual(["legal@synced"]);
+    // The marketplace installed from is updated first, in case it is behind unseen.
+    expect(plan.update).toEqual(["aknakos"]);
     expect(alignPlan(c, "omarchy")).toEqual({ update: [], install: [], enable: [], unreachable: [] });
   });
 

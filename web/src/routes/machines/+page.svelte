@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { apiBase, blockedReason, fleetStore, liveCount, machineName, offlineLabel, offlineReason, versionDrifts, type Machine } from '$lib/stores/fleet.svelte';
@@ -9,6 +9,7 @@
 	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
 	import { alignPlan, comparePlugins, type AlignAnswer, type AlignJob, type MachineStanding } from '$shared/fleet-plugins.js';
 	import { onlyHereKey } from '$shared/fleet-prefs.js';
+	import { formatSpinnerElapsed } from '$lib/format';
 
 	/**
 	 * The Machines view: every machine in the fleet with its version, whether
@@ -84,7 +85,7 @@
 	 * machine runs, how far its clock is from this one (`skew`, so a step's
 	 * elapsed time reads right), and what failed before or around it.
 	 */
-	type Aligning = { job: AlignJob | null; skew: number; error: string | null; unreachable: string[] };
+	type Aligning = { job: AlignJob | null; skew: number; error: string | null; unreachable: string[]; starting: boolean };
 	let aligning = $state<Record<string, Aligning>>({});
 	/** Machines whose job this page is reading, so one is never read twice over. */
 	const watching = new Set<string>();
@@ -92,24 +93,31 @@
 	const asked = new Set<string>();
 
 	const ALIGN_POLL_MS = 1_000;
+	/** Reads in a row that may go unanswered (the relay's 502, a network blip) before the run counts as lost. */
+	const ALIGN_MISSES = 10;
+
+	/** Change what this page holds on a machine's run, keeping the rest. */
+	function setAligning(id: string, change: Partial<Aligning>) {
+		const prev = aligning[id] ?? { job: null, skew: 0, error: null, unreachable: [], starting: false };
+		aligning[id] = { ...prev, ...change };
+	}
 
 	/** Why a machine's answer is not a job. */
 	function alignError(status: number, body: { error?: unknown }): string {
 		// The relay's own 404 (a machine it does not know) carries an `error`; a machine without the route does not.
-		if (typeof body.error === 'string') return body.error;
-		return status === 404 || status === 405 ? 'This machine’s claude-mux is too old for this; update it first.' : `HTTP ${status}`;
+		if (typeof body.error === 'string' && status !== 400) return body.error;
+		// 400: a machine that reads the plan's older shape.
+		return status === 400 || status === 404 || status === 405 ? 'This machine’s claude-mux is too old for this; update it first.' : `HTTP ${status}`;
 	}
 
 	/** Take in a machine's answer; false when there is nothing more to read. */
-	function takeAnswer(row: Row, res: Response, body: Partial<AlignAnswer> & { error?: unknown }): boolean {
-		const prev = aligning[row.id];
-		if (!res.ok && res.status !== 409) {
-			aligning[row.id] = { job: prev?.job ?? null, skew: prev?.skew ?? 0, error: alignError(res.status, body), unreachable: prev?.unreachable ?? [] };
+	function takeAnswer(row: Row, status: number, body: Partial<AlignAnswer> & { error?: unknown }): boolean {
+		if (status >= 400 && status !== 409) {
+			setAligning(row.id, { error: alignError(status, body), starting: false });
 			return false;
 		}
 		const job = body.job ?? null;
-		const skew = typeof body.now === 'number' ? Date.now() - body.now : 0;
-		aligning[row.id] = { job, skew, error: null, unreachable: prev?.unreachable ?? [] };
+		setAligning(row.id, { job, skew: typeof body.now === 'number' ? Date.now() - body.now : 0, error: null, starting: false });
 		return job?.state === 'running';
 	}
 
@@ -119,14 +127,18 @@
 		watching.add(row.id);
 		const release = clock.fine();
 		try {
+			let misses = 0;
 			for (;;) {
-				await new Promise((r) => setTimeout(r, ALIGN_POLL_MS));
-				const res = await fetch(`${apiBase(row.machine)}/api/plugins`);
-				if (!takeAnswer(row, res, await res.json().catch(() => ({})))) return;
+				await browserIO.sleep(ALIGN_POLL_MS);
+				const answer = await browserIO.request(`${apiBase(row.machine)}/api/plugins`, 'GET').catch(() => null);
+				if (!answer || answer.status >= 500) {
+					if (++misses < ALIGN_MISSES) continue;
+					setAligning(row.id, { error: 'Stopped answering while the run was under way' });
+					return;
+				}
+				misses = 0;
+				if (!takeAnswer(row, answer.status, answer.body)) return;
 			}
-		} catch (err) {
-			const prev = aligning[row.id];
-			aligning[row.id] = { job: prev?.job ?? null, skew: prev?.skew ?? 0, error: String(err), unreachable: prev?.unreachable ?? [] };
 		} finally {
 			watching.delete(row.id);
 			release();
@@ -142,38 +154,32 @@
 	 */
 	async function bringInLine(row: Row) {
 		const { unreachable, ...plan } = alignPlan(comparison, row.id);
-		aligning[row.id] = { job: null, skew: 0, error: null, unreachable };
+		aligning[row.id] = { job: null, skew: 0, error: null, unreachable, starting: true };
 		try {
 			const res = await fetch(`${apiBase(row.machine)}/api/plugins`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(plan)
 			});
-			if (takeAnswer(row, res, await res.json().catch(() => ({})))) await watchAlign(row);
+			if (takeAnswer(row, res.status, await res.json().catch(() => ({})))) await watchAlign(row);
 		} catch (err) {
-			aligning[row.id] = { job: null, skew: 0, error: String(err), unreachable };
+			setAligning(row.id, { error: String(err), starting: false });
 		}
 	}
 
 	// A job started before this page loaded (or from another page) is read too.
 	$effect(() => {
 		for (const row of rows) {
-			if (asked.has(row.id) || !row.machine.online || !row.machine.plugins || blockedReason(row.machine, clock.now)) continue;
+			if (asked.has(row.id) || !row.machine.online || !row.machine.plugins || untrack(() => blockedReason(row.machine, clock.now))) continue;
 			asked.add(row.id);
-			void fetch(`${apiBase(row.machine)}/api/plugins`)
-				.then(async (res) => {
-					if (!res.ok) return;
-					const body = (await res.json()) as AlignAnswer;
-					if (body.job?.state === 'running' && !aligning[row.id]) {
-						takeAnswer(row, res, body);
-						void watchAlign(row);
-					}
-				})
-				.catch(() => {});
+			void browserIO.request(`${apiBase(row.machine)}/api/plugins`, 'GET').then((answer) => {
+				const body = answer?.body as Partial<AlignAnswer> | undefined;
+				if (answer && body?.job?.state === 'running' && !aligning[row.id] && takeAnswer(row, answer.status, body)) void watchAlign(row);
+			});
 		}
 	});
 
-	const running = (a: Aligning | undefined) => !!a && !a.error && (a.job === null || a.job.state === 'running');
+	const running = (a: Aligning | undefined) => !!a && !a.error && (a.starting || a.job?.state === 'running');
 
 	/** Where a running job is: its step, its place in the plan, and how long a fetch has run. */
 	function alignLine(a: Aligning): string {
@@ -183,13 +189,8 @@
 		const step = steps[i];
 		let line = `${step.label} (${i + 1}/${steps.length})`;
 		const elapsed = step.startedAt === null ? 0 : clock.now - a.skew - step.startedAt;
-		if (elapsed >= 5_000) line += `, ${step.kind === 'enable' ? 'still running' : 'still fetching'} ${formatElapsed(elapsed)}`;
+		if (elapsed >= 5_000) line += `, ${step.kind === 'update' ? 'still fetching' : 'still running'} ${formatSpinnerElapsed(Math.floor(elapsed / 1000))}`;
 		return line;
-	}
-
-	function formatElapsed(ms: number): string {
-		const s = Math.floor(ms / 1000);
-		return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
 	}
 
 	/** What went wrong in a run: the steps that failed or timed out, plus what could not be planned or asked. */

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PluginReader, type RunResult, type Runner } from "../../src/server/plugins.js";
+import { FETCH_TIMEOUT_MS, PluginReader, type RunResult, type Runner } from "../../src/server/plugins.js";
 
 const HEAD = "1".repeat(40);
 const GCS = "2".repeat(40);
@@ -122,7 +122,7 @@ describe("PluginReader.startAlign", () => {
     // Only the marketplace that is behind is fetched, with a limit of minutes.
     expect(gates).toHaveLength(1);
     expect(gates[0].args).toEqual(["plugin", "marketplace", "update", "scientific"]);
-    expect(gates[0].timeoutMs).toBeGreaterThanOrEqual(5 * 60_000);
+    expect(gates[0].timeoutMs).toBe(FETCH_TIMEOUT_MS);
 
     now = 61_000;
     expect(reader.alignJob()?.steps[0]).toMatchObject({ state: "running", startedAt: 1_000, finishedAt: null });

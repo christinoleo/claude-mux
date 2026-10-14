@@ -639,8 +639,8 @@ Each row says how its machine stands, and `PluginMatrix.svelte` lays the
 machines side by side, showing only the rows that differ until asked. "Bring
 in line" sends `alignPlan()`, worked out in the page from the whole fleet, to
 `POST <base>/api/plugins` in one request: `claude plugin marketplace update
-<name>` for each marketplace that machine has behind (never all of them: one
-can be a large checkout far behind its remote), then each install (from the
+<name>` for each marketplace that machine has behind or is about to install
+from (never all of them: one can be a large checkout far behind its remote), then each install (from the
 marketplace under the name that machine gives it, or with `--marketplace
 <repo>` when it has none) and enable, carrying on past a step that fails, and
 a fresh read. A fetch can take minutes and Bun drops a request idle for 10 s,

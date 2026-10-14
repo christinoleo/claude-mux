@@ -198,7 +198,7 @@ type InstallStep = { name: string; marketplace: string } | { name: string; repo:
 
 /** What "Bring in line" runs on one machine: each marketplace update, then each install and enable. */
 export interface AlignPlan {
-  /** Names, as the machine calls them, of its marketplaces behind their latest commit. */
+  /** Names, as the machine calls them, of its marketplaces behind their latest commit or about to be installed from. */
   update: string[];
   install: InstallStep[];
   /** Ids, as the machine names them, of plugins it has turned off. */
@@ -222,7 +222,11 @@ export function alignPlan(comparison: PluginComparison, id: string): AlignPlan {
   }
   for (const row of standing.missing) {
     const local = comparison.marketplaces.find((m) => m.key === row.marketplaceKey)?.on[id];
-    if (local) plan.install.push({ name: row.name, marketplace: local.name });
+    if (local) {
+      plan.install.push({ name: row.name, marketplace: local.name });
+      // Its latest commit may be unknown (a private repo), so it may be behind unseen and lack the plugin.
+      if (!plan.update.includes(local.name)) plan.update.push(local.name);
+    }
     else if (row.repo) plan.install.push({ name: row.name, repo: row.repo });
     else plan.unreachable.push(`${row.name}@${row.marketplace}`);
   }
