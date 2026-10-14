@@ -11,7 +11,8 @@
  *
  * Nothing here closes, navigates, reorders or activates a tab: a viewer sees
  * the tab where it is. The one thing a viewer can do to a tab besides typing
- * and pointing at it is reload it.
+ * and pointing at it is reload it. The one exception is `openTab()`, which
+ * opens a GitHub page in a new background tab when a person asks for it.
  */
 
 import { execFile } from 'child_process';
@@ -21,6 +22,7 @@ import { isIP } from 'net';
 import { homedir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
+import { parseGithubRefUrl } from '../github-ref.js';
 import { lastBrowserPage } from '../transcript/browser-tab.js';
 import type { WsClient } from './ws-handlers.js';
 
@@ -254,6 +256,113 @@ export async function browserInfo(transcriptPath: () => string | null): Promise<
 	const path = transcriptPath();
 	const last = path ? await lastBrowserPage(path, entry.name) : null;
 	return { name: entry.name, error: null, tabs, preferred: tabForUrl(tabs, last) };
+}
+
+// ── opening a tab ───────────────────────────────────────────────────────
+
+/**
+ * The URL `openTab()` may open: a github.com pull request or issue page, given
+ * back in its plain form, or null for anything else. Opening a tab in a
+ * logged-in browser is only ever for this.
+ */
+export function openableUrl(text: unknown): string | null {
+	if (typeof text !== 'string' || text.length > 512) return null;
+	let url: URL;
+	try {
+		url = new URL(text);
+	} catch {
+		return null;
+	}
+	if (url.protocol !== 'https:' || url.host !== 'github.com' || url.search || url.hash) return null;
+	const ref = parseGithubRefUrl(url.href);
+	if (!ref) return null;
+	const plain = `https://github.com/${ref.repo}/${ref.kind === 'pull' ? 'pull' : 'issues'}/${ref.number}`;
+	return url.href === plain ? plain : null;
+}
+
+/** One CDP call on a socket of its own, for the browser target. Rejects on failure or after `REQUEST_TIMEOUT_MS`. */
+function cdpOnce(
+	connect: (url: string) => CdpSocket,
+	wsUrl: string,
+	method: string,
+	params: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+	return new Promise((resolve, reject) => {
+		const socket = connect(wsUrl);
+		const finish = (err: Error | null, result?: Record<string, unknown>) => {
+			clearTimeout(timer);
+			socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+			try {
+				socket.close();
+			} catch {
+				// already gone
+			}
+			if (err) reject(err);
+			else resolve(result ?? {});
+		};
+		const timer = setTimeout(() => finish(new Error('The browser did not answer.')), REQUEST_TIMEOUT_MS);
+		socket.onopen = () => socket.send(JSON.stringify({ id: 1, method, params }));
+		socket.onmessage = (ev) => {
+			let msg: { id?: number; result?: Record<string, unknown>; error?: { message?: string } };
+			try {
+				msg = JSON.parse(String(ev.data));
+			} catch {
+				return;
+			}
+			if (msg.id !== 1) return;
+			if (msg.error) finish(new Error(msg.error.message ?? 'The browser refused.'));
+			else finish(null, msg.result);
+		};
+		socket.onerror = () => finish(new Error('Could not reach the browser.'));
+		socket.onclose = () => finish(new Error('Could not reach the browser.'));
+	});
+}
+
+export interface OpenTabDeps {
+	connect?: (url: string) => CdpSocket;
+	endpoint?: () => Promise<BrowserEndpoint | null>;
+	fetch?: typeof fetch;
+}
+
+/**
+ * The tabs `openTab()` opened, by URL. Only these are reused: a tab a person
+ * opened is never handed to the pane as if it were one of ours. Kept on
+ * `globalThis` because routes load this module apart from the rest in dev.
+ */
+const openedTabs: Map<string, string> = ((globalThis as { __claudeMuxOpenedTabs?: Map<string, string> }).__claudeMuxOpenedTabs ??=
+	new Map());
+
+/**
+ * A tab showing `url` (an `openableUrl()`): the one opened for it before if it
+ * is still open, else a new one, opened in the background so the browser's
+ * own window keeps the tab it had in front.
+ */
+export async function openTab(url: string, deps: OpenTabDeps = {}): Promise<{ tab: string } | { error: string }> {
+	const connect = deps.connect ?? ((u: string) => new WebSocket(u) as unknown as CdpSocket);
+	const get = deps.fetch ?? fetch;
+	const endpoint = await (deps.endpoint ?? browserEndpoint)();
+	if (!endpoint) return { error: 'No browser is configured.' };
+	try {
+		const listed = await get(`${endpoint.origin}/json/list`, { signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
+		if (!listed.ok) throw new Error(`HTTP ${listed.status}`);
+		const tabs = parseTabs(await listed.json());
+		const had = openedTabs.get(url);
+		if (had && tabs.some((t) => t.id === had)) return { tab: had };
+		openedTabs.delete(url);
+
+		const version = await get(`${endpoint.origin}/json/version`, { signal: AbortSignal.timeout(LIST_TIMEOUT_MS) });
+		if (!version.ok) throw new Error(`HTTP ${version.status}`);
+		const { webSocketDebuggerUrl } = (await version.json()) as { webSocketDebuggerUrl?: unknown };
+		if (typeof webSocketDebuggerUrl !== 'string') throw new Error('The browser named no DevTools socket.');
+		// The browser names its socket by whatever host it was asked on; ask it where this server reaches it.
+		const wsUrl = `${endpoint.origin.replace(/^http/, 'ws')}${new URL(webSocketDebuggerUrl).pathname}`;
+		const { targetId } = await cdpOnce(connect, wsUrl, 'Target.createTarget', { url, background: true });
+		if (typeof targetId !== 'string' || !isTabId(targetId)) throw new Error('The browser opened no tab.');
+		openedTabs.set(url, targetId);
+		return { tab: targetId };
+	} catch (err) {
+		return { error: `Could not open the page in ${endpoint.name}: ${err instanceof Error ? err.message : err}` };
+	}
 }
 
 // ── input ───────────────────────────────────────────────────────────────

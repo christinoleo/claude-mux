@@ -180,3 +180,34 @@ export function filterTabs(tabs: BrowserTab[], query: string): BrowserTab[] {
 		return words.every((w) => hay.includes(w));
 	});
 }
+
+/** Whether the remote browser on `base`'s machine answers, so a page can be opened in it. */
+export async function browserAnswers(base: string): Promise<boolean> {
+	try {
+		const res = await fetch(`${base}/api/browser/tabs`);
+		if (!res.ok) return false;
+		const info = (await res.json()) as BrowserInfo;
+		return !!info.name && !info.error;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Show a GitHub page in the remote browser, in a background tab of its own
+ * (the same one again for a page opened before), and answer that tab's id.
+ */
+export async function openInBrowser(base: string, url: string): Promise<{ tab: string } | { error: string }> {
+	try {
+		const res = await fetch(`${base}/api/browser/open`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ url })
+		});
+		const body = (await res.json().catch(() => null)) as { tab?: unknown; error?: unknown } | null;
+		if (res.ok && typeof body?.tab === 'string') return { tab: body.tab };
+		return { error: typeof body?.error === 'string' ? body.error : `HTTP ${res.status}` };
+	} catch (err) {
+		return { error: `Could not reach claude-mux: ${err}` };
+	}
+}
