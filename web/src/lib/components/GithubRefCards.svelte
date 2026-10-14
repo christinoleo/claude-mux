@@ -2,7 +2,8 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { githubRefVisual, type GithubRef } from '$shared/github-ref.js';
 	import { formatAgo } from '$lib/format';
-	import { chipQuery, drawChip, loadGithubRef } from '$lib/github-refs';
+	import { chipQuery, chipRef, drawChip, loadGithubRef } from '$lib/github-refs';
+	import { loadGithubItem } from '$lib/github-items';
 
 	// The chips arrive as HTML inside rendered messages, so nothing here is a
 	// component per link: one observer finds them under `root` as they are
@@ -10,12 +11,25 @@
 	// serves whichever chip is under the pointer.
 	let {
 		root,
-		session = null
+		session = null,
+		repo = null,
+		base = '',
+		onOpen
 	}: {
 		/** The element whose messages hold the chips. */
 		root: HTMLElement;
 		/** The session whose repo a bare `#n` is looked up in; null where there is none. */
 		session?: string | null;
+		/** The repo a bare `#n` names, where the chips sit in one repo's text; it wins over `session`. */
+		repo?: string | null;
+		/** Where the machine that reads GitHub is reached: '' for this one, `/fleet/<id>` for another. */
+		base?: string;
+		/**
+		 * Opens a chip in the GitHub pane, given its `owner/name#n`. With it a
+		 * plain click or a tap opens the pane, and a hover warms the pane's read;
+		 * Ctrl/Cmd-click and a middle click still go to github.com.
+		 */
+		onOpen?: (ref: string) => void;
 	} = $props();
 
 	const OPEN_MS = 250;
@@ -46,7 +60,7 @@
 
 	/** Ask about a chip and draw the answer into it; an answer of nothing leaves the link as written. */
 	async function resolve(a: HTMLAnchorElement): Promise<GithubRef | null> {
-		const query = chipQuery(a, session);
+		const query = chipQuery(a, { base, session, repo });
 		if (!query) return null;
 		const ref = await loadGithubRef(query);
 		if (ref && a.isConnected) drawChip(a, ref);
@@ -62,6 +76,8 @@
 		anchor = a;
 		now = Date.now();
 		open = true;
+		// The click that may follow lands on a read already made.
+		if (onOpen) void loadGithubItem(base, ref.repo, ref.number);
 	}
 
 	function later(ms: number, run: () => void) {
@@ -93,16 +109,26 @@
 		pressedWith = e.pointerType;
 	}
 
-	// A finger has no hover, so a tap on a chip opens its card, which holds the
-	// way through to GitHub; a second tap puts the card away. A link GitHub
-	// said nothing about is not a chip, and a tap follows it as ever.
+	// With the pane to open, a plain click or a tap on a chip opens it there; a
+	// modified click is the browser's, which takes the link to github.com.
+	// Without one, a finger has no hover, so a tap on a chip opens its card,
+	// which holds the way through to GitHub; a second tap puts the card away.
+	// A link GitHub said nothing about is not a chip, and a tap follows it as ever.
 	function onClick(e: MouseEvent) {
 		const by = pressedWith;
 		// A click from the keyboard has no press before it.
 		pressedWith = 'mouse';
-		if (by === 'mouse') return;
 		const a = chipAt(e.target, RESOLVED);
-		if (!a) return;
+		const ref = a && chipRef(a);
+		if (onOpen && ref && !e.defaultPrevented && e.button === 0 && !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
+			e.preventDefault();
+			wish++;
+			clearTimeout(timer);
+			open = false;
+			onOpen(ref);
+			return;
+		}
+		if (by === 'mouse' || !a) return;
 		e.preventDefault();
 		if (pressedOpenChip) open = false;
 		else void show(a);

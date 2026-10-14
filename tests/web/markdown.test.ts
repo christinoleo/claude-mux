@@ -145,3 +145,43 @@ describe("renderMarkdown with GitHub links", () => {
     expect(renderMarkdown(`#3 ${pull}`)).not.toContain("gh-ref");
   });
 });
+
+describe("renderMarkdown with githubBody", () => {
+  const media = (url: string) => `/proxy?u=${encodeURIComponent(url)}`;
+  const gh = (text: string) => renderMarkdown(text, { github: { bare: true }, githubBody: { media } });
+
+  it("draws an alert whose marker stands alone on the first line", () => {
+    const html = gh("> [!WARNING]\n> Mind the gap");
+    expect(html).toContain('<div class="gh-alert gh-alert-warning"><p class="gh-alert-title">Warning</p>');
+    expect(html).toContain("Mind the gap");
+    expect(html).not.toContain("[!WARNING]");
+  });
+
+  it("leaves a marker with text after it on its line as a quote", () => {
+    expect(gh("> [!NOTE] inline")).toContain("<blockquote>");
+  });
+
+  it("keeps details, summary and images, and drops comments", () => {
+    const html = gh('<details>\n<summary>Logs</summary>\n\nbody\n\n</details>\n\n<img src="https://github.com/user-attachments/assets/1" width="40" onerror="x()"> <!-- bot:marker -->');
+    expect(html).toContain("<details>");
+    expect(html).toContain("<summary>Logs</summary>");
+    expect(html).toContain('<img src="/proxy?u=https%3A%2F%2Fgithub.com%2Fuser-attachments%2Fassets%2F1" width="40" loading="lazy">');
+    expect(html).not.toContain("onerror");
+    expect(html).not.toContain("bot:marker");
+  });
+
+  it("shows a tag it does not keep as text", () => {
+    expect(gh('<script>alert(1)</script> <a href="javascript:x()">x</a>')).toContain("&lt;script&gt;");
+    expect(gh('<a href="javascript:x()">x</a>')).not.toContain("javascript:");
+  });
+
+  it("passes markdown images through media and sends links to a new tab", () => {
+    const html = gh("![shot](https://github.com/user-attachments/assets/2) [docs](https://example.com)");
+    expect(html).toContain('src="/proxy?u=');
+    expect(html).toContain('<a href="https://example.com" target="_blank" rel="noopener">docs</a>');
+  });
+
+  it("still marks references to issues as chips", () => {
+    expect(gh("see #12")).toContain('<a class="gh-ref" data-number="12">#12</a>');
+  });
+});

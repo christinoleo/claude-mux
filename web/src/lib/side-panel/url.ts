@@ -52,3 +52,13 @@ export function panelQuery(
 	}
 	return next;
 }
+
+/**
+ * Where a pull request or issue (`owner/name#n`) opens beside the session on
+ * screen: the page's own URL with the GitHub pane on it, or null when the
+ * page is not a session's (then the link goes to github.com).
+ */
+export function githubPaneHref(url: URL, ref: string, paneParams: readonly string[]): string | null {
+	if (!/^(?:\/m\/[^/]+)?\/session\/[^/]+\/?$/.test(url.pathname)) return null;
+	return `${url.pathname}?${panelQuery(url.searchParams, 'github', paneParams, { ref })}`;
+}

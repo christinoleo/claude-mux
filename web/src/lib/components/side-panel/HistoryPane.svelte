@@ -22,6 +22,8 @@
 	import { clock } from '$lib/stores/clock.svelte';
 	import { formatAgo } from '$lib/format';
 	import DiffLines from './DiffLines.svelte';
+	import GithubRefCards from '$lib/components/GithubRefCards.svelte';
+	import { renderMarkdown } from '$lib/markdown';
 
 	let { session, base, params, setParams, setActions, mention, openPane, active }: PaneBodyProps = $props();
 
@@ -30,6 +32,14 @@
 	const graph = $derived(params.view === 'graph');
 
 	// ── the commits ──────────────────────────────────────────────────────
+
+	let subjectEl = $state<HTMLElement | null>(null);
+
+	/** A subject as text, but with each `#n` marked to resolve in the session's repo. */
+	function subjectHtml(subject: string): string {
+		const html = renderMarkdown(subject.replace(/[\\`*_[\]<>]/g, '\\$&'), { github: { bare: true } }).trim();
+		return html.replace(/^<p>([\s\S]*)<\/p>$/, '$1');
+	}
 
 	let history = $state<History | null>(null);
 	let listError = $state<string | null>(null);
@@ -297,6 +307,9 @@
 				{/if}
 			</nav>
 
+			{#if subjectEl && sessionId}
+				<GithubRefCards root={subjectEl} session={sessionId} {base} onOpen={(ref) => openPane('github', { ref })} />
+			{/if}
 			<section class="detail" aria-label="Commit">
 				{#if picked}
 					<div class="head">
@@ -304,7 +317,8 @@
 							<iconify-icon icon="mdi:arrow-left"></iconify-icon>
 						</button>
 						<div class="title">
-							<h3>{picked.subject}</h3>
+							<!-- A `(#116)` in the subject is a chip that opens the GitHub pane. -->
+							<h3 bind:this={subjectEl}>{@html subjectHtml(picked.subject)}</h3>
 							<p class="who">
 								<span>{shortHash(picked.hash)}</span>
 								<span>{picked.author}</span>

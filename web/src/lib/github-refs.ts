@@ -5,6 +5,7 @@
  */
 
 import { githubRefVisual, parseRefNumber, type GithubRef } from '$shared/github-ref.js';
+import { refParam } from '$shared/github-item.js';
 
 /** How long an answer stands here before the server is asked again. */
 const TTL_MS = 60_000;
@@ -14,6 +15,8 @@ const MAX_ANSWERS = 300;
 
 /** What a chip asks about: a repo by name, or the repo of `session` for a bare `#n`. */
 export interface GithubRefQuery {
+	/** Where the machine that answers is reached: '' for this one, `/fleet/<id>` for another. */
+	base: string;
 	repo: string | null;
 	session: string | null;
 	number: number;
@@ -22,7 +25,7 @@ export interface GithubRefQuery {
 const answers = new Map<string, { until: number; ref: Promise<GithubRef | null> }>();
 
 function githubRefKey(q: GithubRefQuery): string {
-	return q.repo ? `${q.repo.toLowerCase()}#${q.number}` : `@${q.session ?? ''}#${q.number}`;
+	return q.repo ? `${q.base}|${q.repo.toLowerCase()}#${q.number}` : `${q.base}|@${q.session ?? ''}#${q.number}`;
 }
 
 async function fetchRef(q: GithubRefQuery): Promise<GithubRef | null> {
@@ -30,7 +33,7 @@ async function fetchRef(q: GithubRefQuery): Promise<GithubRef | null> {
 	if (q.repo) params.set('repo', q.repo);
 	else if (q.session) params.set('session', q.session);
 	try {
-		const res = await fetch(`/api/github/ref?${params}`);
+		const res = await fetch(`${q.base}/api/github/ref?${params}`);
 		if (!res.ok) return null;
 		return ((await res.json()) as { ref: GithubRef | null }).ref ?? null;
 	} catch {
@@ -54,13 +57,25 @@ export function loadGithubRef(q: GithubRefQuery): Promise<GithubRef | null> {
 	return ref;
 }
 
-/** The query a chip's attributes spell, or null for an element that is not one. */
-export function chipQuery(a: HTMLElement, session: string | null): GithubRefQuery | null {
+/**
+ * The query a chip's attributes spell, or null for an element that is not
+ * one. A bare `#n` is looked up in `repo` when the chips sit in one repo's
+ * text, else in `session`'s.
+ */
+export function chipQuery(
+	a: HTMLElement,
+	where: { base: string; session: string | null; repo?: string | null }
+): GithubRefQuery | null {
 	const number = parseRefNumber(a.dataset.number);
 	if (number === null) return null;
-	const repo = a.dataset.repo ?? null;
-	if (!repo && !session) return null;
-	return { repo, session: repo ? null : session, number };
+	const repo = a.dataset.repo ?? where.repo ?? null;
+	if (!repo && !where.session) return null;
+	return { base: where.base, repo, session: repo ? null : where.session, number };
+}
+
+/** The pull request or issue a drawn chip names, as the GitHub pane's `ref` param spells it. */
+export function chipRef(a: HTMLElement): string | null {
+	return a.dataset.ref ?? null;
 }
 
 /**
@@ -101,5 +116,6 @@ export function drawChip(a: HTMLAnchorElement, ref: GithubRef): void {
 	const title = a.querySelector('.gh-title');
 	if (title) title.textContent = ref.title;
 	a.dataset.state = ref.state;
+	a.dataset.ref = refParam(ref.repo, ref.number);
 	a.style.setProperty('--gh', visual.color);
 }

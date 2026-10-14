@@ -51,6 +51,7 @@
 		base = '',
 		fileLink,
 		repoSession = null,
+		onOpenGithub,
 		agentLink,
 		turnChanges = null,
 		changesLink,
@@ -103,6 +104,8 @@
 		fileLink?: (path: string, line: number | null) => string;
 		/** The session whose repo a bare `#123` in a message is looked up in; null where it has none. */
 		repoSession?: string | null;
+		/** Opens a pull request or issue (`owner/name#n`) in the GitHub pane; without it a chip's click goes to github.com. */
+		onOpenGithub?: (ref: string) => void;
 		/** Where a subagent opens as a page of its own; without it agent cards link nowhere. */
 		agentLink?: (agentId: string) => string;
 		/** The session's turns that edited files, from the changes API's session source. */
@@ -993,7 +996,7 @@
 </div>
 
 {#if transcriptEl}
-	<GithubRefCards root={transcriptEl} session={repoSession} />
+	<GithubRefCards root={transcriptEl} session={repoSession} {base} onOpen={onOpenGithub} />
 {/if}
 
 <style>

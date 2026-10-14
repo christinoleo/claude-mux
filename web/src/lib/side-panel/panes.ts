@@ -13,6 +13,7 @@ import ChangesPane from '$lib/components/side-panel/ChangesPane.svelte';
 import FilesPane from '$lib/components/side-panel/FilesPane.svelte';
 import HistoryPane from '$lib/components/side-panel/HistoryPane.svelte';
 import WebPane from '$lib/components/side-panel/WebPane.svelte';
+import GithubPane from '$lib/components/side-panel/GithubPane.svelte';
 import { IS_MAC } from '$lib/constants';
 
 export interface PaneAction {
@@ -102,6 +103,15 @@ export const PANES: readonly PaneDef[] = [
 		key: 'W',
 		params: ['url', 'tab'],
 		body: WebPane,
+		unavailable: (s) => (s ? null : 'Not a Claude session')
+	},
+	{
+		kind: 'github',
+		label: 'GitHub',
+		icon: 'mdi:github',
+		key: 'G',
+		params: ['ref'],
+		body: GithubPane,
 		unavailable: (s) => (s ? null : 'Not a Claude session')
 	},
 	{
