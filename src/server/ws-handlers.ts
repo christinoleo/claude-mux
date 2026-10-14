@@ -601,8 +601,24 @@ function stopSystemStats(): void {
 // Sessions WebSocket Manager
 // ============================================================================
 
+/**
+ * Where the fleet message comes from: the fleet state, which the web server
+ * starts and hands over (`web/src/lib/server/fleet.ts`).
+ */
+export interface FleetSource {
+	selfId: string;
+	snapshot(): unknown[];
+	subscribe(listener: () => void): () => void;
+}
+
+const FLEET_COALESCE_MS = 200;
+
 export class SessionsWsManager {
 	private clients = new Set<WsClient>();
+	/** The clients that asked for the fleet too (`?fleet=1`): pages, not peers. */
+	private fleetClients = new Set<WsClient>();
+	private fleetSource: FleetSource | null = null;
+	private stopFleet: (() => void) | null = null;
 	private unsubscribe: (() => void) | null = null;
 	private interruptCheckTimer: ReturnType<typeof setInterval> | null = null;
 	private cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -629,7 +645,7 @@ export class SessionsWsManager {
 	/**
 	 * Add a client. Returns false if max clients reached.
 	 */
-	addClient(client: WsClient): boolean {
+	addClient(client: WsClient, options: { fleet?: boolean } = {}): boolean {
 		if (this.clients.size >= this.config.maxSessionsClients) {
 			log(
 				{
@@ -644,6 +660,7 @@ export class SessionsWsManager {
 		}
 
 		this.clients.add(client);
+		if (options.fleet) this.fleetClients.add(client);
 		log(
 			{
 				level: 'debug',
@@ -681,12 +698,63 @@ export class SessionsWsManager {
 			if (client.isOpen()) {
 				this.sendToClient(client, msg);
 				this.sendToClient(client, this.createSystemStatsMessage());
+				if (options.fleet && this.fleetSource) this.sendToClient(client, this.createFleetMessage(this.fleetSource));
 			}
 		});
 		return true;
 	}
 
+	/** Start sending the fleet to the pages that ask for it, from `source` from now on. */
+	setFleetSource(source: FleetSource): void {
+		this.stopFleet?.();
+		this.fleetSource = source;
+		this.stopFleet = source.subscribe(() => this.scheduleFleet());
+	}
+
+	private fleetTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/** Peers change together (each polls every 500ms), so their changes go out as one message. */
+	private scheduleFleet(): void {
+		if (this.fleetTimer) return;
+		this.fleetTimer = setTimeout(() => {
+			this.fleetTimer = null;
+			this.broadcastFleet();
+		}, FLEET_COALESCE_MS);
+	}
+
+	private createFleetMessage(source: FleetSource) {
+		return { type: 'fleet' as const, self: source.selfId, machines: source.snapshot(), timestamp: Date.now() };
+	}
+
+	private broadcastFleet(): void {
+		if (!this.fleetSource || this.fleetClients.size === 0) return;
+		const message = this.createFleetMessage(this.fleetSource);
+		const data = JSON.stringify(message);
+		for (const client of [...this.fleetClients]) {
+			if (!this.sendToClient(client, message, data)) {
+				this.dropClient(client);
+			}
+		}
+	}
+
+	/**
+	 * A client whose send failed: out of both sets, counted, and closed, so a
+	 * page reconnects and a peer's fleet state sees it go rather than keep a
+	 * socket that answers pings and is sent nothing.
+	 */
+	private dropClient(client: WsClient): void {
+		this.clients.delete(client);
+		this.fleetClients.delete(client);
+		this.droppedClients++;
+		try {
+			client.close();
+		} catch {
+			// Already gone.
+		}
+	}
+
 	removeClient(client: WsClient): void {
+		this.fleetClients.delete(client);
 		const had = this.clients.delete(client);
 		if (had) {
 			log(
@@ -785,8 +853,7 @@ export class SessionsWsManager {
 					if (!this.sendToClient(client, message, data)) drops.push(client);
 				}
 				for (const client of drops) {
-					this.clients.delete(client);
-					this.droppedClients++;
+					this.dropClient(client);
 					log(
 						{
 							level: 'warn',
@@ -830,8 +897,7 @@ export class SessionsWsManager {
 			if (!this.sendToClient(client, message, data)) drops.push(client);
 		}
 		for (const client of drops) {
-			this.clients.delete(client);
-			this.droppedClients++;
+			this.dropClient(client);
 		}
 	}
 
@@ -2015,16 +2081,17 @@ export function socketOriginAllowed(origin: string | null | undefined, host: str
 // ============================================================================
 
 export type WsPathResult =
-	| { type: 'sessions' }
+	/** `fleet`: the page asked for every other machine as well (`?fleet=1`). */
+	| { type: 'sessions'; fleet?: boolean }
 	| { type: 'terminal'; target: string }
 	| { type: 'transcript'; target: string; agent?: string }
 	/** The Web pane's view of a remote browser tab; `target` is the tab's id. */
 	| { type: 'browser'; target: string }
 	| null;
 
-export function parseWsPath(pathname: string): WsPathResult {
+export function parseWsPath(pathname: string, search = ''): WsPathResult {
 	if (pathname === '/api/sessions/stream') {
-		return { type: 'sessions' };
+		return new URLSearchParams(search).has('fleet') ? { type: 'sessions', fleet: true } : { type: 'sessions' };
 	}
 
 	const browserMatch = pathname.match(/^\/api\/browser\/([^/]+)\/stream$/);

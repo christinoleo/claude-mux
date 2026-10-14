@@ -11,7 +11,7 @@ import { dirname } from "path";
 /** `mode` applies from the first byte written, so a secret is never readable by others. */
 export function writeFileAtomic(path: string, contents: string, mode?: number): void {
   mkdirSync(dirname(path), { recursive: true });
-  const temp = `${path}.tmp`;
+  const temp = `${path}.${process.pid}.tmp`;
   writeFileSync(temp, contents, { encoding: "utf-8", mode });
   renameSync(temp, path);
 }

@@ -119,6 +119,10 @@ export function mergeReports(inputs: readonly MachineInput[], timeZone: string):
 export interface FleetPeer {
   hostname: string;
   url: string;
+  /** False for a machine the fleet state knows is off: it is reported, not asked. */
+  online?: boolean;
+  /** Why an offline machine is left out, for the report. */
+  reason?: string;
 }
 
 export interface FleetDiscovery {
@@ -172,6 +176,7 @@ export async function buildFleetReport(options: FleetOptions): Promise<FleetResp
   const peers = discovery.servers.filter((server) => server.hostname !== selfName);
   const fetched = await Promise.all(
     peers.map(async (peer): Promise<MachineInput> => {
+      if (peer.online === false) return { hostname: peer.hostname, report: null, error: peer.reason ?? "offline" };
       try {
         const response = await options.fetch(`${peer.url}/api/usage?${query}`, {
           signal: AbortSignal.timeout(timeout),

@@ -6,6 +6,7 @@
  * HTTP to reach themselves.
  */
 import { execFile } from 'node:child_process';
+import { hostname } from 'node:os';
 import { promisify } from 'node:util';
 import type { ServerInfo } from '$lib/types/servers';
 import { APP_MARKER } from '$lib/constants';
@@ -84,6 +85,21 @@ export interface Discovery {
 /** The machines the last discovery found, by id, for the relay to look up. */
 const known: Map<string, ServerInfo> = ((globalThis as { __claudeMuxMachines?: Map<string, ServerInfo> })
 	.__claudeMuxMachines ??= new Map());
+
+/**
+ * Make machines known to the relay without discovery having seen them: the
+ * fleet state restores the machines it followed before a restart, and one
+ * that is off still answers 502 (unreachable), not 404 (unknown). Discovery's
+ * own answer wins where both name a machine.
+ */
+export function rememberMachines(servers: readonly ServerInfo[]): void {
+	for (const server of servers) if (!known.has(server.id)) known.set(server.id, server);
+}
+
+/** This machine's tailnet name, once discovery has run; its system hostname until then. */
+export function selfName(): string {
+	return known.get(MACHINE_ID)?.hostname ?? hostname().split('.')[0];
+}
 
 let inflight: Promise<Discovery> | null = null;
 

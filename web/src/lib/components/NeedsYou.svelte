@@ -11,7 +11,7 @@
 	 */
 	import { formatAgo } from '$lib/format';
 	import { clock } from '$lib/stores/clock.svelte';
-	import type { Machine } from '$lib/stores/fleet.svelte';
+	import { offlineReason, type Machine } from '$lib/stores/fleet.svelte';
 	import { asking, getSessionDisplayName, needsHelp, type Session } from '$lib/stores/sessions.svelte';
 	import type { InboxTicket } from '$shared/types/ws-messages.js';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
@@ -21,9 +21,11 @@
 		onOpen: (machine: Machine, tmuxTarget: string) => void;
 		/** Start a Claude session in the ticket's repo, working that ticket. */
 		onStart: (machine: Machine, ticket: InboxTicket) => void;
+		/** Whether there is more than one machine, whichever are shown. */
+		fleet?: boolean;
 	}
 
-	let { machines, onOpen, onStart }: Props = $props();
+	let { machines, onOpen, onStart, fleet = false }: Props = $props();
 
 	type Waiting =
 		| { kind: 'session'; key: string; machine: Machine; session: Session; since: number }
@@ -74,7 +76,8 @@
 	let showAllReady = $state(false);
 	const readyShown = $derived(showAllReady ? ready : ready.slice(0, READY_SHOWN));
 
-	const multiHost = $derived(machines.length > 1);
+	/** Each item names its machine whenever the fleet has more than one, even filtered to one. */
+	const multiHost = $derived(fleet);
 
 	function repoName(t: InboxTicket): string {
 		return t.repo.split('/').pop() ?? t.repo;
@@ -103,11 +106,14 @@
 		{#each waiting as item (item.key)}
 			{#if item.kind === 'session'}
 				{@const s = item.session}
+				{@const off = offlineReason(item.machine, clock.now)}
 				<button
 					type="button"
 					class="it"
+					class:off={!!off}
+					disabled={!!off}
 					onclick={() => s.tmux_target && onOpen(item.machine, s.tmux_target)}
-					title={s.cwd}
+					title={off ?? s.cwd}
 				>
 					<span class="ic"><SessionStateIndicator state={s.state} size="sm" /></span>
 					<span class="name">{getSessionDisplayName(s)}</span>
@@ -118,12 +124,15 @@
 				</button>
 			{:else}
 				{@const t = item.ticket}
-				<button type="button" class="it" onclick={() => openHelp(item)} title={t.url}>
+				{@const off = offlineReason(item.machine, clock.now)}
+				<button type="button" class="it" class:off={!!off} disabled={!!off} onclick={() => openHelp(item)} title={off ?? t.url}>
 					<span class="ic help"><iconify-icon icon={KIND_ICON['needs-help']}></iconify-icon></span>
 					<span class="name">{item.session && needsHelp(item.session) ? getSessionDisplayName(item.session) : t.title}</span>
 					<span class="when">{formatAgo(item.since, clock.now)}</span>
 					<span class="sub note">
-						<span class="num">#{t.number}</span>{t.note ?? 'Worker asked for a decision'}
+						<span class="num">#{t.number}</span>{t.note ?? 'Worker asked for a decision'}{#if multiHost}<span
+								class="host">{item.machine.server.hostname}</span
+							>{/if}
 					</span>
 				</button>
 			{/if}
@@ -140,13 +149,15 @@
 			</div>
 			{#each readyShown as item (item.key)}
 				{@const t = item.ticket}
-				<div class="it ticket">
+				{@const off = offlineReason(item.machine, clock.now)}
+				<div class="it ticket" class:off={!!off}>
 					<span class="ic"><iconify-icon icon={KIND_ICON[t.kind]}></iconify-icon></span>
 					<a class="name" href={t.url} target="_blank" rel="noopener" title="Open on GitHub">{t.title}</a>
 					<button
 						type="button"
 						class="start"
-						title="Open a Claude session in {repoName(t)} that works this ticket with you"
+						title={off ?? `Open a Claude session in ${repoName(t)} that works this ticket with you`}
+						disabled={!!off}
 						onclick={() => onStart(item.machine, t)}
 					>
 						Start
@@ -231,6 +242,17 @@
 	}
 	.it:hover {
 		background: var(--surface-2);
+	}
+	/* On a machine that is offline: still listed, out of reach until it answers. */
+	.it.off {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.it.off:hover {
+		background: transparent;
+	}
+	.start:disabled {
+		cursor: default;
 	}
 	.it:focus-visible,
 	.start:focus-visible,

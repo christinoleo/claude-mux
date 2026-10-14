@@ -12,7 +12,7 @@
 		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
-	import { apiBase, fleetStore, type Machine } from '$lib/stores/fleet.svelte';
+	import { apiBase, fleetStore, offlineReason, seenLabel, type Machine } from '$lib/stores/fleet.svelte';
 	import { serverStore } from '$lib/stores/servers.svelte';
 	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
 	import DiffBadge from '$lib/components/DiffBadge.svelte';
@@ -27,6 +27,7 @@
 	import type { SessionAgent } from '$shared/db/index.js';
 	import type { TmuxPane } from '$lib/types/tmux';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import { Button } from '$lib/components/ui/button';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Popover from '$lib/components/ui/popover';
 	import { browser } from '$app/environment';
@@ -380,7 +381,9 @@
 		return machine.sessions.filter((s) => s.pane_alive !== false).length;
 	}
 
+	/** Whether a session there wants a person; never on an offline machine, whose dialogs may be long answered. */
 	function machineWants(machine: Machine): boolean {
+		if (!machine.online) return false;
 		return machine.sessions.some((s) => s.pane_alive !== false && wantsHuman(s));
 	}
 
@@ -389,10 +392,6 @@
 		fleetStore.start();
 		const unsubscribe = tmuxPanesStore.subscribe();
 		return () => unsubscribe?.();
-	});
-
-	$effect(() => {
-		fleetStore.sync();
 	});
 
 	$effect(() => {
@@ -802,10 +801,10 @@
 					class:on={fleetStore.selected === machine.server.hostname}
 					class:wants={machineWants(machine)}
 					role="tab"
-					title={machine.connected ? machine.server.url : `${machine.server.hostname} is unreachable`}
+					title={offlineReason(machine, clock.now) ?? machine.server.url}
 					onclick={() => fleetStore.select(machine.server.hostname)}
 				>
-					<span class="dot" class:off={!machine.connected}></span>
+					<span class="dot" class:off={!machine.online}></span>
 					{machine.server.hostname || 'this machine'}
 					{#if liveCount(machine) > 0}<span class="n">{liveCount(machine)}</span>{/if}
 				</button>
@@ -815,7 +814,7 @@
 
 	<div class="list">
 		{#if !query.trim()}
-			<NeedsYou machines={fleetStore.visible} onOpen={(m, t) => openSession(m, t)} onStart={startTicket} />
+			<NeedsYou machines={fleetStore.visible} fleet={fleetStore.fleet} onOpen={(m, t) => openSession(m, t)} onStart={startTicket} />
 		{/if}
 		{#if !anything}
 			<div class="empty">
@@ -827,6 +826,7 @@
 			</div>
 		{/if}
 		{#each views as view (view.machine.server.hostname)}
+			{@const offline = offlineReason(view.machine, clock.now)}
 			{@const showLabel = fleetStore.fleet && fleetStore.selected === 'all'}
 			{@const shut = showLabel && isFolded(view.machine)}
 			{#if showLabel}
@@ -840,19 +840,32 @@
 					title={shut ? 'Show this machine' : 'Fold this machine'}
 				>
 					<iconify-icon icon={shut ? 'mdi:chevron-right' : 'mdi:chevron-down'}></iconify-icon>
-					<span class="dot" class:off={!view.machine.connected}></span>
+					<span class="dot" class:off={!view.machine.online}></span>
 					<span class="mname">{view.machine.server.hostname || 'this machine'}</span>
 					<span class="mline"></span>
 					{#if shut}
 						<span class="mcount">
 							{#if machineWants(view.machine)}<span class="pill">wants you</span>{/if}
+							{#if offline && view.machine.lastSeen}{seenLabel(view.machine.lastSeen, clock.now)} ·{/if}
 							{liveCount(view.machine)} live
 							{#if view.quiet.length > 0}· {view.quiet.length} quiet{/if}
 						</span>
 					{/if}
 				</button>
 			{/if}
+			{#if !shut && offline}
+				<!-- What it last said stays, dimmed and out of reach, until it answers again. -->
+				<div class="offline" role="status">
+					<iconify-icon icon="mdi:lan-disconnect"></iconify-icon>
+					<span class="why">{offline}</span>
+					{#if view.machine.retryAt && view.machine.retryAt > clock.now}
+						<span class="next">retry in {Math.ceil((view.machine.retryAt - clock.now) / 1000)}s</span>
+					{/if}
+					<Button variant="outline" size="sm" class="try" onclick={() => void fleetStore.retry(view.machine)}>Try now</Button>
+				</div>
+			{/if}
 			{#if !shut}
+			<div class="mbody" class:off={!!offline} inert={!!offline}>
 			{#each view.cards as card (card.cwd)}
 				{@render projectCard(view.machine, card)}
 			{/each}
@@ -920,6 +933,7 @@
 					{/each}
 				</section>
 			{/if}
+			</div>
 			{/if}
 		{/each}
 	</div>
@@ -1232,6 +1246,43 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
+	}
+	/* One machine's projects; an offline machine's are inert and dimmed. */
+	.mbody {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.mbody.off {
+		opacity: 0.45;
+		filter: grayscale(0.6);
+	}
+	.offline {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0 4px;
+		font-size: 11.5px;
+		color: var(--muted);
+	}
+	.offline iconify-icon {
+		font-size: 14px;
+		color: var(--dim);
+	}
+	.offline .why {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.offline .next {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--dim);
+		white-space: nowrap;
+	}
+	.offline :global(.try) {
+		margin-left: auto;
 	}
 	.empty {
 		padding: 18px 10px;

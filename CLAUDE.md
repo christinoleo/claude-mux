@@ -461,6 +461,28 @@ set. The sidebar's actions on another machine's rows (kill, new session, mark
 unread, closing a project, the folder picker) go through `apiBase()` in
 `fleet.svelte.ts`; opening a remote session still navigates to its machine.
 
+Each machine also keeps a fleet state (`src/server/fleet-state.ts`): it
+subscribes to every other machine's `/api/sessions/stream`, as a peer (no
+`Origin`, marked forwarded), and keeps per machine its last sessions, projects,
+inbox, version (read from `/api/health`) and when it was last heard. A link
+that closes, fails or stays silent past `SILENCE_MS` (it is pinged every
+`PING_MS`) marks the machine offline and is retried after 5 s, doubling to a
+minute; `POST /api/fleet/<id>/retry` ("Try now") skips the wait. A machine
+discovery stops listing is kept and still tried at its last address. The state
+is written to `~/.claude-mux/fleet.json` a couple of seconds after a change and
+read back on start, so a machine that is off keeps its last word across a
+restart. `ensureFleetState()` (`web/src/lib/server/fleet.ts`) starts it from
+the `init` hook, feeds it discovery every minute, and hands it to the sessions
+socket: a page that opens `/api/sessions/stream?fleet=1` (the sidebar's
+`sessionStore` does) is also sent `{ type: 'fleet', self, machines }` on every
+change, so the whole fleet arrives over the one socket. `fleetStore` lays those
+machines beside the origin's own; `offlineReason()` is the line the sidebar
+shows above an offline machine's projects ("seen 3m ago", with "Try now"), whose
+rows are dimmed and `inert`, and the reason Needs you's items from it are
+disabled. Needs you names each item's machine whenever the fleet has more than
+one. Usage, the meters' and `/api/usage/all`, takes its machines from the fleet
+state, so an offline one is reported at once instead of waited on.
+
 ## Key Data Flow
 
 ```
