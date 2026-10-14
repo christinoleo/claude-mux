@@ -542,14 +542,23 @@ export function resizePane(target: string, cols: number, rows: number): void {
 // System Stats (CPU/RAM/Swap from /proc, disk from statfs, cached every 10s)
 // ============================================================================
 
-let cachedSystemStats = { cpu: 0, ram: 0, swap: 0, ramTotal: 0, swapTotal: 0, disk: 0 };
+let cachedSystemStats: { cpu: number; ram: number; swap: number; ramTotal: number; swapTotal: number; disk: number | null } = {
+	cpu: 0,
+	ram: 0,
+	swap: 0,
+	ramTotal: 0,
+	swapTotal: 0,
+	disk: null
+};
 let prevCpuIdle = 0;
 let prevCpuTotal = 0;
 let systemStatsTimer: ReturnType<typeof setInterval> | null = null;
 let systemStatsRefCount = 0;
 
 function refreshSystemStats(): void {
-	cachedSystemStats.disk = homeDiskPercent() ?? cachedSystemStats.disk;
+	void homeDiskPercent().then((disk) => {
+		cachedSystemStats.disk = disk;
+	});
 	try {
 		const stat = readFileSync('/proc/stat', 'utf-8');
 		const meminfo = readFileSync('/proc/meminfo', 'utf-8');

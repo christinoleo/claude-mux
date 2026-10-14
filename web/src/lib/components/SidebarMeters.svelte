@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
-	import { fleetStore, machineKey } from '$lib/stores/fleet.svelte';
+	import { fleetStore, machineKey, machineName } from '$lib/stores/fleet.svelte';
 	import { machineMarks } from '$shared/fleet-rail.js';
 	import { spendCoverage } from '$shared/usage/coverage.js';
 	import { usageStore } from '$lib/stores/usage.svelte';
@@ -85,9 +85,10 @@
 	const system = $derived.by(() => {
 		const rows: Array<[string, number, Severity]> = [
 			['cpu', stats.cpu, severityForPercent(stats.cpu)],
-			['ram', stats.ram, severityForPercent(stats.ram)],
-			['dsk', stats.disk, severityForPercent(stats.disk, 'disk')]
+			['ram', stats.ram, severityForPercent(stats.ram)]
 		];
+		// A disk that could not be read draws no bar rather than an empty one.
+		if (stats.disk !== null) rows.push(['dsk', stats.disk, severityForPercent(stats.disk, 'disk')]);
 		if (stats.swapTotal > 0) rows.push(['swp', stats.swap, severityForPercent(stats.swap)]);
 		return rows.map(
 			([tag, percent, severity]): Meter => ({
@@ -103,7 +104,7 @@
 	/** The machine that served the page, named and coloured as its rows are in the drawer. */
 	const origin = $derived.by(() => {
 		const marks = machineMarks(
-			fleetStore.machines.map((m) => ({ id: machineKey(m), name: m.server.hostname || 'this machine' }))
+			fleetStore.machines.map((m) => ({ id: machineKey(m), name: machineName(m) }))
 		);
 		const self = fleetStore.machines.find((m) => m.local);
 		return self ? marks.get(machineKey(self)) : undefined;
@@ -111,12 +112,6 @@
 
 	/** Whose spend the fleet total holds, so a total missing a machine says so. */
 	const coverage = $derived(summary ? spendCoverage(summary.machines) : null);
-	const missing = $derived(
-		summary?.machines
-			.filter((m) => !m.ok)
-			.map((m) => m.hostname)
-			.join(', ') ?? ''
-	);
 
 	function dayKey(offset: number): string {
 		return dayOf(Date.now() - offset * 86_400_000);
@@ -263,6 +258,10 @@
 			<Popover.Root>
 				<Popover.Trigger class="icon-button" title="Alerts and this device" aria-label="Alerts and this device">
 					<iconify-icon icon="mdi:cog-outline"></iconify-icon>
+					{#if alertProblem}
+						<!-- The settings are folded away, so a choice that stopped working says so here. -->
+						<span class="problem-dot" title={alertProblem}></span>
+					{/if}
 				</Popover.Trigger>
 				<Popover.Content
 					side="top"
@@ -308,16 +307,16 @@
 			<span class="spend">
 				<span class="line">
 					<span class="figure">{today === null ? '—' : money(today, true)} <span class="tag">today</span></span>
-					{#if coverage}
+					{#if coverage && coverage.total > 1}
 						<span
 							class="coverage"
 							class:short={coverage.answered < coverage.total}
-							title={missing ? `No answer from ${missing}` : 'Every machine answered'}
+							title={coverage.missing.length ? `No answer from ${coverage.missing.join(', ')}` : 'Every machine answered'}
 						>
 							{coverage.answered} of {coverage.total} {coverage.total === 1 ? 'machine' : 'machines'}
 						</span>
 					{/if}
-					<span class="figure">{summary === null ? '—' : money(summary.costUsd, true)} <span class="tag">30d</span></span>
+					<span class="figure">{money(summary!.costUsd, true)} <span class="tag">30d</span></span>
 				</span>
 				<!-- Fourteen days as a shape: fourteen numbers at this size would be a smear. -->
 				<span class="ticks" aria-hidden="true">
@@ -472,11 +471,13 @@
 	}
 
 	.top :global(.icon-button) {
+		position: relative;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 24px;
+		min-width: 24px;
 		height: 24px;
+		padding: 0 4px;
 		border: 0;
 		border-radius: 6px;
 		background: transparent;
@@ -488,6 +489,16 @@
 	.top :global(.icon-button[data-state='open']) {
 		background: rgba(255, 255, 255, 0.06);
 		color: hsl(var(--foreground));
+	}
+
+	.problem-dot {
+		position: absolute;
+		top: 3px;
+		right: 3px;
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: #fbbf24;
 	}
 
 	.top :global(.icon-button iconify-icon) {

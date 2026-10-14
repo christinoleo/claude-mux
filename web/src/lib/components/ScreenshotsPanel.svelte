@@ -71,7 +71,7 @@
 <!-- A small button with its count on the foot's top line; the thumbnails open above it. -->
 <Popover.Root>
 	<Popover.Trigger
-		class="shots-trigger"
+		class="icon-button shots-trigger"
 		title="Screenshots of this session"
 		aria-label="Screenshots: {screenshots.length}"
 	>
@@ -166,29 +166,11 @@
 {/if}
 
 <style>
-	:global(.shots-trigger) {
-		display: inline-flex;
-		align-items: center;
+	/* The foot's `.icon-button`, carrying the count beside its icon. */
+	:global(.icon-button.shots-trigger) {
 		gap: 4px;
-		height: 24px;
-		padding: 0 6px;
-		border: 0;
-		border-radius: 6px;
-		background: transparent;
-		color: hsl(var(--muted-foreground));
 		font-size: 11px;
 		font-variant-numeric: tabular-nums;
-		cursor: pointer;
-	}
-
-	:global(.shots-trigger:hover),
-	:global(.shots-trigger[data-state='open']) {
-		background: rgba(255, 255, 255, 0.06);
-		color: hsl(var(--foreground));
-	}
-
-	:global(.shots-trigger iconify-icon) {
-		font-size: 15px;
 	}
 
 	.screenshots-grid {

@@ -758,7 +758,8 @@ finds a machine that did not answer). `dsk` is the share used of the
 filesystem holding the home directory (`homeDiskPercent()` in
 `src/server/disk.ts`, read with `statfs` the way `df` reads it), refreshed with
 the CPU and RAM stats and graded on the `disk` scale (amber from 80%, red from
-90%).
+90%); a disk that cannot be read is `null` and draws no bar. A single machine's
+spend row leaves the count out.
 
 ### 11. Past sessions and Settled
 

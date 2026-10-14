@@ -199,10 +199,10 @@ describe("buildFleetReport over the fleet state", () => {
 describe("spendCoverage", () => {
   it("counts every machine that answered against every machine asked", () => {
     const merged = mergeReports([HOST_A, { hostname: "beta", report: null, error: "timeout" }, { hostname: "gamma", report: report({}) }], "UTC");
-    expect(spendCoverage(merged.machines)).toEqual({ answered: 2, total: 3 });
+    expect(spendCoverage(merged.machines)).toEqual({ answered: 2, total: 3, missing: ["beta"] });
   });
 
   it("covers the whole fleet when every machine answered", () => {
-    expect(spendCoverage([{ hostname: "alpha", ok: true, costUsd: 1 }])).toEqual({ answered: 1, total: 1 });
+    expect(spendCoverage([{ hostname: "alpha", ok: true, costUsd: 1 }])).toEqual({ answered: 1, total: 1, missing: [] });
   });
 });
