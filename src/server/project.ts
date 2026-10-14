@@ -14,6 +14,8 @@ const PROJECT_CONFIG_FILE = '.claude-mux.json';
 export interface ProjectConfig {
 	/** Named URLs, e.g. `{ prod: 'https://…', dev: 'http://localhost:5173' }`. */
 	urls: Record<string, string>;
+	/** The project's icon: a path in the repo or an http(s) URL (`src/server/project-icons.ts`). */
+	icon?: string;
 }
 
 export interface ProjectInfo {
@@ -28,9 +30,9 @@ export interface ProjectInfo {
 }
 
 /**
- * Read `.claude-mux.json`. Only `urls` is understood so far, and within it only
- * string values that parse as http(s) URLs; anything else is dropped rather
- * than failing the whole file.
+ * Read `.claude-mux.json`. `urls` keeps only string values that parse as
+ * http(s) URLs, and `icon` only a non-empty string; anything else is dropped
+ * rather than failing the whole file.
  */
 export function parseProjectConfig(text: string): ProjectConfig {
 	const raw: unknown = JSON.parse(text);
@@ -49,7 +51,8 @@ export function parseProjectConfig(text: string): ProjectConfig {
 			}
 		}
 	}
-	return { urls };
+	const icon = raw && typeof raw === 'object' && 'icon' in raw ? (raw as { icon: unknown }).icon : undefined;
+	return typeof icon === 'string' && icon.trim() ? { urls, icon: icon.trim() } : { urls };
 }
 
 export async function projectInfo(cwd: string): Promise<ProjectInfo> {

@@ -4,7 +4,8 @@
  *
  * Each machine subscribes to every other machine's sessions broadcast, the
  * same `/api/sessions/stream` a page reads, and keeps per machine its last
- * known sessions, projects, inbox, version and when it was last heard from.
+ * known sessions, projects (with what matches them across machines), inbox,
+ * version and when it was last heard from.
  * The page reads all of it from its origin machine, so a fresh browser on any
  * link sees the whole fleet at once, and a machine that is off keeps what it
  * last said, marked with when that was.
@@ -21,6 +22,8 @@
 
 import { readFileSync } from "node:fs";
 import { writeFileAtomic } from "../utils/atomic-write.js";
+import { ProjectReportSchema, type ProjectReport } from "../fleet-projects.js";
+import { eachOf } from "../types/ws-messages.js";
 import { openForwardedSocket } from "./fleet-relay.js";
 
 /** A machine discovery found: its stable id, its name, and where its API is. */
@@ -43,6 +46,8 @@ export interface FleetMachineState extends PeerAddress {
   /** Its sessions, projects and inbox as its last broadcast had them, untouched. */
   sessions: unknown[];
   projects: string[];
+  /** What it says about each project, to match it across machines (`src/fleet-projects.ts`). */
+  projectReports: ProjectReport[];
   inbox: unknown[];
 }
 
@@ -98,7 +103,7 @@ interface Peer {
   retryTimer: ReturnType<typeof setTimeout> | null;
   pingTimer: ReturnType<typeof setInterval> | null;
   /**
-   * What the open link last delivered (sessions, projects, inbox; the
+   * What the open link last delivered (sessions, projects, reports, inbox; the
    * timestamp left out), so a repeat is not broadcast and written again.
    */
   lastFrame: string | null;
@@ -280,7 +285,14 @@ export class FleetState {
 
   private receive(peer: Peer, data: string): void {
     if (data === "pong") return;
-    let msg: { type?: unknown; sessions?: unknown; projects?: unknown; inbox?: unknown; prefs?: unknown };
+    let msg: {
+      type?: unknown;
+      sessions?: unknown;
+      projects?: unknown;
+      projectReports?: unknown;
+      inbox?: unknown;
+      prefs?: unknown;
+    };
     try {
       msg = JSON.parse(data);
     } catch {
@@ -292,13 +304,14 @@ export class FleetState {
     }
     if (msg?.type !== "sessions" && msg?.type !== "connected") return;
     if (!Array.isArray(msg.sessions)) return;
-    const frame = JSON.stringify([msg.sessions, msg.projects, msg.inbox]);
+    const frame = JSON.stringify([msg.sessions, msg.projects, msg.projectReports, msg.inbox]);
     if (frame === peer.lastFrame) return;
     peer.lastFrame = frame;
     this.setState(peer, {
       sessions: msg.sessions,
       // An older broadcast may leave these out; what was known stands.
       ...(Array.isArray(msg.projects) ? { projects: msg.projects.filter((p): p is string => typeof p === "string") } : {}),
+      ...(Array.isArray(msg.projectReports) ? { projectReports: ReportsSchema.parse(msg.projectReports) } : {}),
       ...(Array.isArray(msg.inbox) ? { inbox: msg.inbox } : {}),
     });
   }
@@ -360,6 +373,7 @@ export class FleetState {
         version: typeof m.version === "string" ? m.version : null,
         sessions: Array.isArray(m.sessions) ? m.sessions : [],
         projects: Array.isArray(m.projects) ? m.projects : [],
+        projectReports: Array.isArray(m.projectReports) ? ReportsSchema.parse(m.projectReports) : [],
         inbox: Array.isArray(m.inbox) ? m.inbox : [],
       }));
   }
@@ -376,9 +390,13 @@ function emptyState(address: PeerAddress): FleetMachineState {
     version: null,
     sessions: [],
     projects: [],
+    projectReports: [],
     inbox: [],
   };
 }
+
+/** The reports a peer sent that this version can read; any other is dropped. */
+const ReportsSchema = eachOf(ProjectReportSchema);
 
 /** How long a peer has to accept its socket before the attempt counts as failed. */
 const CONNECT_TIMEOUT_MS = 10_000;

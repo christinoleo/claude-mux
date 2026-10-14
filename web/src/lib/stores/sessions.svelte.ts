@@ -17,6 +17,7 @@ import type { SessionAgent } from '$shared/db/index.js';
 import { fleetPrefsStore } from './fleet-prefs.svelte';
 import { indicatorStateOf, needsYouKind } from '$shared/session-state.js';
 import { sessionDisplayName } from '$shared/session-notifications.js';
+import type { ProjectReport } from '$shared/fleet-projects.js';
 export { asking } from '$shared/session-notifications.js';
 
 const savedProjectsStore = createPersisted<string[]>('claude-mux-projects', []);
@@ -137,6 +138,8 @@ class SessionStore extends ReliableWebSocket {
 	paused = $state(false);
 	/** Tickets on GitHub waiting on a person, for this machine's repos. */
 	inbox = $state<InboxTicket[]>([]);
+	/** What this machine says about each of its projects, to match them across machines. */
+	projectReports = $state<ProjectReport[]>([]);
 
 	// O(1) lookup by id and tmux_target — derived from sessions
 	sessionById: Map<string, Session> = $derived(new Map(this.sessions.map(s => [s.id, s])));
@@ -178,6 +181,9 @@ class SessionStore extends ReliableWebSocket {
 				if (msg.projects) this.applyServerProjects(msg.projects);
 				if (msg.settings) this.settings = msg.settings;
 				if (msg.inbox && JSON.stringify(msg.inbox) !== JSON.stringify(this.inbox)) this.inbox = msg.inbox;
+				if (msg.projectReports && JSON.stringify(msg.projectReports) !== JSON.stringify(this.projectReports)) {
+					this.projectReports = msg.projectReports;
+				}
 				break;
 			case 'fleet':
 				this.selfId = msg.self;
@@ -418,16 +424,6 @@ export function groupSessions(sessions: Session[]): SessionGroup[] {
 	}
 
 	return result;
-}
-
-export function getProjectColor(cwd: string): string {
-	// Generate a consistent color based on path hash
-	let hash = 0;
-	for (let i = 0; i < cwd.length; i++) {
-		hash = cwd.charCodeAt(i) + ((hash << 5) - hash);
-	}
-	const hue = Math.abs(hash) % 360;
-	return `hsl(${hue}, 60%, 40%)`;
 }
 
 export function getSessionDisplayName(session: Session): string {

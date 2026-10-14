@@ -22,6 +22,12 @@ describe("parseProjectConfig", () => {
     expect(config).toEqual({ urls: { prod: "https://example.com", dev: "http://localhost:5173" } });
   });
 
+  it("keeps an icon given as a string, and drops any other", () => {
+    expect(parseProjectConfig(JSON.stringify({ icon: " static/logo.svg " }))).toEqual({ urls: {}, icon: "static/logo.svg" });
+    expect(parseProjectConfig(JSON.stringify({ icon: 3 }))).toEqual({ urls: {} });
+    expect(parseProjectConfig(JSON.stringify({ icon: "" }))).toEqual({ urls: {} });
+  });
+
   it("reads a file without urls as an empty config", () => {
     expect(parseProjectConfig("{}")).toEqual({ urls: {} });
     expect(parseProjectConfig('{"urls": ["https://example.com"]}')).toEqual({ urls: {} });

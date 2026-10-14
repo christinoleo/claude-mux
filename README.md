@@ -167,7 +167,7 @@ The server keeps its VAPID key pair in `~/.claude-mux/vapid.json` (made on first
 
 ---
 
-## Project URLs (`.claude-mux.json`)
+## Project URLs and icon (`.claude-mux.json`)
 
 The session side panel's **Web** tab shows a project's site in a frame. Name the URLs in a `.claude-mux.json` committed at the repo root, so every machine sees the same:
 
@@ -184,6 +184,14 @@ tailscale serve --bg --https=5173 http://localhost:5173
 ```
 
 A site that forbids framing (`X-Frame-Options`, or a CSP `frame-ancestors` that leaves claude-mux out) gets an "Open in new tab" card rather than a blank frame.
+
+The same file can name the project's icon, which the sidebar shows beside its name:
+
+```json
+{ "icon": "web/static/logo.svg", "urls": { "prod": "https://example.com" } }
+```
+
+`icon` is a path from the repo root (it cannot climb out of it) or an `http(s)` URL. Without one, claude-mux looks for the repo's own icon: `favicon.svg`, `favicon.png`, `favicon.ico`, `icon.svg`, `icon.png` or `apple-touch-icon.png` in a `static/`, `public/` or `app/` folder or below one, taking an SVG first, then the widest PNG, then an ICO. Failing that it uses the favicon of the `prod` URL, and failing that the project is drawn as two letters of its name on a colour derived from the name, the same on every machine. The icon is read on the machine that holds the repo, and when several machines hold the project the first that has an icon gives it.
 
 ---
 

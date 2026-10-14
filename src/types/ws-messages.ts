@@ -9,6 +9,7 @@
 import { z } from 'zod/v4';
 import { AGENT_IDS } from '../agents.js';
 import { PrefEntrySchema } from '../fleet-prefs.js';
+import { ProjectReportSchema } from '../fleet-projects.js';
 
 // ============================================================================
 // Session data schemas
@@ -224,6 +225,9 @@ const SettingsField = z.object({ autoRemoteControl: z.boolean() }).partial().opt
 /** Tickets on GitHub waiting on a person, for the repos this machine's sessions are in. */
 const InboxField = z.array(InboxTicketSchema).optional();
 
+/** What each project is matched across machines by, and its icon (`src/fleet-projects.ts`); absent on older servers. */
+const ProjectReportsField = z.array(ProjectReportSchema).optional();
+
 const SessionsMessageSchema = z.object({
 	type: z.literal('sessions'),
 	sessions: z.array(EnrichedSessionSchema),
@@ -231,6 +235,7 @@ const SessionsMessageSchema = z.object({
 	projects: ProjectsField,
 	settings: SettingsField,
 	inbox: InboxField,
+	projectReports: ProjectReportsField,
 	timestamp: z.number()
 });
 
@@ -241,6 +246,7 @@ const ConnectedMessageSchema = z.object({
 	projects: ProjectsField,
 	settings: SettingsField,
 	inbox: InboxField,
+	projectReports: ProjectReportsField,
 	timestamp: z.number()
 });
 
@@ -254,7 +260,7 @@ const ConnectedMessageSchema = z.object({
  * the rest kept. Another machine may run another version, and one session it
  * describes differently must not cost the page that whole machine, or the fleet.
  */
-function eachOf<T extends z.ZodType>(item: T) {
+export function eachOf<T extends z.ZodType>(item: T) {
 	return z.array(z.unknown()).transform((items) =>
 		items.flatMap((raw) => {
 			const parsed = item.safeParse(raw);
@@ -273,7 +279,8 @@ const FleetMachineSchema = z.object({
 	version: z.string().nullable(),
 	sessions: eachOf(EnrichedSessionSchema),
 	projects: z.array(z.string()),
-	inbox: eachOf(InboxTicketSchema)
+	inbox: eachOf(InboxTicketSchema),
+	projectReports: eachOf(ProjectReportSchema).optional()
 });
 
 const FleetMessageSchema = z.object({

@@ -273,6 +273,38 @@ describe("FleetState", () => {
     second.stop();
   });
 
+  it("keeps what a machine says about its projects, drops a report it cannot read, and restores them", async () => {
+    const path = join(dir, "fleet.json");
+    const report = { root: "/home/leo/Projects/claude-mux", remote: "github.com/leo/claude-mux", sub: "", home: "claude-mux", icon: "abc" };
+    const first = fleet(path);
+    first.update([ENGAGE]);
+    latest(ENGAGE.url).open();
+    latest(ENGAGE.url).broadcast({
+      type: "sessions",
+      sessions: [],
+      projects: [report.root],
+      projectReports: [report, { root: 42 }],
+    });
+    expect(first.snapshot()[0].projectReports).toEqual([report]);
+
+    // A newer report alone is a change worth passing on.
+    const listener = vi.fn();
+    first.subscribe(listener);
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [], projects: [report.root], projectReports: [{ ...report, icon: "def" }] });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // An older machine sends none: what was known stands.
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [session("a")], projects: [report.root] });
+    expect(first.snapshot()[0].projectReports).toEqual([{ ...report, icon: "def" }]);
+    await vi.advanceTimersByTimeAsync(PERSIST_DELAY_MS);
+    first.stop();
+
+    sockets = [];
+    const second = fleet(path);
+    expect(second.snapshot()[0].projectReports).toEqual([{ ...report, icon: "def" }]);
+    second.stop();
+  });
+
   it("starts empty from a missing or broken file", () => {
     expect(fleet(join(dir, "missing.json")).snapshot()).toEqual([]);
   });
