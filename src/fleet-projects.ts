@@ -97,6 +97,14 @@ export function projectName(reports: readonly ProjectReport[]): string {
   return repo && folders.includes(repo) ? repo : folders[0];
 }
 
+/** A home directory: `/home/<user>`, `/Users/<user>` or `/root`. */
+const HOME_DIR = String.raw`(?:/(?:home|Users)/[^/]+|/root)`;
+
+/** Whether a root is a home directory itself, which the rail calls `~`. */
+export function isHomeDir(root: string): boolean {
+  return new RegExp(`^${HOME_DIR}$`).test(root);
+}
+
 /**
  * The report a machine would send for a root it has not described: from an
  * older claude-mux, or a root that appeared since its last report. Without a
@@ -105,7 +113,7 @@ export function projectName(reports: readonly ProjectReport[]): string {
  * same name (`mergeProjects()`).
  */
 export function guessReport(root: string): ProjectReport & { guessed: true } {
-  const home = /^(?:\/(?:home|Users)\/[^/]+|\/root)\/Projects\/(.+)$/.exec(root)?.[1] ?? null;
+  const home = new RegExp(`^${HOME_DIR}/Projects/(.+)$`).exec(root)?.[1] ?? null;
   return { root, remote: null, sub: "", home, icon: null, guessed: true };
 }
 

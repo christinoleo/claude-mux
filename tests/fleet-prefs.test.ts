@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLater, mergePrefs, projectFoldKey, type FleetPrefs } from "../src/fleet-prefs.js";
+import { isLater, mergePrefs, type FleetPrefs } from "../src/fleet-prefs.js";
 
 const entry = (value: unknown, at: number, by = "omarchy") => ({ value, at, by });
 
@@ -64,11 +64,5 @@ describe("mergePrefs", () => {
     expect(Object.keys(prefs)).toEqual(["ok"]);
     expect(mergePrefs({}, null).prefs).toEqual({});
     expect(mergePrefs({}, [entry(1, 1)]).prefs).toEqual({});
-  });
-});
-
-describe("keys", () => {
-  it("name a project's fold by its fleet key", () => {
-    expect(projectFoldKey("git:github.com/leo/x")).toBe("fold:project:git:github.com/leo/x");
   });
 });

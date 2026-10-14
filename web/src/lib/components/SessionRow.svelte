@@ -12,9 +12,12 @@
 	 *
 	 * Line 1 is the state, the title, and the meta: what asks for a person, or
 	 * how long the turn has run, or how long ago anything happened — then the
-	 * `meta` slot for whatever a later feature hangs there (a diff badge), and
-	 * the context ring. Line 2 is what the session is doing. Rows that need
-	 * nothing from anyone recede, so the eye lands on the ones that do.
+	 * `meta` slot for whatever a later feature hangs there (a diff badge), the
+	 * machine's letter when the list does not say which machine, and the
+	 * context ring. Line 2 is what the session is doing, drawn only when it
+	 * says something: working, waiting, offline, open, or a draft waiting to
+	 * go. Rows that need nothing from anyone recede, so the eye lands on the
+	 * ones that do.
 	 * `children` draws under the row, for rows nested inside it.
 	 *
 	 * A maestro worker is a session too, but it reads as one of its master's
@@ -24,6 +27,7 @@
 	import type { Snippet } from 'svelte';
 	import SessionStateIndicator from './SessionStateIndicator.svelte';
 	import { indicatorStateOf, isUnread, recedes } from '$shared/session-state.js';
+	import type { MachineMark } from '$shared/fleet-rail.js';
 	import { wantsHuman, needsHelp, type Session } from '$lib/stores/sessions.svelte';
 	import { longPress } from '$lib/actions/longPress';
 	import { formatSpinnerElapsed, formatAgo } from '$lib/format';
@@ -55,6 +59,10 @@
 		ondragend?: () => void;
 		/** What a right-click on the row offers; none leaves the browser's own menu. */
 		menu?: RowMenuItem[];
+		/** The machine's letter in its colour, when the list does not otherwise say which machine. */
+		machine?: MachineMark | null;
+		/** Why the session's machine cannot be reached, said on line 2; null while it answers. */
+		offline?: string | null;
 		/** Trailing slot on line 1, after the time. */
 		meta?: Snippet;
 		children?: Snippet;
@@ -80,6 +88,8 @@
 		ondragstart,
 		ondragend,
 		menu = [],
+		machine = null,
+		offline = null,
 		meta,
 		children
 	}: Props = $props();
@@ -88,6 +98,10 @@
 	const wants = $derived(wantsHuman(s));
 	const quiet = $derived(recedes(shown) && !wants && !active);
 	const running = $derived(s.state === 'busy' && s.turn_started_at != null);
+	/** Line 2 only when it says something; a quiet row is one line. */
+	const showSub = $derived(
+		wants || s.state === 'busy' || !!offline || active || tag !== null || !!draft || staged > 0
+	);
 	const canMarkUnread = $derived(!!onmarkunread && s.state === 'idle' && !!s.turn_completed_at && !isUnread(s));
 
 	// A working row counts its turn up every second; the rest say how long ago,
@@ -125,6 +139,7 @@
 	class:orch={orchestrator}
 	class:worker
 	class:quiet
+	class:one={!showSub}
 	class:inA={tag === 'A'}
 	class:inB={tag === 'B'}
 	draggable={draggable ? 'true' : 'false'}
@@ -157,6 +172,8 @@
 			<span class="when">{formatAgo(shown === 'done' ? s.turn_completed_at : s.last_update, clock.now)}</span>
 		{/if}
 		{@render meta?.()}
+		{#if !showSub && where}<span class="path" title={s.cwd}>{where}</span>{/if}
+		{#if machine}<span class="mach" style="--m:{machine.color}" title={machine.name}>{machine.letter}</span>{/if}
 	</span>
 	{#if s.context_pct !== null && s.context_pct !== undefined}
 		<span
@@ -192,7 +209,8 @@
 			{/if}
 		</span>
 	{/if}
-	<span class="sub" class:draft={!!draft} title={draft || s.current_action || s.state}>
+	{#if showSub}
+	<span class="sub" class:draft={!!draft} class:off={!!offline} title={offline || draft || s.current_action || s.state}>
 		{#if staged}
 			<span class="staged" title="{staged} attachment{staged === 1 ? '' : 's'} staged"
 				><iconify-icon icon="mdi:paperclip"></iconify-icon>{staged}</span
@@ -201,7 +219,9 @@
 		{#if worker}
 			<span class="wst"><SessionStateIndicator state={shown} size="sm" title={s.current_action} /></span>
 		{/if}
-		{#if draft}
+		{#if offline}
+			{offline} · was {shown}
+		{:else if draft}
 			<iconify-icon icon="mdi:pencil-outline"></iconify-icon>{draft}
 		{:else if worker}
 			{['worker', shown, s.current_action].filter(Boolean).join(' · ')}
@@ -210,6 +230,7 @@
 		{/if}
 		{#if !draft && where}<span class="path" title={s.cwd}>{where}</span>{/if}
 	</span>
+	{/if}
 </a>
 {/snippet}
 </ContextMenu.Trigger>
@@ -323,6 +344,19 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		min-width: 0;
+	}
+	.row.one .path {
+		margin-left: 0;
+	}
+	/* The machine, as a letter in its colour: quiet, but enough to tell where. */
+	.mach {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 600;
+		line-height: 1;
+		color: var(--m);
+		opacity: 0.85;
 	}
 	.when {
 		font-family: var(--font-mono);
@@ -387,6 +421,9 @@
 	}
 	.sub.draft {
 		color: var(--amber);
+	}
+	.sub.off {
+		font-family: inherit;
 	}
 	.sub iconify-icon {
 		font-size: 11px;
