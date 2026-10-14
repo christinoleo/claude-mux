@@ -583,7 +583,19 @@ inbox, version (read from `/api/health`) and when it was last heard. A link
 that closes, fails or stays silent past `SILENCE_MS` (it is pinged every
 `PING_MS`) marks the machine offline and is retried after 5 s, doubling to a
 minute; `POST /api/fleet/<id>/retry` ("Try now") skips the wait. A machine
-discovery stops listing is kept and still tried at its last address. The state
+discovery stops listing is kept and still tried at its last address. An
+address belongs to one machine: when its health check (or discovery) reports
+an `instance` other than the record's id, the record moves to that id
+(`rekey()`), and a record already kept there is folded in (the one with a
+link keeps it, the state comes from whichever was heard last); a link counts
+as online only once its first health read is back, so a machine whose id
+changed is never kept, or shown online, twice. The page picks one record per
+name the same way on every broadcast (`onePerName()` in `session-route.ts`:
+one that answers, then discovery's id, then the lower id, never when it was
+last heard), and the session, agent and past pages key their transcript and
+terminal sockets by the machine the route names (`routeMachine().address`),
+not by `base`, so a base that changes only because the id did does not
+reload them. The state
 is written to `~/.claude-mux/fleet.json` a couple of seconds after a change and
 read back on start, so a machine that is off keeps its last word across a
 restart. `ensureFleetState()` (`web/src/lib/server/fleet.ts`) starts it from

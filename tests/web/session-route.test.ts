@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { isPastPath, localRef, machineBase, parseSessionPath, pastPath, relayBase, sessionPath } from "../../web/src/lib/session-route.js";
+import {
+  isPastPath,
+  localRef,
+  machineBase,
+  onePerName,
+  parseSessionPath,
+  pastPath,
+  relayBase,
+  sessionPath,
+} from "../../web/src/lib/session-route.js";
 import { paneUrl, singleUrl } from "../../web/src/lib/split-refs.js";
 
 const servers = [
@@ -143,4 +152,32 @@ describe('pastPath', () => {
 		expect(isPastPath('/session/main:1.0')).toBe(false);
 		expect(parseSessionPath('/past/abc-1')).toBeNull();
 	});
+});
+
+describe("onePerName", () => {
+  const old = { id: "bca37faa", hostname: "engage", online: true, lastSeen: 1 };
+  const stable = { id: "821192e4", hostname: "engage", online: true, lastSeen: 2 };
+  const omarchy = { id: "b2", hostname: "omarchy", online: true, lastSeen: 1 };
+
+  it("resolves a name two records share the same way on every call, whatever was heard last", () => {
+    const picks = new Set<string>();
+    for (let i = 0; i < 6; i++) {
+      // Each broadcast moves both records' last-seen and may reorder them.
+      const a = { ...old, lastSeen: i % 2 ? 10 + i : i };
+      const b = { ...stable, lastSeen: i % 2 ? i : 10 + i };
+      const records = i % 2 ? [a, b, omarchy] : [b, omarchy, a];
+      const kept = onePerName(records, []);
+      expect(kept.map((m) => m.hostname).sort()).toEqual(["engage", "omarchy"]);
+      picks.add(kept.find((m) => m.hostname === "engage")!.id);
+      const base = machineBase("engage", kept.map((m) => ({ ...m, url: "https://engage:3456" })), "omarchy");
+      picks.add(base!);
+    }
+    expect(picks).toEqual(new Set(["821192e4", "/fleet/821192e4"]));
+  });
+
+  it("prefers one that answers, then the id discovery reports for the name", () => {
+    const discovered = [{ id: "bca37faa", hostname: "engage", url: "https://engage:3456" }];
+    expect(onePerName([stable, old], discovered).map((m) => m.id)).toEqual(["bca37faa"]);
+    expect(onePerName([{ ...old, online: false }, stable], discovered).map((m) => m.id)).toEqual(["821192e4"]);
+  });
 });

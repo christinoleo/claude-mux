@@ -85,6 +85,8 @@ export class TranscriptStore extends ReliableWebSocket {
 	private agentId: string | null = null;
 	/** The path the session's machine is reached through: '' here, `/fleet/<id>` elsewhere. */
 	private base = '';
+	/** What the socket reaches (`routeMachine().address`): a new base to the same address keeps it. */
+	private address = '';
 
 	protected getWsUrl(): string {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -243,14 +245,17 @@ export class TranscriptStore extends ReliableWebSocket {
 	 * or null to detach. Mirrors terminalStore.setTarget's lifecycle contract.
 	 * With `agentId`, the store holds that subagent's transcript instead, and
 	 * `subagents` holds that one agent. `base` names the session's machine
-	 * (`machineBase()`).
+	 * (`machineBase()`), and `address` what it reaches: when only the base
+	 * changes (the machine's id changed), the next connect takes the new base
+	 * and the open socket and its entries stay.
 	 */
-	setSession(sessionId: string | null | undefined, agentId: string | null = null, base = ''): void {
+	setSession(sessionId: string | null | undefined, agentId: string | null = null, base = '', address = base): void {
 		if (!browser) return;
 		const next = sessionId ?? null;
 		const nextAgent = next ? agentId : null;
 
-		if (this.sessionId === next && this.agentId === nextAgent && this.base === base) {
+		if (this.sessionId === next && this.agentId === nextAgent && this.address === address) {
+			this.base = base;
 			if (next === null) return;
 			if (this.ws) return;
 			this.doConnect();
@@ -273,6 +278,7 @@ export class TranscriptStore extends ReliableWebSocket {
 		this.sessionId = next;
 		this.agentId = nextAgent;
 		this.base = base;
+		this.address = address;
 
 		if (next) this.doConnect();
 	}

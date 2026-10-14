@@ -959,7 +959,7 @@
 	// and history reset together; only attach when target is confirmed alive
 	// and the raw mirror is the active view.
 	$effect(() => {
-		terminalStore.setTarget(isAlive && viewMode === 'terminal' ? target : null, base);
+		terminalStore.setTarget(isAlive && viewMode === 'terminal' ? target : null, base, route.address);
 	});
 
 	// Same contract for the transcript store, keyed by session id.
@@ -967,7 +967,8 @@
 		transcriptStore.setSession(
 			isAlive && viewMode === 'transcript' ? (currentSession?.id ?? null) : null,
 			null,
-			base
+			base,
+			route.address
 		);
 	});
 

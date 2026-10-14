@@ -53,12 +53,12 @@
 	// empty: dropping the id would throw away the entries and the scroll.
 	// It is held with its machine, so moving to another machine's agent does
 	// not open the old id there.
-	let held = $state<{ id: string; base: string } | null>(null);
+	let held = $state<{ id: string; address: string } | null>(null);
 	$effect(() => {
-		if (session) held = { id: session.id, base };
+		if (session) held = { id: session.id, address: route.address };
 	});
 	$effect(() => {
-		store.setSession(held?.base === base ? held.id : null, agentId, base);
+		store.setSession(held?.address === route.address ? held.id : null, agentId, base, route.address);
 	});
 	onDestroy(() => store.setSession(null));
 
