@@ -3048,6 +3048,9 @@
 	.output {
 		flex: 1;
 		overflow-y: auto;
+		/* The transcript grows and shrinks under a live turn; a bar coming and
+		   going must not shift it sideways. */
+		scrollbar-gutter: stable;
 		overscroll-behavior: none;
 		touch-action: pan-y;
 		padding: 16px;
