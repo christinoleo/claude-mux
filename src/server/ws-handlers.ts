@@ -767,12 +767,19 @@ export class SessionsWsManager {
 		return { type: 'past' as const, sessions: withoutLive(all, live), timestamp: Date.now() };
 	}
 
+	private pastListing = false;
+
 	private async refreshPast(): Promise<void> {
+		// A first listing of a large disk can outlast the interval; never run two.
+		if (this.pastListing) return;
+		this.pastListing = true;
 		try {
 			this.pastAll = await this.pastIndex.list();
 		} catch (err) {
 			console.error('[ws:sessions] listing past sessions failed:', err);
 			return;
+		} finally {
+			this.pastListing = false;
 		}
 		this.broadcastPastIfChanged();
 	}
@@ -896,7 +903,8 @@ export class SessionsWsManager {
 
 	private async createSessionsMessageAsync(type: 'sessions' | 'connected') {
 		const sessions = await getEnrichedSessionsAsync();
-		this.liveIds = new Set(sessions.map((s) => s.id));
+		// A closed pane's row is not live: its conversation can be resumed from the past list.
+		this.liveIds = new Set(sessions.filter((s) => s.pane_alive !== false).map((s) => s.id));
 		// The server remembers every directory a session has run in, so the
 		// sidebar's groups outlive their last session and are the same from
 		// every browser. Writes only when a directory is new.

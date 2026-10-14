@@ -112,6 +112,8 @@ describe("readPastSession", () => {
 
   it("leaves out subagent, SDK and empty transcripts", async () => {
     expect(await readPastSession(write("p", A, [user("brief", { isSidechain: true })]))).toBeNull();
+    // A sidechain line inside a conversation is skipped, not the conversation.
+    expect((await readPastSession(write("p", D, [user("real prompt"), user("brief", { isSidechain: true })])))?.prompt).toBe("real prompt");
     expect(await readPastSession(write("p", B, [user("summarise this", { entrypoint: "sdk-cli" })]))).toBeNull();
     expect(await readPastSession(write("p", C, [{ type: "file-history-snapshot", snapshot: {} }]))).toBeNull();
   });

@@ -66,5 +66,8 @@ describe("settleCloses", () => {
     expect(settleCloses({ ...idle, queue: [{}] })).toBe(false);
     expect(settleCloses({ ...idle, subagents: [{ state: "running" }] })).toBe(false);
     expect(settleCloses({ ...idle, pane_alive: false })).toBe(false);
+    expect(settleCloses({ ...idle, draft_input: "half a thought" })).toBe(false);
+    expect(settleCloses({ ...idle, pane_activity: { label: "Compacting" } })).toBe(false);
+    expect(settleCloses({ ...idle, draft_input: "try this", draft_kind: "suggestion" })).toBe(true);
   });
 });

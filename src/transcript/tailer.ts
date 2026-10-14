@@ -14,6 +14,7 @@ import {
   readdirSync,
   readFileSync,
   readSync,
+  statSync,
 } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
@@ -73,11 +74,18 @@ export function findTranscriptById(sessionId: string): string | null {
   } catch {
     return null;
   }
+  // A transcript moved by /cd can be in two directories: the newer is the one in use.
+  let best: { path: string; mtimeMs: number } | null = null;
   for (const dir of dirs) {
     const candidate = join(root, dir, `${sessionId}.jsonl`);
-    if (existsSync(candidate)) return candidate;
+    try {
+      const { mtimeMs } = statSync(candidate);
+      if (!best || mtimeMs > best.mtimeMs) best = { path: candidate, mtimeMs };
+    } catch {
+      // Not in this directory.
+    }
   }
-  return null;
+  return best?.path ?? null;
 }
 
 export interface SubagentFile {

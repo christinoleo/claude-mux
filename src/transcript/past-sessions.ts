@@ -140,7 +140,8 @@ export async function readPastSession(path: string): Promise<PastSession | null>
   let lastPrompt: string | null = null;
   let last: number | null = null;
   for (const entry of all) {
-    if (entry.isSidechain === true) return null;
+    // A subagent's line inside the conversation is not the conversation's.
+    if (entry.isSidechain === true) continue;
     const entrypoint = str(entry.entrypoint);
     if (entrypoint?.startsWith("sdk")) return null;
     cwd = str(entry.cwd) ?? cwd;

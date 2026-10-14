@@ -15,6 +15,11 @@ export interface LiveSession {
   agent?: string | null;
   subagents?: { state?: string }[] | null;
   queue?: unknown[] | null;
+  /** Text sitting typed in the prompt box, and whether Claude Code drew it (a suggestion). */
+  draft_input?: string | null;
+  draft_kind?: string | null;
+  /** The spinner, while one turns: compaction fires no hook. */
+  pane_activity?: unknown;
 }
 
 export type ResumePlan =
@@ -73,14 +78,17 @@ export function fallbackRoot(cwd: string, projects: readonly string[], isDir: (p
 
 /**
  * Whether settling a session also ends it: Claude Code sitting idle at its
- * prompt, with nothing queued for it and no subagent at work, is ended and its
- * pane closed. Anything else (a turn running, a question open, another agent)
- * is left running and only moved to Settled.
+ * prompt, with nothing typed or queued for it, no spinner turning and no
+ * subagent at work, is ended and its pane closed. Anything else (a turn
+ * running, a question open, another agent) is left running and only moved
+ * to Settled.
  */
 export function settleCloses(session: LiveSession): boolean {
   if (session.pane_alive === false || !session.tmux_target) return false;
   if ((session.agent ?? "claude") !== "claude") return false;
   if (session.state !== "idle") return false;
-  if (session.queue?.length) return false;
+  if (session.queue?.length || session.pane_activity) return false;
+  // Typed text would be lost with the pane; a suggestion is Claude Code's own.
+  if (session.draft_input?.trim() && session.draft_kind !== "suggestion") return false;
   return !session.subagents?.some((a) => a.state === "running");
 }

@@ -380,7 +380,7 @@
 			const bucket = byRoot.get(root)!;
 			(s.pane_alive === false ? bucket.dead : isSettled(machine, s.id) ? bucket.settled : bucket.live).push(s);
 		}
-		const past = pastByRoot(machine.past, roots, new Set(machine.sessions.map((s) => s.id)));
+		const past = pastByRoot(machine.past, roots, new Set(machine.sessions.filter((s) => s.pane_alive !== false).map((s) => s.id)));
 		for (const pane of panes) {
 			const root = pane.cwd ? findDeepestProject(pane.cwd, roots) : null;
 			if (root) byRoot.get(root)!.panes.push(pane);
@@ -529,7 +529,10 @@
 			const home = places.length === 1 && isHomeDir(places[0].root);
 			const name = home ? '~' : places.every((p) => p.root === NO_FOLDER) ? 'no folder' : project.name;
 			// An offline machine's dialogs may long be answered: they badge nothing.
-			const seen = places.filter((p) => p.machine.online).flatMap((p) => p.rows.map((r) => attention(r.session)));
+			// A settled session still running can come to want a person; its tile says so.
+			const seen = places
+				.filter((p) => p.machine.online)
+				.flatMap((p) => [...p.rows.map((r) => attention(r.session)), ...p.settled.filter(wantsHuman).map(() => 'wants' as const)]);
 			out.push({
 				key: project.key,
 				name,

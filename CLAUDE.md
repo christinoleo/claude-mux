@@ -691,8 +691,9 @@ walk and a stat per file. Claude Code's 30-day cleanup is left alone.
 
 The sessions socket lists them in the background every 30 s
 (`PAST_REFRESH_MS`) and sends `{ type: 'past', sessions }` to every client on
-connect and whenever the list changes, with every session its broadcast lists
-(live or closed) left out (`withoutLive()`), so a session that ends shows up
+connect and whenever the list changes, with every session whose pane is
+alive left out (`withoutLive()`; a closed pane's row does not hide its
+conversation), so a session that ends shows up
 and one resumed leaves at once. The shape (`PastSession`) is in
 `src/past-session.ts`, apart from `node:fs` so the page can import it. The
 fleet state keeps each peer's list beside its state rather than in it, and
@@ -713,8 +714,9 @@ settled one back onto the list. It is a fleet preference, one key per session
 (`settledKey()`, `settled:<machine id>:<session id>`), and the page also posts
 `/api/sessions/<id>/settle` to the session's machine, which ends Claude Code
 and closes its pane when `settleCloses()` says it sits idle at its prompt
-(nothing queued, no subagent running), and leaves anything else running. A
-settled session is out of Active.
+(nothing typed or queued, no spinner, no subagent running), and leaves
+anything else running. A settled session is out of Active; its tile still
+turns amber when it wants a person.
 
 A past session opens at `/past/<id>` (`/m/<name>/past/<id>` for another
 machine's; `pastPath()`), its transcript read-only over the ordinary
