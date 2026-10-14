@@ -6,7 +6,7 @@
 	import { updated } from '$app/state';
 	import { reportClient, watchClientErrors, watchViewport } from '$lib/client-log';
 	import { onMount, onDestroy } from 'svelte';
-	import { drawer } from '$lib/stores/drawer.svelte';
+	import { drawer, DRAWER_MEDIA_QUERY } from '$lib/stores/drawer.svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { acquireWakeLock, releaseWakeLock } from '$lib/wakeLock.svelte';
@@ -23,6 +23,8 @@
 	import { fleetStore, selfName } from '$lib/stores/fleet.svelte';
 	import NotificationCoordinator from '$lib/components/NotificationCoordinator.svelte';
 	import { Toaster } from '$lib/components/ui/sonner';
+	import { holdScroll } from '$lib/actions/holdScroll';
+	import { MediaQuery } from 'svelte/reactivity';
 
 	let { children } = $props();
 
@@ -57,6 +59,19 @@
 
 	/** Driven from the session composer's status line, which carries the toggle. */
 	const drawerOpen = $derived(drawer.open);
+	/**
+	 * On a phone the open drawer covers the page, and the page behind must not
+	 * move under it: it is made inert, so nothing there takes a touch or focus,
+	 * and `holdScroll` keeps a drag on the drawer from reaching the document.
+	 * Inert leaves the transcript's scroll position alone.
+	 */
+	const narrow = new MediaQuery(DRAWER_MEDIA_QUERY);
+	const drawerCovers = $derived(drawerOpen && narrow.current);
+	// The drawer's menus and popovers are drawn into <body>, outside the
+	// drawer, so the document itself is held too.
+	$effect(() => {
+		document.documentElement.classList.toggle('drawer-covers', drawerCovers);
+	});
 	let sidebarElement: HTMLElement | null = $state(null);
 	let touchStartX = 0;
 	let touchCurrentX = 0;
@@ -246,6 +261,7 @@
 			ontouchstart={handleTouchStart}
 			ontouchmove={handleTouchMove}
 			ontouchend={handleTouchEnd}
+			use:holdScroll={drawerCovers}
 		>
 			<div class="sidebar-content">
 				<AllSessionsPanel compact onSessionSelect={closeDrawer} />
@@ -267,7 +283,7 @@
 			></div>
 		</aside>
 
-		<main class="content">
+		<main class="content" inert={drawerCovers}>
 			{#if splitOn && splitA && splitB}
 				<SplitView a={splitA} b={splitB} />
 			{:else}
@@ -308,6 +324,12 @@
 		min-height: 100dvh;
 		/* Matches the header/toolbar so the iOS status-bar & home-indicator areas blend in */
 		background: #111;
+	}
+
+	:global(html.drawer-covers),
+	:global(html.drawer-covers body) {
+		overflow: hidden;
+		overscroll-behavior: none;
 	}
 
 	:global(iconify-icon) {

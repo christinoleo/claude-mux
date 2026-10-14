@@ -61,7 +61,7 @@
 	import ProjectRail, { type RailTile } from './ProjectRail.svelte';
 	import QuickSwitch, { type SwitchItem } from './QuickSwitch.svelte';
 	import { quickSwitch } from '$lib/stores/quick-switch.svelte';
-	import { drawer } from '$lib/stores/drawer.svelte';
+	import { drawer, DRAWER_MEDIA_QUERY } from '$lib/stores/drawer.svelte';
 
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
@@ -620,7 +620,7 @@
 				run: () => {
 					openProject(card.key);
 					// On a phone the list is in the drawer, which may be shut.
-					if (window.matchMedia('(max-width: 768px)').matches) drawer.open = true;
+					if (window.matchMedia(DRAWER_MEDIA_QUERY).matches) drawer.open = true;
 				}
 			});
 		}
