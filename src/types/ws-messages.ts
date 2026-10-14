@@ -12,6 +12,7 @@ import { PrefEntrySchema } from '../fleet-prefs.js';
 import { ProjectReportSchema } from '../fleet-projects.js';
 import { PluginsReportSchema } from '../fleet-plugins.js';
 import { PastSessionSchema } from '../past-session.js';
+import { PlainPaneSchema } from '../fleet-places.js';
 
 // ============================================================================
 // Session data schemas
@@ -242,6 +243,9 @@ const InboxField = z.array(InboxTicketSchema).optional();
 /** What each project is matched across machines by, and its icon (`src/fleet-projects.ts`); absent on older servers. */
 const ProjectReportsField = z.array(ProjectReportSchema).optional();
 
+/** This machine's tmux panes that run no Claude session (`src/fleet-places.ts`); absent on older servers. */
+const PanesField = eachOf(PlainPaneSchema).optional();
+
 /** This machine's Claude Code marketplaces and plugins (`src/fleet-plugins.ts`); null until read, absent on older servers. */
 const PluginsField = PluginsReportSchema.nullable().optional();
 
@@ -249,6 +253,7 @@ const SessionsMessageSchema = z.object({
 	type: z.literal('sessions'),
 	sessions: z.array(EnrichedSessionSchema),
 	count: z.number(),
+	panes: PanesField,
 	projects: ProjectsField,
 	settings: SettingsField,
 	inbox: InboxField,
@@ -261,6 +266,7 @@ const ConnectedMessageSchema = z.object({
 	type: z.literal('connected'),
 	sessions: z.array(EnrichedSessionSchema),
 	count: z.number(),
+	panes: PanesField,
 	projects: ProjectsField,
 	settings: SettingsField,
 	inbox: InboxField,
@@ -302,6 +308,7 @@ const FleetMachineSchema = z.object({
 	projects: z.array(z.string()),
 	inbox: eachOf(InboxTicketSchema),
 	projectReports: eachOf(ProjectReportSchema).optional(),
+	panes: PanesField,
 	// A report this version cannot read counts as none.
 	plugins: PluginsReportSchema.nullable().optional().catch(null)
 });
