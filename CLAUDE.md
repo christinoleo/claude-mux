@@ -461,8 +461,10 @@ takes a pull request or issue URL and nothing else (`openableUrl()`), and
 browser's own socket, so the laptop's window keeps the tab it had in front
 and no tab already open changes. The pane is then switched to the Browser
 source pinned to that tab. A second click for the same page reuses the tab
-opened for it while it is still open; only tabs `openTab()` opened are
-reused, never one a person opened. Through the relay it opens in the session
+opened for it while that tab is open and still on the same pull request or
+issue, and two asks at once open one tab between them; only tabs `openTab()`
+opened are reused, never one a person opened. A tab pinned before the pane's
+list has seen it is looked for again before anything is streamed. Through the relay it opens in the session
 machine's browser, like the rest of the source.
 
 The tab shown defaults to the one the session last opened or selected:
