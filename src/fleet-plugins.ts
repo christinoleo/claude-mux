@@ -12,7 +12,7 @@
  * added under another name, or its repo was renamed), so it is matched by its
  * source repo, and a plugin by its name and its marketplace's repo
  * (`pluginKey()`). "Bring in line" on a machine is `alignPlan()`: update its
- * marketplaces, install what it lacks from the marketplace it has under
+ * marketplaces that are behind, install what it lacks from the marketplace it has under
  * whatever name (or from the repo, which adds the marketplace), and enable
  * what it has turned off.
  */
@@ -196,8 +196,10 @@ export function comparePlugins(machines: readonly MachinePlugins[], onlyHere: Pi
 /** One plugin to install: by its name from a marketplace the machine has, or from the marketplace's repo. */
 type InstallStep = { name: string; marketplace: string } | { name: string; repo: string };
 
-/** What "Bring in line" runs on one machine: marketplace update, then each install and enable. */
+/** What "Bring in line" runs on one machine: each marketplace update, then each install and enable. */
 export interface AlignPlan {
+  /** Names, as the machine calls them, of its marketplaces behind their latest commit or about to be installed from. */
+  update: string[];
   install: InstallStep[];
   /** Ids, as the machine names them, of plugins it has turned off. */
   enable: string[];
@@ -207,16 +209,24 @@ export interface AlignPlan {
 
 /** What bringing machine `id` in line takes, read off a comparison that includes it. */
 export function alignPlan(comparison: PluginComparison, id: string): AlignPlan {
-  const plan: AlignPlan = { install: [], enable: [], unreachable: [] };
+  const plan: AlignPlan = { update: [], install: [], enable: [], unreachable: [] };
   const standing = comparison.machines[id];
   if (!standing) return plan;
+  for (const row of standing.behind) {
+    const have = row.on[id];
+    if (have) plan.update.push(have.name);
+  }
   for (const row of standing.disabled) {
     const have = row.on[id];
     if (have) plan.enable.push(have.id);
   }
   for (const row of standing.missing) {
     const local = comparison.marketplaces.find((m) => m.key === row.marketplaceKey)?.on[id];
-    if (local) plan.install.push({ name: row.name, marketplace: local.name });
+    if (local) {
+      plan.install.push({ name: row.name, marketplace: local.name });
+      // Its latest commit may be unknown (a private repo), so it may be behind unseen and lack the plugin.
+      if (!plan.update.includes(local.name)) plan.update.push(local.name);
+    }
     else if (row.repo) plan.install.push({ name: row.name, repo: row.repo });
     else plan.unreachable.push(`${row.name}@${row.marketplace}`);
   }
@@ -229,13 +239,13 @@ const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SAFE_REPO = /^(?:[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9._-]+|https:\/\/[^\s]+|git@[^\s:]+:[^\s]+)$/;
 
 /**
- * One request of "Bring in line". The page sends the marketplace update and
- * each install and enable as a request of its own, so none runs long enough
- * for the relay to give up on it, and the page can show where it is.
+ * What the page asks a machine to run for "Bring in line" (`POST
+ * /api/plugins`). The machine runs it as a background job (`AlignJob`) and
+ * answers at once, since a marketplace update can outlast any request.
  */
 export const AlignPlanSchema = z.object({
-  /** Run `claude plugin marketplace update` first. */
-  update: z.boolean().default(false),
+  /** Marketplaces to update, by the machine's own names; only these are fetched. */
+  update: z.array(z.string().regex(SAFE_NAME)).max(200).default([]),
   install: z
     .array(
       z.union([
@@ -243,16 +253,52 @@ export const AlignPlanSchema = z.object({
         z.object({ name: z.string().regex(SAFE_NAME), repo: z.string().regex(SAFE_REPO) }),
       ]),
     )
-    .max(200),
+    .max(200)
+    .default([]),
   enable: z
     .array(z.string().refine((id) => {
       const { name, marketplace } = splitPluginId(id);
       return SAFE_NAME.test(name) && SAFE_NAME.test(marketplace);
     }))
-    .max(200),
+    .max(200)
+    .default([]),
 });
 
 export type AlignRequest = z.infer<typeof AlignPlanSchema>;
+
+/** `timeout`: the command ran past its limit and was stopped. */
+export type AlignStepState = "pending" | "running" | "ok" | "failed" | "timeout";
+
+export interface AlignStep {
+  kind: "update" | "install" | "enable";
+  /** What it does, in a few words ("Updating ak-plugins"). */
+  label: string;
+  command: string;
+  state: AlignStepState;
+  /** The machine's clock, as are all times in a job. */
+  startedAt: number | null;
+  finishedAt: number | null;
+  output: string;
+}
+
+/**
+ * One run of "Bring in line" on a machine, kept by that machine's server so a
+ * page that reloads, or a second page that asks, reads the same run.
+ */
+export interface AlignJob {
+  state: "running" | "done";
+  startedAt: number;
+  finishedAt: number | null;
+  steps: AlignStep[];
+}
+
+/** What `/api/plugins` answers: the last job (null before any), and the machine's clock to time it by. */
+export interface AlignAnswer {
+  job: AlignJob | null;
+  now: number;
+  /** On a POST: false when a job already running was joined instead. */
+  started?: boolean;
+}
 
 function emptyOn<T>(ids: readonly string[]): Record<string, T | null> {
   return Object.fromEntries(ids.map((id) => [id, null]));

@@ -224,7 +224,31 @@ describe("alignPlan", () => {
       { name: "marketing-skills", repo: "coreyhaines31/marketingskills" },
     ]);
     expect(plan.unreachable).toEqual(["legal@synced"]);
-    expect(alignPlan(c, "omarchy")).toEqual({ install: [], enable: [], unreachable: [] });
+    // The marketplace installed from is updated first, in case it is behind unseen.
+    expect(plan.update).toEqual(["aknakos"]);
+    expect(alignPlan(c, "omarchy")).toEqual({ update: [], install: [], enable: [], unreachable: [] });
+  });
+
+  it("updates only the marketplaces behind, by the machine's own name for them", () => {
+    const omarchy = report({ marketplaces: [{ name: "official", repo: "anthropics/claude-plugins-official", commit: B, latest: B }, report().marketplaces[1]] });
+    const engage = report({
+      marketplaces: [
+        { name: "claude-official", repo: "anthropics/claude-plugins-official", commit: A, latest: A },
+        { name: "ak-plugins", repo: "christinoleo/ak-plugins", commit: A, latest: A },
+      ],
+      plugins: [{ id: "ak@ak-plugins", version: "1.10.0", enabled: true }, { id: "posthog@claude-official", version: "1.1.67", enabled: true }],
+      readAt: 500,
+    });
+    const c = comparePlugins(
+      [
+        { id: "omarchy", report: omarchy },
+        { id: "engage", report: engage },
+      ],
+      new Set(),
+    );
+    expect(alignPlan(c, "engage").update).toEqual(["claude-official"]);
+    expect(alignPlan(c, "omarchy").update).toEqual([]);
+    expect(AlignPlanSchema.safeParse({ update: ["--all"] }).success).toBe(false);
   });
 
   it("is a plan the route accepts, and the route refuses anything that could be read as an option", () => {

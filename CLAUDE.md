@@ -638,11 +638,18 @@ any machine, leaving out those marked "only here" (the fleet preference
 Each row says how its machine stands, and `PluginMatrix.svelte` lays the
 machines side by side, showing only the rows that differ until asked. "Bring
 in line" sends `alignPlan()`, worked out in the page from the whole fleet, to
-`POST <base>/api/plugins` one step per request, so none outlasts the relay's
-timeout and the row can say where it is: `claude plugin marketplace update`,
-then each install (from the marketplace under the name that machine gives it,
-or with `--marketplace <repo>` when it has none) and enable, carrying on past
-a step that fails; each answers with its output after a fresh read. The route takes only its own page or a relay,
+`POST <base>/api/plugins` in one request: `claude plugin marketplace update
+<name>` for each marketplace that machine has behind or is about to install
+from (never all of them: one can be a large checkout far behind its remote), then each install (from the
+marketplace under the name that machine gives it, or with `--marketplace
+<repo>` when it has none) and enable, carrying on past a step that fails, and
+a fresh read. A fetch can take minutes and Bun drops a request idle for 10 s,
+so the machine runs the plan as a job (`PluginReader.startAlign()`) and
+answers at once; the page reads `GET` every second until it ends, showing the
+step that runs and how long a fetch has gone, and each failed step's output.
+A fetch may run ten minutes before it is stopped and reported as timed out.
+The job is kept in the server's memory, so a reloaded page, or another one,
+picks it up, and an ask while one runs joins it. The route takes only its own page or a relay,
 and every name is checked to be one that cannot be read as an option.
 
 Machines must speak the same protocol to act on each other's sessions.

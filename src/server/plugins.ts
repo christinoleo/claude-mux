@@ -7,9 +7,12 @@
  *
  * Reading runs the CLI and asks GitHub, so it is never done on the poll's
  * time: `PluginReader.current()` answers with what is known and reads again in the
- * background once the last attempt is older than REFRESH_MS. `align()` runs
- * one request of "Bring in line": `claude plugin marketplace update`, or an
- * install or enable of the plan, and a fresh read.
+ * background once the last attempt is older than REFRESH_MS.
+ * `startAlign()` runs "Bring in line" as a job in the background (updating
+ * the marketplaces that are behind, then each install and enable, then a
+ * fresh read) and answers at once: a marketplace update fetches a whole git
+ * checkout and can take minutes, far past the 10 s Bun gives an idle request.
+ * The page reads the job with `alignJob()` until it ends.
  *
  * Only user-scope plugins are reported; what a project turns on is its own.
  */
@@ -20,7 +23,7 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { normaliseRemote } from "../fleet-projects.js";
 import { isRepoSlug } from "../github-ref.js";
-import type { AlignRequest, MarketplaceReport, PluginReport, PluginsReport } from "../fleet-plugins.js";
+import type { AlignJob, AlignRequest, AlignStep, MarketplaceReport, PluginReport, PluginsReport } from "../fleet-plugins.js";
 
 /** How long a report stands before it is read again. */
 const REFRESH_MS = 5 * 60_000;
@@ -28,11 +31,17 @@ const REFRESH_MS = 5 * 60_000;
 const LATEST_MS = 10 * 60_000;
 const READ_TIMEOUT_MS = 30_000;
 const STEP_TIMEOUT_MS = 90_000;
+/** A marketplace fetch, or an install that adds one: a large checkout far behind its remote takes minutes. */
+export const FETCH_TIMEOUT_MS = 10 * 60_000;
+/** How much of a step's output a job keeps, in characters. */
+const OUTPUT_TAIL = 8_000;
 
 export interface RunResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** Stopped for running past its limit. */
+  timedOut?: boolean;
 }
 
 export type Runner = (cmd: string, args: string[], timeoutMs: number) => Promise<RunResult>;
@@ -65,7 +74,9 @@ const defaultRun: Runner = (cmd, args, timeoutMs) =>
       },
       (err, stdout, stderr) => {
         const code = err ? (typeof err.code === "number" ? err.code : -1) : 0;
-        done({ code, stdout: String(stdout), stderr: String(stderr || (err && code === -1 ? err.message : "")) });
+        // Killed for printing past maxBuffer is a failure of its own, not a timeout.
+        const timedOut = !!err && err.killed === true && !!err.signal && err.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+        done({ code, stdout: String(stdout), stderr: String(stderr || (err && code === -1 && !timedOut ? err.message : "")), timedOut });
       },
     );
   });
@@ -132,7 +143,7 @@ type Source = { repo: string; latest: string | null };
 export class PluginReader {
   private report: PluginsReport | null = null;
   private reading: Promise<PluginsReport | null> | null = null;
-  private aligning: Promise<unknown> = Promise.resolve();
+  private job: AlignJob | null = null;
   /** When the last read started, so a CLI that fails is not run again on every broadcast. */
   private attemptedAt = -Infinity;
   private sources = new Map<string, { at: number; source: Source }>();
@@ -168,34 +179,51 @@ export class PluginReader {
   }
 
   /**
-   * Part of "Bring in line": update every marketplace when asked, then install
-   * and enable what the request names, each step run whatever the one before
-   * did, and read the report again so the fleet sees the result.
+   * Start "Bring in line" unless a run is under way, which is joined instead:
+   * two runs at once would both rewrite Claude Code's plugin files. Answers
+   * the job as it stands; `onDone` is called once it has ended and the report
+   * has been read again.
    */
-  align(plan: AlignRequest): Promise<{ steps: AlignStep[]; report: PluginsReport | null }> {
-    // Two pages bringing one machine in line at once would both rewrite Claude Code's plugin files.
-    const run = this.aligning.then(() => this.alignNow(plan));
-    this.aligning = run.catch(() => {});
-    return run;
+  startAlign(plan: AlignRequest, onDone: () => void = () => {}): { started: boolean; job: AlignJob } {
+    if (this.job?.state === "running") return { started: false, job: snapshot(this.job) };
+    const runs = alignRuns(plan);
+    const job: AlignJob = { state: "running", startedAt: this.now(), finishedAt: null, steps: runs.map((r) => r.step) };
+    this.job = job;
+    void this.runJob(job, runs, onDone);
+    return { started: true, job: snapshot(job) };
   }
 
-  private async alignNow(plan: AlignRequest): Promise<{ steps: AlignStep[]; report: PluginsReport | null }> {
-    const commands: string[][] = plan.update ? [["plugin", "marketplace", "update"]] : [];
-    for (const step of plan.install) {
-      commands.push(
-        "marketplace" in step
-          ? ["plugin", "install", `${step.name}@${step.marketplace}`]
-          : ["plugin", "install", step.name, "--marketplace", step.repo],
-      );
-    }
-    for (const id of plan.enable) commands.push(["plugin", "enable", id, "--scope", "user"]);
+  /** The last "Bring in line" run, null before any. */
+  alignJob(): AlignJob | null {
+    return this.job && snapshot(this.job);
+  }
 
-    const steps: AlignStep[] = [];
-    for (const args of commands) {
-      const res = await this.run("claude", args, STEP_TIMEOUT_MS);
-      steps.push({ command: `claude ${args.join(" ")}`, ok: res.code === 0, output: `${res.stdout}${res.stderr}`.trim() });
+  /** Each step runs whatever the one before did; the report is read again at the end so the fleet sees the result. */
+  private async runJob(job: AlignJob, runs: AlignRun[], onDone: () => void): Promise<void> {
+    try {
+      for (const { step, args, limit } of runs) {
+        step.state = "running";
+        step.startedAt = this.now();
+        const res = await this.run("claude", args, limit).catch(
+          (err): RunResult => ({ code: -1, stdout: "", stderr: String(err) }),
+        );
+        step.finishedAt = this.now();
+        // The page reads the job every second, through the relay for another machine.
+        const output = `${res.stdout}${res.stderr}`.trim().slice(-OUTPUT_TAIL);
+        if (res.timedOut) {
+          step.state = "timeout";
+          step.output = `${output}\n(stopped after ${Math.round(limit / 60_000)} min without finishing)`.trimStart();
+        } else {
+          step.state = res.code === 0 ? "ok" : "failed";
+          step.output = output;
+        }
+      }
+      await this.refresh().catch((err) => console.warn("[plugins] read failed:", err));
+    } finally {
+      job.state = "done";
+      job.finishedAt = this.now();
+      onDone();
     }
-    return { steps, report: await this.refresh() };
   }
 
   private async readNow(): Promise<PluginsReport | null> {
@@ -258,10 +286,34 @@ export class PluginReader {
   }
 }
 
-export interface AlignStep {
-  command: string;
-  ok: boolean;
-  output: string;
+/** A step of a job with the `claude` arguments it runs and how long they may take. */
+interface AlignRun {
+  step: AlignStep;
+  args: string[];
+  limit: number;
+}
+
+/** The plan as the steps it runs, in order: marketplace updates, installs, enables. */
+function alignRuns(plan: AlignRequest): AlignRun[] {
+  const run = (kind: AlignStep["kind"], label: string, args: string[], limit: number): AlignRun => ({
+    step: { kind, label, command: `claude ${args.join(" ")}`, state: "pending", startedAt: null, finishedAt: null, output: "" },
+    args,
+    limit,
+  });
+  return [
+    ...plan.update.map((name) => run("update", `Updating ${name}`, ["plugin", "marketplace", "update", name], FETCH_TIMEOUT_MS)),
+    ...plan.install.map((s) =>
+      "marketplace" in s
+        ? run("install", `Installing ${s.name}`, ["plugin", "install", `${s.name}@${s.marketplace}`], STEP_TIMEOUT_MS)
+        : // Adds the marketplace, which clones it.
+          run("install", `Installing ${s.name}`, ["plugin", "install", s.name, "--marketplace", s.repo], FETCH_TIMEOUT_MS),
+    ),
+    ...plan.enable.map((id) => run("enable", `Enabling ${id}`, ["plugin", "enable", id, "--scope", "user"], STEP_TIMEOUT_MS)),
+  ];
+}
+
+function snapshot(job: AlignJob): AlignJob {
+  return { ...job, steps: job.steps.map((s) => ({ ...s })) };
 }
 
 type GlobalWithPlugins = typeof globalThis & { __claudeMuxPlugins?: PluginReader };

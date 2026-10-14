@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { PluginReader, type RunResult, type Runner } from "../../src/server/plugins.js";
+import { describe, expect, it, vi } from "vitest";
+import { FETCH_TIMEOUT_MS, PluginReader, type RunResult, type Runner } from "../../src/server/plugins.js";
 
 const HEAD = "1".repeat(40);
 const GCS = "2".repeat(40);
@@ -87,44 +87,91 @@ describe("PluginReader", () => {
   });
 });
 
-describe("PluginReader.align", () => {
-  it("updates marketplaces, installs and enables, carrying on past a failure, then reads again", async () => {
+/** A runner whose `claude plugin marketplace update` calls wait until released. */
+function gatedRun(calls: string[][], over: Partial<Record<string, RunResult>> = {}) {
+  const gates: { args: string[]; timeoutMs: number; release: (r?: RunResult) => void }[] = [];
+  const base = fakeRun(calls, over);
+  const run: Runner = (cmd, args, timeoutMs) => {
+    if (args[1] !== "marketplace" || args[2] !== "update") return base(cmd, args, timeoutMs);
+    calls.push([cmd, ...args]);
+    return new Promise((done) => gates.push({ args, timeoutMs, release: (r) => done(r ?? ok("updated")) }));
+  };
+  return { run, gates };
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+describe("PluginReader.startAlign", () => {
+  it("answers at once with the job running, and reports each step as it starts and ends", async () => {
     const calls: string[][] = [];
-    const run = fakeRun(calls, { "claude plugin install beads@ak": fail });
-    const reader = new PluginReader({ run, readText });
-    const { steps, report } = await reader.align({
-      update: true,
-      install: [
-        { name: "beads", marketplace: "ak" },
-        { name: "marketing-skills", repo: "coreyhaines31/marketingskills" },
-      ],
-      enable: ["posthog@official"],
-    });
-    expect(steps.map((s) => [s.command, s.ok])).toEqual([
-      ["claude plugin marketplace update", true],
-      ["claude plugin install beads@ak", false],
-      ["claude plugin install marketing-skills --marketplace coreyhaines31/marketingskills", true],
-      ["claude plugin enable posthog@official --scope user", true],
+    const { run, gates } = gatedRun(calls);
+    let now = 1_000;
+    const reader = new PluginReader({ run, readText, now: () => now });
+    let done = 0;
+    const { started, job } = reader.startAlign(
+      { update: ["scientific"], install: [{ name: "beads", marketplace: "ak" }], enable: ["posthog@official"] },
+      () => done++,
+    );
+    expect(started).toBe(true);
+    expect(job.state).toBe("running");
+    expect(job.steps.map((s) => [s.label, s.command, s.state])).toEqual([
+      ["Updating scientific", "claude plugin marketplace update scientific", "running"],
+      ["Installing beads", "claude plugin install beads@ak", "pending"],
+      ["Enabling posthog@official", "claude plugin enable posthog@official --scope user", "pending"],
     ]);
-    expect(steps[1].output).toBe("nope");
-    expect(report?.plugins).toHaveLength(2);
+    // Only the marketplace that is behind is fetched, with a limit of minutes.
+    expect(gates).toHaveLength(1);
+    expect(gates[0].args).toEqual(["plugin", "marketplace", "update", "scientific"]);
+    expect(gates[0].timeoutMs).toBe(FETCH_TIMEOUT_MS);
+
+    now = 61_000;
+    expect(reader.alignJob()?.steps[0]).toMatchObject({ state: "running", startedAt: 1_000, finishedAt: null });
+    gates[0].release();
+    await vi.waitFor(() => expect(reader.alignJob()?.state).toBe("done"));
+    const end = reader.alignJob()!;
+    expect(end.steps.map((s) => s.state)).toEqual(["ok", "ok", "ok"]);
+    expect(end.steps[0]).toMatchObject({ output: "updated", finishedAt: 61_000 });
+    expect(end.finishedAt).toBe(61_000);
+    expect(done).toBe(1);
+    // The report is read again after the steps.
+    expect(calls.at(-1)?.join(" ")).not.toMatch(/^claude plugin (install|enable|marketplace update)/);
   });
 
-  it("runs one request at a time, so two pages never rewrite the plugin files together", async () => {
-    let installing = 0;
-    let overlapped = false;
-    const base = fakeRun([]);
-    const run: Runner = async (cmd, args, t) => {
-      if (args[1] !== "install") return base(cmd, args, t);
-      if (++installing > 1) overlapped = true;
-      await new Promise((r) => setTimeout(r, 5));
-      installing--;
-      return ok("");
-    };
+  it("joins a run under way instead of starting another", async () => {
+    const calls: string[][] = [];
+    const { run, gates } = gatedRun(calls);
     const reader = new PluginReader({ run, readText });
-    const one = { update: false, install: [{ name: "a", marketplace: "m" }], enable: [] };
-    const results = await Promise.all([reader.align(one), reader.align(one)]);
-    expect(overlapped).toBe(false);
-    expect(results.map((r) => r.steps[0].ok)).toEqual([true, true]);
+    const first = reader.startAlign({ update: ["a"], install: [], enable: [] });
+    const second = reader.startAlign({ update: ["b"], install: [], enable: [] });
+    expect(second.started).toBe(false);
+    expect(second.job).toEqual(first.job);
+    expect(gates).toHaveLength(1);
+    gates[0].release();
+    await vi.waitFor(() => expect(reader.alignJob()?.state).toBe("done"));
+    // Once it has ended, the next ask starts afresh.
+    expect(reader.startAlign({ update: ["b"], install: [], enable: [] }).started).toBe(true);
+    await tick();
+    expect(gates[1].args.at(-1)).toBe("b");
+  });
+
+  it("carries on past a failed step and reports a timeout plainly, with the output", async () => {
+    const { run, gates } = gatedRun([], { "claude plugin install beads@ak": fail });
+    const reader = new PluginReader({ run, readText });
+    reader.startAlign({ update: ["slow"], install: [{ name: "beads", marketplace: "ak" }], enable: ["x@y"] });
+    gates[0].release({ code: -1, stdout: "Fetching…", stderr: "", timedOut: true });
+    await vi.waitFor(() => expect(reader.alignJob()?.state).toBe("done"));
+    const [update, install, enable] = reader.alignJob()!.steps;
+    expect(update.state).toBe("timeout");
+    expect(update.output).toMatch(/^Fetching…\n\(stopped after 10 min without finishing\)$/);
+    expect(install).toMatchObject({ state: "failed", output: "nope" });
+    expect(enable.state).toBe("ok");
+  });
+
+  it("hands out copies, so a reader cannot change the job", () => {
+    const { run } = gatedRun([]);
+    const reader = new PluginReader({ run, readText });
+    expect(reader.alignJob()).toBeNull();
+    reader.startAlign({ update: ["a"], install: [], enable: [] }).job.steps[0].state = "ok";
+    expect(reader.alignJob()?.steps[0].state).toBe("running");
   });
 });

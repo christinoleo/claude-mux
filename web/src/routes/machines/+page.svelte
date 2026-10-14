@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { apiBase, blockedReason, fleetStore, liveCount, machineName, offlineLabel, offlineReason, versionDrifts, type Machine } from '$lib/stores/fleet.svelte';
@@ -7,9 +7,9 @@
 	import { VERSION } from '$shared/utils/version.js';
 	import PluginMatrix from '$lib/components/PluginMatrix.svelte';
 	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
-	import { alignPlan, comparePlugins, type AlignRequest, type MachineStanding } from '$shared/fleet-plugins.js';
+	import { alignPlan, comparePlugins, type AlignAnswer, type AlignJob, type MachineStanding } from '$shared/fleet-plugins.js';
 	import { onlyHereKey } from '$shared/fleet-prefs.js';
-	import type { AlignStep } from '$shared/server/plugins.js';
+	import { formatSpinnerElapsed } from '$lib/format';
 
 	/**
 	 * The Machines view: every machine in the fleet with its version, whether
@@ -80,53 +80,128 @@
 		)
 	);
 
-	type Failed = Pick<AlignStep, 'command' | 'output'>;
-	type Aligning = { state: 'running'; line: string } | { state: 'done'; failed: Failed[] };
+	/**
+	 * "Bring in line" on one machine, as this page last read it: the job the
+	 * machine runs, how far its clock is from this one (`skew`, so a step's
+	 * elapsed time reads right), and what failed before or around it.
+	 */
+	type Aligning = { job: AlignJob | null; skew: number; error: string | null; unreachable: string[]; starting: boolean };
 	let aligning = $state<Record<string, Aligning>>({});
+	/** Machines whose job this page is reading, so one is never read twice over. */
+	const watching = new Set<string>();
+	/** Machines asked once whether a job runs there, so a reload picks it up. */
+	const asked = new Set<string>();
+
+	const ALIGN_POLL_MS = 1_000;
+	/** Reads in a row that may go unanswered (the relay's 502, a network blip) before the run counts as lost. */
+	const ALIGN_MISSES = 10;
+
+	/** Change what this page holds on a machine's run, keeping the rest. */
+	function setAligning(id: string, change: Partial<Aligning>) {
+		const prev = aligning[id] ?? { job: null, skew: 0, error: null, unreachable: [], starting: false };
+		aligning[id] = { ...prev, ...change };
+	}
+
+	/** Why a machine's answer is not a job. */
+	function alignError(status: number, body: { error?: unknown }): string {
+		// The relay's own 404 (a machine it does not know) carries an `error`; a machine without the route does not.
+		if (typeof body.error === 'string' && status !== 400) return body.error;
+		// 400: a machine that reads the plan's older shape.
+		return status === 400 || status === 404 || status === 405 ? 'This machine’s claude-mux is too old for this; update it first.' : `HTTP ${status}`;
+	}
+
+	/** Take in a machine's answer; false when there is nothing more to read. */
+	function takeAnswer(row: Row, status: number, body: Partial<AlignAnswer> & { error?: unknown }): boolean {
+		if (status >= 400 && status !== 409) {
+			setAligning(row.id, { error: alignError(status, body), starting: false });
+			return false;
+		}
+		const job = body.job ?? null;
+		setAligning(row.id, { job, skew: typeof body.now === 'number' ? Date.now() - body.now : 0, error: null, starting: false });
+		return job?.state === 'running';
+	}
+
+	/** Read a machine's job until it ends. The machine runs it whether or not anyone reads. */
+	async function watchAlign(row: Row) {
+		if (watching.has(row.id)) return;
+		watching.add(row.id);
+		const release = clock.fine();
+		try {
+			let misses = 0;
+			for (;;) {
+				await browserIO.sleep(ALIGN_POLL_MS);
+				const answer = await browserIO.request(`${apiBase(row.machine)}/api/plugins`, 'GET').catch(() => null);
+				if (!answer || answer.status >= 500) {
+					if (++misses < ALIGN_MISSES) continue;
+					setAligning(row.id, { error: 'Stopped answering while the run was under way' });
+					return;
+				}
+				misses = 0;
+				if (!takeAnswer(row, answer.status, answer.body)) return;
+			}
+		} finally {
+			watching.delete(row.id);
+			release();
+		}
+	}
 
 	/**
-	 * "Bring in line": the plan worked out from the whole fleet, run on that
-	 * machine one step per request (`POST /api/plugins`), carrying on past a
-	 * step that fails and stopping only when the machine cannot be asked.
+	 * "Bring in line": the plan worked out from the whole fleet, handed to the
+	 * machine in one request (`POST /api/plugins`). The machine runs it as a job
+	 * of its own and answers at once, since a marketplace update can take
+	 * minutes; this page reads the job until it ends. A job already running
+	 * there is joined instead.
 	 */
 	async function bringInLine(row: Row) {
-		const plan = alignPlan(comparison, row.id);
-		const failed: Failed[] = plan.unreachable.map((id) => ({
-			command: `install ${id}`,
-			output: 'Its marketplace is not on this machine and has no repo to add it from.'
-		}));
-		const requests: { line: string; body: AlignRequest }[] = [
-			{ line: 'Updating marketplaces', body: { update: true, install: [], enable: [] } },
-			...plan.install.map((step) => ({ line: `Installing ${step.name}`, body: { update: false, install: [step], enable: [] } })),
-			...plan.enable.map((id) => ({ line: `Enabling ${id}`, body: { update: false, install: [], enable: [id] } }))
-		];
-		for (const [i, req] of requests.entries()) {
-			aligning[row.id] = { state: 'running', line: `${req.line} (${i + 1}/${requests.length})` };
-			try {
-				const res = await fetch(`${apiBase(row.machine)}/api/plugins`, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(req.body)
-				});
-				const data = (await res.json().catch(() => ({}))) as { steps?: AlignStep[]; error?: unknown };
-				if (!res.ok) {
-					// The relay's own 404 (a machine it does not know) carries an `error`; a machine without the route does not.
-					const why =
-						typeof data.error === 'string'
-							? data.error
-							: res.status === 404
-								? 'This machine’s claude-mux predates plugins; update it first.'
-								: `HTTP ${res.status}`;
-					failed.push({ command: req.line, output: why });
-					break;
-				}
-				for (const step of data.steps ?? []) if (!step.ok) failed.push(step);
-			} catch (err) {
-				failed.push({ command: req.line, output: String(err) });
-				break;
-			}
+		const { unreachable, ...plan } = alignPlan(comparison, row.id);
+		aligning[row.id] = { job: null, skew: 0, error: null, unreachable, starting: true };
+		try {
+			const res = await fetch(`${apiBase(row.machine)}/api/plugins`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(plan)
+			});
+			if (takeAnswer(row, res.status, await res.json().catch(() => ({})))) await watchAlign(row);
+		} catch (err) {
+			setAligning(row.id, { error: String(err), starting: false });
 		}
-		aligning[row.id] = { state: 'done', failed };
+	}
+
+	// A job started before this page loaded (or from another page) is read too.
+	$effect(() => {
+		for (const row of rows) {
+			if (asked.has(row.id) || !row.machine.online || !row.machine.plugins || untrack(() => blockedReason(row.machine, clock.now))) continue;
+			asked.add(row.id);
+			void browserIO.request(`${apiBase(row.machine)}/api/plugins`, 'GET').then((answer) => {
+				const body = answer?.body as Partial<AlignAnswer> | undefined;
+				if (answer && body?.job?.state === 'running' && !aligning[row.id] && takeAnswer(row, answer.status, body)) void watchAlign(row);
+			});
+		}
+	});
+
+	const running = (a: Aligning | undefined) => !!a && !a.error && (a.starting || a.job?.state === 'running');
+
+	/** Where a running job is: its step, its place in the plan, and how long a fetch has run. */
+	function alignLine(a: Aligning): string {
+		const steps = a.job?.steps ?? [];
+		const i = steps.findIndex((s) => s.state === 'running');
+		if (i < 0) return steps.length && steps.every((s) => s.state !== 'pending') ? 'Reading plugins again' : 'Starting';
+		const step = steps[i];
+		let line = `${step.label} (${i + 1}/${steps.length})`;
+		const elapsed = step.startedAt === null ? 0 : clock.now - a.skew - step.startedAt;
+		if (elapsed >= 5_000) line += `, ${step.kind === 'update' ? 'still fetching' : 'still running'} ${formatSpinnerElapsed(Math.floor(elapsed / 1000))}`;
+		return line;
+	}
+
+	/** What went wrong in a run: the steps that failed or timed out, plus what could not be planned or asked. */
+	function alignFailures(a: Aligning): { command: string; output: string }[] {
+		return [
+			...a.unreachable.map((id) => ({ command: `install ${id}`, output: 'Its marketplace is not on this machine and has no repo to add it from.' })),
+			...(a.job?.steps ?? [])
+				.filter((s) => s.state === 'failed' || s.state === 'timeout')
+				.map((s) => ({ command: s.state === 'timeout' ? `${s.command} (timed out)` : s.command, output: s.output })),
+			...(a.error ? [{ command: 'Bring in line', output: a.error }] : [])
+		];
 	}
 
 	/** One line on how a machine's plugins stand against the fleet's. */
@@ -176,6 +251,8 @@
 			{@const drift = versionDrifts(m)}
 			{@const standing = comparison.machines[row.id]}
 			{@const align = aligning[row.id]}
+			{@const alignBusy = running(align)}
+			{@const failures = align && !alignBusy ? alignFailures(align) : []}
 			<li class="station {p?.state ?? 'idle'}" class:off={!m.online}>
 				<span class="node" aria-hidden="true">
 					{#if p?.state === 'ok'}<iconify-icon icon="mdi:check"></iconify-icon>
@@ -215,21 +292,21 @@
 								variant="outline"
 								size="sm"
 								class="align"
-								disabled={align?.state === 'running' || !!blocked}
+								disabled={alignBusy || !!blocked}
 								title={blocked ?? `Update ${machineName(m)}’s marketplaces and install or enable what it lacks`}
 								onclick={() => void bringInLine(row)}
 							>
-								{#if align?.state === 'running'}<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>{/if}
-								{align?.state === 'running' ? 'Bringing in line…' : 'Bring in line'}
+								{#if alignBusy}<iconify-icon icon="mdi:loading" class="spin"></iconify-icon>{/if}
+								{alignBusy ? 'Bringing in line…' : 'Bring in line'}
 							</Button>
 						{/if}
 					</div>
-					{#if align?.state === 'running'}
-						<p class="progress">{align.line}</p>
-					{:else if align?.state === 'done' && align.failed.length > 0}
+					{#if align && alignBusy}
+						<p class="progress">{alignLine(align)}</p>
+					{:else if failures.length > 0}
 						<details class="align-failed" open>
-							<summary>{align.failed.length === 1 ? 'One step failed' : `${align.failed.length} steps failed`}</summary>
-							{#each align.failed as f, i (i)}
+							<summary>{failures.length === 1 ? 'One step failed' : `${failures.length} steps failed`}</summary>
+							{#each failures as f, i (i)}
 								<pre><b>{f.command}</b>{'\n'}{f.output}</pre>
 							{/each}
 						</details>
