@@ -209,7 +209,13 @@ footer below the box, or right-aligned just above the box in the fullscreen
 layout; an "Update available! Run: …" notice carries its `command` when it is
 one of the known upgrade commands, and the status line's button then has
 `upgradeThenRestart()` type it into Claude Code as a `!` shell line, wait for
-its "Running…" line to go, and restart the session), `pane_activity`, and `queue` (everything claude-mux's own send queue
+the shell Claude Code runs it in (a child of its process whose argv carries
+the command) to exit, and restart the session only if `claude --version` on
+the session's PATH changed; the pane's "Running…" line is read only where
+there is no process table, since a command that prints draws its output
+there instead), `upgrade` (that upgrade while it runs, or for ten minutes
+after it ended without a restart, with why and the command's output from the
+transcript's `<bash-stdout>`), `pane_activity`, and `queue` (everything claude-mux's own send queue
 holds for the pane, each item with a stable `id` that the queue-edit and
 `/steer` routes address it by; attachments ride beside the text and are
 folded in only on delivery), `last_visited_at` (see Session States), and `delivered` (what the queue and steers handed

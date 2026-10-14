@@ -22,23 +22,24 @@
  * process has registered.
  */
 
-import { execFileSync } from "child_process";
-import { readFileSync } from "fs";
+import { execFile, execFileSync } from "child_process";
+import { closeSync, openSync, readFileSync, readSync, statSync } from "fs";
 import { basename } from "path";
 import { setTimeout as delay } from "timers/promises";
+import { promisify } from "util";
 
 import { getSession, updateSession, type Session } from "../db/sessions-json.js";
-import { capturePaneContentAsync, isBangRunning, readUpdateNotice, runTmux } from "../tmux/pane.js";
+import { capturePaneContentAsync, isBangRunning, readUpdateNotice, runTmux, stripAnsi } from "../tmux/pane.js";
+import { resolveTranscriptPath } from "../transcript/tailer.js";
+import { descendants, readProcessTree, type ProcessRow } from "../utils/processes.js";
 import { shellQuote } from "../utils/shell.js";
 import { terminate } from "../utils/pid.js";
+
+const execFileAsync = promisify(execFile);
 
 const SHELL_TIMEOUT_MS = 5_000;
 const RESUME_TIMEOUT_MS = 20_000;
 const POLL_MS = 100;
-/** How long a `!` command gets to show its "Running…" line; a quick one may never. */
-const BANG_START_MS = 3_000;
-/** How long an upgrade may take before the restart is given up on. */
-const UPGRADE_TIMEOUT_MS = 5 * 60_000;
 
 export type RestartOutcome = { ok: true; command: string } | { ok: false; error: string };
 
@@ -186,23 +187,158 @@ export async function restartClaude(session: Session): Promise<RestartOutcome> {
   return { ok: true, command };
 }
 
-/** How often the pane is read while a shell line runs; an upgrade takes tens of seconds. */
-const BANG_POLL_MS = 1_000;
+/**
+ * How long a `!` command gets to be seen starting (a quick one may never be),
+ * how long it may run before the restart is given up on, and how often it is
+ * looked at in between; an upgrade takes tens of seconds.
+ */
+export type BangTiming = { startMs: number; timeoutMs: number; pollMs: number };
+const BANG_TIMING: BangTiming = { startMs: 3_000, timeoutMs: 5 * 60_000, pollMs: 1_000 };
 
-/** The sessions whose upgrade is under way, so a second click starts nothing. */
-const upgrading = new Set<string>();
+/** Where `bangFinished()` looks: the process table first, the pane where there is none. */
+export type BangProbe = {
+  processes: () => ProcessRow[] | null;
+  pane: () => Promise<string | null>;
+};
 
-/** Resolves once the pane no longer shows a `!` command running, or false at the timeout. */
-async function bangFinished(target: string): Promise<boolean> {
-  const running = async () => isBangRunning((await capturePaneContentAsync(target)) ?? "");
+/**
+ * Whether the `!` command is still running. Claude Code runs it in a shell of
+ * its own, a child whose argv carries the command's words (`bash -c … eval
+ * '<command>' …`), and the command itself sits below that shell; either one
+ * still there means it runs. The pane is read only where the process table
+ * cannot be, since what it draws while a command prints is the command's own
+ * output, not "Running…".
+ */
+async function bangRunning(pid: number, command: string, probe: BangProbe): Promise<boolean> {
+  const rows = probe.processes();
+  if (rows) return descendants(rows, pid).some((row) => row.args.includes(command));
+  return isBangRunning((await probe.pane()) ?? "");
+}
+
+/** Resolves once the `!` command has ended, or false at the timeout. */
+export async function bangFinished(
+  pid: number,
+  command: string,
+  probe: BangProbe,
+  timing: BangTiming = BANG_TIMING
+): Promise<boolean> {
+  const running = () => bangRunning(pid, command, probe);
   // A quick command may never be seen running, so not seeing it start is no failure.
-  await waitUntil(running, BANG_START_MS);
-  const deadline = Date.now() + UPGRADE_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  const deadline = Date.now() + timing.startMs;
+  while (Date.now() < deadline && !(await running())) await delay(timing.pollMs / 10);
+  const end = Date.now() + timing.timeoutMs;
+  while (Date.now() < end) {
     if (!(await running())) return true;
-    await delay(BANG_POLL_MS);
+    await delay(timing.pollMs);
   }
   return false;
+}
+
+/**
+ * The version `claude` reports on the session's own PATH: the binary a
+ * restart would start, which is the one an upgrade has to change. Read off
+ * the running process's environment where `/proc` has it; null when it will
+ * not answer.
+ */
+export async function claudeVersion(session: Pick<Session, "pid" | "cwd">): Promise<string | null> {
+  let path = process.env.PATH;
+  try {
+    const env = readFileSync(`/proc/${session.pid}/environ`, "utf-8").split("\0");
+    path = env.find((v) => v.startsWith("PATH="))?.slice(5) ?? path;
+  } catch {
+    /* no /proc: the server's own PATH is the best guess */
+  }
+  try {
+    const { stdout } = await execFileAsync("claude", ["--version"], {
+      cwd: session.cwd,
+      env: { ...process.env, PATH: path },
+      timeout: 15_000,
+    });
+    return /\d+\.\d+\.\d+\S*/.exec(stdout)?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** How much of the transcript's end is searched for the command's output. */
+const OUTPUT_TAIL_BYTES = 256 * 1024;
+/** How many of the output's last lines are kept to show. */
+const OUTPUT_LINES = 20;
+
+/**
+ * What the last `!` command printed, from the lines of a transcript: Claude
+ * Code records it as a user entry `<bash-stdout>…</bash-stdout><bash-stderr>…`,
+ * which, unlike the pane, it never folds. Progress bars leave their escapes in,
+ * so those go, and only the last lines are kept.
+ */
+export function lastBangOutput(lines: string[]): string | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes("<bash-stdout>")) continue;
+    let content: unknown;
+    try {
+      content = JSON.parse(lines[i])?.message?.content;
+    } catch {
+      continue;
+    }
+    if (typeof content !== "string") continue;
+    const body = content;
+    const part = (tag: string) => new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(body)?.[1] ?? "";
+    const text = stripAnsi([part("bash-stdout"), part("bash-stderr")].join("\n"))
+      .split(/\r?\n/)
+      .map((line) => (line.split("\r").filter(Boolean).at(-1) ?? "").trimEnd())
+      .filter((line) => line.length > 0);
+    return text.slice(-OUTPUT_LINES).join("\n");
+  }
+  return null;
+}
+
+function readBangOutput(session: Session): string | null {
+  const path = resolveTranscriptPath(session, session.id);
+  if (!path) return null;
+  try {
+    const size = statSync(path).size;
+    const length = Math.min(size, OUTPUT_TAIL_BYTES);
+    const buffer = Buffer.alloc(length);
+    const fd = openSync(path, "r");
+    try {
+      readSync(fd, buffer, 0, length, size - length);
+    } finally {
+      closeSync(fd);
+    }
+    return lastBangOutput(buffer.toString("utf-8").split("\n"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How the last upgrade asked of a session stands, until it restarts the
+ * session or a while after it gave up. `running` holds while the command
+ * runs; the others say why there was no restart, with what the command
+ * printed. Kept in globalThis: in dev the route and the poll load this module
+ * separately, and the poll is what puts it on the broadcast.
+ */
+export type UpgradeStatus = {
+  state: "running" | "unchanged" | "timeout" | "failed";
+  command: string;
+  at: number;
+  message?: string;
+  output?: string | null;
+};
+const upgrades = ((globalThis as typeof globalThis & {
+  __claudeMuxUpgrades?: Map<string, UpgradeStatus>;
+}).__claudeMuxUpgrades ??= new Map<string, UpgradeStatus>());
+/** How long the reason an upgrade did not restart stays on show. */
+const UPGRADE_RESULT_MS = 10 * 60_000;
+
+/** The session's upgrade as it stands, or null when none is running or lately ended without a restart. */
+export function upgradeStatus(sessionId: string): UpgradeStatus | null {
+  const status = upgrades.get(sessionId);
+  if (status && status.state !== "running" && Date.now() - status.at > UPGRADE_RESULT_MS) {
+    upgrades.delete(sessionId);
+    return null;
+  }
+  return status ?? null;
 }
 
 /**
@@ -212,40 +348,57 @@ async function bangFinished(target: string): Promise<boolean> {
  * running a shell line: that works whatever the pane was started with, runs as
  * the user in the session's own environment, and leaves the output in the
  * conversation where it can be read. Nothing reports such a command ending, so
- * its "Running…" line is watched until it goes.
+ * the shell Claude Code runs it in is watched until it exits.
  *
  * It answers as soon as the command is typed and does the waiting and the
  * restart afterwards: the server drops a request that sits idle for ten
- * seconds, and an upgrade takes longer. Whether the upgrade worked is not
- * checked; a restart after one that failed shows the same notice again.
+ * seconds, and an upgrade takes longer. The restart happens only when the
+ * version on the session's PATH changed; a restart into the same version
+ * would show the same notice again, so instead the status says the upgrade
+ * did nothing and carries what the command printed.
  */
 export async function upgradeThenRestart(session: Session): Promise<RestartOutcome> {
   const target = session.tmux_target;
   if (!target) return { ok: false, error: "session has no tmux pane" };
-  if (upgrading.has(session.id)) return { ok: false, error: "an upgrade is already running here" };
+  if (upgradeStatus(session.id)?.state === "running") {
+    return { ok: false, error: "an upgrade is already running here" };
+  }
   if (session.state !== "idle") {
     return { ok: false, error: "Claude Code is busy; upgrade once it is waiting for you" };
   }
   // Read off the pane here, never taken from the request: only a known upgrade command is typed.
   const command = readUpdateNotice((await capturePaneContentAsync(target)) ?? "")?.command;
   if (!command) return { ok: false, error: "the pane shows no upgrade command claude-mux can run" };
+  const before = await claudeVersion(session);
   // C-u clears a draft or a suggestion first: `!` only means "shell" at the start of the box.
   if ((await runTmux(["send-keys", "-t", target, "C-u", `!${command}`, "Enter"])) === null) {
     return { ok: false, error: "could not type into the pane" };
   }
 
-  upgrading.add(session.id);
+  upgrades.set(session.id, { state: "running", command, at: Date.now() });
+  const settle = (state: Exclude<UpgradeStatus["state"], "running">, message: string) => {
+    console.warn(`[upgrade] ${target}: ${message}`);
+    upgrades.set(session.id, { state, command, at: Date.now(), message, output: readBangOutput(session) });
+  };
   void (async () => {
     try {
-      if (!(await bangFinished(target))) {
-        console.warn(`[upgrade] ${command} was still running after five minutes in ${target}`);
-        return;
+      const probe: BangProbe = {
+        processes: () => readProcessTree(session.pid),
+        pane: () => capturePaneContentAsync(target),
+      };
+      if (!(await bangFinished(session.pid, command, probe))) {
+        return settle("timeout", `"${command}" was still running after five minutes, so Claude Code was not restarted`);
+      }
+      const after = await claudeVersion(session);
+      if (before !== null && after === before) {
+        return settle("unchanged", `"${command}" did not change Claude Code's version (still ${after}), so it was not restarted`);
       }
       // The file is read again: the command's output started a turn of its own.
       const outcome = await restartClaude(getSession(session.id) ?? session);
-      if (!outcome.ok) console.warn(`[upgrade] restart failed in ${target}: ${outcome.error}`);
-    } finally {
-      upgrading.delete(session.id);
+      if (!outcome.ok) return settle("failed", `the upgrade ran but the restart failed: ${outcome.error}`);
+      upgrades.delete(session.id);
+    } catch (err) {
+      settle("failed", `the upgrade stopped: ${err instanceof Error ? err.message : String(err)}`);
     }
   })();
   return { ok: true, command };

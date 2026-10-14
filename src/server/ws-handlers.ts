@@ -20,6 +20,7 @@ import { currentRemoteControlUrl, answerRemoteControlDialog, setRemoteControl } 
 import { getAllPaneTitles, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
 import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
+import { upgradeStatus, type UpgradeStatus } from './restart-claude.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
 import { peekContextPercent, peekTranscriptTitle } from '../transcript/context-peek.js';
 
@@ -40,6 +41,8 @@ type LivePaneFields = {
 	pane_choice: PromptChoice;
 	/** Claude Code's footer notice about its own update; null when it shows none. */
 	pane_update: UpdateNotice;
+	/** The upgrade the status line's button started, while it runs or after it ended without a restart. */
+	upgrade: UpgradeStatus | null;
 	/** The spinner line while a turn runs, split into its parts; null when none is drawn. */
 	pane_activity: LiveActivity | null;
 	/** Share of the context window in use as of the latest reply; null when unknown. */
@@ -483,6 +486,7 @@ export async function getEnrichedSessionsAsync(): Promise<(Session & LivePaneFie
 				: null,
 			// Claude Code says so only in its footer, which the transcript never sees.
 			pane_update: stripped ? readUpdateNotice(stripped) : null,
+			upgrade: upgradeStatus(s.id),
 			// The spinner says more than the hooks do: what runs, for how long,
 			// how many tokens. Busy only, so a frame left over never outlives the turn.
 			pane_activity: liveActivity(s.id, stripped && s.state === 'busy' ? readActivity(stripped) : null),

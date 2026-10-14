@@ -187,6 +187,17 @@ const EnrichedSessionSchema = z.object({
 		})
 		.nullable()
 		.optional(),
+	/** The upgrade the status line started: running, or why it did not restart — live only. */
+	upgrade: z
+		.object({
+			state: z.enum(['running', 'unchanged', 'timeout', 'failed']),
+			command: z.string(),
+			at: z.number(),
+			message: z.string().optional(),
+			output: z.string().nullable().optional()
+		})
+		.nullable()
+		.optional(),
 	/** The spinner line while a turn runs, split into its parts — live only. */
 	pane_activity: PaneActivitySchema.nullable().optional(),
 	/** Share of the context window in use, read off the transcript's latest reply. */
