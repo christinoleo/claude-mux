@@ -10,6 +10,7 @@ import { z } from 'zod/v4';
 import { AGENT_IDS } from '../agents.js';
 import { PrefEntrySchema } from '../fleet-prefs.js';
 import { ProjectReportSchema } from '../fleet-projects.js';
+import { PluginsReportSchema } from '../fleet-plugins.js';
 
 // ============================================================================
 // Session data schemas
@@ -228,6 +229,9 @@ const InboxField = z.array(InboxTicketSchema).optional();
 /** What each project is matched across machines by, and its icon (`src/fleet-projects.ts`); absent on older servers. */
 const ProjectReportsField = z.array(ProjectReportSchema).optional();
 
+/** This machine's Claude Code marketplaces and plugins (`src/fleet-plugins.ts`); null until read, absent on older servers. */
+const PluginsField = PluginsReportSchema.nullable().optional();
+
 const SessionsMessageSchema = z.object({
 	type: z.literal('sessions'),
 	sessions: z.array(EnrichedSessionSchema),
@@ -236,6 +240,7 @@ const SessionsMessageSchema = z.object({
 	settings: SettingsField,
 	inbox: InboxField,
 	projectReports: ProjectReportsField,
+	plugins: PluginsField,
 	timestamp: z.number()
 });
 
@@ -247,6 +252,7 @@ const ConnectedMessageSchema = z.object({
 	settings: SettingsField,
 	inbox: InboxField,
 	projectReports: ProjectReportsField,
+	plugins: PluginsField,
 	timestamp: z.number()
 });
 
@@ -282,7 +288,9 @@ const FleetMachineSchema = z.object({
 	sessions: eachOf(EnrichedSessionSchema),
 	projects: z.array(z.string()),
 	inbox: eachOf(InboxTicketSchema),
-	projectReports: eachOf(ProjectReportSchema).optional()
+	projectReports: eachOf(ProjectReportSchema).optional(),
+	// A report this version cannot read counts as none.
+	plugins: PluginsReportSchema.nullable().optional().catch(null)
 });
 
 const FleetMessageSchema = z.object({
