@@ -30,7 +30,7 @@ export interface SwipeAction {
 /** Past this the finger was resting, not swiping. */
 const MAX_MS = 700;
 /** How far the gesture must lean into its axis to be read as that axis. */
-const AXIS_RATIO = 1.7;
+export const AXIS_RATIO = 1.7;
 /** iOS owns the screen's own edges: back, and the app switcher. */
 const EDGE = 24;
 /** How long after a swipe a click still belongs to it. */

@@ -24,18 +24,25 @@ function box(b: Box): Element {
     clientHeight: b.clientHeight ?? 100,
     scrollWidth: 100,
     clientWidth: 100,
+    isConnected: true,
   } as unknown as Element;
+}
+
+class Input {
+  __style = { overflowX: "visible", overflowY: "visible", touchAction: "auto" };
+  isConnected = true;
 }
 
 const g = globalThis as unknown as Record<string, unknown>;
 let saved: unknown[] = [];
 beforeEach(() => {
-  saved = [g.getComputedStyle, g.HTMLTextAreaElement];
+  saved = [g.getComputedStyle, g.HTMLTextAreaElement, g.HTMLInputElement];
   g.getComputedStyle = (el: { __style: unknown }) => el.__style;
   g.HTMLTextAreaElement = class {};
+  g.HTMLInputElement = Input;
 });
 afterEach(() => {
-  [g.getComputedStyle, g.HTMLTextAreaElement] = saved;
+  [g.getComputedStyle, g.HTMLTextAreaElement, g.HTMLInputElement] = saved;
 });
 
 const down = { x: 0, y: 6 };
@@ -75,7 +82,22 @@ describe("holdsMove", () => {
     expect(holdsMove([header, drawer], -40, 5, { x: -6, y: 0 })).toBe(true);
   });
 
-  it("leaves a touch that has barely moved alone", () => {
-    expect(holdsMove([header, drawer], 1, 1, { x: 1, y: 1 })).toBe(false);
+  it("reads a slanted drag as a scroll, not a sideways move", () => {
+    const top = box({ overflowY: "auto", scrollTop: 0, scrollHeight: 400, clientHeight: 100 });
+    expect(holdsMove([top, drawer], 3, -2, { x: 3, y: -2 })).toBe(false);
+  });
+
+  it("lets a field's text be dragged sideways", () => {
+    expect(holdsMove([new Input() as unknown as Element, drawer], -40, 2, { x: -6, y: 0 })).toBe(false);
+    expect(holdsMove([new Input() as unknown as Element, drawer], 0, 40, down)).toBe(true);
+  });
+
+  it("leaves a drag on a row redrawn under the finger to the list", () => {
+    const gone = { ...(box({}) as object), isConnected: false } as unknown as Element;
+    expect(holdsMove([gone, drawer], 0, 20, down)).toBe(false);
+  });
+
+  it("leaves a touch that has not moved alone", () => {
+    expect(holdsMove([header, drawer], 0, 0, { x: 0, y: 0 })).toBe(false);
   });
 });

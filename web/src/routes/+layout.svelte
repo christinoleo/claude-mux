@@ -6,7 +6,7 @@
 	import { updated } from '$app/state';
 	import { reportClient, watchClientErrors, watchViewport } from '$lib/client-log';
 	import { onMount, onDestroy } from 'svelte';
-	import { drawer } from '$lib/stores/drawer.svelte';
+	import { drawer, DRAWER_MEDIA_QUERY } from '$lib/stores/drawer.svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { acquireWakeLock, releaseWakeLock } from '$lib/wakeLock.svelte';
@@ -65,8 +65,13 @@
 	 * and `holdScroll` keeps a drag on the drawer from reaching the document.
 	 * Inert leaves the transcript's scroll position alone.
 	 */
-	const narrow = new MediaQuery('(max-width: 768px)');
+	const narrow = new MediaQuery(DRAWER_MEDIA_QUERY);
 	const drawerCovers = $derived(drawerOpen && narrow.current);
+	// The drawer's menus and popovers are drawn into <body>, outside the
+	// drawer, so the document itself is held too.
+	$effect(() => {
+		document.documentElement.classList.toggle('drawer-covers', drawerCovers);
+	});
 	let sidebarElement: HTMLElement | null = $state(null);
 	let touchStartX = 0;
 	let touchCurrentX = 0;
@@ -256,7 +261,7 @@
 			ontouchstart={handleTouchStart}
 			ontouchmove={handleTouchMove}
 			ontouchend={handleTouchEnd}
-			use:holdScroll={{ enabled: () => drawerCovers }}
+			use:holdScroll={drawerCovers}
 		>
 			<div class="sidebar-content">
 				<AllSessionsPanel compact onSessionSelect={closeDrawer} />
@@ -319,6 +324,12 @@
 		min-height: 100dvh;
 		/* Matches the header/toolbar so the iOS status-bar & home-indicator areas blend in */
 		background: #111;
+	}
+
+	:global(html.drawer-covers),
+	:global(html.drawer-covers body) {
+		overflow: hidden;
+		overscroll-behavior: none;
 	}
 
 	:global(iconify-icon) {

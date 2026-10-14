@@ -5,6 +5,9 @@
  * gone, and the layout owns the drawer itself — so the two talk through this
  * rather than through a floating button drawn over the transcript.
  */
+/** Narrower than this, the sidebar is a drawer over the page. Mirrors the `@media` in `+layout.svelte`. */
+export const DRAWER_MEDIA_QUERY = '(max-width: 768px)';
+
 class DrawerStore {
   open = $state(false);
 
