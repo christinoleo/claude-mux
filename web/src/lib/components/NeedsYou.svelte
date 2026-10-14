@@ -11,7 +11,7 @@
 	 */
 	import { formatAgo } from '$lib/format';
 	import { clock } from '$lib/stores/clock.svelte';
-	import { offlineReason, type Machine } from '$lib/stores/fleet.svelte';
+	import { blockedReason, type Machine } from '$lib/stores/fleet.svelte';
 	import { asking, getSessionDisplayName, needsHelp, type Session } from '$lib/stores/sessions.svelte';
 	import type { InboxTicket } from '$shared/types/ws-messages.js';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
@@ -106,7 +106,7 @@
 		{#each waiting as item (item.key)}
 			{#if item.kind === 'session'}
 				{@const s = item.session}
-				{@const off = offlineReason(item.machine, clock.now)}
+				{@const off = blockedReason(item.machine, clock.now)}
 				<button
 					type="button"
 					class="it"
@@ -124,7 +124,7 @@
 				</button>
 			{:else}
 				{@const t = item.ticket}
-				{@const off = offlineReason(item.machine, clock.now)}
+				{@const off = blockedReason(item.machine, clock.now)}
 				<button type="button" class="it" class:off={!!off} disabled={!!off} onclick={() => openHelp(item)} title={off ?? t.url}>
 					<span class="ic help"><iconify-icon icon={KIND_ICON['needs-help']}></iconify-icon></span>
 					<span class="name">{item.session && needsHelp(item.session) ? getSessionDisplayName(item.session) : t.title}</span>
@@ -149,7 +149,7 @@
 			</div>
 			{#each readyShown as item (item.key)}
 				{@const t = item.ticket}
-				{@const off = offlineReason(item.machine, clock.now)}
+				{@const off = blockedReason(item.machine, clock.now)}
 				<div class="it ticket" class:off={!!off}>
 					<span class="ic"><iconify-icon icon={KIND_ICON[t.kind]}></iconify-icon></span>
 					<a class="name" href={t.url} target="_blank" rel="noopener" title="Open on GitHub">{t.title}</a>

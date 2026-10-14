@@ -530,6 +530,35 @@ machines (the trigger reads "Fleet") or one, with each machine's live count, whe
 whether a session there wants a person, and an amber dot on the trigger when
 a machine filtered out does. It only narrows the sidebar (`fleetStore.select()`);
 it no longer sends the page to another machine's URL.
+Its last row opens the Machines view (`/machines`), and a machine on
+another claude-mux version than the page's is marked there with its version.
+
+The Machines view lists every machine with its version (marked when it
+differs from the page's own), whether it answers or when it was last seen, its
+live sessions, and an Update button; "Update all" goes machine by machine in
+the order the list shows, the origin last, since its restart takes the page's
+server with it, and carries on past a failure, listing each failure with its
+output at the end. The run is driven from the page (`web/src/lib/fleet-update.ts`):
+`POST <base>/api/update` starts `claude-mux update` on that machine, and `GET`
+is read until the job it started reports how it ended; a read nobody answers
+(the relay's 502) is the machine restarting. The job itself
+(`src/server/self-update.ts`) runs detached, with its output, its exit code and
+when it started in `~/.claude-mux/update/`, because the update ends by
+restarting the server that started it and the new server reads the result
+back. A machine that answers 404 there predates it and is updated by hand.
+
+Machines must speak the same protocol to act on each other's sessions.
+`src/fleet-protocol.ts` holds `PROTOCOL` (what this build speaks, which
+`/api/health` reports as `protocol`; a health check without one counts as 0)
+and `MIN_PROTOCOL`, the oldest a peer may speak. The fleet state reads each
+peer's from its health check, and the relay's gate (`relayGate()` in
+`web/src/lib/server/fleet.ts`) answers 426 with a notice naming the machine
+for anything sent to one below it, except its `/api/health` and `/api/update`,
+so it can still be told apart and updated. The page draws the same refusal
+from `blockedReason()` (offline, or too old): the sidebar dims the machine's
+rows behind the notice, Needs you disables its items, and a session page on
+it says so in its status line. Raise both constants when a change to what one
+machine asks of another would break an older one.
 
 Fleet preferences (what a person chose about the fleet: for now the sidebar's
 folded projects and its machine filter) live on the servers and

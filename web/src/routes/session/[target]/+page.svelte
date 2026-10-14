@@ -31,7 +31,8 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { modelDisplayName } from '$shared/claude/model-name.js';
 	import { serverStore } from '$lib/stores/servers.svelte';
-	import { routeMachine, sessionApiAt } from '$lib/stores/fleet.svelte';
+	import { blockedReason, routeMachine, sessionApiAt } from '$lib/stores/fleet.svelte';
+	import { clock } from '$lib/stores/clock.svelte';
 	import { parseSessionPath, sessionPath } from '$lib/session-route';
 	import { formatRef } from '$lib/split-refs';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
@@ -80,6 +81,8 @@
 	const base = $derived(route.base);
 	const remoteHost = $derived(route.remoteHost);
 	const machineHost = $derived(route.machineHost);
+	/** Why this page cannot act on the session's machine (offline, or too old for the relay), or null. */
+	const machineBlocked = $derived(route.machine ? blockedReason(route.machine, clock.now) : null);
 	/**
 	 * The session as every per-session store keeps it (drafts, attachments,
 	 * views, voice): its target here, `host@target` on another machine,
@@ -2249,6 +2252,13 @@
 		{#if embed && remoteHost}
 			<!-- A pane may show another machine's session; its composer says which. -->
 			<span class="mach" title="Session runs on {remoteHost}">{remoteHost}</span>
+		{/if}
+		{#if machineBlocked}
+			<span class="sep">·</span>
+			<a class="say" href="/machines" title={machineBlocked}>
+				<iconify-icon icon={route.machine?.online ? 'mdi:update' : 'mdi:lan-disconnect'}></iconify-icon>
+				{machineBlocked}
+			</a>
 		{/if}
 		{#if embed && paneFocused}
 			<span class="foc" title="The sidebar opens sessions here; ⌘/Ctrl 1 and 2 move the focus">focus</span>

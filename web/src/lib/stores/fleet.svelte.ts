@@ -28,6 +28,8 @@ import type { ProjectReport } from '$shared/fleet-projects.js';
 import type { ServerInfo } from '$lib/types/servers';
 import { parseRef } from '$lib/split-refs';
 import { relayBase } from '$lib/session-route';
+import { VERSION } from '$shared/utils/version.js';
+import { PROTOCOL, belowMinimum, protocolRefusal } from '$shared/fleet-protocol.js';
 
 /** One machine's view: who it is, whether it answers, and what it holds. */
 export interface Machine {
@@ -41,6 +43,8 @@ export interface Machine {
 	/** While offline, when the origin tries it next. */
 	retryAt: number | null;
 	version: string | null;
+	/** The protocol it speaks (`src/fleet-protocol.ts`): 0 for one too old to say, null while unknown. */
+	protocol: number | null;
 	sessions: Session[];
 	projects: string[];
 	/** What it says about each project, to match it across machines. */
@@ -63,7 +67,9 @@ class FleetStore {
 			online: sessionStore.connected,
 			lastSeen: null,
 			retryAt: null,
-			version: null,
+			// The page was built with its origin, so the origin runs what this bundle says.
+			version: VERSION,
+			protocol: PROTOCOL,
 			sessions: sessionStore.sessions,
 			projects: sessionStore.savedProjects,
 			projectReports: sessionStore.projectReports,
@@ -89,6 +95,7 @@ class FleetStore {
 				lastSeen: m.lastSeen,
 				retryAt: m.retryAt,
 				version: m.version,
+				protocol: m.protocol,
 				sessions: m.sessions as Session[],
 				projects: m.projects,
 				projectReports: m.projectReports ?? [],
@@ -224,12 +231,50 @@ export function seenLabel(lastSeen: number, now: number): string {
 	return ago === 'now' ? 'seen just now' : `seen ${ago} ago`;
 }
 
+/** A machine's name as the page shows it. */
+export function machineName(machine: Machine): string {
+	return machine.server.hostname || 'this machine';
+}
+
+/** Its sessions whose pane is still there. */
+export function liveCount(machine: Machine): number {
+	return machine.sessions.filter((s) => s.pane_alive !== false).length;
+}
+
+/**
+ * Whether a machine runs another claude-mux than this page: its version
+ * differs, or it is known to be too old to report one. A machine not yet
+ * heard from is not marked.
+ */
+export function versionDrifts(machine: Machine): boolean {
+	return machine.version ? machine.version !== VERSION : machine.protocol === 0;
+}
+
+/** "offline, seen 3m ago", or "offline" for a machine never heard from. */
+export function offlineLabel(machine: Machine, now: number): string {
+	return machine.lastSeen ? `offline, ${seenLabel(machine.lastSeen, now)}` : 'offline';
+}
+
 /**
  * Why nothing can be done on a machine right now, or null when it answers.
  * Shown wherever an action on its sessions is turned off.
  */
 export function offlineReason(machine: Machine, now: number): string | null {
 	if (machine.online || machine.local) return null;
-	const name = machine.server.hostname;
+	const name = machineName(machine);
 	return machine.lastSeen ? `${name} is offline (${seenLabel(machine.lastSeen, now)})` : `${name} is offline`;
+}
+
+/** Whether this page can act on a machine's sessions: it answers, and speaks enough for the relay. */
+export function reachable(machine: Machine): boolean {
+	return machine.local || (machine.online && !belowMinimum(machine.protocol));
+}
+
+/**
+ * Why nothing can be done on a machine's sessions from this page, or null:
+ * it is offline, or it runs a claude-mux too old for this one (whose relay
+ * would refuse it, naming it the same way).
+ */
+export function blockedReason(machine: Machine, now: number): string | null {
+	return offlineReason(machine, now) ?? protocolRefusal({ ...machine, hostname: machine.server.hostname });
 }

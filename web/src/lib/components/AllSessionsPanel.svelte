@@ -11,7 +11,7 @@
 		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
-	import { apiBase, fleetStore, offlineReason, selfName, type Machine } from '$lib/stores/fleet.svelte';
+	import { apiBase, blockedReason, fleetStore, liveCount, offlineReason, reachable, selfName, type Machine } from '$lib/stores/fleet.svelte';
 	import { localRef, parseSessionPath, sessionPath } from '$lib/session-route';
 	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
 	import DiffBadge from '$lib/components/DiffBadge.svelte';
@@ -440,7 +440,7 @@
 				icon: icon && iconAt ? iconUrl(iconAt, icon.root, icon.token) : null,
 				wants: places.some((p) => p.rows.some((r) => wantsHuman(r.session))),
 				places,
-				reachable: places.filter((p) => p.machine.online),
+				reachable: places.filter((p) => reachable(p.machine)),
 				spans: places.length > 1,
 				live: places.reduce((n, p) => n + p.rows.filter((r) => !r.orchestrator).length, 0),
 				where: places.map((p) => `${p.machine.server.hostname}:${p.root}`).join('\n')
@@ -470,11 +470,10 @@
 
 	/** The visible machines that are off, each said once above the list. */
 	const offlineMachines = $derived(fleetStore.visible.filter((m) => offlineReason(m, clock.now)));
-
-	/** Live sessions per machine, for the machine filter. */
-	function liveCount(machine: Machine): number {
-		return machine.sessions.filter((s) => s.pane_alive !== false).length;
-	}
+	/** Machines that answer but run a claude-mux too old for this one: the relay refuses them. */
+	const tooOldMachines = $derived(
+		fleetStore.visible.filter((m) => !offlineReason(m, clock.now) && blockedReason(m, clock.now))
+	);
 
 	/** Whether a session there wants a person; never on an offline machine, whose dialogs may be long answered. */
 	function machineWants(machine: Machine): boolean {
@@ -610,7 +609,7 @@
 	 * An offline machine cannot be asked, so its place is left as it is.
 	 */
 	function closeProject(card: Card, among: Place[] = card.places) {
-		const places = among.filter((p) => p.machine.online);
+		const places = among.filter((p) => reachable(p.machine));
 		if (places.length === 0) return;
 		const live = places.reduce((n, p) => n + p.rows.filter((r) => !r.orchestrator).length, 0);
 		const where = card.spans ? ` on ${places.map((p) => p.label).join(', ')}` : '';
@@ -832,8 +831,9 @@
 {/snippet}
 
 {#snippet placeRows(place: Place, labelled: boolean)}
-	{@const offline = offlineReason(place.machine, clock.now)}
-	<!-- An offline machine's rows stay, dimmed and out of reach, until it answers again. -->
+	{@const offline = blockedReason(place.machine, clock.now)}
+	<!-- An offline machine's rows stay, dimmed and out of reach, until it answers
+	     again; so do those of one too old for this machine, until it is updated. -->
 	<div class="place" class:off={!!offline} inert={!!offline}>
 		{#if labelled}
 			<div class="pmachine" title={offline ?? (place.root || undefined)}>
@@ -972,6 +972,14 @@
 					<span class="next">retry in {Math.ceil((machine.retryAt - clock.now) / 1000)}s</span>
 				{/if}
 				<Button variant="outline" size="sm" class="try" onclick={() => void fleetStore.retry(machine)}>Try now</Button>
+			</div>
+		{/each}
+		{#each tooOldMachines as machine (machine.server.id || machine.server.hostname)}
+			{@const why = blockedReason(machine, clock.now)}
+			<div class="offline" role="status">
+				<iconify-icon icon="mdi:update"></iconify-icon>
+				<span class="why" title={why}>{why}</span>
+				<Button variant="outline" size="sm" class="try" href="/machines">Machines</Button>
 			</div>
 		{/each}
 		{#each model.cards as card (card.key)}

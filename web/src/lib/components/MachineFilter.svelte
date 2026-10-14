@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Popover from '$lib/components/ui/popover';
 	import { clock } from '$lib/stores/clock.svelte';
-	import { fleetStore, offlineReason, seenLabel, type Machine } from '$lib/stores/fleet.svelte';
+	import { fleetStore, machineName, offlineLabel, offlineReason, versionDrifts, type Machine } from '$lib/stores/fleet.svelte';
 
 	/**
 	 * The drawer's machine filter: which machines the sidebar shows, all of
@@ -22,12 +22,15 @@
 
 	const chosen = $derived(fleetStore.visible.length === 1 ? fleetStore.visible[0] : null);
 	const label = $derived(
-		fleetStore.fleet ? (chosen ? chosen.server.hostname || 'this machine' : 'Fleet') : fleetStore.machines[0]?.server.hostname || 'claude-mux'
+		fleetStore.fleet ? (chosen ? machineName(chosen) : 'Fleet') : fleetStore.machines[0]?.server.hostname || 'claude-mux'
 	);
 	/** A machine left out of the filter has someone waiting on it. */
 	const wantsElsewhere = $derived(
 		fleetStore.selected !== 'all' && fleetStore.machines.some((m) => m.server.id !== fleetStore.selected && wants(m))
 	);
+
+	/** Machines on another claude-mux version than this page's own (the origin's is this page's). */
+	const drifting = $derived(fleetStore.machines.filter(versionDrifts).length);
 
 	function pick(id: string) {
 		fleetStore.select(id);
@@ -36,11 +39,11 @@
 </script>
 
 <Popover.Root bind:open>
-	<Popover.Trigger class="machine-filter-trigger" aria-label="Filter by machine" disabled={!fleetStore.fleet}>
+	<Popover.Trigger class="machine-filter-trigger" aria-label="Filter by machine">
 		<span class="dot" class:off={chosen ? !chosen.online : false} class:all={!chosen && fleetStore.fleet}></span>
 		<span class="hostname">{label}</span>
 		{#if wantsElsewhere}<span class="elsewhere" title="A machine not shown wants you"></span>{/if}
-		{#if fleetStore.fleet}<iconify-icon icon="mdi:chevron-down" class="chev"></iconify-icon>{/if}
+		<iconify-icon icon="mdi:chevron-down" class="chev"></iconify-icon>
 	</Popover.Trigger>
 	<Popover.Content class="machine-filter" align="start" sideOffset={6}>
 		<button type="button" class="row" class:on={fleetStore.selected === 'all'} onclick={() => pick('all')}>
@@ -63,14 +66,21 @@
 			>
 				<span class="dot lead" class:off={!machine.online}></span>
 				<span class="name">
-					{machine.server.hostname || 'this machine'}
-					{#if reason}<span class="sub">{machine.lastSeen ? `offline, ${seenLabel(machine.lastSeen, clock.now)}` : 'offline'}</span>{/if}
+					{machineName(machine)}
+					{#if reason}<span class="sub">{offlineLabel(machine, clock.now)}</span>
+					{:else if versionDrifts(machine)}<span class="sub">{machine.version ?? 'older'}, update</span>{/if}
 				</span>
 				{#if wants(machine)}<span class="pill">wants you</span>{/if}
 				{#if n > 0}<span class="n">{n}</span>{/if}
 				{#if on}<iconify-icon icon="mdi:check" class="check"></iconify-icon>{/if}
 			</button>
 		{/each}
+		<div class="rule"></div>
+		<a class="row" href="/machines" onclick={() => (open = false)}>
+			<iconify-icon icon="mdi:server-network" class="lead"></iconify-icon>
+			<span class="name">Machines and updates</span>
+			{#if drifting > 0}<span class="n" title="Machines on another version than this page">{drifting} differ</span>{/if}
+		</a>
 	</Popover.Content>
 </Popover.Root>
 
@@ -149,6 +159,9 @@
 		font-size: 13px;
 		text-align: left;
 		cursor: pointer;
+	}
+	a.row {
+		text-decoration: none;
 	}
 	.row:hover:not(:disabled) {
 		background: #212124;
