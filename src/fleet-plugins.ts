@@ -55,7 +55,6 @@ function splitPluginId(id: string): { name: string; marketplace: string } {
   return at > 0 ? { name: id.slice(0, at), marketplace: id.slice(at + 1) } : { name: id, marketplace: "" };
 }
 
-/** A marketplace's key across machines: its repo, lower-cased, or its name when it has none. */
 /**
  * A marketplace's key across machines: its repo, or its name when it has
  * none. A git URL is normalised, and a GitHub one reduced to `owner/name`,

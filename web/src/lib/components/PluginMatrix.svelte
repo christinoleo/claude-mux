@@ -23,8 +23,12 @@
 	let showAll = $state(false);
 
 	const known = $derived(machines.filter((m) => comparison.machines[m.id]));
-	const differs = (on: Record<string, unknown>) => {
-		const values = known.map((m) => JSON.stringify(on[m.id] ?? null));
+	/** Whether the machines' cells differ in what they show: the name each machine gives a marketplace or plugin is its own. */
+	const differs = (on: Record<string, { commit?: string | null; version?: string | null; enabled?: boolean } | null>) => {
+		const values = known.map((m) => {
+			const c = on[m.id];
+			return c ? JSON.stringify([c.commit, c.version, c.enabled]) : '';
+		});
 		return new Set(values).size > 1;
 	};
 	const marketplaces = $derived(
@@ -204,9 +208,6 @@
 		font-size: 12px;
 	}
 	.label {
-		position: sticky;
-		left: 0;
-		background: var(--bg, #1c1b1a);
 		min-width: 150px;
 	}
 	.label .name {

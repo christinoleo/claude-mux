@@ -133,14 +133,15 @@
 	function pluginLine(s: MachineStanding | undefined): string {
 		if (!s) return 'Plugins not reported';
 		if (s.inLine) return 'Plugins in line';
-		const parts: string[] = [];
-		const names = (list: { name: string }[]) =>
-			list.length <= 3 ? list.map((p) => p.name).join(', ') : `${list.length} plugins`;
-		if (s.missing.length) parts.push(`lacks ${names(s.missing)}`);
-		if (s.disabled.length) parts.push(`${names(s.disabled)} turned off`);
-		if (s.behind.length) parts.push(`${names(s.behind)} behind`);
-		const text = parts.join('; ');
-		return text.charAt(0).toUpperCase() + text.slice(1);
+		const names = (list: { name: string }[], noun: string) =>
+			list.length <= 3 ? list.map((p) => p.name).join(', ') : `${list.length} ${noun}`;
+		return [
+			s.missing.length ? `Missing ${names(s.missing, 'plugins')}` : '',
+			s.disabled.length ? `Turned off: ${names(s.disabled, 'plugins')}` : '',
+			s.behind.length ? `Behind: ${names(s.behind, 'marketplaces')}` : ''
+		]
+			.filter(Boolean)
+			.join('; ');
 	}
 
 	function stateLabel(m: Machine): string {

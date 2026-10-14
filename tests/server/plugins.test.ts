@@ -109,4 +109,22 @@ describe("PluginReader.align", () => {
     expect(steps[1].output).toBe("nope");
     expect(report?.plugins).toHaveLength(2);
   });
+
+  it("runs one request at a time, so two pages never rewrite the plugin files together", async () => {
+    let installing = 0;
+    let overlapped = false;
+    const base = fakeRun([]);
+    const run: Runner = async (cmd, args, t) => {
+      if (args[1] !== "install") return base(cmd, args, t);
+      if (++installing > 1) overlapped = true;
+      await new Promise((r) => setTimeout(r, 5));
+      installing--;
+      return ok("");
+    };
+    const reader = new PluginReader({ run, readText });
+    const one = { update: false, install: [{ name: "a", marketplace: "m" }], enable: [] };
+    const results = await Promise.all([reader.align(one), reader.align(one)]);
+    expect(overlapped).toBe(false);
+    expect(results.map((r) => r.steps[0].ok)).toEqual([true, true]);
+  });
 });

@@ -57,7 +57,12 @@ const defaultRun: Runner = (cmd, args, timeoutMs) =>
     execFile(
       cmd,
       args,
-      { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, PATH: RUN_PATH } },
+      {
+        timeout: timeoutMs,
+        maxBuffer: 16 * 1024 * 1024,
+        // git asking for a password or a host key would wait out the timeout.
+        env: { ...process.env, PATH: RUN_PATH, GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" },
+      },
       (err, stdout, stderr) => {
         const code = err ? (typeof err.code === "number" ? err.code : -1) : 0;
         done({ code, stdout: String(stdout), stderr: String(stderr || (err && code === -1 ? err.message : "")) });
@@ -85,7 +90,7 @@ interface CliPlugin {
 function parseJson<T>(text: string): T[] {
   try {
     const data = JSON.parse(text);
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(data) ? data.filter((x) => x && typeof x === "object") : [];
   } catch {
     return [];
   }
@@ -127,6 +132,7 @@ type Source = { repo: string; latest: string | null };
 export class PluginReader {
   private report: PluginsReport | null = null;
   private reading: Promise<PluginsReport | null> | null = null;
+  private aligning: Promise<unknown> = Promise.resolve();
   /** When the last read started, so a CLI that fails is not run again on every broadcast. */
   private attemptedAt = -Infinity;
   private sources = new Map<string, { at: number; source: Source }>();
@@ -142,11 +148,11 @@ export class PluginReader {
 
   /** What is known now, starting a read in the background when the last one is stale. */
   current(): PluginsReport | null {
-    if (this.now() - this.attemptedAt > REFRESH_MS && !this.reading) void this.read();
+    if (this.now() - this.attemptedAt > REFRESH_MS && !this.reading) void this.read().catch((err) => console.warn("[plugins] read failed:", err));
     return this.report;
   }
 
-  /** Read the report now; a read already under way is joined. Null when the CLI cannot be run. */
+  /** Read the report now; a read already under way is joined. When the CLI cannot be run, the last report (null before any). */
   read(): Promise<PluginsReport | null> {
     if (!this.reading) this.attemptedAt = this.now();
     this.reading ??= this.readNow().finally(() => {
@@ -166,7 +172,14 @@ export class PluginReader {
    * and enable what the request names, each step run whatever the one before
    * did, and read the report again so the fleet sees the result.
    */
-  async align(plan: AlignRequest): Promise<{ steps: AlignStep[]; report: PluginsReport | null }> {
+  align(plan: AlignRequest): Promise<{ steps: AlignStep[]; report: PluginsReport | null }> {
+    // Two pages bringing one machine in line at once would both rewrite Claude Code's plugin files.
+    const run = this.aligning.then(() => this.alignNow(plan));
+    this.aligning = run.catch(() => {});
+    return run;
+  }
+
+  private async alignNow(plan: AlignRequest): Promise<{ steps: AlignStep[]; report: PluginsReport | null }> {
     const commands: string[][] = plan.update ? [["plugin", "marketplace", "update"]] : [];
     for (const step of plan.install) {
       commands.push(
