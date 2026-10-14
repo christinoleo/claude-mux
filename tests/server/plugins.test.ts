@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PluginReader, alignPlugins, type RunResult, type Runner } from "../../src/server/plugins.js";
+import { PluginReader, type RunResult, type Runner } from "../../src/server/plugins.js";
 
 const HEAD = "1".repeat(40);
 const GCS = "2".repeat(40);
@@ -87,22 +87,19 @@ describe("PluginReader", () => {
   });
 });
 
-describe("alignPlugins", () => {
+describe("PluginReader.align", () => {
   it("updates marketplaces, installs and enables, carrying on past a failure, then reads again", async () => {
     const calls: string[][] = [];
     const run = fakeRun(calls, { "claude plugin install beads@ak": fail });
     const reader = new PluginReader({ run, readText });
-    const { steps, report } = await alignPlugins(
-      {
-        install: [
-          { name: "beads", marketplace: "ak" },
-          { name: "marketing-skills", repo: "coreyhaines31/marketingskills" },
-        ],
-        enable: ["posthog@official"],
-      },
-      reader,
-      run,
-    );
+    const { steps, report } = await reader.align({
+      update: true,
+      install: [
+        { name: "beads", marketplace: "ak" },
+        { name: "marketing-skills", repo: "coreyhaines31/marketingskills" },
+      ],
+      enable: ["posthog@official"],
+    });
     expect(steps.map((s) => [s.command, s.ok])).toEqual([
       ["claude plugin marketplace update", true],
       ["claude plugin install beads@ak", false],

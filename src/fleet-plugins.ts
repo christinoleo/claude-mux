@@ -6,7 +6,7 @@
  * their version (`PluginsReport`, read by `src/server/plugins.ts`). The fleet
  * is "in line" when every marketplace is at its latest commit and every
  * plugin enabled on any machine is enabled on all, leaving out the plugins
- * marked "only here" (a fleet preference, `onlyHereKey()`).
+ * marked "only here" (a fleet preference, `onlyHereKey()` in `src/fleet-prefs.ts`).
  *
  * One marketplace goes by different names on different machines (it was
  * added under another name, or its repo was renamed), so it is matched by its
@@ -18,8 +18,9 @@
  */
 
 import { z } from "zod/v4";
+import { normaliseRemote } from "./fleet-projects.js";
 
-export const MarketplaceReportSchema = z.object({
+const MarketplaceReportSchema = z.object({
   /** Its name on the reporting machine, which plugin ids carry. */
   name: z.string(),
   /** Its source repo as `owner/name` (GitHub's current name when it could be asked), or its git URL; null for a local one. */
@@ -30,7 +31,7 @@ export const MarketplaceReportSchema = z.object({
   latest: z.string().nullable(),
 });
 
-export const PluginReportSchema = z.object({
+const PluginReportSchema = z.object({
   /** `name@marketplace`, as the `claude plugin` CLI names it on the reporting machine. */
   id: z.string(),
   version: z.string().nullable(),
@@ -48,27 +49,35 @@ export type MarketplaceReport = z.infer<typeof MarketplaceReportSchema>;
 export type PluginReport = z.infer<typeof PluginReportSchema>;
 export type PluginsReport = z.infer<typeof PluginsReportSchema>;
 
-/** The fleet preference that marks a plugin, by its key, as wanted only where it is. */
-export function onlyHereKey(pluginKey: string): string {
-  return `plugin:only-here:${pluginKey}`;
-}
-
 /** A plugin id split into its name and its marketplace's name. */
-export function splitPluginId(id: string): { name: string; marketplace: string } {
+function splitPluginId(id: string): { name: string; marketplace: string } {
   const at = id.lastIndexOf("@");
   return at > 0 ? { name: id.slice(0, at), marketplace: id.slice(at + 1) } : { name: id, marketplace: "" };
 }
 
 /** A marketplace's key across machines: its repo, lower-cased, or its name when it has none. */
+/**
+ * A marketplace's key across machines: its repo, or its name when it has
+ * none. A git URL is normalised, and a GitHub one reduced to `owner/name`,
+ * so it meets the same marketplace added from GitHub elsewhere.
+ */
 export function marketplaceKey(m: Pick<MarketplaceReport, "name" | "repo">): string {
-  return m.repo ? m.repo.toLowerCase() : `name:${m.name}`;
+  if (!m.repo) return `name:${m.name}`;
+  const remote = /[:@]/.test(m.repo) ? (normaliseRemote(m.repo) ?? m.repo) : m.repo;
+  return remote.toLowerCase().replace(/^github\.com\//, "");
 }
 
-/** A plugin's key across machines: its name and its marketplace's key on the machine reporting it. */
-export function pluginKey(id: string, marketplaces: readonly MarketplaceReport[]): string {
+/** A plugin as the fleet matches it: its name and its marketplace's key on the machine reporting it. */
+function pluginIdentity(id: string, marketplaces: readonly MarketplaceReport[]) {
   const { name, marketplace } = splitPluginId(id);
   const m = marketplaces.find((x) => x.name === marketplace);
-  return `${name}@${m ? marketplaceKey(m) : `name:${marketplace}`}`;
+  const mpKey = m ? marketplaceKey(m) : `name:${marketplace}`;
+  return { key: `${name}@${mpKey}`, name, marketplace, mpKey, repo: m?.repo ?? null };
+}
+
+/** A plugin's key across machines. */
+export function pluginKey(id: string, marketplaces: readonly MarketplaceReport[]): string {
+  return pluginIdentity(id, marketplaces).key;
 }
 
 /** A machine as the comparison reads it: its id and its report, null while it has sent none. */
@@ -82,6 +91,8 @@ export interface PluginRow {
   name: string;
   /** The marketplace's name, as the first machine holding it calls it. */
   marketplace: string;
+  /** The marketplace's key across machines (`MarketplaceRow.key`). */
+  marketplaceKey: string;
   /** Its marketplace's repo, null for a marketplace with none. */
   repo: string | null;
   /** Per machine id: what it has, or null where it is not installed. */
@@ -104,8 +115,6 @@ export interface MarketplaceRow {
 }
 
 export interface MachineStanding {
-  /** False while the machine has sent no report: it is neither in line nor flagged. */
-  known: boolean;
   inLine: boolean;
   missing: PluginRow[];
   disabled: PluginRow[];
@@ -115,6 +124,7 @@ export interface MachineStanding {
 export interface PluginComparison {
   plugins: PluginRow[];
   marketplaces: MarketplaceRow[];
+  /** Per machine id that has sent a report; one that has not is neither in line nor flagged. */
   machines: Record<string, MachineStanding>;
 }
 
@@ -156,12 +166,10 @@ export function comparePlugins(machines: readonly MachinePlugins[], onlyHere: Pi
   const plugins = new Map<string, PluginRow>();
   for (const m of known) {
     for (const p of m.report.plugins) {
-      const key = pluginKey(p.id, m.report.marketplaces);
+      const { key, name, marketplace, mpKey, repo } = pluginIdentity(p.id, m.report.marketplaces);
       let row = plugins.get(key);
       if (!row) {
-        const { name, marketplace } = splitPluginId(p.id);
-        const mp = m.report.marketplaces.find((x) => x.name === marketplace);
-        row = { key, name, marketplace, repo: mp?.repo ?? null, on: emptyOn(ids), onlyHere: onlyHere.has(key), lacking: [] };
+        row = { key, name, marketplace, marketplaceKey: mpKey, repo, on: emptyOn(ids), onlyHere: onlyHere.has(key), lacking: [] };
         plugins.set(key, row);
       }
       // One machine may have it twice (a renamed marketplace added again); an enabled copy stands.
@@ -176,22 +184,18 @@ export function comparePlugins(machines: readonly MachinePlugins[], onlyHere: Pi
   const pluginRows = [...plugins.values()].sort(byName);
   const marketplaceRows = [...marketplaces.values()].sort(byName);
   const standings: Record<string, MachineStanding> = {};
-  for (const m of machines) {
-    if (!m.report) {
-      standings[m.id] = { known: false, inLine: false, missing: [], disabled: [], behind: [] };
-      continue;
-    }
+  for (const m of known) {
     const lacking = pluginRows.filter((r) => r.lacking.includes(m.id));
     const missing = lacking.filter((r) => !r.on[m.id]);
     const disabled = lacking.filter((r) => !!r.on[m.id]);
     const behind = marketplaceRows.filter((r) => r.behind.includes(m.id));
-    standings[m.id] = { known: true, inLine: lacking.length === 0 && behind.length === 0, missing, disabled, behind };
+    standings[m.id] = { inLine: lacking.length === 0 && behind.length === 0, missing, disabled, behind };
   }
   return { plugins: pluginRows, marketplaces: marketplaceRows, machines: standings };
 }
 
 /** One plugin to install: by its name from a marketplace the machine has, or from the marketplace's repo. */
-export type InstallStep = { name: string; marketplace: string } | { name: string; repo: string };
+type InstallStep = { name: string; marketplace: string } | { name: string; repo: string };
 
 /** What "Bring in line" runs on one machine: marketplace update, then each install and enable. */
 export interface AlignPlan {
@@ -206,14 +210,13 @@ export interface AlignPlan {
 export function alignPlan(comparison: PluginComparison, id: string): AlignPlan {
   const plan: AlignPlan = { install: [], enable: [], unreachable: [] };
   const standing = comparison.machines[id];
-  if (!standing?.known) return plan;
+  if (!standing) return plan;
   for (const row of standing.disabled) {
     const have = row.on[id];
     if (have) plan.enable.push(have.id);
   }
   for (const row of standing.missing) {
-    const mpKey = row.key.slice(row.key.lastIndexOf("@") + 1);
-    const local = comparison.marketplaces.find((m) => m.key === mpKey)?.on[id];
+    const local = comparison.marketplaces.find((m) => m.key === row.marketplaceKey)?.on[id];
     if (local) plan.install.push({ name: row.name, marketplace: local.name });
     else if (row.repo) plan.install.push({ name: row.name, repo: row.repo });
     else plan.unreachable.push(`${row.name}@${row.marketplace}`);
@@ -226,7 +229,14 @@ const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** An `owner/name` repo, or an https or ssh git URL. */
 const SAFE_REPO = /^(?:[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9._-]+|https:\/\/[^\s]+|git@[^\s:]+:[^\s]+)$/;
 
+/**
+ * One request of "Bring in line". The page sends the marketplace update and
+ * each install and enable as a request of its own, so none runs long enough
+ * for the relay to give up on it, and the page can show where it is.
+ */
 export const AlignPlanSchema = z.object({
+  /** Run `claude plugin marketplace update` first. */
+  update: z.boolean().default(false),
   install: z
     .array(
       z.union([
@@ -242,6 +252,8 @@ export const AlignPlanSchema = z.object({
     }))
     .max(200),
 });
+
+export type AlignRequest = z.infer<typeof AlignPlanSchema>;
 
 function emptyOn<T>(ids: readonly string[]): Record<string, T | null> {
   return Object.fromEntries(ids.map((id) => [id, null]));

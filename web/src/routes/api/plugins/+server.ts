@@ -1,14 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { AlignPlanSchema } from '$shared/fleet-plugins.js';
-import { alignPlugins, pluginReader } from '$shared/server/plugins.js';
+import { pluginReader } from '$shared/server/plugins.js';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { sessionsWsManager } from '$lib/server/ws-managers.js';
-
-/** This machine's marketplaces and plugins (`src/server/plugins.ts`), read afresh. */
-export const GET: RequestHandler = async () => {
-	return json({ plugins: await pluginReader().refresh() });
-};
 
 /**
  * "Bring in line": update the marketplaces, then install and enable what the
@@ -23,7 +18,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 	const parsed = AlignPlanSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) return json({ error: 'invalid plan' }, { status: 400 });
-	const result = await alignPlugins(parsed.data, pluginReader());
+	const result = await pluginReader().align(parsed.data);
 	sessionsWsManager.broadcastNow();
 	return json({ steps: result.steps, plugins: result.report });
 };

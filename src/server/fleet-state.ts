@@ -326,7 +326,9 @@ export class FleetState {
     }
     if (msg?.type !== "sessions" && msg?.type !== "connected") return;
     if (!Array.isArray(msg.sessions)) return;
-    const frame = JSON.stringify([msg.sessions, msg.projects, msg.projectReports, msg.inbox, msg.plugins]);
+    // A plugins report is never changed once read, so its time stands for it.
+    const pluginsAt = (msg.plugins as { readAt?: unknown } | null | undefined)?.readAt;
+    const frame = JSON.stringify([msg.sessions, msg.projects, msg.projectReports, msg.inbox, pluginsAt]);
     if (frame === peer.lastFrame) return;
     peer.lastFrame = frame;
     this.setState(peer, {
@@ -335,7 +337,7 @@ export class FleetState {
       ...(Array.isArray(msg.projects) ? { projects: msg.projects.filter((p): p is string => typeof p === "string") } : {}),
       ...(Array.isArray(msg.projectReports) ? { projectReports: ReportsSchema.parse(msg.projectReports) } : {}),
       ...(Array.isArray(msg.inbox) ? { inbox: msg.inbox } : {}),
-      ...(msg.plugins ? { plugins: readPlugins(msg.plugins) ?? peer.state.plugins } : {}),
+      ...(msg.plugins && pluginsAt !== peer.state.plugins?.readAt ? { plugins: readPlugins(msg.plugins) ?? peer.state.plugins } : {}),
     });
   }
 

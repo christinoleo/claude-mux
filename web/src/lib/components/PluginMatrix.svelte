@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import type { PluginComparison } from '$shared/fleet-plugins.js';
+	import { shortHash } from '$lib/side-panel/history';
 
 	/**
 	 * The fleet's plugins side by side (`comparePlugins()` in
@@ -21,7 +22,7 @@
 
 	let showAll = $state(false);
 
-	const known = $derived(machines.filter((m) => comparison.machines[m.id]?.known));
+	const known = $derived(machines.filter((m) => comparison.machines[m.id]));
 	const differs = (on: Record<string, unknown>) => {
 		const values = known.map((m) => JSON.stringify(on[m.id] ?? null));
 		return new Set(values).size > 1;
@@ -36,7 +37,7 @@
 		comparison.marketplaces.length + comparison.plugins.length - marketplaces.length - plugins.length
 	);
 
-	const short = (sha: string | null) => (sha ? sha.slice(0, 7) : '?');
+	const short = (sha: string | null) => (sha ? shortHash(sha) : '?');
 </script>
 
 <section class="plugins" aria-labelledby="plugins-h">
@@ -60,7 +61,7 @@
 					<tr>
 						<th class="label" scope="col"></th>
 						{#each machines as m (m.id)}
-							<th scope="col" class:unknown={!comparison.machines[m.id]?.known}>{m.name}</th>
+							<th scope="col" class:unknown={!comparison.machines[m.id]}>{m.name}</th>
 						{/each}
 						<th class="only" scope="col">Only here</th>
 					</tr>
@@ -76,12 +77,14 @@
 								</th>
 								{#each machines as m (m.id)}
 									{@const at = r.on[m.id]}
-									<td class:behind={r.behind.includes(m.id)} class:unknown={!comparison.machines[m.id]?.known}>
-										{#if !comparison.machines[m.id]?.known}
+									{@const unknown = !comparison.machines[m.id]}
+									{@const behind = r.behind.includes(m.id)}
+									<td class:behind class:unknown>
+										{#if unknown}
 											<span class="na">unknown</span>
 										{:else if at}
 											<code title={at.commit ?? 'Commit unknown'}>{short(at.commit)}</code>
-											{#if r.behind.includes(m.id)}<span class="flag">behind {short(r.latest)}</span>{/if}
+											{#if behind}<span class="flag">behind {short(r.latest)}</span>{/if}
 										{:else}
 											<span class="na">not added</span>
 										{/if}
@@ -103,13 +106,15 @@
 								</th>
 								{#each machines as m (m.id)}
 									{@const have = r.on[m.id]}
-									<td class:lacking={r.lacking.includes(m.id)} class:unknown={!comparison.machines[m.id]?.known}>
-										{#if !comparison.machines[m.id]?.known}
+									{@const unknown = !comparison.machines[m.id]}
+									{@const lacking = r.lacking.includes(m.id)}
+									<td class:lacking class:unknown>
+										{#if unknown}
 											<span class="na">unknown</span>
 										{:else if have}
 											<code>{have.version ?? '?'}</code>
 											{#if !have.enabled}<span class="flag">off</span>{/if}
-										{:else if r.lacking.includes(m.id)}
+										{:else if lacking}
 											<span class="flag">missing</span>
 										{:else}
 											<span class="na">—</span>

@@ -879,8 +879,9 @@ export class SessionsWsManager {
 				// (queue draining runs in its own server loop — see message-queue.ts ensureDrainLoop)
 
 				// The inbox changes on GitHub's clock, not the sessions', so it counts
-				// too, and so do the project reports and plugins, read in the background.
-				const hash = JSON.stringify([message.sessions, message.inbox, message.projectReports, message.plugins]);
+				// too, and so do the project reports and plugins, read in the background
+				// (a plugins report is never changed once read, so its time stands for it).
+				const hash = JSON.stringify([message.sessions, message.inbox, message.projectReports, message.plugins?.readAt]);
 				if (hash === this.lastHash) {
 					return;
 				}

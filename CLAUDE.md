@@ -547,6 +547,31 @@ when it started in `~/.claude-mux/update/`, because the update ends by
 restarting the server that started it and the new server reads the result
 back. A machine that answers 404 there predates it and is updated by hand.
 
+The same view keeps plugins in step. Each machine reads its Claude Code
+marketplaces and user-scope plugins through the `claude plugin … --json` CLI
+(`PluginReader`, `src/server/plugins.ts`, in the background every five
+minutes, never on the poll's time; `~/.local/bin` is added to the PATH, since
+a service's may leave it out), with the commit each marketplace is at (its git
+HEAD, or the `.gcs-sha` beside one downloaded as an archive) and the latest its
+source has (`gh api`, which also gives a renamed repo's current name, else
+`git ls-remote`). The report rides the sessions broadcast as `plugins`, and the
+fleet state keeps and persists each peer's. `comparePlugins()`
+(`src/fleet-plugins.ts`) matches a marketplace across machines by its repo
+(`marketplaceKey()`: a GitHub URL counts as `owner/name`), not its name (one machine's `aknakos-workflow` is another's `ak-plugins`), and a
+plugin by its name and that repo. A machine is in line when each of its
+marketplaces is at the latest commit and it has enabled every plugin enabled on
+any machine, leaving out those marked "only here" (the fleet preference
+`plugin:only-here:<plugin key>`); a machine that has sent no report is neither.
+Each row says how its machine stands, and `PluginMatrix.svelte` lays the
+machines side by side, showing only the rows that differ until asked. "Bring
+in line" sends `alignPlan()`, worked out in the page from the whole fleet, to
+`POST <base>/api/plugins` one step per request, so none outlasts the relay's
+timeout and the row can say where it is: `claude plugin marketplace update`,
+then each install (from the marketplace under the name that machine gives it,
+or with `--marketplace <repo>` when it has none) and enable, carrying on past
+a step that fails; each answers with its output after a fresh read. The route takes only its own page or a relay,
+and every name is checked to be one that cannot be read as an option.
+
 Machines must speak the same protocol to act on each other's sessions.
 `src/fleet-protocol.ts` holds `PROTOCOL` (what this build speaks, which
 `/api/health` reports as `protocol`; a health check without one counts as 0)
@@ -561,7 +586,7 @@ it says so in its status line. Raise both constants when a change to what one
 machine asks of another would break an older one.
 
 Fleet preferences (what a person chose about the fleet: for now the project
-rail's order and the machine filter) live on the servers and
+rail's order, the machine filter and the plugins marked "only here") live on the servers and
 are the same on every link and device; device preferences (notification mode,
 sound, theme, panel width) stay in browser storage. `src/fleet-prefs.ts` holds
 the keys and the merge: each key keeps the last value written to it, stamped

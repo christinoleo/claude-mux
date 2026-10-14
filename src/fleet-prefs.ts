@@ -31,6 +31,11 @@ export const MACHINE_FILTER = "machine-filter";
 /** The project rail's order, a list of project keys (`src/fleet-rail.ts`). */
 export const RAIL_ORDER = "rail-order";
 
+/** Whether a plugin, by its fleet key (`pluginKey()` in `src/fleet-plugins.ts`), is wanted only where it is installed. */
+export function onlyHereKey(pluginKey: string): string {
+  return `plugin:only-here:${pluginKey}`;
+}
+
 /** Whether `a` was written after `b`; the machine id breaks a tie, so every machine picks the same one. */
 export function isLater(a: PrefEntry, b: PrefEntry): boolean {
   return a.at !== b.at ? a.at > b.at : a.by > b.by;

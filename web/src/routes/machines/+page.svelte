@@ -7,7 +7,9 @@
 	import { VERSION } from '$shared/utils/version.js';
 	import PluginMatrix from '$lib/components/PluginMatrix.svelte';
 	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
-	import { alignPlan, comparePlugins, onlyHereKey, type MachineStanding } from '$shared/fleet-plugins.js';
+	import { alignPlan, comparePlugins, type AlignRequest, type MachineStanding } from '$shared/fleet-plugins.js';
+	import { onlyHereKey } from '$shared/fleet-prefs.js';
+	import type { AlignStep } from '$shared/server/plugins.js';
 
 	/**
 	 * The Machines view: every machine in the fleet with its version, whether
@@ -78,38 +80,58 @@
 		)
 	);
 
-	type Aligning = { state: 'running' } | { state: 'done'; failed: { command: string; output: string }[] };
+	type Failed = Pick<AlignStep, 'command' | 'output'>;
+	type Aligning = { state: 'running'; line: string } | { state: 'done'; failed: Failed[] };
 	let aligning = $state<Record<string, Aligning>>({});
 
-	/** "Bring in line": the plan worked out from the whole fleet, run on that machine (`POST /api/plugins`). */
+	/**
+	 * "Bring in line": the plan worked out from the whole fleet, run on that
+	 * machine one step per request (`POST /api/plugins`), carrying on past a
+	 * step that fails and stopping only when the machine cannot be asked.
+	 */
 	async function bringInLine(row: Row) {
 		const plan = alignPlan(comparison, row.id);
-		aligning[row.id] = { state: 'running' };
-		const failed: { command: string; output: string }[] = plan.unreachable.map((id) => ({
+		const failed: Failed[] = plan.unreachable.map((id) => ({
 			command: `install ${id}`,
 			output: 'Its marketplace is not on this machine and has no repo to add it from.'
 		}));
-		try {
-			const res = await fetch(`${apiBase(row.machine)}/api/plugins`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ install: plan.install, enable: plan.enable })
-			});
-			const data = (await res.json().catch(() => ({}))) as { steps?: { command: string; ok: boolean; output: string }[]; error?: string };
-			if (!res.ok) {
-				const why = res.status === 404 ? 'This machine’s claude-mux predates plugins; update it first.' : (data.error ?? `HTTP ${res.status}`);
-				failed.push({ command: 'Bring in line', output: why });
+		const requests: { line: string; body: AlignRequest }[] = [
+			{ line: 'Updating marketplaces', body: { update: true, install: [], enable: [] } },
+			...plan.install.map((step) => ({ line: `Installing ${step.name}`, body: { update: false, install: [step], enable: [] } })),
+			...plan.enable.map((id) => ({ line: `Enabling ${id}`, body: { update: false, install: [], enable: [id] } }))
+		];
+		for (const [i, req] of requests.entries()) {
+			aligning[row.id] = { state: 'running', line: `${req.line} (${i + 1}/${requests.length})` };
+			try {
+				const res = await fetch(`${apiBase(row.machine)}/api/plugins`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(req.body)
+				});
+				const data = (await res.json().catch(() => ({}))) as { steps?: AlignStep[]; error?: unknown };
+				if (!res.ok) {
+					// The relay's own 404 (a machine it does not know) carries an `error`; a machine without the route does not.
+					const why =
+						typeof data.error === 'string'
+							? data.error
+							: res.status === 404
+								? 'This machine’s claude-mux predates plugins; update it first.'
+								: `HTTP ${res.status}`;
+					failed.push({ command: req.line, output: why });
+					break;
+				}
+				for (const step of data.steps ?? []) if (!step.ok) failed.push(step);
+			} catch (err) {
+				failed.push({ command: req.line, output: String(err) });
+				break;
 			}
-			for (const step of data.steps ?? []) if (!step.ok) failed.push(step);
-		} catch (err) {
-			failed.push({ command: 'Bring in line', output: String(err) });
 		}
 		aligning[row.id] = { state: 'done', failed };
 	}
 
 	/** One line on how a machine's plugins stand against the fleet's. */
 	function pluginLine(s: MachineStanding | undefined): string {
-		if (!s?.known) return 'Plugins not reported';
+		if (!s) return 'Plugins not reported';
 		if (s.inLine) return 'Plugins in line';
 		const parts: string[] = [];
 		const names = (list: { name: string }[]) =>
@@ -182,12 +204,12 @@
 						<span>{stateLabel(m)}</span>
 						{#if row.origin}<span class="note">updated last; the page reconnects after</span>{/if}
 					</div>
-					<div class="line2 plugins-line" class:drift={standing?.known && !standing.inLine}>
+					<div class="line2 plugins-line" class:drift={!!standing && !standing.inLine}>
 						<iconify-icon
-							icon={!standing?.known ? 'mdi:help-circle-outline' : standing.inLine ? 'mdi:puzzle-check-outline' : 'mdi:puzzle-remove-outline'}
+							icon={!standing ? 'mdi:help-circle-outline' : standing.inLine ? 'mdi:puzzle-check-outline' : 'mdi:puzzle-remove-outline'}
 						></iconify-icon>
 						<span>{pluginLine(standing)}</span>
-						{#if standing?.known && !standing.inLine}
+						{#if standing && !standing.inLine}
 							<Button
 								variant="outline"
 								size="sm"
@@ -201,7 +223,9 @@
 							</Button>
 						{/if}
 					</div>
-					{#if align?.state === 'done' && align.failed.length > 0}
+					{#if align?.state === 'running'}
+						<p class="progress">{align.line}</p>
+					{:else if align?.state === 'done' && align.failed.length > 0}
 						<details class="align-failed" open>
 							<summary>{align.failed.length === 1 ? 'One step failed' : `${align.failed.length} steps failed`}</summary>
 							{#each align.failed as f, i (i)}

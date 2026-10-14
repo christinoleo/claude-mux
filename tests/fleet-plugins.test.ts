@@ -3,6 +3,7 @@ import {
   AlignPlanSchema,
   alignPlan,
   comparePlugins,
+  marketplaceKey,
   pluginKey,
   type MachinePlugins,
   type PluginsReport,
@@ -168,9 +169,19 @@ describe("comparePlugins", () => {
       ],
       new Set(),
     );
-    expect(c.machines.old).toEqual({ known: false, inLine: false, missing: [], disabled: [], behind: [] });
+    expect(c.machines.old).toBeUndefined();
     expect(c.machines.omarchy.inLine).toBe(true);
     expect(Object.keys(c.plugins[0].on)).toEqual(["omarchy"]);
+  });
+});
+
+describe("marketplaceKey", () => {
+  it("meets a GitHub repo added by URL with the same repo added from GitHub", () => {
+    const key = marketplaceKey({ name: "a", repo: "Christinoleo/ak-plugins" });
+    expect(marketplaceKey({ name: "b", repo: "git@github.com:christinoleo/ak-plugins.git" })).toBe(key);
+    expect(marketplaceKey({ name: "c", repo: "https://github.com/christinoleo/ak-plugins" })).toBe(key);
+    expect(marketplaceKey({ name: "d", repo: "https://gitlab.com/x/y.git" })).toBe("gitlab.com/x/y");
+    expect(marketplaceKey({ name: "synced", repo: null })).toBe("name:synced");
   });
 });
 
