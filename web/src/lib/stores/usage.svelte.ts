@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { hostTimeZone, makeDayFormatter } from '$lib/format';
-import type { QuotaResult, UsageResponse } from '$lib/types/usage';
+import type { FleetResponse, QuotaResult } from '$lib/types/usage';
 
 const REFRESH_MS = 5 * 60 * 1000;
 
@@ -13,7 +13,7 @@ const REFRESH_MS = 5 * 60 * 1000;
  * pair of requests, and the timer stops when the last of them goes away.
  */
 class UsageStore {
-	summary = $state<UsageResponse | null>(null);
+	summary = $state<FleetResponse | null>(null);
 	quota = $state<QuotaResult | null>(null);
 
 	private subscribers = 0;
@@ -56,7 +56,7 @@ class UsageStore {
 		try {
 			const res = await fetch(`/api/usage/all?days=30&tz=${encodeURIComponent(this.zone)}`);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			this.summary = (await res.json()) as UsageResponse;
+			this.summary = (await res.json()) as FleetResponse;
 		} catch {
 			// The last good numbers stay put rather than blanking the meters.
 		}

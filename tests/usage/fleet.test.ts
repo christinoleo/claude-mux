@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildFleetReport, mergeReports, type MachineInput } from "../../src/usage/fleet.js";
+import { spendCoverage } from "../../src/usage/coverage.js";
 import type { UsageReport } from "../../src/usage/aggregate.js";
 import type { UsageResponse } from "../../src/usage/report.js";
 import { EMPTY_TOTALS } from "../../src/usage/pricing.js";
@@ -192,5 +193,16 @@ describe("buildFleetReport over the fleet state", () => {
     });
     expect(asked).toEqual([]);
     expect(report.machines[1]).toMatchObject({ hostname: "beta", ok: false, error: "offline, seen 5 min ago" });
+  });
+});
+
+describe("spendCoverage", () => {
+  it("counts every machine that answered against every machine asked", () => {
+    const merged = mergeReports([HOST_A, { hostname: "beta", report: null, error: "timeout" }, { hostname: "gamma", report: report({}) }], "UTC");
+    expect(spendCoverage(merged.machines)).toEqual({ answered: 2, total: 3, missing: ["beta"] });
+  });
+
+  it("covers the whole fleet when every machine answered", () => {
+    expect(spendCoverage([{ hostname: "alpha", ok: true, costUsd: 1 }])).toEqual({ answered: 1, total: 1, missing: [] });
   });
 });

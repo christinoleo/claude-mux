@@ -743,9 +743,23 @@ the projects found. Ctrl+K (`QuickSwitch.svelte`, a shadcn `Command`) jumps
 to any session or project on the machines the drawer shows;
 the session page's slash-command palette moved to Ctrl+/ to make room, and a
 split's pane hands Ctrl+K to the page outside (`tellPane('switch')`, the
-`quickSwitch` store), whose drawer holds the switcher. The
-usage meters stay at the drawer's foot (`SidebarMeters.svelte`, in the
-layout).
+`quickSwitch` store), whose drawer holds the switcher.
+
+The drawer's foot (`SidebarMeters.svelte`, in the layout) sits flush under
+one hairline, no card. Its top line holds the screenshots of the session on
+screen (`ScreenshotsPanel.svelte`, a count that opens a popover), a link to
+the usage page and a gear whose popover holds the alert and device settings.
+Under it, three labelled rows of thin bars: **Plan** (the server-graded
+limits), the origin machine by name in its `machineMarks()` colour (`cpu`,
+`ram`, `dsk`, and `swp` where it has swap; only the machine that served the
+page), and **Spend** (today, the 14-day sparkline, the 30-day total, and
+"2 of 3 machines" in amber when `spendCoverage()`, `src/usage/coverage.ts`,
+finds a machine that did not answer). `dsk` is the share used of the
+filesystem holding the home directory (`homeDiskPercent()` in
+`src/server/disk.ts`, read with `statfs` the way `df` reads it), refreshed with
+the CPU and RAM stats and graded on the `disk` scale (amber from 80%, red from
+90%); a disk that cannot be read is `null` and draws no bar. A single machine's
+spend row leaves the count out.
 
 ### 11. Past sessions and Settled
 

@@ -250,19 +250,14 @@
 			<div class="sidebar-content">
 				<AllSessionsPanel compact onSessionSelect={closeDrawer} />
 			</div>
-			<!-- The foot is one card, the way the composer is: what belongs to the
-			     session you are on (its screenshots), then the meters. -->
-			<div class="sidebar-foot">
-				{#if currentSession}
-					<div class="sidebar-panel">
-						<ScreenshotsPanel
-							sessionId={currentSession.id}
-							screenshots={currentSession.screenshots ?? []}
-						/>
-					</div>
-				{/if}
-				<SidebarMeters />
-			</div>
+			<!-- The foot: the screenshots of the session you are on, then the meters. -->
+			<SidebarMeters>
+				{#snippet lead()}
+					{#if currentSession}
+						<ScreenshotsPanel sessionId={currentSession.id} screenshots={currentSession.screenshots ?? []} />
+					{/if}
+				{/snippet}
+			</SidebarMeters>
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 			<div
 				class="resize-handle"
@@ -379,10 +374,6 @@
 		}
 	}
 
-	.sidebar-panel {
-		flex-shrink: 0;
-	}
-
 	/* The right edge of the page while a session is being dragged. */
 	.split-drop {
 		position: absolute;
@@ -398,19 +389,6 @@
 		color: #a5b4fc;
 		font: 500 13px system-ui, sans-serif;
 		z-index: var(--z-overlay);
-	}
-
-	/* The composer's card, at the foot of the sidebar. */
-	.sidebar-foot {
-		flex-shrink: 0;
-		margin: 0 10px 10px;
-		background: #151516;
-		border: 1px solid #2a2a2c;
-		border-radius: 14px;
-		overflow: hidden;
-	}
-	.sidebar-foot .sidebar-panel + :global(*) {
-		border-top: 1px solid #1f1f21;
 	}
 
 	.resize-handle {

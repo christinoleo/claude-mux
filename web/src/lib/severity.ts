@@ -28,13 +28,15 @@ export const SEVERITY: Record<Severity, SeverityStyle> = {
  * the number is the point. `edge` is for the composer's own hairline and the
  * keys beside it, which you see whether you asked to or not — warning there at
  * 70% would leave the bar amber through most of a working session and teach
- * you to stop reading it.
+ * you to stop reading it. `disk` is for a filesystem, which sits well past
+ * 70% for months without anything being wrong.
  */
-export type SeverityScale = 'panel' | 'edge';
+export type SeverityScale = 'panel' | 'edge' | 'disk';
 
 export const THRESHOLDS: Record<SeverityScale, { warning: number; critical: number }> = {
 	panel: { warning: 70, critical: 90 },
-	edge: { warning: 80, critical: 95 }
+	edge: { warning: 80, critical: 95 },
+	disk: { warning: 80, critical: 90 }
 };
 
 /** Severity of a plain utilisation percentage, for meters the server does not grade. */
