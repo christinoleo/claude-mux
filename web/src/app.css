@@ -149,8 +149,9 @@
    ::-webkit-scrollbar, which Chromium ignores on any element that sets
    scrollbar-width or scrollbar-color, so a component must not set either
    unless it hides its bar (`scrollbar-width: none`). Firefox has no
-   ::-webkit-scrollbar and gets the standard properties instead; it can only
-   brighten the bar while the pointer is over the element that scrolls. */
+   ::-webkit-scrollbar and gets the standard properties instead; it cannot
+   style the thumb's own hover, so there every bar around the pointer
+   brightens. */
 @media (hover: hover) and (pointer: fine) {
   :root {
     --scrollbar-thumb: color-mix(in oklch, var(--muted-foreground) 35%, transparent);

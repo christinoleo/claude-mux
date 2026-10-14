@@ -371,12 +371,16 @@
 		min-height: 0;
 		overflow-y: auto;
 		overflow-x: hidden;
-		/* Sessions come and go; the list must not shift sideways as its bar
-		   appears. */
-		scrollbar-gutter: stable;
 		/* Reaching the end of the list must not scroll whatever sits behind
 		   the drawer on a phone. */
 		overscroll-behavior: contain;
+	}
+	/* Sessions come and go; the list must not shift sideways as its bar
+	   appears. */
+	@media (hover: hover) and (pointer: fine) {
+		.sidebar-content {
+			scrollbar-gutter: stable;
+		}
 	}
 
 	.sidebar-panel {

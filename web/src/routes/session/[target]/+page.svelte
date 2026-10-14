@@ -3048,9 +3048,6 @@
 	.output {
 		flex: 1;
 		overflow-y: auto;
-		/* The transcript grows and shrinks under a live turn; a bar coming and
-		   going must not shift it sideways. */
-		scrollbar-gutter: stable;
 		overscroll-behavior: none;
 		touch-action: pan-y;
 		padding: 16px;
@@ -3062,6 +3059,13 @@
 		word-break: break-word;
 		background: #000;
 		color: #fff;
+	}
+	/* The transcript grows and shrinks under a live turn; a bar coming and
+	   going must not shift it sideways. Both edges, so it stays centred. */
+	@media (hover: hover) and (pointer: fine) {
+		.output {
+			scrollbar-gutter: stable both-edges;
+		}
 	}
 
 
