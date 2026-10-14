@@ -2089,8 +2089,8 @@
 	 * Quits Claude Code and reopens this conversation in the same pane — the
 	 * way to pick up an update or re-read skills without losing the session.
 	 */
-	async function restartSession(upgrade = false): Promise<boolean> {
-		if (!currentSession) return false;
+	async function restartSession(upgrade = false): Promise<{ startedAt?: number } | null> {
+		if (!currentSession) return null;
 		const res = await fetch(`${api(currentSession.id)}/restart`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -2099,8 +2099,9 @@
 		if (!res.ok) {
 			const body = (await res.json().catch(() => ({}))) as { error?: string };
 			alert(`Could not ${upgrade ? 'upgrade' : 'restart'} Claude Code: ${body.error ?? res.statusText}`);
+			return null;
 		}
-		return res.ok;
+		return (await res.json().catch(() => ({}))) as { startedAt?: number };
 	}
 
 	/**
@@ -2109,31 +2110,37 @@
 	 * restarts when it has run; while it waits, and when it gives up without
 	 * restarting, the session's `upgrade` says so.
 	 */
-	let upgrading = $state<{ id: string; seen: boolean } | null>(null);
+	let upgrading = $state<{ id: string; startedAt: number; clickedAt: number } | null>(null);
 	const upgrade = $derived(currentSession?.upgrade ?? null);
 	const UPGRADE_WAIT_MS = 6 * 60_000;
 	async function upgradeSession() {
 		if (!currentSession) return;
 		const id = currentSession.id;
-		if (await restartSession(true)) upgrading = { id, seen: false };
+		const started = await restartSession(true);
+		if (started) upgrading = { id, startedAt: started.startedAt ?? 0, clickedAt: Date.now() };
 	}
 	$effect(() => {
 		if (!upgrading || upgrading.id !== currentSession?.id) return;
-		if (upgrade?.state === 'running') {
-			if (!upgrading.seen) upgrading = { ...upgrading, seen: true };
-		} else if (upgrading.seen) {
-			// Ended. No status left means it restarted; one left says why not, once, from the page that asked.
-			const ended = upgrade;
+		// The server's status for this run carries the `at` it answered with,
+		// so an ended run is told from a running one without the page having
+		// caught it running, and both clocks stay the server's.
+		const ours = upgrade && upgrade.at >= upgrading.startedAt ? upgrade : null;
+		if (ours?.state === 'running') {
+			// Still going: wait, but no longer than the server itself would.
+		} else if (ours) {
 			upgrading = null;
-			if (ended) {
-				toast.error(ended.message ?? 'The upgrade did not restart Claude Code', {
-					description: ended.output ?? undefined,
-					duration: 30_000
-				});
-			}
+			toast.error(ours.message ?? 'The upgrade did not restart Claude Code', {
+				description: ours.output ?? undefined,
+				duration: 30_000
+			});
+			return;
+		} else if (!paneUpdate?.command) {
+			// No status and no notice: it restarted into the new version.
+			upgrading = null;
 			return;
 		}
-		const giveUp = setTimeout(() => (upgrading = null), UPGRADE_WAIT_MS);
+		const left = upgrading.clickedAt + UPGRADE_WAIT_MS - Date.now();
+		const giveUp = setTimeout(() => (upgrading = null), Math.max(0, left));
 		return () => clearTimeout(giveUp);
 	});
 

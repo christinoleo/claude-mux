@@ -96,6 +96,20 @@ describe("bangFinished", () => {
     expect(await bangFinished(CLAUDE, COMMAND, probe, timing)).toBe(false);
   });
 
+  it("takes a process table that fails to read once as no answer, not as the end", async () => {
+    let reads = 0;
+    const probe = {
+      processes: async () => {
+        reads++;
+        if (reads === 3) return null;
+        return reads < 8 ? [mcp, shell, mise] : [mcp];
+      },
+      pane: async () => progress,
+    };
+    expect(await bangFinished(CLAUDE, COMMAND, probe, timing)).toBe(true);
+    expect(reads).toBe(8);
+  });
+
   it("falls back to the pane's Running… line where there is no process table", async () => {
     const box = ["", "─".repeat(40), "❯ ", "─".repeat(40)];
     let reads = 0;
@@ -120,11 +134,20 @@ describe("lastBangOutput", () => {
       ),
       JSON.stringify({ type: "assistant", message: { content: [] } }),
     ];
-    expect(lastBangOutput(lines)).toBe("downloading 100%\nclaude@2.1.296 is already installed\nmise WARN nothing to do");
+    expect(lastBangOutput(lines, "mise upgrade claude")).toBe("downloading 100%\nclaude@2.1.296 is already installed\nmise WARN nothing to do");
   });
 
   it("is null when no command ran", () => {
-    expect(lastBangOutput([entry("hello"), "{cut mid-rec"])).toBeNull();
+    expect(lastBangOutput([entry("hello"), "{cut mid-rec"], "mise upgrade claude")).toBeNull();
+  });
+
+  it("never passes off an earlier command's output as this one's", () => {
+    const lines = [
+      entry("<bash-input>ls</bash-input>"),
+      entry("<bash-stdout>README.md</bash-stdout><bash-stderr></bash-stderr>"),
+      entry("<bash-input>mise upgrade claude</bash-input>"),
+    ];
+    expect(lastBangOutput(lines, "mise upgrade claude")).toBeNull();
   });
 });
 

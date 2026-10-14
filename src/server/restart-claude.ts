@@ -43,7 +43,14 @@ const SHELL_TIMEOUT_MS = 5_000;
 const RESUME_TIMEOUT_MS = 20_000;
 const POLL_MS = 100;
 
-export type RestartOutcome = { ok: true; command: string } | { ok: false; error: string };
+export type RestartOutcome =
+  | {
+      ok: true;
+      command: string;
+      /** When an upgrade began, on the server's clock; its status carries the same `at`. */
+      startedAt?: number;
+    }
+  | { ok: false; error: string };
 
 /**
  * The argv Claude Code was started with, minus any resume flag it already
@@ -204,29 +211,30 @@ export type BangProbe = {
 };
 
 /**
- * Whether the `!` command is still running. Claude Code runs it in a shell of
- * its own, a child whose argv carries the command's words (`bash -c … eval
- * '<command>' …`), and the command itself sits below that shell; either one
- * still there means it runs. The pane is read only where the process table
- * cannot be, since what it draws while a command prints is the command's own
- * output, not "Running…".
+ * Resolves once the `!` command has ended, or false at the timeout.
+ *
+ * Claude Code runs the command in a shell of its own, a child whose argv
+ * carries the command's words (`bash -c … eval '<command>' …`), and the
+ * command itself sits below that shell; either one still there means it runs.
+ * The pane is read only where there is no process table at all, decided on
+ * the first read, since what it draws while a command prints is the command's
+ * own output, not "Running…". A later read that fails says nothing, so it
+ * counts as still running rather than as an end.
  */
-async function bangRunning(pid: number, command: string, probe: BangProbe): Promise<boolean> {
-  const rows = await probe.processes();
-  if (rows) return descendants(rows, pid).some((row) => row.args.includes(command));
-  return isBangRunning((await probe.pane()) ?? "");
-}
-
-/** Resolves once the `!` command has ended, or false at the timeout. */
 export async function bangFinished(
   pid: number,
   command: string,
   probe: BangProbe,
   timing: BangTiming = BANG_TIMING
 ): Promise<boolean> {
-  const running = () => bangRunning(pid, command, probe);
+  const fromPane = (await probe.processes()) === null;
+  const running = async () => {
+    if (fromPane) return isBangRunning((await probe.pane()) ?? "");
+    const rows = await probe.processes();
+    return rows === null || descendants(rows, pid).some((row) => row.args.includes(command));
+  };
   // A quick command may never be seen running, so not seeing it start is no failure.
-  await waitUntil(running, timing.startMs, timing.pollMs / 10);
+  await waitUntil(running, timing.startMs, timing.pollMs / 4);
   const end = Date.now() + timing.timeoutMs;
   while (Date.now() < end) {
     if (!(await running())) return true;
@@ -253,7 +261,7 @@ export async function claudeVersion(session: Pick<Session, "pid" | "cwd">): Prom
     const { stdout } = await execFileAsync("claude", ["--version"], {
       cwd: session.cwd,
       env: { ...process.env, PATH: path },
-      timeout: 15_000,
+      timeout: 5_000,
     });
     return /\d+\.\d+\.\d+\S*/.exec(stdout)?.[0] ?? null;
   } catch {
@@ -266,22 +274,37 @@ const OUTPUT_TAIL_BYTES = 256 * 1024;
 /** How many of the output's last lines are kept to show. */
 const OUTPUT_LINES = 20;
 
+/** A transcript line's message text, when it is a string. */
+function messageText(line: string): string | null {
+  try {
+    const content: unknown = JSON.parse(line)?.message?.content;
+    return typeof content === "string" ? content : null;
+  } catch {
+    // The first line of a tail is usually cut mid-record.
+    return null;
+  }
+}
+
 /**
- * What the last `!` command printed, from the lines of a transcript: Claude
- * Code records it as a user entry `<bash-stdout>…</bash-stdout><bash-stderr>…`,
- * which, unlike the pane, it never folds. Progress bars leave their escapes in,
+ * What `command` printed the last time it ran as a `!` line, from the lines of
+ * a transcript: Claude Code records the line as `<bash-input>…</bash-input>`
+ * and, once it ends, its output as `<bash-stdout>…</bash-stdout><bash-stderr>…`,
+ * which, unlike the pane, it never folds. Only output after that input counts,
+ * so a command still running, or one whose output is not written yet, has
+ * none rather than an older command's. Progress bars leave their escapes in,
  * so those go, and only the last lines are kept.
  */
-export function lastBangOutput(lines: string[]): string | null {
-  for (let i = lines.length - 1; i >= 0; i--) {
+export function lastBangOutput(lines: string[], command: string): string | null {
+  const input = `<bash-input>${command}</bash-input>`;
+  let start = -1;
+  for (let i = lines.length - 1; i >= 0 && start < 0; i--) {
+    if (lines[i].includes(input) && messageText(lines[i])?.includes(input)) start = i;
+  }
+  if (start < 0) return null;
+  for (let i = start + 1; i < lines.length; i++) {
     if (!lines[i].includes("<bash-stdout>")) continue;
-    let body: unknown;
-    try {
-      body = JSON.parse(lines[i])?.message?.content;
-    } catch {
-      continue;
-    }
-    if (typeof body !== "string") continue;
+    const body = messageText(lines[i]);
+    if (body === null) continue;
     const part = (tag: string) => new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(body)?.[1] ?? "";
     const text = stripAnsi([part("bash-stdout"), part("bash-stderr")].join("\n"))
       .split(/\r?\n/)
@@ -292,11 +315,11 @@ export function lastBangOutput(lines: string[]): string | null {
   return null;
 }
 
-function readBangOutput(session: Session): string | null {
+function readBangOutput(session: Session, command: string): string | null {
   const path = resolveTranscriptPath(session, session.id);
   if (!path) return null;
   try {
-    return lastBangOutput(readTailLines(path, statSync(path).size, OUTPUT_TAIL_BYTES));
+    return lastBangOutput(readTailLines(path, statSync(path).size, OUTPUT_TAIL_BYTES), command);
   } catch {
     return null;
   }
@@ -351,18 +374,20 @@ export async function upgradeThenRestart(session: Session): Promise<RestartOutco
     return { ok: false, error: "Claude Code is busy; upgrade once it is waiting for you" };
   }
   // Read off the pane here, never taken from the request: only a known upgrade command is typed.
-  const [pane, before] = await Promise.all([capturePaneContentAsync(target), claudeVersion(session)]);
-  const command = readUpdateNotice(pane ?? "")?.command;
+  const command = readUpdateNotice((await capturePaneContentAsync(target)) ?? "")?.command;
   if (!command) return { ok: false, error: "the pane shows no upgrade command claude-mux can run" };
+  // Bounded well inside the ten seconds the server gives this request.
+  const before = await claudeVersion(session);
   // C-u clears a draft or a suggestion first: `!` only means "shell" at the start of the box.
   if ((await runTmux(["send-keys", "-t", target, "C-u", `!${command}`, "Enter"])) === null) {
     return { ok: false, error: "could not type into the pane" };
   }
 
-  upgrades.set(session.id, { state: "running", command, at: Date.now() });
+  const startedAt = Date.now();
+  upgrades.set(session.id, { state: "running", command, at: startedAt });
   const settle = (state: Exclude<UpgradeStatus["state"], "running">, message: string) => {
     console.warn(`[upgrade] ${target}: ${message}`);
-    upgrades.set(session.id, { state, command, at: Date.now(), message, output: readBangOutput(session) });
+    upgrades.set(session.id, { state, command, at: Date.now(), message, output: readBangOutput(session, command) });
   };
   void (async () => {
     try {
@@ -374,7 +399,10 @@ export async function upgradeThenRestart(session: Session): Promise<RestartOutco
         return settle("timeout", `"${command}" was still running after five minutes, so Claude Code was not restarted`);
       }
       const after = await claudeVersion(session);
-      if (before !== null && after === before) {
+      if (after === null) {
+        return settle("failed", `"${command}" ended, but claude --version no longer answers, so Claude Code was not restarted`);
+      }
+      if (after === before) {
         return settle("unchanged", `"${command}" did not change Claude Code's version (still ${after}), so it was not restarted`);
       }
       // The file is read again: the command's output started a turn of its own.
@@ -385,5 +413,5 @@ export async function upgradeThenRestart(session: Session): Promise<RestartOutco
       settle("failed", `the upgrade stopped: ${err instanceof Error ? err.message : String(err)}`);
     }
   })();
-  return { ok: true, command };
+  return { ok: true, command, startedAt };
 }
