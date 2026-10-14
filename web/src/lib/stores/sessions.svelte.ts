@@ -11,7 +11,8 @@ import {
 	type DeliveryInfo,
 	type SubagentInfo,
 	type ChangesInfo,
-	type FleetMachineInfo
+	type FleetMachineInfo,
+	type UpgradeStatus
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
 import { fleetPrefsStore } from './fleet-prefs.svelte';
@@ -71,13 +72,7 @@ export interface Session {
 	/** Claude Code's footer notice about its own update. */
 	pane_update?: { kind: 'installed' | 'available' | 'failed'; text: string; command?: string } | null;
 	/** The upgrade the status line started: running, or why it did not restart. */
-	upgrade?: {
-		state: 'running' | 'unchanged' | 'timeout' | 'failed';
-		command: string;
-		at: number;
-		message?: string;
-		output?: string | null;
-	} | null;
+	upgrade?: UpgradeStatus | null;
 	/** The spinner line while a turn runs, split into its parts; `started_at` is in this browser's clock. */
 	pane_activity?: PaneActivity | null;
 	/** Share of the context window in use as of the latest reply; null when unknown. */

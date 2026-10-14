@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { bangFinished, buildRestartArgv, lastBangOutput, stripResumeFlags } from "../../src/server/restart-claude.js";
-import { descendants, readProcessTree, type ProcessRow } from "../../src/utils/processes.js";
+import { descendants, readProcessTable, type ProcessRow } from "../../src/utils/processes.js";
 import { shellQuote } from "../../src/utils/shell.js";
 
 describe("stripResumeFlags", () => {
@@ -67,7 +67,7 @@ describe("bangFinished", () => {
       get reads() {
         return reads;
       },
-      processes: () => (reads++ < runsFor ? [mcp, shell, mise] : [mcp]),
+      processes: async () => (reads++ < runsFor ? [mcp, shell, mise] : [mcp]),
       pane: async () => progress,
     };
   }
@@ -80,19 +80,19 @@ describe("bangFinished", () => {
 
   it("counts the command's own process as running too", async () => {
     let reads = 0;
-    const probe = { processes: () => (reads++ < 5 ? [{ ...mise, ppid: CLAUDE }] : []), pane: async () => progress };
+    const probe = { processes: async () => (reads++ < 5 ? [{ ...mise, ppid: CLAUDE }] : []), pane: async () => progress };
     expect(await bangFinished(CLAUDE, COMMAND, probe, timing)).toBe(true);
     expect(reads).toBeGreaterThan(5);
   });
 
   it("is not fooled by long-lived children such as MCP servers, or the same command elsewhere", async () => {
     const elsewhere: ProcessRow = { pid: 900, ppid: 1, args: COMMAND };
-    const probe = { processes: () => [mcp, elsewhere], pane: async () => progress };
+    const probe = { processes: async () => [mcp, elsewhere], pane: async () => progress };
     expect(await bangFinished(CLAUDE, COMMAND, probe, timing)).toBe(true);
   });
 
   it("gives up at the timeout while the shell never exits", async () => {
-    const probe = { processes: () => [mcp, shell, mise], pane: async () => "" };
+    const probe = { processes: async () => [mcp, shell, mise], pane: async () => "" };
     expect(await bangFinished(CLAUDE, COMMAND, probe, timing)).toBe(false);
   });
 
@@ -100,7 +100,7 @@ describe("bangFinished", () => {
     const box = ["", "─".repeat(40), "❯ ", "─".repeat(40)];
     let reads = 0;
     const probe = {
-      processes: () => null,
+      processes: async () => null,
       pane: async () => (reads++ < 5 ? ["! mise upgrade claude", "  ⎿  Running…", ...box] : ["  ⎿  done", ...box]).join("\n"),
     };
     expect(await bangFinished(CLAUDE, COMMAND, probe, timing)).toBe(true);
@@ -143,8 +143,8 @@ describe("descendants", () => {
     const { spawn } = await import("child_process");
     const child = spawn("sleep", ["5"]);
     try {
-      const rows = readProcessTree(process.pid);
-      expect(rows?.some((r) => r.pid === child.pid && r.args.includes("sleep 5"))).toBe(true);
+      const rows = await readProcessTable();
+      expect(rows && descendants(rows, process.pid).some((r) => r.pid === child.pid && r.args.includes("sleep 5"))).toBe(true);
     } finally {
       child.kill();
     }

@@ -2109,23 +2109,32 @@
 	 * restarts when it has run; while it waits, and when it gives up without
 	 * restarting, the session's `upgrade` says so.
 	 */
-	let upgrading = $state<string | null>(null);
+	let upgrading = $state<{ id: string; seen: boolean } | null>(null);
 	const upgrade = $derived(currentSession?.upgrade ?? null);
+	const UPGRADE_WAIT_MS = 6 * 60_000;
 	async function upgradeSession() {
 		if (!currentSession) return;
 		const id = currentSession.id;
-		if (await restartSession(true)) upgrading = id;
+		if (await restartSession(true)) upgrading = { id, seen: false };
 	}
 	$effect(() => {
-		if (!upgrading || upgrading !== currentSession?.id) return;
-		// Restarted: the notice is gone. Gave up: say why, once, from the page that asked.
-		if (!paneUpdate?.command) return void (upgrading = null);
-		if (!upgrade || upgrade.state === 'running') return;
-		upgrading = null;
-		toast.error(upgrade.message ?? 'The upgrade did not restart Claude Code', {
-			description: upgrade.output ?? undefined,
-			duration: 30_000
-		});
+		if (!upgrading || upgrading.id !== currentSession?.id) return;
+		if (upgrade?.state === 'running') {
+			if (!upgrading.seen) upgrading = { ...upgrading, seen: true };
+		} else if (upgrading.seen) {
+			// Ended. No status left means it restarted; one left says why not, once, from the page that asked.
+			const ended = upgrade;
+			upgrading = null;
+			if (ended) {
+				toast.error(ended.message ?? 'The upgrade did not restart Claude Code', {
+					description: ended.output ?? undefined,
+					duration: 30_000
+				});
+			}
+			return;
+		}
+		const giveUp = setTimeout(() => (upgrading = null), UPGRADE_WAIT_MS);
+		return () => clearTimeout(giveUp);
 	});
 
 	function copySelection() {
@@ -2318,7 +2327,7 @@
 			{:else if paneUpdate.command && isAlive && isClaudeSession}
 				<!-- The notice names its own fix. It is typed into Claude Code as a
 				     shell line, which only a session waiting for input will run. -->
-				{@const running = upgrade?.state === 'running' || upgrading === currentSession?.id}
+				{@const running = upgrade?.state === 'running' || upgrading?.id === currentSession?.id}
 				<button
 					type="button"
 					class="say upd installed"
@@ -2339,10 +2348,10 @@
 					>
 						<iconify-icon icon="mdi:alert-circle-outline"></iconify-icon>
 						{upgrade.state === 'unchanged'
-							? 'last upgrade changed nothing'
+							? 'upgrade did nothing'
 							: upgrade.state === 'timeout'
-								? 'last upgrade timed out'
-								: 'last upgrade failed'}
+								? 'upgrade timed out'
+								: 'upgrade failed'}
 					</span>
 				{/if}
 			{:else}

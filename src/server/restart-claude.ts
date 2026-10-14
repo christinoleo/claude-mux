@@ -23,15 +23,17 @@
  */
 
 import { execFile, execFileSync } from "child_process";
-import { closeSync, openSync, readFileSync, readSync, statSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import { basename } from "path";
 import { setTimeout as delay } from "timers/promises";
 import { promisify } from "util";
 
 import { getSession, updateSession, type Session } from "../db/sessions-json.js";
 import { capturePaneContentAsync, isBangRunning, readUpdateNotice, runTmux, stripAnsi } from "../tmux/pane.js";
+import { readTailLines } from "../transcript/context-peek.js";
 import { resolveTranscriptPath } from "../transcript/tailer.js";
-import { descendants, readProcessTree, type ProcessRow } from "../utils/processes.js";
+import type { UpgradeStatus } from "../types/ws-messages.js";
+import { descendants, readProcessTable, type ProcessRow } from "../utils/processes.js";
 import { shellQuote } from "../utils/shell.js";
 import { terminate } from "../utils/pid.js";
 
@@ -105,11 +107,11 @@ async function paneFormat(target: string, format: string): Promise<string[] | nu
   return out === null ? null : out.split("\t");
 }
 
-async function waitUntil(check: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+async function waitUntil(check: () => Promise<boolean>, timeoutMs: number, pollMs = POLL_MS): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return true;
-    await delay(POLL_MS);
+    await delay(pollMs);
   }
   return false;
 }
@@ -197,7 +199,7 @@ const BANG_TIMING: BangTiming = { startMs: 3_000, timeoutMs: 5 * 60_000, pollMs:
 
 /** Where `bangFinished()` looks: the process table first, the pane where there is none. */
 export type BangProbe = {
-  processes: () => ProcessRow[] | null;
+  processes: () => Promise<ProcessRow[] | null>;
   pane: () => Promise<string | null>;
 };
 
@@ -210,7 +212,7 @@ export type BangProbe = {
  * output, not "Running…".
  */
 async function bangRunning(pid: number, command: string, probe: BangProbe): Promise<boolean> {
-  const rows = probe.processes();
+  const rows = await probe.processes();
   if (rows) return descendants(rows, pid).some((row) => row.args.includes(command));
   return isBangRunning((await probe.pane()) ?? "");
 }
@@ -224,8 +226,7 @@ export async function bangFinished(
 ): Promise<boolean> {
   const running = () => bangRunning(pid, command, probe);
   // A quick command may never be seen running, so not seeing it start is no failure.
-  const deadline = Date.now() + timing.startMs;
-  while (Date.now() < deadline && !(await running())) await delay(timing.pollMs / 10);
+  await waitUntil(running, timing.startMs, timing.pollMs / 10);
   const end = Date.now() + timing.timeoutMs;
   while (Date.now() < end) {
     if (!(await running())) return true;
@@ -274,14 +275,13 @@ const OUTPUT_LINES = 20;
 export function lastBangOutput(lines: string[]): string | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].includes("<bash-stdout>")) continue;
-    let content: unknown;
+    let body: unknown;
     try {
-      content = JSON.parse(lines[i])?.message?.content;
+      body = JSON.parse(lines[i])?.message?.content;
     } catch {
       continue;
     }
-    if (typeof content !== "string") continue;
-    const body = content;
+    if (typeof body !== "string") continue;
     const part = (tag: string) => new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(body)?.[1] ?? "";
     const text = stripAnsi([part("bash-stdout"), part("bash-stderr")].join("\n"))
       .split(/\r?\n/)
@@ -296,16 +296,7 @@ function readBangOutput(session: Session): string | null {
   const path = resolveTranscriptPath(session, session.id);
   if (!path) return null;
   try {
-    const size = statSync(path).size;
-    const length = Math.min(size, OUTPUT_TAIL_BYTES);
-    const buffer = Buffer.alloc(length);
-    const fd = openSync(path, "r");
-    try {
-      readSync(fd, buffer, 0, length, size - length);
-    } finally {
-      closeSync(fd);
-    }
-    return lastBangOutput(buffer.toString("utf-8").split("\n"));
+    return lastBangOutput(readTailLines(path, statSync(path).size, OUTPUT_TAIL_BYTES));
   } catch {
     return null;
   }
@@ -318,13 +309,6 @@ function readBangOutput(session: Session): string | null {
  * printed. Kept in globalThis: in dev the route and the poll load this module
  * separately, and the poll is what puts it on the broadcast.
  */
-export type UpgradeStatus = {
-  state: "running" | "unchanged" | "timeout" | "failed";
-  command: string;
-  at: number;
-  message?: string;
-  output?: string | null;
-};
 const upgrades = ((globalThis as typeof globalThis & {
   __claudeMuxUpgrades?: Map<string, UpgradeStatus>;
 }).__claudeMuxUpgrades ??= new Map<string, UpgradeStatus>());
@@ -367,9 +351,9 @@ export async function upgradeThenRestart(session: Session): Promise<RestartOutco
     return { ok: false, error: "Claude Code is busy; upgrade once it is waiting for you" };
   }
   // Read off the pane here, never taken from the request: only a known upgrade command is typed.
-  const command = readUpdateNotice((await capturePaneContentAsync(target)) ?? "")?.command;
+  const [pane, before] = await Promise.all([capturePaneContentAsync(target), claudeVersion(session)]);
+  const command = readUpdateNotice(pane ?? "")?.command;
   if (!command) return { ok: false, error: "the pane shows no upgrade command claude-mux can run" };
-  const before = await claudeVersion(session);
   // C-u clears a draft or a suggestion first: `!` only means "shell" at the start of the box.
   if ((await runTmux(["send-keys", "-t", target, "C-u", `!${command}`, "Enter"])) === null) {
     return { ok: false, error: "could not type into the pane" };
@@ -383,7 +367,7 @@ export async function upgradeThenRestart(session: Session): Promise<RestartOutco
   void (async () => {
     try {
       const probe: BangProbe = {
-        processes: () => readProcessTree(session.pid),
+        processes: readProcessTable,
         pane: () => capturePaneContentAsync(target),
       };
       if (!(await bangFinished(session.pid, command, probe))) {

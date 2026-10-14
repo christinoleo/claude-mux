@@ -144,6 +144,16 @@ const ChangesInfoSchema = z.object({
 /** How much a session has changed, as the sidebar shows it. */
 export type ChangesInfo = z.infer<typeof ChangesInfoSchema>;
 
+const UpgradeStatusSchema = z.object({
+	state: z.enum(['running', 'unchanged', 'timeout', 'failed']),
+	command: z.string(),
+	at: z.number(),
+	message: z.string().optional(),
+	output: z.string().nullable().optional()
+});
+/** How the last upgrade asked of a session stands (`upgradeStatus()` in src/server/restart-claude.ts). */
+export type UpgradeStatus = z.infer<typeof UpgradeStatusSchema>;
+
 const EnrichedSessionSchema = z.object({
 	v: z.number(),
 	id: z.string(),
@@ -188,16 +198,7 @@ const EnrichedSessionSchema = z.object({
 		.nullable()
 		.optional(),
 	/** The upgrade the status line started: running, or why it did not restart — live only. */
-	upgrade: z
-		.object({
-			state: z.enum(['running', 'unchanged', 'timeout', 'failed']),
-			command: z.string(),
-			at: z.number(),
-			message: z.string().optional(),
-			output: z.string().nullable().optional()
-		})
-		.nullable()
-		.optional(),
+	upgrade: UpgradeStatusSchema.nullable().optional(),
 	/** The spinner line while a turn runs, split into its parts — live only. */
 	pane_activity: PaneActivitySchema.nullable().optional(),
 	/** Share of the context window in use, read off the transcript's latest reply. */

@@ -20,7 +20,7 @@ import { currentRemoteControlUrl, answerRemoteControlDialog, setRemoteControl } 
 import { getAllPaneTitles, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
 import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
-import { upgradeStatus, type UpgradeStatus } from './restart-claude.js';
+import { upgradeStatus } from './restart-claude.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
 import { peekContextPercent, peekTranscriptTitle } from '../transcript/context-peek.js';
 
@@ -63,7 +63,7 @@ import { snapshotPane, fetchHistoryRange } from '../tmux/snapshot.js';
 import { sessionWatcher } from './watcher.js';
 import { getQueue, getDeliveries } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
-import type { ChangesInfo, DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
+import type { ChangesInfo, DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage, UpgradeStatus } from '../types/ws-messages.js';
 import { inboxTickets, issueFor, watchSessionRepos } from './github.js';
 import { projectReports } from './project-icons.js';
 import { pluginReader } from './plugins.js';
