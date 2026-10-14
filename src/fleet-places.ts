@@ -78,17 +78,12 @@ export function rootOf(cwd: string | null | undefined, roots: readonly string[])
 }
 
 /**
- * A machine's plain panes put under its roots (`projectRoots()`), leaving
- * out any pane a Claude session runs in, which is drawn as that session.
+ * A machine's plain panes put under its roots (`projectRoots()`). Its server
+ * already left out every pane a Claude session runs in.
  */
-export function panesByRoot(
-  panes: readonly PlainPane[],
-  roots: readonly string[],
-  claudeTargets: ReadonlySet<string | null | undefined>
-): Map<string, PlainPane[]> {
+export function panesByRoot(panes: readonly PlainPane[], roots: readonly string[]): Map<string, PlainPane[]> {
   const out = new Map<string, PlainPane[]>();
   for (const pane of panes) {
-    if (claudeTargets.has(pane.target)) continue;
     const root = rootOf(pane.cwd, roots);
     if (root === null) continue;
     const list = out.get(root);

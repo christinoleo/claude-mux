@@ -44,7 +44,7 @@ describe("rootOf", () => {
 });
 
 describe("panesByRoot", () => {
-  it("puts every plain pane under a root, leaving out those a Claude session runs in", () => {
+  it("puts every plain pane under a root", () => {
     const panes = [
       pane("dev:1.0", "/home/leo/Projects/app/web", "node"),
       pane("main:1.0", "/home/leo"),
@@ -56,8 +56,8 @@ describe("panesByRoot", () => {
       ["/home/leo/Projects/app"],
       panes.map((p) => p.cwd)
     );
-    expect(targets(panesByRoot(panes, roots, new Set(["work:1.0"])))).toEqual({
-      "/home/leo/Projects/app": ["dev:1.0"],
+    expect(targets(panesByRoot(panes, roots))).toEqual({
+      "/home/leo/Projects/app": ["dev:1.0", "work:1.0"],
       "/home/leo": ["main:1.0"],
       "/tmp/scratch": ["main:2.0"],
       [NO_FOLDER]: ["odd:1.0"],
@@ -75,7 +75,7 @@ describe("panesByRoot", () => {
     const placed = machines.map((m) => {
       const roots = projectRoots(m.projects, m.panes.map((p) => p.cwd));
       const known = new Map(m.reports.map((r) => [r.root, r]));
-      return { id: m.id, roots, byRoot: panesByRoot(m.panes, roots, new Set()), reports: roots.map((r) => known.get(r) ?? guessReport(r)) };
+      return { id: m.id, roots, byRoot: panesByRoot(m.panes, roots), reports: roots.map((r) => known.get(r) ?? guessReport(r)) };
     });
     const projects = mergeProjects(placed);
 

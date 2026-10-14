@@ -43,7 +43,7 @@ function hardTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
  * Batch-fetch every pane in a single tmux command.
  * Returns a Map of "session:window.pane" -> its title, size, command and folder.
  */
-export async function getAllPaneTitles(): Promise<Map<string, PaneInfo>> {
+export async function listAllPanes(): Promise<Map<string, PaneInfo>> {
   const result = new Map<string, PaneInfo>();
   const stdout = await hardTimeout(
     execFileAsync("tmux", [

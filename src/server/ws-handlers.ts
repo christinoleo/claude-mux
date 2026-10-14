@@ -18,7 +18,7 @@ import { isDictated } from './dictation-marks.js';
 import { homeDiskPercent } from './disk.js';
 import { findTranscriptById, JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
 import { currentRemoteControlUrl, answerRemoteControlDialog, setRemoteControl } from './remote-control.js';
-import { getAllPaneTitles, type PaneInfo, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
+import { listAllPanes, type PaneInfo, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
 import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { upgradeStatus } from './restart-claude.js';
@@ -421,9 +421,9 @@ function plainPanes(panes: Map<string, PaneInfo>, sessions: Session[]): PlainPan
 
 /** This machine's sessions, enriched with what their panes show, and its plain panes, off one `list-panes`. */
 async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFields)[]; panes: PlainPane[] }> {
-	const [{ captures, rawCaptures, sessions }, paneTitles] = await Promise.all([
+	const [{ captures, rawCaptures, sessions }, allPanes] = await Promise.all([
 		captureAndSyncSessions(),
-		getAllPaneTitles()
+		listAllPanes()
 	]);
 
 	const links = readLinks();
@@ -432,7 +432,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 	// screen the readers above parse is laid out the same way every time.
 	// Fire-and-forget: the resize lands before the next tick's capture.
 	for (const s of sessions) {
-		const pane = s.tmux_target ? paneTitles.get(s.tmux_target) : undefined;
+		const pane = s.tmux_target ? allPanes.get(s.tmux_target) : undefined;
 		if (pane && wantsWidening(pane) && !wideningNow.has(s.tmux_target!)) {
 			const target = s.tmux_target!;
 			wideningNow.add(target);
@@ -478,7 +478,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 
 	const visits = getVisits();
 	const enrichedSessions = sessions.map((s) => {
-		const paneTitle = s.tmux_target ? (paneTitles.get(s.tmux_target)?.title ?? null) : null;
+		const paneTitle = s.tmux_target ? (allPanes.get(s.tmux_target)?.title ?? null) : null;
 		const raw = s.tmux_target ? rawCaptures.get(s.tmux_target) : undefined;
 		// Stripped once per tick by the caller; the option reader needs no colour.
 		const stripped = s.tmux_target ? captures.get(s.tmux_target) : undefined;
@@ -488,7 +488,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 		const enriched: Session & LivePaneFields = {
 			...s,
 			pane_title: paneTitle,
-			pane_alive: s.tmux_target ? paneTitles.has(s.tmux_target) : true,
+			pane_alive: s.tmux_target ? allPanes.has(s.tmux_target) : true,
 			draft_input: box?.text ?? null,
 			draft_kind: box?.kind ?? null,
 			// Messages the user typed into the pane while it was busy, waiting
@@ -534,7 +534,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 		return enriched;
 	});
 
-	return { sessions: deduplicateByTmuxTarget(enrichedSessions), panes: plainPanes(paneTitles, sessions) };
+	return { sessions: deduplicateByTmuxTarget(enrichedSessions), panes: plainPanes(allPanes, sessions) };
 }
 
 // ============================================================================

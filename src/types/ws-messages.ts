@@ -308,7 +308,7 @@ const FleetMachineSchema = z.object({
 	projects: z.array(z.string()),
 	inbox: eachOf(InboxTicketSchema),
 	projectReports: eachOf(ProjectReportSchema).optional(),
-	panes: eachOf(PlainPaneSchema).optional(),
+	panes: PanesField,
 	// A report this version cannot read counts as none.
 	plugins: PluginsReportSchema.nullable().optional().catch(null)
 });

@@ -63,7 +63,6 @@
 	import { quickSwitch } from '$lib/stores/quick-switch.svelte';
 	import { drawer } from '$lib/stores/drawer.svelte';
 
-	/** The root of a project made of the sessions that have not said where they run. */
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
 	import { formatRef, type PaneRef } from '$lib/split-refs';
@@ -336,7 +335,7 @@
 			(s.pane_alive === false ? bucket.dead : isSettled(machine, s.id) ? bucket.settled : bucket.live).push(s);
 		}
 		const past = pastByRoot(machine.past, roots, new Set(machine.sessions.filter((s) => s.pane_alive !== false).map((s) => s.id)));
-		const panes = panesByRoot(machine.panes, roots, new Set(machine.sessions.map((s) => s.tmux_target)));
+		const panes = panesByRoot(machine.panes, roots);
 
 		const places = new Map<string, Place>();
 		for (const [root, bucket] of byRoot) {
