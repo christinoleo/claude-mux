@@ -178,9 +178,11 @@
 	let browserUp = $state(false);
 	let opening = $state(false);
 
+	const showing = $derived(!!shown);
 	$effect(() => {
 		const at = base;
-		if (!active) return;
+		browserUp = false;
+		if (!active || !showing) return;
 		const ask = () => void browserAnswers(at).then((up) => base === at && (browserUp = up));
 		ask();
 		const id = setInterval(() => document.visibilityState === 'visible' && ask(), BROWSER_POLL_MS);
@@ -188,27 +190,30 @@
 	});
 
 	async function openInRemote(url: string) {
+		const from = { base, ref: shownKey };
 		opening = true;
 		const opened = await openInBrowser(base, url);
 		opening = false;
+		// The person moved on while the browser answered: leave the panel where they took it.
+		if (!active || base !== from.base || shownKey !== from.ref) return;
 		if ('tab' in opened) openPane('web', { url: BROWSER_CHOICE, tab: opened.tab });
 		else toast.error('Could not open it in the browser', { description: opened.error });
 	}
 
 	$effect(() => {
 		const want = shown;
-		const pageUrl = want ? (item?.url ?? githubUrl(want.repo, want.number)) : null;
-		setActions(
-			want && pageUrl
-				? [
-						{ icon: 'mdi:refresh', label: 'Read again', run: () => void load(want.repo, want.number, true), disabled: loading },
-						...(browserUp
-							? [{ icon: 'mdi:monitor-share', label: 'Open in Browser', run: () => void openInRemote(pageUrl), disabled: opening }]
-							: []),
-						{ icon: 'mdi:open-in-new', label: 'Open on GitHub', run: () => window.open(pageUrl, '_blank', 'noopener') }
-					]
-				: []
-		);
+		if (!want) {
+			setActions([]);
+			return;
+		}
+		const pageUrl = item?.url ?? githubUrl(want.repo, want.number);
+		setActions([
+			{ icon: 'mdi:refresh', label: 'Read again', run: () => void load(want.repo, want.number, true), disabled: loading },
+			...(browserUp
+				? [{ icon: 'mdi:monitor-share', label: 'Open in Browser', run: () => void openInRemote(pageUrl), disabled: opening }]
+				: []),
+			{ icon: 'mdi:open-in-new', label: 'Open on GitHub', run: () => window.open(pageUrl, '_blank', 'noopener') }
+		]);
 	});
 
 	function githubUrl(repo: string, number: number): string {

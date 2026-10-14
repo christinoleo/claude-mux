@@ -428,6 +428,26 @@ describe("openTab", () => {
     expect(b.sent).toHaveLength(2);
   });
 
+  it("keeps reusing its tab on the item's other pages, and opens another once that tab goes elsewhere", async () => {
+    const list: Record<string, unknown>[] = [];
+    const b = browser(list);
+    const url = "https://github.com/o/r/pull/5";
+    const first = await openTab(url, b.deps);
+    list[0].url = "https://github.com/o/r/pull/5/files";
+    expect(await openTab(url, b.deps)).toEqual(first);
+    list[0].url = "https://github.com/o/r/pull/6";
+    expect(await openTab(url, b.deps)).not.toEqual(first);
+    expect(b.sent).toHaveLength(2);
+  });
+
+  it("opens one tab for two asks at once", async () => {
+    const b = browser([]);
+    const url = "https://github.com/o/r/issues/8";
+    const [one, two] = await Promise.all([openTab(url, b.deps), openTab(url, b.deps)]);
+    expect(one).toEqual(two);
+    expect(b.sent).toHaveLength(1);
+  });
+
   it("never hands over a tab someone else opened on the same page", async () => {
     const url = "https://github.com/o/r/pull/3";
     const b = browser([page("THEIRS-0001", url)]);
