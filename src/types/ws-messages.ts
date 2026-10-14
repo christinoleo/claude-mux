@@ -8,6 +8,7 @@
 
 import { z } from 'zod/v4';
 import { AGENT_IDS } from '../agents.js';
+import { PrefEntrySchema } from '../fleet-prefs.js';
 
 // ============================================================================
 // Session data schemas
@@ -282,6 +283,16 @@ const FleetMessageSchema = z.object({
 	timestamp: z.number()
 });
 
+/**
+ * The fleet preferences (`src/fleet-prefs.ts`), sent on connect and after
+ * every change, to pages and peers alike.
+ */
+const PrefsMessageSchema = z.object({
+	type: z.literal('prefs'),
+	prefs: z.record(z.string(), PrefEntrySchema),
+	timestamp: z.number()
+});
+
 const SystemStatsMessageSchema = z.object({
 	type: z.literal('systemStats'),
 	cpu: z.number(),
@@ -300,6 +311,7 @@ export const SessionsWsMessageSchema = z.discriminatedUnion('type', [
 	SessionsMessageSchema,
 	ConnectedMessageSchema,
 	FleetMessageSchema,
+	PrefsMessageSchema,
 	SystemStatsMessageSchema
 ]);
 

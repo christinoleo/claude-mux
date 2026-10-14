@@ -483,6 +483,26 @@ disabled. Needs you names each item's machine whenever the fleet has more than
 one. Usage, the meters' and `/api/usage/all`, takes its machines from the fleet
 state, so an offline one is reported at once instead of waited on.
 
+Fleet preferences (what a person chose about the fleet: for now the sidebar's
+folded machines and projects and its machine filter) live on the servers and
+are the same on every link and device; device preferences (notification mode,
+sound, theme, panel width) stay in browser storage. `src/fleet-prefs.ts` holds
+the keys and the merge: each key keeps the last value written to it, stamped
+with the writing server's clock and machine id, and two sets merge key by key
+to the later write (the id breaks a tie), so the fleet converges in any order.
+Keys are small and many (`fold:machine:<id>`, `fold:project:<id>:<cwd>`,
+`machine-filter`) rather than one value per kind, so two machines folding two
+projects at once both keep their fold, and nothing is ever deleted: clearing
+one writes its default. Each machine keeps its copy in
+`~/.claude-mux/fleet-prefs.json` (`FleetPrefsStore`, `src/server/fleet-prefs.ts`);
+a page writes with `PUT /api/fleet/prefs` `{ key, value }`, a write is moved
+past the entry it replaces when this clock runs behind, and the sessions socket
+sends `{ type: 'prefs', prefs }` to every client, pages and peers alike, on
+connect and after each change. The fleet state merges what each peer's socket
+sends, and a machine that learns nothing new sends nothing back, which ends
+the exchange. In the page `fleetPrefsStore` holds the set, showing a write at
+once and over the socket's word until the origin answers it.
+
 ## Key Data Flow
 
 ```
