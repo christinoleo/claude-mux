@@ -519,8 +519,8 @@ socket: a page that opens `/api/sessions/stream?fleet=1` (the sidebar's
 `sessionStore` does) is also sent `{ type: 'fleet', self, machines }` on every
 change, so the whole fleet arrives over the one socket. `fleetStore` lays those
 machines beside the origin's own; `offlineReason()` is the line the sidebar
-shows above an offline machine's projects ("seen 3m ago", with "Try now"), whose
-rows are dimmed and `inert`, and the reason Needs you's items from it are
+shows at the top of its list for an offline machine ("seen 3m ago", with "Try
+now"), whose rows are dimmed and `inert`, and the reason Needs you's items from it are
 disabled. Needs you names each item's machine whenever the fleet has more than
 one. Usage, the meters' and `/api/usage/all`, takes its machines from the fleet
 state, so an offline one is reported at once instead of waited on.
@@ -532,15 +532,14 @@ a machine filtered out does. It only narrows the sidebar (`fleetStore.select()`)
 it no longer sends the page to another machine's URL.
 
 Fleet preferences (what a person chose about the fleet: for now the sidebar's
-folded machines and projects and its machine filter) live on the servers and
+folded projects and its machine filter) live on the servers and
 are the same on every link and device; device preferences (notification mode,
 sound, theme, panel width) stay in browser storage. `src/fleet-prefs.ts` holds
 the keys and the merge: each key keeps the last value written to it, stamped
 with the writing server's clock and machine id, and two sets merge key by key
 to the later write (the id breaks a tie), so the fleet converges in any order.
-Keys are small and many (`fold:machine:<id>`, `fold:project:<id>:<cwd>`,
-`machine-filter`) rather than one value per kind, so two machines folding two
-projects at once both keep their fold, and nothing is ever deleted: clearing
+Keys are small and many (`fold:project:<project key>`, `machine-filter`)
+rather than one value per kind, so two machines folding two projects at once both keep their fold, and nothing is ever deleted: clearing
 one writes its default. Each machine keeps its copy in
 `~/.claude-mux/fleet-prefs.json` (`FleetPrefsStore`, `src/server/fleet-prefs.ts`);
 a page writes with `PUT /api/fleet/prefs` `{ key, value }`, a write is moved
@@ -550,6 +549,38 @@ connect and after each change. The fleet state merges what each peer's socket
 sends, and a machine that learns nothing new sends nothing back, which ends
 the exchange. In the page `fleetPrefsStore` holds the set, showing a write at
 once and over the socket's word until the origin answers it.
+
+One project is matched across machines by `src/fleet-projects.ts`
+(GLOSSARY.md, "Project"): by its normalised git remote (`normaliseRemote()`,
+plus the folder inside the repo for a project that is a subfolder of one),
+else by its path under `~/Projects`, else by machine and full path, so
+`claude-watch` on one machine and `claude-mux` on another, clones of the same
+remote, are one project; it is named after the repo when some machine's folder
+is (`projectName()`), else after the first machine's folder. Each machine reports the facts
+for every root it remembers as `projectReports` on its sessions broadcast
+(`ProjectReport`: root, remote, sub, home, icon token), the fleet state keeps
+and persists each peer's, and `mergeProjects()` lays them together, origin
+first; a root with no report yet (an older peer, or one read in a moment) is
+matched by `guessReport()`, off its path, and joins the one repo project whose
+name or folder is its folder under `~/Projects`, so an older machine's clone
+still meets the repo. `src/server/project-icons.ts` reads
+the reports in the background, never on the poll's time, and the icon with
+them, on the machine that holds the repo: `icon` in `.claude-mux.json` (a
+repo path or URL), then the repo's own file (`pickIconFile()`: favicon or icon
+names in a `static/`, `public/` or `app/` folder, SVG first, then the widest
+PNG, then an ICO), then the prod URL's favicon (`siteIconUrl()`). `GET
+/api/projects/icon?root=&v=` serves it, only for a root the machine read, and
+through the relay for another machine's; across machines the first icon found
+wins. A project with none is drawn as `projectInitials()` on `projectHue()`,
+a hue from its name chosen from `PROJECT_HUES`, which keep clear of the state
+and machine colours. The sidebar (`AllSessionsPanel.svelte`) draws one card per
+project across the visible machines: the tile (a shadcn `Avatar`, the icon
+with the initials as fallback), and each place's sessions under a line
+naming its machine (and its folder, for two checkouts on one machine) when the
+project is held in several, an offline machine's dimmed and `inert` under the
+"seen X ago" line at the top of the list. Closing a project from its card
+closes it on every machine that answers; "Remove" in the new-session dialog
+only where the dialog was opened.
 
 ## Key Data Flow
 

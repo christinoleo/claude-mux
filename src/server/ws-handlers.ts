@@ -62,6 +62,7 @@ import { getQueue, getDeliveries } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
 import type { ChangesInfo, DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage } from '../types/ws-messages.js';
 import { inboxTickets, issueFor, watchSessionRepos } from './github.js';
+import { projectReports } from './project-icons.js';
 import { peekGitSummary } from './git.js';
 import { sessionChanges } from '../transcript/changes.js';
 
@@ -828,11 +829,14 @@ export class SessionsWsManager {
 		// sidebar's groups outlive their last session and are the same from
 		// every browser. Writes only when a directory is new.
 		saveProjects(sessions.map((s) => s.cwd).filter((cwd): cwd is string => !!cwd));
+		const projects = getSavedProjects();
 		return {
 			type,
 			sessions,
 			count: sessions.length,
-			projects: getSavedProjects(),
+			projects,
+			// What the fleet matches one project across machines by, and its icon.
+			projectReports: projectReports(projects),
 			settings: getSettings(),
 			inbox: inboxTickets(
 				new Set(
@@ -871,8 +875,9 @@ export class SessionsWsManager {
 			.then((message) => {
 				// (queue draining runs in its own server loop — see message-queue.ts ensureDrainLoop)
 
-				// The inbox changes on GitHub's clock, not the sessions', so it counts too.
-				const hash = JSON.stringify([message.sessions, message.inbox]);
+				// The inbox changes on GitHub's clock, not the sessions', so it counts
+				// too, and so do the project reports, read in the background.
+				const hash = JSON.stringify([message.sessions, message.inbox, message.projectReports]);
 				if (hash === this.lastHash) {
 					return;
 				}

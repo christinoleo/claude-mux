@@ -4,7 +4,6 @@
 	import { page } from '$app/stores';
 	import {
 		sessionStore,
-		getProjectColor,
 		groupSessions,
 		getSessionDisplayName,
 		findDeepestProject,
@@ -12,7 +11,7 @@
 		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
-	import { apiBase, fleetStore, offlineReason, seenLabel, selfName, type Machine } from '$lib/stores/fleet.svelte';
+	import { apiBase, fleetStore, offlineReason, selfName, type Machine } from '$lib/stores/fleet.svelte';
 	import { localRef, parseSessionPath, sessionPath } from '$lib/session-route';
 	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
 	import DiffBadge from '$lib/components/DiffBadge.svelte';
@@ -40,35 +39,25 @@
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { createPersisted } from '$lib/stores/persisted';
 	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
-	import { machineFoldKey, projectFoldKey } from '$shared/fleet-prefs.js';
+	import { projectFoldKey } from '$shared/fleet-prefs.js';
+	import { guessReport, mergeProjects, projectHue, projectInitials } from '$shared/fleet-projects.js';
+	import * as Avatar from '$lib/components/ui/avatar';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
 	import { formatRef, type PaneRef } from '$lib/split-refs';
 
 	/**
-	 * Machines and projects folded shut. Folds are fleet preferences
-	 * (`fleetPrefsStore`), so a fold made on one link shows on every link and
-	 * device. A machine nobody folded or opened starts folded unless it served
-	 * this page — a list of every project on every host is long to scan; a
-	 * project starts open. A folded machine still says how many sessions it
-	 * runs, and a folded one of either kind turns amber when a session in it
+	 * Projects folded shut. A fold is a fleet preference (`fleetPrefsStore`),
+	 * kept under the project's fleet key, so a fold made on one link shows on
+	 * every link and device, whichever machines the project's sessions are on.
+	 * A project starts open, and a folded one turns amber when a session in it
 	 * is asking for a person.
 	 */
-	function isFolded(machine: Machine): boolean {
-		return fleetPrefsStore.get(machineFoldKey(machine.server.id), !machine.local);
+	function isProjectFolded(card: Card): boolean {
+		return fleetPrefsStore.get(projectFoldKey(card.key), false);
 	}
-	function isProjectFolded(machine: Machine, card: Card): boolean {
-		return fleetPrefsStore.get(projectFoldKey(machine.server.id, card.cwd), false);
-	}
-	/** Flip a fold; a machine with no id yet has no key to keep it under. */
-	function toggleKey(machine: Machine, key: string, folded: boolean) {
-		if (machine.server.id) void fleetPrefsStore.set(key, !folded);
-	}
-	function toggleFold(machine: Machine) {
-		toggleKey(machine, machineFoldKey(machine.server.id), isFolded(machine));
-	}
-	function toggleProjectFold(machine: Machine, card: Card) {
-		toggleKey(machine, projectFoldKey(machine.server.id, card.cwd), isProjectFolded(machine, card));
+	function toggleProjectFold(card: Card) {
+		void fleetPrefsStore.set(projectFoldKey(card.key), !isProjectFolded(card));
 	}
 
 	/**
@@ -125,12 +114,10 @@
 	 */
 	let agentPicker = $state<{ machine: Machine; cwd: string; card?: Card } | null>(null);
 
-	/** The quiet chip whose menu is open, by machine and folder; null when none is. */
+	/** The quiet chip whose menu is open, by project key; null when none is. */
 	let quietMenu = $state<string | null>(null);
-
-	function quietKey(machine: Machine, card: Card): string {
-		return `${machine.server.hostname}\u0000${card.cwd}`;
-	}
+	/** The project whose "new session" menu (one entry per machine) is open. */
+	let newMenu = $state<string | null>(null);
 
 	function pickAgent(agent: SessionAgent) {
 		const target = agentPicker;
@@ -141,10 +128,13 @@
 	function removeFromPicker() {
 		const target = agentPicker;
 		agentPicker = null;
-		if (target?.card) closeProject(target.machine, target.card);
+		// Only where the dialog was opened: the project stays on its other machines.
+		if (target?.card) {
+			closeProject(target.card, target.card.places.filter((p) => p.machine === target.machine && p.root === target.cwd));
+		}
 	}
 
-	// ── the model: one view per machine ─────────────────────────────────────
+	// ── the model: one card per project, across machines ────────────────────
 
 	/** A live session in a project card, with where it sits under the root. */
 	interface Row {
@@ -160,28 +150,42 @@
 		trailing?: Session;
 	}
 
-	interface Card {
-		cwd: string;
-		name: string;
-		color: string;
-		/** A session in it is asking for a person. */
-		wants: boolean;
+	/** Where one machine holds a project, and what runs there. */
+	interface Place {
+		/** Its machine and root, unique across the fleet; the key its rows are drawn under. */
+		key: string;
+		machine: Machine;
+		root: string;
+		/** How it is told from the project's other places: its machine, and its folder when that machine holds two. */
+		label: string;
 		rows: Row[];
 		dead: Session[];
 		panes: TmuxPane[];
 	}
 
-	interface MachineView {
-		machine: Machine;
-		cards: Card[];
-		/** Roots with nothing running: shown as chips. */
-		quiet: Card[];
-		loose: Row[];
-		loosePanes: TmuxPane[];
+	/** One project (`src/fleet-projects.ts`): the same codebase on every machine that holds it. */
+	interface Card {
+		key: string;
+		name: string;
+		initials: string;
+		hue: number;
+		/** Its icon's URL, through the relay when another machine holds it; null draws the initials. */
+		icon: string | null;
+		/** A session in it is asking for a person. */
+		wants: boolean;
+		/** The visible machines that hold it, in the fleet's order. */
+		places: Place[];
+		/** The places whose machine answers, where a session can start. */
+		reachable: Place[];
+		/** Whether it is held in more than one place, so each place says which. */
+		spans: boolean;
+		/** Its live sessions, orchestrators not counted. */
+		live: number;
+		/** Each machine and root that holds it, one per line, for a tooltip. */
+		where: string;
 	}
 
 	const tmuxPanes = $derived(tmuxPanesStore.panes);
-	const tmuxPanesLoaded = $derived(tmuxPanesStore.loaded);
 
 	/**
 	 * The session the page shows, as a ref: no host for this machine's, even
@@ -326,7 +330,9 @@
 		return !q || text.toLowerCase().includes(q);
 	}
 
-	function viewOf(machine: Machine): MachineView {
+	/** A machine's sessions and panes, put under the project roots they run in. */
+	/** A machine's sessions and panes outside every project are a place with no root. */
+	function placesOf(machine: Machine): { places: Map<string, Place>; loose: Place } {
 		const roots = rootsOf(machine);
 		const claudeTargets = new Set(machine.sessions.map((s) => s.tmux_target));
 		// tmux panes are read from this host only.
@@ -351,27 +357,100 @@
 			else loosePanes.push(pane);
 		}
 
-		const cards: Card[] = [];
-		const quiet: Card[] = [];
-		for (const root of roots) {
-			const bucket = byRoot.get(root)!;
-			const name = root.split('/').pop() || root;
-			const rows = rowsFor(bucket.live, root);
-			const card: Card = {
-				cwd: root,
-				name,
-				color: getProjectColor(root),
-				wants: bucket.live.some(wantsHuman),
-				rows,
+		const places = new Map<string, Place>();
+		for (const [root, bucket] of byRoot) {
+			places.set(root, {
+				key: placeKey(machine, root),
+				machine,
+				root,
+				label: machineLabel(machine),
+				rows: rowsFor(bucket.live, root),
 				dead: bucket.dead,
 				panes: bucket.panes
+			});
+		}
+		return {
+			places,
+			loose: {
+				key: placeKey(machine, ''),
+				machine,
+				root: '',
+				label: machineLabel(machine),
+				dead: [],
+				rows: rowsFor(loose.filter((s) => matches(getSessionDisplayName(s))), null),
+				panes: query.trim() ? loosePanes.filter((p) => matches(p.target)) : loosePanes
+			}
+		};
+	}
+
+	/** A machine's name, as a place under a project says it. */
+	function machineLabel(machine: Machine): string {
+		return machine.server.hostname || 'this machine';
+	}
+
+	/** How a machine is told apart in the merge: its id, or its name before the id is known. */
+	function machineKey(machine: Machine): string {
+		return machine.server.id || machine.server.hostname;
+	}
+
+	function placeKey(machine: Machine, root: string): string {
+		return `${machineKey(machine)}\0${root}`;
+	}
+
+	/** A project's icon, from the machine that has it. */
+	function iconUrl(machine: Machine, root: string, token: string): string {
+		return `${apiBase(machine)}/api/projects/icon?root=${encodeURIComponent(root)}&v=${encodeURIComponent(token)}`;
+	}
+
+	/**
+	 * Every project in the fleet, matched across machines, with the sessions
+	 * the visible machines run in it. Names and icons come from the whole
+	 * fleet, so filtering to one machine does not change how a project looks.
+	 */
+	const model = $derived.by(() => {
+		const visible = new Set(fleetStore.visible.map(machineKey));
+		// Rows are laid out only for the machines shown; the rest lend the merge their roots alone.
+		const machines = fleetStore.visible.map((machine) => ({ machine, ...placesOf(machine) }));
+		const byKey = new Map(machines.map((m) => [machineKey(m.machine), m]));
+		const projects = mergeProjects(
+			fleetStore.machines.map((machine) => {
+				const known = new Map(machine.projectReports.map((r) => [r.root, r]));
+				return { id: machineKey(machine), reports: rootsOf(machine).map((root) => known.get(root) ?? guessReport(root)) };
+			})
+		);
+
+		const cards: Card[] = [];
+		const quiet: Card[] = [];
+		for (const project of projects) {
+			const shown = project.places
+				.filter((p) => visible.has(p.machineId))
+				.map((p) => byKey.get(p.machineId)!.places.get(p.root)!);
+			if (shown.length === 0) continue;
+			// Two checkouts of one repo on one machine are told apart by their folders.
+			const places = shown.map((p) =>
+				shown.some((o) => o !== p && o.machine === p.machine) ? { ...p, label: `${p.label} · ${p.root.split('/').pop()}` } : p
+			);
+			const icon = project.icon;
+			const iconAt = icon && fleetStore.machines.find((m) => machineKey(m) === icon.machineId);
+			const card: Card = {
+				key: project.key,
+				name: project.name,
+				initials: projectInitials(project.name),
+				hue: projectHue(project.name),
+				icon: icon && iconAt ? iconUrl(iconAt, icon.root, icon.token) : null,
+				wants: places.some((p) => p.rows.some((r) => wantsHuman(r.session))),
+				places,
+				reachable: places.filter((p) => p.machine.online),
+				spans: places.length > 1,
+				live: places.reduce((n, p) => n + p.rows.filter((r) => !r.orchestrator).length, 0),
+				where: places.map((p) => `${p.machine.server.hostname}:${p.root}`).join('\n')
 			};
 			if (query.trim()) {
-				const hit = matches(name) || rows.some((r) => matches(getSessionDisplayName(r.session)));
+				const hit = matches(card.name) || places.some((p) => p.rows.some((r) => matches(getSessionDisplayName(r.session))));
 				if (!hit) continue;
 			}
 			// Nothing running — closed sessions included — is a chip, not a card.
-			if (rows.length === 0 && bucket.panes.length === 0) quiet.push(card);
+			if (places.every((p) => p.rows.length === 0 && p.panes.length === 0)) quiet.push(card);
 			else cards.push(card);
 		}
 		// By name, and nothing else: a project's place on the list is where the
@@ -380,19 +459,17 @@
 		cards.sort((a, b) => a.name.localeCompare(b.name));
 		quiet.sort((a, b) => a.name.localeCompare(b.name));
 
-		return {
-			machine,
-			cards,
-			quiet,
-			loose: rowsFor(loose.filter((s) => matches(getSessionDisplayName(s))), null),
-			loosePanes: query.trim() ? loosePanes.filter((p) => matches(p.target)) : loosePanes
-		};
-	}
+		const loose = machines
+			.filter((m) => visible.has(machineKey(m.machine)))
+			.map((m) => m.loose)
+			.filter((l) => l.rows.length > 0 || l.panes.length > 0);
+		return { cards, quiet, loose };
+	});
 
-	const views = $derived(fleetStore.visible.map(viewOf));
-	const anything = $derived(
-		views.some((v) => v.cards.length + v.quiet.length + v.loose.length + v.loosePanes.length > 0)
-	);
+	const anything = $derived(model.cards.length + model.quiet.length + model.loose.length > 0);
+
+	/** The visible machines that are off, each said once above the list. */
+	const offlineMachines = $derived(fleetStore.visible.filter((m) => offlineReason(m, clock.now)));
 
 	/** Live sessions per machine, for the machine filter. */
 	function liveCount(machine: Machine): number {
@@ -527,21 +604,34 @@
 		for (const s of dead) void killSessionReq(machine, s);
 	}
 
-	function closeProject(machine: Machine, card: Card) {
-		const live = card.rows.filter((r) => !r.orchestrator).map((r) => r.session);
+	/**
+	 * Close a project in the given places (every place the list shows, by
+	 * default): its sessions killed, its folder taken off each machine's list.
+	 * An offline machine cannot be asked, so its place is left as it is.
+	 */
+	function closeProject(card: Card, among: Place[] = card.places) {
+		const places = among.filter((p) => p.machine.online);
+		if (places.length === 0) return;
+		const live = places.reduce((n, p) => n + p.rows.filter((r) => !r.orchestrator).length, 0);
+		const where = card.spans ? ` on ${places.map((p) => p.label).join(', ')}` : '';
 		const msg =
-			live.length > 0
-				? `Kill ${live.length} session${live.length === 1 ? '' : 's'} in ${card.name} and remove the project?`
-				: `Remove ${card.name} from the list? Its sessions are gone; the folder stays.`;
+			live > 0
+				? `Kill ${live} session${live === 1 ? '' : 's'} in ${card.name}${where} and remove the project?`
+				: `Remove ${card.name}${where} from the list? Its sessions are gone; the folder stays.`;
 		showConfirm('Close project', msg, async () => {
-			await Promise.all([...live, ...card.dead].map((s) => killSessionReq(machine, s)));
-			if (machine.local) sessionStore.removeProject(card.cwd);
-			else
-				void fetch(`${apiBase(machine)}/api/projects`, {
-					method: 'DELETE',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ cwd: card.cwd })
-				});
+			await Promise.all(
+				places.map(async ({ machine, root, rows, dead }) => {
+					const sessions = [...rows.filter((r) => !r.orchestrator).map((r) => r.session), ...dead];
+					await Promise.all(sessions.map((s) => killSessionReq(machine, s)));
+					if (machine.local) sessionStore.removeProject(root);
+					else
+						void fetch(`${apiBase(machine)}/api/projects`, {
+							method: 'DELETE',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({ cwd: root })
+						});
+				})
+			);
 		});
 	}
 
@@ -733,8 +823,44 @@
 	</a>
 {/snippet}
 
-{#snippet projectCard(machine: Machine, card: Card)}
-	{@const pfolded = isProjectFolded(machine, card)}
+{#snippet tile(card: Card)}
+	<!-- The project's icon, or its initials on its own hue: the same on every machine and link. -->
+	<Avatar.Root class="ptile" style="--h:{card.hue}">
+		{#if card.icon}<Avatar.Image src={card.icon} alt="" class="ptile-img" />{/if}
+		<Avatar.Fallback class="ptile-init">{card.initials}</Avatar.Fallback>
+	</Avatar.Root>
+{/snippet}
+
+{#snippet placeRows(place: Place, labelled: boolean)}
+	{@const offline = offlineReason(place.machine, clock.now)}
+	<!-- An offline machine's rows stay, dimmed and out of reach, until it answers again. -->
+	<div class="place" class:off={!!offline} inert={!!offline}>
+		{#if labelled}
+			<div class="pmachine" title={offline ?? (place.root || undefined)}>
+				<span class="dot" class:off={!place.machine.online}></span>{place.label}
+			</div>
+		{/if}
+		{#each place.rows as row (row.session.id)}
+			{@render sessionRow(place.machine, row)}
+		{/each}
+		{#each place.panes as pane (pane.target)}
+			{@render paneRow(place.machine, pane)}
+		{/each}
+		{#if place.dead.length > 0}
+			<div class="dead">
+				<span class="n">{place.dead.length}</span>
+				{place.dead.length === 1 ? 'closed session' : 'closed sessions'}
+				{#if place.machine.local}
+					<button type="button" class="sweep" onclick={() => sweepDead(place.machine, place.dead)}>clear</button>
+				{/if}
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet projectCard(card: Card)}
+	{@const pfolded = isProjectFolded(card)}
+	{@const reachable = card.reachable}
 	<section class="card proj" class:wants={card.wants} class:pfolded>
 		<div class="proj-h">
 			<button
@@ -742,43 +868,50 @@
 				class="pfold"
 				aria-expanded={!pfolded}
 				title={pfolded ? 'Show this project' : 'Fold this project'}
-				onclick={() => toggleProjectFold(machine, card)}
+				onclick={() => toggleProjectFold(card)}
 			>
-				<span class="chip" style="background:{card.color}">{card.name.slice(0, 1).toLowerCase()}</span>
-				<span class="pname" title={card.cwd}>{card.name}</span>
+				{@render tile(card)}
+				<span class="pname" title={card.where}>{card.name}</span>
 				{#if pfolded}<iconify-icon class="pchev" icon="mdi:chevron-right"></iconify-icon>{/if}
-				<span class="pcount">{card.rows.filter((r) => !r.orchestrator).length}</span>
+				<span class="pcount">{card.live}</span>
 			</button>
-			<button
-				type="button"
-				class="pbtn"
-				title="New session here (right-click or hold for another agent)"
-				onclick={() => void newSessionInProject(machine, card.cwd)}
-				oncontextmenu={(e) => { e.preventDefault(); agentPicker = { machine, cwd: card.cwd, card }; }}
-				use:longPress={{ onTrigger: () => (agentPicker = { machine, cwd: card.cwd, card }) }}
-			>
-				<iconify-icon icon="mdi:plus"></iconify-icon>
-			</button>
-			<button type="button" class="pbtn pclose" title="Close project" onclick={() => closeProject(machine, card)}>
+			{#if reachable.length === 1}
+				{@const place = reachable[0]}
+				<button
+					type="button"
+					class="pbtn"
+					title="New session here (right-click or hold for another agent)"
+					onclick={() => void newSessionInProject(place.machine, place.root)}
+					oncontextmenu={(e) => { e.preventDefault(); agentPicker = { machine: place.machine, cwd: place.root, card }; }}
+					use:longPress={{ onTrigger: () => (agentPicker = { machine: place.machine, cwd: place.root, card }) }}
+				>
+					<iconify-icon icon="mdi:plus"></iconify-icon>
+				</button>
+			{:else if reachable.length > 1}
+				<!-- Held by several machines: say which one the session starts on. -->
+				<Popover.Root open={newMenu === card.key} onOpenChange={(o) => (newMenu = o ? card.key : null)}>
+					<Popover.Trigger class="pbtn" title="New session on…">
+						<iconify-icon icon="mdi:plus"></iconify-icon>
+					</Popover.Trigger>
+					<Popover.Content class="menu" align="end" sideOffset={6}>
+						{#each reachable as place (place.key)}
+							<button type="button" class="mitem" title={place.root} onclick={() => { newMenu = null; agentPicker = { machine: place.machine, cwd: place.root, card }; }}>
+								<iconify-icon icon="mdi:plus"></iconify-icon>New session on {place.label}
+							</button>
+						{/each}
+					</Popover.Content>
+				</Popover.Root>
+			{/if}
+			<button type="button" class="pbtn pclose" title="Close project" onclick={() => closeProject(card)}>
 				<iconify-icon icon="mdi:close"></iconify-icon>
 			</button>
 		</div>
 		{#if !pfolded}
-			{#each card.rows as row (row.session.id)}
-				{@render sessionRow(machine, row)}
+			{#each card.places as place (place.key)}
+				{#if !card.spans || place.rows.length + place.panes.length + place.dead.length > 0}
+					{@render placeRows(place, card.spans)}
+				{/if}
 			{/each}
-			{#each card.panes as pane (pane.target)}
-				{@render paneRow(machine, pane)}
-			{/each}
-			{#if card.dead.length > 0}
-				<div class="dead">
-					<span class="n">{card.dead.length}</span>
-					{card.dead.length === 1 ? 'closed session' : 'closed sessions'}
-					{#if machine.local}
-						<button type="button" class="sweep" onclick={() => sweepDead(machine, card.dead)}>clear</button>
-					{/if}
-				</div>
-			{/if}
 		{/if}
 	</section>
 {/snippet}
@@ -831,117 +964,85 @@
 				{/if}
 			</div>
 		{/if}
-		{#each views as view (view.machine.server.hostname)}
-			{@const offline = offlineReason(view.machine, clock.now)}
-			{@const showLabel = fleetStore.fleet && fleetStore.selected === 'all'}
-			{@const shut = showLabel && isFolded(view.machine)}
-			{#if showLabel}
-				<button
-					type="button"
-					class="mlabel"
-					class:shut
-					class:wants={shut && machineWants(view.machine)}
-					aria-expanded={!shut}
-					onclick={() => toggleFold(view.machine)}
-					title={shut ? 'Show this machine' : 'Fold this machine'}
-				>
-					<iconify-icon icon={shut ? 'mdi:chevron-right' : 'mdi:chevron-down'}></iconify-icon>
-					<span class="dot" class:off={!view.machine.online}></span>
-					<span class="mname">{view.machine.server.hostname || 'this machine'}</span>
-					<span class="mline"></span>
-					{#if shut}
-						<span class="mcount">
-							{#if machineWants(view.machine)}<span class="pill">wants you</span>{/if}
-							{#if offline && view.machine.lastSeen}{seenLabel(view.machine.lastSeen, clock.now)} ·{/if}
-							{liveCount(view.machine)} live
-							{#if view.quiet.length > 0}· {view.quiet.length} quiet{/if}
-						</span>
+		{#each offlineMachines as machine (machine.server.hostname)}
+			<div class="offline" role="status">
+				<iconify-icon icon="mdi:lan-disconnect"></iconify-icon>
+				<span class="why">{offlineReason(machine, clock.now)}</span>
+				{#if machine.retryAt && machine.retryAt > clock.now}
+					<span class="next">retry in {Math.ceil((machine.retryAt - clock.now) / 1000)}s</span>
+				{/if}
+				<Button variant="outline" size="sm" class="try" onclick={() => void fleetStore.retry(machine)}>Try now</Button>
+			</div>
+		{/each}
+		{#each model.cards as card (card.key)}
+			{@render projectCard(card)}
+		{/each}
+		{#if model.quiet.length > 0}
+			{@const closed = model.quiet.flatMap((c) => c.places.filter((p) => p.machine.local).flatMap((p) => p.dead))}
+			<section class="card quiet">
+				<span class="lbl">
+					no session
+					{#if closed.length > 0}
+						<button type="button" class="sweep" title="Forget the closed sessions in these projects" onclick={() => sweepDead(fleetStore.machines[0], closed)}>
+							clear {closed.length} closed
+						</button>
 					{/if}
-				</button>
-			{/if}
-			{#if !shut && offline}
-				<!-- What it last said stays, dimmed and out of reach, until it answers again. -->
-				<div class="offline" role="status">
-					<iconify-icon icon="mdi:lan-disconnect"></iconify-icon>
-					<span class="why">{offline}</span>
-					{#if view.machine.retryAt && view.machine.retryAt > clock.now}
-						<span class="next">retry in {Math.ceil((view.machine.retryAt - clock.now) / 1000)}s</span>
-					{/if}
-					<Button variant="outline" size="sm" class="try" onclick={() => void fleetStore.retry(view.machine)}>Try now</Button>
-				</div>
-			{/if}
-			{#if !shut}
-			<div class="mbody" class:off={!!offline} inert={!!offline}>
-			{#each view.cards as card (card.cwd)}
-				{@render projectCard(view.machine, card)}
-			{/each}
-			{#if view.quiet.length > 0}
-				{@const closed = view.quiet.flatMap((c) => c.dead)}
-				<section class="card quiet">
-					<span class="lbl">
-						no session
-						{#if closed.length > 0 && view.machine.local}
-							<button type="button" class="sweep" title="Forget the closed sessions in these projects" onclick={() => sweepDead(view.machine, closed)}>
-								clear {closed.length} closed
-							</button>
-						{/if}
-					</span>
-					{#each view.quiet as card (card.cwd)}
-						{@const key = quietKey(view.machine, card)}
-						<!-- A chip opens its menu: new session with any agent, clear what
-						     closed, or take the project off the list. One tap on a phone and
-						     a click on a desktop do the same, with nothing hidden behind hover. -->
-						<Popover.Root open={quietMenu === key} onOpenChange={(o) => (quietMenu = o ? key : null)}>
-							<Popover.Trigger class="q" title={card.cwd}>
-								<span class="chip" style="background:{card.color}"></span>{card.name}
-								{#if card.dead.length > 0}<span class="qdead" title="{card.dead.length} closed session{card.dead.length === 1 ? '' : 's'}">·{card.dead.length}</span>{/if}
-							</Popover.Trigger>
-							<Popover.Content class="menu qmenu" align="start" sideOffset={6}>
-								<div class="qhead">
-									<b>{card.name}</b>
-									<span class="qpath">{card.cwd}{#if !view.machine.local} · {view.machine.server.hostname}{/if}</span>
-								</div>
+				</span>
+				{#each model.quiet as card (card.key)}
+					{@const dead = card.places.reduce((n, p) => n + p.dead.length, 0)}
+					<!-- A chip opens its menu: new session with any agent (on each machine
+					     that holds it), clear what closed, or take the project off the list.
+					     One tap on a phone and a click on a desktop do the same, with nothing
+					     hidden behind hover. -->
+					<Popover.Root open={quietMenu === card.key} onOpenChange={(o) => (quietMenu = o ? card.key : null)}>
+						<Popover.Trigger class="q" title={card.where}>
+							{@render tile(card)}{card.name}
+							{#if dead > 0}<span class="qdead" title="{dead} closed session{dead === 1 ? '' : 's'}">·{dead}</span>{/if}
+						</Popover.Trigger>
+						<Popover.Content class="menu qmenu" align="start" sideOffset={6}>
+							<div class="qhead">
+								<b>{card.name}</b>
+								{#each card.places as place (place.key)}
+									<span class="qpath">{place.root}{#if card.spans || !place.machine.local} · {place.machine.server.hostname}{/if}</span>
+								{/each}
+							</div>
+							{#each card.reachable as place (place.key)}
 								{#each AGENT_IDS as id (id)}
 									{@const meta = AGENTS[id]}
-									<button type="button" class="mitem" onclick={() => { quietMenu = null; void newSessionInProject(view.machine, card.cwd, id); }}>
-										<iconify-icon icon={meta.icon} style="color: {meta.color};"></iconify-icon>New {meta.label} session
+									<button type="button" class="mitem" onclick={() => { quietMenu = null; void newSessionInProject(place.machine, place.root, id); }}>
+										<iconify-icon icon={meta.icon} style="color: {meta.color};"></iconify-icon>New {meta.label} session{#if card.spans} on {place.label}{/if}
 									</button>
 								{/each}
-								<span class="msep"></span>
-								{#if card.dead.length > 0 && view.machine.local}
-									<button type="button" class="mitem" onclick={() => { quietMenu = null; sweepDead(view.machine, card.dead); }}>
-										<iconify-icon icon="mdi:broom"></iconify-icon>Clear {card.dead.length} closed session{card.dead.length === 1 ? '' : 's'}
-									</button>
-								{/if}
-								<button type="button" class="mitem" onclick={() => { quietMenu = null; void navigator.clipboard?.writeText(card.cwd); }}>
-									<iconify-icon icon="mdi:content-copy"></iconify-icon>Copy path
+							{/each}
+							<span class="msep"></span>
+							{#each card.places.filter((p) => p.machine.local && p.dead.length > 0) as place (place.root)}
+								<button type="button" class="mitem" onclick={() => { quietMenu = null; sweepDead(place.machine, place.dead); }}>
+									<iconify-icon icon="mdi:broom"></iconify-icon>Clear {place.dead.length} closed session{place.dead.length === 1 ? '' : 's'}
 								</button>
-								<button type="button" class="mitem danger" onclick={() => { quietMenu = null; closeProject(view.machine, card); }}>
-									<iconify-icon icon="mdi:close"></iconify-icon>Remove from list
-								</button>
-							</Popover.Content>
-						</Popover.Root>
-					{/each}
-				</section>
-			{/if}
-			{#if view.loose.length > 0 || (tmuxPanesLoaded && view.loosePanes.length > 0)}
-				<section class="card proj loose">
-					<div class="proj-h">
-						<span class="chip dim">~</span>
-						<span class="pname">outside any project</span>
-						<span class="pcount">{view.loose.filter((r) => !r.orchestrator).length + view.loosePanes.length}</span>
-					</div>
-					{#each view.loose as row (row.session.id)}
-						{@render sessionRow(view.machine, row)}
-					{/each}
-					{#each view.loosePanes as pane (pane.target)}
-						{@render paneRow(view.machine, pane)}
-					{/each}
-				</section>
-			{/if}
-			</div>
-			{/if}
-		{/each}
+							{/each}
+							<button type="button" class="mitem" onclick={() => { quietMenu = null; void navigator.clipboard?.writeText(card.places[0].root); }}>
+								<iconify-icon icon="mdi:content-copy"></iconify-icon>Copy path
+							</button>
+							<button type="button" class="mitem danger" onclick={() => { quietMenu = null; closeProject(card); }}>
+								<iconify-icon icon="mdi:close"></iconify-icon>Remove from list
+							</button>
+						</Popover.Content>
+					</Popover.Root>
+				{/each}
+			</section>
+		{/if}
+		{#if model.loose.length > 0}
+			<section class="card proj loose">
+				<div class="proj-h">
+					<span class="chip dim">~</span>
+					<span class="pname">outside any project</span>
+					<span class="pcount">{model.loose.reduce((n, l) => n + l.rows.filter((r) => !r.orchestrator).length + l.panes.length, 0)}</span>
+				</div>
+				{#each model.loose as place (place.key)}
+					{@render placeRows(place, model.loose.length > 1 || (fleetStore.selected === 'all' && fleetStore.fleet))}
+				{/each}
+			</section>
+		{/if}
 	</div>
 </div>
 
@@ -1133,85 +1234,33 @@
 	.dot.off {
 		background: var(--faint);
 	}
-	/* A machine's heading folds its list away; shut, it still says how much is
-	   running there and turns amber when a session there wants a person. */
-	.mlabel {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		width: 100%;
-		padding: 6px 4px 0 0;
-		border: 0;
-		background: none;
-		font-family: var(--font-mono);
-		font-size: 10.5px;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: var(--dim);
-		text-align: left;
-		cursor: pointer;
-	}
-	.mlabel:hover .mname {
-		color: var(--muted);
-	}
-	.mlabel iconify-icon {
-		font-size: 14px;
-		color: var(--faint);
-	}
-	.mlabel.shut {
-		padding-bottom: 2px;
-	}
-	/* A finger needs more than a 24px strip, and the last heading in the
-	   list sits right above the foot's own buttons: a miss there opens the
-	   queue instead of the machine. */
-	@media (pointer: coarse) {
-		.mlabel,
-		.mlabel.shut {
-			min-height: 44px;
-			padding-top: 4px;
-			padding-bottom: 4px;
-		}
-		.list {
-			padding-bottom: 24px;
-		}
-	}
-	.mlabel.wants .mname,
-	.mlabel.wants iconify-icon {
-		color: var(--amber);
-	}
-	.mline {
-		flex: 1;
-		height: 1px;
-		background: var(--line-soft);
-	}
-	.mcount {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		letter-spacing: 0;
-		text-transform: none;
-		color: var(--dim);
-	}
-	.mlabel .pill {
-		text-transform: none;
-		letter-spacing: 0;
-	}
-
 	/* ── list and cards ─────────────────────────────────────── */
 	.list {
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
 	}
-	/* One machine's projects; an offline machine's are inert and dimmed. */
-	.mbody {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
+	/* A finger needs more room at the foot: the last card sits right above
+	   the foot's own buttons. */
+	@media (pointer: coarse) {
+		.list {
+			padding-bottom: 24px;
+		}
 	}
-	.mbody.off {
+	/* One machine's share of a project; an offline machine's is inert and dimmed. */
+	.place.off {
 		opacity: 0.45;
 		filter: grayscale(0.6);
+	}
+	/* Which machine, when a project spans several. */
+	.pmachine {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 7px 1px;
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--dim);
 	}
 	.offline {
 		display: flex;
@@ -1444,15 +1493,6 @@
 		color: var(--dim);
 		white-space: nowrap;
 	}
-	.pill {
-		font-size: 10.5px;
-		font-weight: 500;
-		color: var(--amber);
-		background: var(--amber-soft);
-		border-radius: 999px;
-		padding: 1px 7px;
-		white-space: nowrap;
-	}
 	.ctx {
 		width: 14px;
 		height: 14px;
@@ -1527,10 +1567,36 @@
 		color: var(--text);
 		border-color: var(--line);
 	}
-	:global(.q) .chip {
-		width: 12px;
-		height: 12px;
-		border-radius: 3px;
+	/* The project's tile: its icon, or its initials on its own hue. */
+	.panel :global(.ptile) {
+		width: 20px;
+		height: 20px;
+		border-radius: 6px;
+	}
+	.panel :global(.ptile::after) {
+		border-radius: 6px;
+		border-color: hsl(var(--h) 50% 34%);
+	}
+	.panel :global(.ptile-img) {
+		border-radius: 6px;
+		object-fit: contain;
+		background: var(--surface-2);
+		padding: 2px;
+	}
+	.panel :global(.ptile-init) {
+		border-radius: 6px;
+		background: hsl(var(--h) 45% 22%);
+		color: hsl(var(--h) 85% 82%);
+		font: 650 9px/1 var(--font-sans, system-ui);
+		letter-spacing: 0.02em;
+	}
+	.panel :global(.q .ptile) {
+		width: 16px;
+		height: 16px;
+		border-radius: 5px;
+	}
+	.panel :global(.q .ptile-init) {
+		font-size: 7.5px;
 	}
 	/* A phone has no pixel-perfect finger, and these chips are the only way to
 	   start a session in a project that has none, so on touch they grow into a

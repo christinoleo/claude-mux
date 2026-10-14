@@ -24,6 +24,7 @@ import { formatAgo } from '$lib/format';
 import { sessionStore, type Session } from './sessions.svelte';
 import { serverStore } from './servers.svelte';
 import type { InboxTicket } from '$shared/types/ws-messages.js';
+import type { ProjectReport } from '$shared/fleet-projects.js';
 import type { ServerInfo } from '$lib/types/servers';
 import { parseRef } from '$lib/split-refs';
 import { relayBase } from '$lib/session-route';
@@ -42,6 +43,8 @@ export interface Machine {
 	version: string | null;
 	sessions: Session[];
 	projects: string[];
+	/** What it says about each project, to match it across machines. */
+	projectReports: ProjectReport[];
 	/** Tickets on GitHub waiting on a person, for that machine's repos. */
 	inbox: InboxTicket[];
 }
@@ -63,6 +66,7 @@ class FleetStore {
 			version: null,
 			sessions: sessionStore.sessions,
 			projects: sessionStore.savedProjects,
+			projectReports: sessionStore.projectReports,
 			inbox: sessionStore.inbox
 		};
 		// Never this machine again, under another name; and never two rows under
@@ -87,6 +91,7 @@ class FleetStore {
 				version: m.version,
 				sessions: m.sessions as Session[],
 				projects: m.projects,
+				projectReports: m.projectReports ?? [],
 				inbox: m.inbox
 			});
 		}

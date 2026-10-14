@@ -28,14 +28,9 @@ export const MAX_KEY_LENGTH = 1024;
 /** The filter on the sidebar's machines: 'all', or one machine's id. */
 export const MACHINE_FILTER = "machine-filter";
 
-/** Whether a machine's group in the sidebar is folded. */
-export function machineFoldKey(machineId: string): string {
-  return `fold:machine:${machineId}`;
-}
-
-/** Whether a project's card on a machine is folded. */
-export function projectFoldKey(machineId: string, cwd: string): string {
-  return `fold:project:${machineId}:${cwd}`;
+/** Whether a project's card in the sidebar is folded, by its fleet key (`projectKey()` in `src/fleet-projects.ts`). */
+export function projectFoldKey(projectKey: string): string {
+  return `fold:project:${projectKey}`;
 }
 
 /** Whether `a` was written after `b`; the machine id breaks a tie, so every machine picks the same one. */
