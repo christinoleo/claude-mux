@@ -64,7 +64,11 @@
 		active = 0;
 	});
 
-	export async function openAt(start = '~') {
+	/** Whose disk is browsed: '' for this machine, `/fleet/<id>` for another. */
+	let base = '';
+
+	export async function openAt(start = '~', machineBase = '') {
+		base = machineBase;
 		open = true;
 		await browseTo(start);
 		// On touch the keyboard would cover the list before the user has decided to
@@ -75,7 +79,7 @@
 	async function browseTo(to: string, keepQuery = false) {
 		error = '';
 		const res = await fetch(
-			`/api/browse?path=${encodeURIComponent(to)}&showHidden=${showHidden}`
+			`${base}/api/browse?path=${encodeURIComponent(to)}&showHidden=${showHidden}`
 		);
 		const data = await res.json();
 		if (data.error) {

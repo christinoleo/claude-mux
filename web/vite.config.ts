@@ -151,9 +151,63 @@ function devWebSocket() {
 				}
 			});
 
+			// Discovery and the fleet relay need this server's own port.
+			server.httpServer.once('listening', () => {
+				const address = server.httpServer?.address();
+				if (address && typeof address === 'object') process.env.CLAUDE_MUX_PORT = String(address.port);
+			});
+
+			const { admitRelay, openRelayUpstream, parseFleetPath } = await import('../src/server/fleet-relay.js');
+			const { STATUS_CODES } = await import('node:http');
+
+			/** A page's socket to another machine, joined to that machine's (see hooks.server.ts). */
+			async function relayUpgrade(
+				req: import('node:http').IncomingMessage,
+				socket: import('node:stream').Duplex,
+				head: Buffer,
+				fleet: { machine: string; path: string },
+				search: string
+			) {
+				// Loaded through Vite rather than imported: these are app modules,
+				// written against the app's aliases.
+				const [{ machineUrl }, { MACHINE_ID }] = await Promise.all([
+					server.ssrLoadModule('/src/lib/server/discover.ts'),
+					server.ssrLoadModule('/src/lib/server/instance.ts')
+				]);
+				const base = await admitRelay(req.headers.origin, req.headers.host, fleet.machine, machineUrl);
+				if (typeof base !== 'string') {
+					socket.write(
+						`HTTP/1.1 ${base.status} ${STATUS_CODES[base.status]}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n${await base.text()}`
+					);
+					socket.destroy();
+					return;
+				}
+				wss.handleUpgrade(req, socket, head, (ws) => {
+					ws.on('error', (error) => console.log('[ws:relay] WebSocket error:', error.message));
+					const upstream = openRelayUpstream(
+						base,
+						`${fleet.path}${search}`,
+						{ send: (data) => ws.send(data), close: (code, reason) => ws.close(code, reason) },
+						MACHINE_ID as string
+					);
+					ws.on('message', (data, isBinary) => upstream.send(isBinary ? (data as Buffer) : data.toString()));
+					ws.on('close', () => upstream.close());
+				});
+			}
+
 			// Handle upgrade requests (skip Vite HMR)
 			server.httpServer.on('upgrade', (req, socket, head) => {
 				if (req.headers['sec-websocket-protocol'] === 'vite-hmr') return;
+				const url = new URL(req.url || '', 'http://localhost');
+				const fleet = parseFleetPath(url.pathname);
+				if (fleet) {
+					relayUpgrade(req, socket, head, fleet, url.search).catch((error) => {
+						console.log('[ws:relay] upgrade failed:', error instanceof Error ? error.message : error);
+						socket.write('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
+						socket.destroy();
+					});
+					return;
+				}
 				wss.handleUpgrade(req, socket, head, (ws) => {
 					// Attach error handler IMMEDIATELY before emitting 'connection'
 					// This catches errors from malformed frames (e.g., mobile browser invalid close codes)

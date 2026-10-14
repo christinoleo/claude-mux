@@ -12,7 +12,7 @@
 		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
-	import { fleetStore, type Machine } from '$lib/stores/fleet.svelte';
+	import { apiBase, fleetStore, type Machine } from '$lib/stores/fleet.svelte';
 	import { serverStore } from '$lib/stores/servers.svelte';
 	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
 	import DiffBadge from '$lib/components/DiffBadge.svelte';
@@ -248,7 +248,7 @@
 	}
 
 	function agentHref(machine: Machine, target: string, agentId: string): string {
-		return `${apiBase(machine)}/session/${encodeURIComponent(target)}/agent/${encodeURIComponent(agentId)}`;
+		return `${pageBase(machine)}/session/${encodeURIComponent(target)}/agent/${encodeURIComponent(agentId)}`;
 	}
 
 	/** The tmux session a pane belongs to: `main` of `main:2.0`. */
@@ -407,8 +407,8 @@
 
 	// ── actions ──────────────────────────────────────────────────────────────
 
-	/** Where a machine's API lives: this origin for the local one, its URL otherwise. */
-	function apiBase(machine: Machine): string {
+	/** Where a machine's pages live: this origin for the local one, its URL otherwise. */
+	function pageBase(machine: Machine): string {
 		return machine.local ? '' : machine.server.url;
 	}
 
@@ -530,7 +530,7 @@
 			await Promise.all([...live, ...card.dead].map((s) => killSessionReq(machine, s)));
 			if (machine.local) sessionStore.removeProject(card.cwd);
 			else
-				void fetch(`${machine.server.url}/api/projects`, {
+				void fetch(`${apiBase(machine)}/api/projects`, {
 					method: 'DELETE',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ cwd: card.cwd })
@@ -567,10 +567,12 @@
 		void newSessionInProject(machine, ticket.git_root, 'claude', `/mattpocock-skills:wayfinder ${ticket.url}`);
 	}
 
+	/** The machine the folder picker is browsing, through the relay when it is another. */
+	let pickerMachine = $state<Machine | null>(null);
+
 	function newProject() {
-		if (actingMachine.local) void folderPicker?.openAt();
-		// Browsing another machine's disk happens on that machine.
-		else window.location.href = `${actingMachine.server.url}/`;
+		pickerMachine = actingMachine;
+		void folderPicker?.openAt('~', apiBase(actingMachine));
 	}
 
 	async function closeChrome() {
@@ -926,7 +928,7 @@
 <FolderPicker
 	bind:this={folderPicker}
 	bind:open={showFolderBrowser}
-	onpick={(cwd) => void newSessionInProject(fleetStore.machines[0], cwd)}
+	onpick={(cwd) => void newSessionInProject(pickerMachine ?? fleetStore.machines[0], cwd)}
 />
 
 <Dialog.Root open={agentPicker !== null} onOpenChange={(o) => { if (!o) agentPicker = null; }}>

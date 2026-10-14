@@ -434,6 +434,33 @@ would undo the first.
 The status line's `RemoteControlMenu.svelte` offers what fits the state and
 holds a pending state until the poll sees the change.
 
+### 10. Reaching other machines
+
+The page talks only to the machine that served it, its origin machine, which
+relays to the rest (ADR 0004). `src/server/fleet-relay.ts` forwards
+`/fleet/<machine id>/api/...` to `/api/...` on that machine: any method, the
+body (buffered, so uploads pass byte for byte), the query, and WebSocket
+upgrades on every channel, with no list of allowed routes. `hooks.server.ts`
+joins it to Bun and the dev plugin in `vite.config.ts` to `ws`; both look the
+machine up through `machineUrl()` (`web/src/lib/server/discover.ts`). The
+forwarded request drops the browser's `Origin` and carries
+`x-claude-mux-forwarded` naming the sender; an HTTP request carries the owner's
+own origin instead, because SvelteKit's CSRF check refuses a multipart POST
+without it before any hook runs. The relay itself answers only its own page:
+another origin, even a tailnet one, gets 403. A machine nobody knows answers
+404 and one that does not answer 502, each as `{ error, machine }`; a socket
+to an unreachable machine closes with 1014.
+
+A machine is keyed by a stable id kept in `~/.claude-mux/machine-id`
+(`loadMachineId()`), which `/api/health` reports as `instance`; the hostname is
+only for display. Discovery probes each online tailnet peer on the default port
+and on the one tailscale serve fronts this server on, never on the port the page
+was opened on, so a page on `:8443` still finds machines on `:3456`. The server
+learns its own port from `CLAUDE_MUX_PORT`, which `serve` and the dev plugin
+set. The sidebar's actions on another machine's rows (kill, new session, mark
+unread, closing a project, the folder picker) go through `apiBase()` in
+`fleet.svelte.ts`; opening a remote session still navigates to its machine.
+
 ## Key Data Flow
 
 ```

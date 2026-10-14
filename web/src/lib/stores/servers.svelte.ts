@@ -6,15 +6,15 @@ import type { DiscoverResponse, ServerInfo } from '$lib/types/servers';
 const cache = createPersisted<ServerInfo[]>(STORAGE_KEYS.servers, []);
 
 function detectCurrent(): ServerInfo {
-	if (!browser) return { hostname: '', url: '' };
+	if (!browser) return { id: '', hostname: '', url: '' };
 	const host = window.location.host;
 	const hostname = host.split(':')[0].split('.')[0];
 	const url = `${window.location.protocol}//${host}`;
-	return { hostname, url };
+	return { id: '', hostname, url };
 }
 
 class ServerStore {
-	current = $state<ServerInfo>({ hostname: '', url: '' });
+	current = $state<ServerInfo>({ id: '', hostname: '', url: '' });
 	servers = $state<ServerInfo[]>([]);
 	/**
 	 * This host's tailnet name, as discovery reports it. The page may have
@@ -22,6 +22,8 @@ class ServerStore {
 	 * by its tailnet name, so this is what tells the two apart.
 	 */
 	self = $state('');
+	/** This machine's id, from the same answer. */
+	selfId = $derived(this.servers.find((s) => s.hostname === this.self)?.id ?? '');
 	loading = $state(false);
 	error = $state<string | null>(null);
 

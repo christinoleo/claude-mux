@@ -16,6 +16,15 @@ import {
 	transcriptWsManager
 } from '$lib/server/ws-managers.js';
 import { ensurePushMonitor } from '$lib/server/push.js';
+import {
+	admitRelay,
+	openRelayUpstream,
+	parseFleetPath,
+	relayRequest,
+	type RelaySocket
+} from '$shared/server/fleet-relay.js';
+import { machineUrl } from '$lib/server/discover';
+import { MACHINE_ID } from '$lib/server/instance';
 
 // Pushes go to phones with every tab closed, so their events are watched from
 // the moment the server starts rather than when the first page connects.
@@ -23,11 +32,20 @@ export const init: ServerInit = () => {
 	ensurePushMonitor();
 };
 
-/** What a socket was upgraded for: its channel, and the pane, session (and agent) or browser tab it reads. */
-type WsData = { type: 'sessions' | 'terminal' | 'transcript' | 'browser'; target?: string; agent?: string };
+/**
+ * What a socket was upgraded for: its channel, and the pane, session (and
+ * agent) or browser tab it reads. A `relay` socket is a page's socket to
+ * another machine, joined to that machine's at `base` + `target`.
+ */
+type WsData = {
+	type: 'sessions' | 'terminal' | 'transcript' | 'browser' | 'relay';
+	target?: string;
+	agent?: string;
+	base?: string;
+};
 
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
-const wsDataMap = new WeakMap<WebSocket, WsData & { client: WsClient }>();
+const wsDataMap = new WeakMap<WebSocket, WsData & { client: WsClient; upstream?: RelaySocket }>();
 
 // Handle function for SvelteKit
 /**
@@ -51,6 +69,7 @@ function corsHeaders(origin: string): Record<string, string> {
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const origin = event.request.headers.get('origin');
+	const fleet = parseFleetPath(event.url.pathname);
 	const crossSite = !!origin && origin !== event.url.origin && TRUSTED_ORIGIN.test(origin);
 	if (crossSite && event.request.method === 'OPTIONS' && event.url.pathname.startsWith('/api/')) {
 		return new Response(null, { status: 204, headers: corsHeaders(origin) });
@@ -65,12 +84,23 @@ export const handle: Handle = async ({ event, resolve }) => {
 		upgradeHeader?.toLowerCase() === 'websocket'
 	) {
 		const url = new URL(event.request.url);
+		const host = event.request.headers.get('host');
+
+		if (fleet) {
+			const base = await admitRelay(origin, host, fleet.machine, machineUrl);
+			if (typeof base !== 'string') return base;
+			// @ts-expect-error - platform is provided by svelte-adapter-bun
+			await event.platform.server.upgrade(event.platform.request, {
+				data: { type: 'relay', base, target: `${fleet.path}${url.search}` } satisfies WsData
+			});
+			return new Response(null, { status: 101 });
+		}
+
 		const parsed = parseWsPath(url.pathname);
 
 		// A WebSocket is not held to CORS, so the origin is checked here. The
 		// browser stream takes input for a logged-in browser, and only this
 		// server's own page may open it.
-		const host = event.request.headers.get('host');
 		const allowed = parsed?.type === 'browser' ? browserOriginAllowed(origin, host) : socketOriginAllowed(origin, host);
 		if (parsed && !allowed) {
 			return new Response('Forbidden', { status: 403 });
@@ -84,6 +114,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 			return new Response(null, { status: 101 });
 		}
 	}
+
+	if (fleet) return relayRequest(event.request, fleet, machineUrl, MACHINE_ID);
 
 	const response = await resolve(event);
 	// The remote browser's tabs are this server's own page's business, never another origin's.
@@ -115,6 +147,17 @@ export const websocket = {
 			sendUncompressed: (msg: string) => (ws as unknown as { send(data: string, compress: boolean): void }).send(msg, false)
 		};
 
+		if (data.type === 'relay' && data.base && data.target) {
+			const upstream = openRelayUpstream(
+				data.base,
+				data.target,
+				{ send: (msg) => ws.send(msg), close: (code, reason) => ws.close(code, reason) },
+				MACHINE_ID
+			);
+			wsDataMap.set(ws, { ...data, client, upstream });
+			return;
+		}
+
 		// Store client reference for proper cleanup in close handler
 		wsDataMap.set(ws, { ...data, client });
 
@@ -136,8 +179,12 @@ export const websocket = {
 	},
 
 	message(ws: WebSocket, message: string | Buffer) {
-		const msgStr = message.toString();
 		const data = wsDataMap.get(ws);
+		if (data?.upstream) {
+			data.upstream.send(message);
+			return;
+		}
+		const msgStr = message.toString();
 
 		const target = data?.target;
 		let handlers: WsMessageHandlers | undefined;
@@ -167,20 +214,7 @@ export const websocket = {
 	},
 
 	close(ws: WebSocket) {
-		const data = wsDataMap.get(ws);
-		if (!data) return;
-
-		if (data.type === 'sessions') {
-			sessionsWsManager.removeClient(data.client);
-		} else if (data.type === 'terminal') {
-			terminalWsManager.removeClient(data.client, data.target);
-		} else if (data.type === 'transcript') {
-			transcriptWsManager.removeClient(data.client, data.target);
-		} else if (data.type === 'browser') {
-			browserWsManager.removeClient(data.client, data.target);
-		}
-
-		wsDataMap.delete(ws);
+		release(ws);
 	},
 
 	error(ws: WebSocket, error: Error) {
@@ -192,18 +226,24 @@ export const websocket = {
 			message: error.message
 		});
 
-		// Clean up the connection
-		if (data) {
-			if (data.type === 'sessions') {
-				sessionsWsManager.removeClient(data.client);
-			} else if (data.type === 'terminal') {
-				terminalWsManager.removeClient(data.client, data.target);
-			} else if (data.type === 'transcript') {
-				transcriptWsManager.removeClient(data.client, data.target);
-			} else if (data.type === 'browser') {
-				browserWsManager.removeClient(data.client, data.target);
-			}
-			wsDataMap.delete(ws);
-		}
+		release(ws);
 	}
 };
+
+/** Let go of whatever a closed or failed socket held: its relayed upstream, or its manager's client. */
+function release(ws: WebSocket) {
+	const data = wsDataMap.get(ws);
+	if (!data) return;
+	if (data.upstream) {
+		data.upstream.close();
+	} else if (data.type === 'sessions') {
+		sessionsWsManager.removeClient(data.client);
+	} else if (data.type === 'terminal') {
+		terminalWsManager.removeClient(data.client, data.target);
+	} else if (data.type === 'transcript') {
+		transcriptWsManager.removeClient(data.client, data.target);
+	} else if (data.type === 'browser') {
+		browserWsManager.removeClient(data.client, data.target);
+	}
+	wsDataMap.delete(ws);
+}
