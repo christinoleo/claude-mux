@@ -1,6 +1,7 @@
 <script lang="ts">
 	/**
-	 * Two session pages side by side, each in an iframe on its own host.
+	 * Two session pages side by side, each in an iframe of this same origin,
+	 * which reaches a session on another machine through its relay.
 	 *
 	 * The page inside a pane draws its own composer, and that composer carries
 	 * the pane's controls — swap, zoom, close — so this component draws nothing
@@ -10,7 +11,7 @@
 	 */
 	import { onMount } from 'svelte';
 	import { splitStore, type PaneSide, MIN_PANE_PX } from '$lib/stores/split.svelte';
-	import { serverStore } from '$lib/stores/servers.svelte';
+	import { fleetStore, selfName } from '$lib/stores/fleet.svelte';
 	import { paneUrl, parseRef, type PaneRef } from '$lib/split-refs';
 	import ResizeDivider from './ResizeDivider.svelte';
 
@@ -20,8 +21,8 @@
 	let frameB = $state<HTMLIFrameElement | null>(null);
 	let root = $state<HTMLElement | null>(null);
 
-	const urlA = $derived(paneUrl(a, serverStore.servers, serverStore.self));
-	const urlB = $derived(paneUrl(b, serverStore.servers, serverStore.self));
+	const urlA = $derived(paneUrl(a, fleetStore.servers(), selfName()));
+	const urlB = $derived(paneUrl(b, fleetStore.servers(), selfName()));
 
 	/** Grid columns from the ratio, unless a pane is zoomed. */
 	const columns = $derived.by(() => {
@@ -44,10 +45,9 @@
 	/** Tell each frame whether it holds the focus. */
 	function announceFocus() {
 		for (const side of ['a', 'b'] as PaneSide[]) {
-			const ref = side === 'a' ? a : b;
 			frameOf(side)?.contentWindow?.postMessage(
-				{ type: 'claude-mux:focus', focused: splitStore.focus === side, side, local: ref.host === null },
-				'*'
+				{ type: 'claude-mux:focus', focused: splitStore.focus === side, side },
+				location.origin
 			);
 		}
 	}
@@ -114,20 +114,12 @@
 	style="grid-template-columns: {columns}"
 	bind:this={root}
 >
-	{#snippet pane(side: PaneSide, ref: PaneRef, url: string | null, frame: 'a' | 'b')}
+	{#snippet pane(side: PaneSide, ref: PaneRef, url: string, frame: 'a' | 'b')}
 		<section class="pane" class:hidden={splitStore.zoom !== null && splitStore.zoom !== side}>
-			{#if url}
-				{#if frame === 'a'}
-					<iframe bind:this={frameA} src={url} title={ref.target} allow="microphone; clipboard-read; clipboard-write"></iframe>
-				{:else}
-					<iframe bind:this={frameB} src={url} title={ref.target} allow="microphone; clipboard-read; clipboard-write"></iframe>
-				{/if}
+			{#if frame === 'a'}
+				<iframe bind:this={frameA} src={url} title={ref.target} allow="microphone; clipboard-read; clipboard-write"></iframe>
 			{:else}
-				<div class="unreachable">
-					<iconify-icon icon="mdi:lan-disconnect"></iconify-icon>
-					<p><b>{ref.host}</b> is not on the tailnet right now.</p>
-					<button type="button" onclick={() => splitStore.close(side)}>Close this pane</button>
-				</div>
+				<iframe bind:this={frameB} src={url} title={ref.target} allow="microphone; clipboard-read; clipboard-write"></iframe>
 			{/if}
 			{#if splitStore.dragging}
 				<!-- Frames swallow drag events; the overlay is where a drop lands. -->
@@ -203,31 +195,5 @@
 		background: rgba(129, 140, 248, 0.1);
 		color: #a5b4fc;
 		font: 500 13px system-ui, sans-serif;
-	}
-	.unreachable {
-		height: 100%;
-		display: grid;
-		place-content: center;
-		justify-items: center;
-		gap: 8px;
-		color: #a8a29e;
-		font: 14px system-ui, sans-serif;
-	}
-	.unreachable iconify-icon {
-		font-size: 28px;
-		color: #6b6764;
-	}
-	.unreachable b {
-		color: #e7e5e4;
-		font-weight: 500;
-	}
-	.unreachable button {
-		height: 30px;
-		padding: 0 12px;
-		border: 1px solid #2a2a2c;
-		border-radius: 8px;
-		background: #151516;
-		color: #d6d3d1;
-		cursor: pointer;
 	}
 </style>

@@ -704,7 +704,7 @@
 		onlongpress={() => { if (machine.local) renameId = s.id; }}
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
 		ondragend={dragEnd}
-		menu={machine.local && s.tmux_target && !splitStore.active ? panelMenu(machine, s.tmux_target) : []}
+		menu={s.tmux_target && !splitStore.active ? panelMenu(machine, s.tmux_target) : []}
 	>
 		{#snippet meta()}<DiffBadge changes={s.changes} />{/snippet}
 	</SessionRow>

@@ -6,15 +6,16 @@
  * focus, whether one is zoomed, where the divider sits, and whether a sidebar
  * row is being dragged — and turns every action into the next URL.
  *
- * A pane is a session page in an iframe (see SplitView), so a pane can be on
- * any host on the tailnet. Leaving the split for a single session goes to that
- * session's own host, the way the sidebar opens a remote session.
+ * A pane is a session page of this origin in an iframe (see SplitView), so a
+ * pane can show a session on any machine the origin relays to. Leaving the
+ * split for a single session stays on this page, the way the sidebar opens a
+ * remote session.
  */
 
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 import { createPersisted } from './persisted';
-import { serverStore } from './servers.svelte';
+import { fleetStore, selfName } from './fleet.svelte';
 import { formatRef, sameRef, singleUrl, splitUrl, type PaneRef } from '$lib/split-refs';
 
 export type PaneSide = 'a' | 'b';
@@ -24,10 +25,8 @@ const ratioStore = createPersisted<number>('claude-mux-split-ratio', 0.5);
 /** Panes narrower than this lose their composer; below it the split is refused. */
 export const MIN_PANE_PX = 440;
 
-function navigate(url: string | null): void {
-	if (!url) return;
-	if (url.startsWith('/')) void goto(url);
-	else window.location.href = url;
+function navigate(url: string): void {
+	void goto(url);
 }
 
 class SplitStore {
@@ -95,7 +94,7 @@ class SplitStore {
 			this.focus = 'b';
 			return;
 		}
-		navigate(singleUrl(ref, serverStore.servers, serverStore.self));
+		navigate(singleUrl(ref, fleetStore.servers(), selfName()));
 	}
 
 	/** Start a split with `ref` beside the session on the page. */
@@ -111,7 +110,7 @@ class SplitStore {
 		if (!keep) return;
 		this.zoom = null;
 		this.focus = 'a';
-		navigate(singleUrl(keep, serverStore.servers, serverStore.self));
+		navigate(singleUrl(keep, fleetStore.servers(), selfName()));
 	}
 
 	swap(): void {

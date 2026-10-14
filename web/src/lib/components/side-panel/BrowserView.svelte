@@ -37,6 +37,11 @@
 
 	interface Props {
 		sessionId: string | null;
+		/**
+		 * Where the session's machine is reached: '' for the origin, `/fleet/<id>`
+		 * for another, whose own page the relay makes this one.
+		 */
+		base: string;
 		/** The pane is the one showing. */
 		active: boolean;
 		/** The tab the URL pins, if any. */
@@ -47,7 +52,7 @@
 		onUrl: (url: string | null) => void;
 	}
 
-	let { sessionId, active, tab, onPick, onUrl }: Props = $props();
+	let { sessionId, base, active, tab, onPick, onUrl }: Props = $props();
 
 	/** How often the tab list is read while the pane is showing. */
 	const POLL_MS = 5_000;
@@ -68,7 +73,7 @@
 		loading = true;
 		try {
 			const q = sessionId ? `?session=${encodeURIComponent(sessionId)}` : '';
-			const res = await fetch(`/api/browser/tabs${q}`);
+			const res = await fetch(`${base}/api/browser/tabs${q}`);
 			const body = (await res.json()) as BrowserInfo;
 			if (mine !== infoSeq) return;
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -156,8 +161,9 @@
 
 	$effect(() => {
 		const id = currentId;
+		const at = base;
 		if (active && id) {
-			untrack(() => stream.open(id));
+			untrack(() => stream.open(id, at));
 		} else {
 			untrack(() => {
 				stream.close();
@@ -200,7 +206,7 @@
 
 	function retry() {
 		void loadInfo().then(() => {
-			if (active && currentId) stream.open(currentId, true);
+			if (active && currentId) stream.open(currentId, base, true);
 		});
 	}
 

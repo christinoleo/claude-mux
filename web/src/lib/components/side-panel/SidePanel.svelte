@@ -17,6 +17,8 @@
 		kind,
 		open,
 		target,
+		base,
+		machineHost,
 		session,
 		query,
 		maximized,
@@ -33,6 +35,10 @@
 		/** False while the column is closed but kept mounted: no pane is active then. */
 		open: boolean;
 		target: string;
+		/** Where the session's machine's API is reached: '' here, `/fleet/<id>` for another machine. */
+		base: string;
+		/** The host name that reaches another machine's ports, or null for the origin's own session. */
+		machineHost: string | null;
 		session: Session | null;
 		/** The page's query, for the params each pane owns. */
 		query: URLSearchParams;
@@ -112,6 +118,8 @@
 				<pane.body
 					{session}
 					{target}
+					{base}
+					{machineHost}
 					params={readPaneParams(query, pane.params)}
 					setParams={(own, opts) => onSetParams(pane.kind, own, opts)}
 					setActions={(list) => (actions[pane.kind] = list)}

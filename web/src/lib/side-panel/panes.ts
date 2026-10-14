@@ -27,6 +27,16 @@ export interface PaneAction {
 export interface PaneBodyProps {
 	session: Session | null;
 	target: string;
+	/**
+	 * Where the session's machine's API is reached from this page: '' for the
+	 * origin's own, `/fleet/<id>` through the relay for another machine's.
+	 */
+	base: string;
+	/**
+	 * The host name that reaches another machine's own ports (its dev servers),
+	 * or null for the origin's own session.
+	 */
+	machineHost: string | null;
 	/** The params this pane owns, as the URL has them. */
 	params: Record<string, string>;
 	/** Change this pane's params; a null value removes one. Replaces the history entry unless `push`. */

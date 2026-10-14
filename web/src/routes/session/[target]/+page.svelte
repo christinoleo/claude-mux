@@ -31,7 +31,7 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { modelDisplayName } from '$shared/claude/model-name.js';
 	import { serverStore } from '$lib/stores/servers.svelte';
-	import { routeMachine, selfName, sessionApiAt } from '$lib/stores/fleet.svelte';
+	import { routeMachine, sessionApiAt } from '$lib/stores/fleet.svelte';
 	import { parseSessionPath, sessionPath } from '$lib/session-route';
 	import { formatRef } from '$lib/split-refs';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
@@ -79,6 +79,7 @@
 	const route = routeMachine(() => $page.params.machine ?? null);
 	const base = $derived(route.base);
 	const remoteHost = $derived(route.remoteHost);
+	const machineHost = $derived(route.machineHost);
 	/**
 	 * The session as every per-session store keeps it (drafts, attachments,
 	 * views, voice): its target here, `host@target` on another machine,
@@ -184,14 +185,10 @@
 	const embed = $derived($page.url.searchParams.has('embed'));
 	let paneFocused = $state(false);
 	let paneSide = $state<'a' | 'b' | null>(null);
-	/** Whether this pane runs on the same host as the page outside; a remote one names its host. */
-	let paneLocal = $state(true);
-	/** This host's tailnet name, for the label a pane on another host needs. */
-	const machineName = $derived(embed ? selfName() : '');
 
 	function tellPane(action: 'focus' | 'focus-other' | 'swap' | 'zoom' | 'close' | 'ready') {
 		if (!embed || window.parent === window) return;
-		window.parent.postMessage({ type: 'claude-mux:pane', action }, '*');
+		window.parent.postMessage({ type: 'claude-mux:pane', action }, location.origin);
 	}
 
 	onMount(() => {
@@ -199,11 +196,10 @@
 		serverStore.init();
 		const onMessage = (e: MessageEvent) => {
 			if (e.source !== window.parent) return;
-			const msg = e.data as { type?: string; focused?: boolean; side?: 'a' | 'b'; local?: boolean } | null;
+			const msg = e.data as { type?: string; focused?: boolean; side?: 'a' | 'b' } | null;
 			if (msg?.type !== 'claude-mux:focus') return;
 			paneFocused = msg.focused === true;
 			paneSide = msg.side ?? null;
-			paneLocal = msg.local !== false;
 		};
 		// Any interaction inside the pane is a claim on the focus.
 		const onPointer = () => tellPane('focus');
@@ -2250,9 +2246,9 @@
 			<b>{currentSession ? getSessionDisplayName(currentSession) : target}</b>
 			<iconify-icon icon="mdi:chevron-down"></iconify-icon>
 		</button>
-		{#if embed && !paneLocal && machineName}
-			<!-- A pane may be on another host; its composer says which. -->
-			<span class="mach" title="Session runs on {machineName}">{machineName}</span>
+		{#if embed && remoteHost}
+			<!-- A pane may show another machine's session; its composer says which. -->
+			<span class="mach" title="Session runs on {remoteHost}">{remoteHost}</span>
 		{/if}
 		{#if embed && paneFocused}
 			<span class="foc" title="The sidebar opens sessions here; ⌘/Ctrl 1 and 2 move the focus">focus</span>
@@ -2756,6 +2752,8 @@
 			{kind}
 			{open}
 			target={target ?? ''}
+			{base}
+			{machineHost}
 			session={currentSession ?? null}
 			query={$page.url.searchParams}
 			maximized={panelMaximized}

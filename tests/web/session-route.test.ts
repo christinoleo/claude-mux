@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { localRef, machineBase, parseSessionPath, relayBase, sessionPath } from "../../web/src/lib/session-route.js";
-import { singleUrl } from "../../web/src/lib/split-refs.js";
+import { paneUrl, singleUrl } from "../../web/src/lib/split-refs.js";
 
 const servers = [
   { id: "a1", hostname: "engage", url: "https://engage.example.ts.net:3456" },
@@ -116,7 +116,20 @@ describe("singleUrl", () => {
     expect(singleUrl({ host: null, target: "m:1.0" }, servers, "omarchy")).toBe("/session/m%3A1.0");
   });
 
-  it("is null for a machine nobody knows", () => {
-    expect(singleUrl({ host: "distilo", target: "m:1.0" }, servers, "omarchy")).toBeNull();
+  it("keeps the name of a machine nobody knows yet, for its page to report", () => {
+    expect(singleUrl({ host: "distilo", target: "m:1.0" }, servers, "omarchy")).toBe("/m/distilo/session/m%3A1.0");
+  });
+});
+
+describe("paneUrl", () => {
+  it("frames each machine's session as a page of this origin", () => {
+    expect(paneUrl({ host: "engage", target: "m:1.0" }, servers, "omarchy")).toBe("/m/engage/session/m%3A1.0?embed=1");
+    expect(paneUrl({ host: null, target: "m:1.0" }, servers, "omarchy")).toBe("/session/m%3A1.0?embed=1");
+    expect(paneUrl({ host: "omarchy", target: "m:1.0" }, servers, "omarchy")).toBe("/session/m%3A1.0?embed=1");
+  });
+
+  it("treats this machine's own name in any case as this machine", () => {
+    const listed = [...servers, { id: "c3", hostname: "Distilo", url: "x" }];
+    expect(paneUrl({ host: "c3", target: "m:1.0" }, listed, "distilo")).toBe("/session/m%3A1.0?embed=1");
   });
 });

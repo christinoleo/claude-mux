@@ -10,6 +10,7 @@
 	 * session made (and the turn that made them), and which have not left the
 	 * machine yet.
 	 */
+	import { sessionApiAt } from '$lib/stores/fleet.svelte';
 	import { untrack } from 'svelte';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
 	import { Toggle } from '$lib/components/ui/toggle';
@@ -22,10 +23,10 @@
 	import { formatAgo } from '$lib/format';
 	import DiffLines from './DiffLines.svelte';
 
-	let { session, params, setParams, setActions, mention, openPane, active }: PaneBodyProps = $props();
+	let { session, base, params, setParams, setActions, mention, openPane, active }: PaneBodyProps = $props();
 
 	const sessionId = $derived(session?.id ?? null);
-	const api = $derived(sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/history` : null);
+	const api = $derived(sessionId ? `${sessionApiAt(base, sessionId)}/history` : null);
 	const graph = $derived(params.view === 'graph');
 
 	// ── the commits ──────────────────────────────────────────────────────

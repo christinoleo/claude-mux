@@ -49,7 +49,7 @@ export function machineBase(host: string | null, servers: ServerInfo[], self: st
 	if (name === self.toLowerCase()) return '';
 	const server = servers.find((s) => s.hostname.toLowerCase() === name || s.id === host);
 	if (!server?.id) return null;
-	if (server.hostname === self) return '';
+	if (server.hostname.toLowerCase() === self.toLowerCase()) return '';
 	return `/fleet/${encodeURIComponent(server.id)}`;
 }
 

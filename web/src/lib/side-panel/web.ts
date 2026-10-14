@@ -7,6 +7,9 @@
  * the phone itself when opened on the phone. A dev server on this machine is
  * therefore framed through its tailscale serve HTTPS mapping when it has one,
  * and otherwise offered in a new tab with the command that would map it.
+ *
+ * A session on another machine reads `localhost` as that machine, which the
+ * device reaches by the machine's own tailnet name, never by the page's.
  */
 import { isLoopback } from '$shared/utils/loopback.js';
 import type { DevServer, WebInfo } from '$shared/server/web-preview.js';
@@ -68,6 +71,11 @@ export type Embed =
 export interface EmbedContext {
 	/** Where this page is open: `location`. */
 	page: { protocol: string; hostname: string };
+	/**
+	 * The host name of the session's machine when it is not the one that
+	 * served the page; null or absent for the page's own machine.
+	 */
+	machine?: string | null;
 	serves: WebInfo['serves'];
 	detected: DevServer[];
 }
@@ -93,24 +101,28 @@ export function resolveEmbed(target: string, ctx: EmbedContext): Embed {
 		return { kind: 'frame', src: `${served}${u.pathname}${u.search}${u.hash}` };
 	}
 	// Opened on the machine itself, localhost is the same machine, and browsers treat it as secure.
-	if (isLoopback(ctx.page.hostname)) {
+	if (!ctx.machine && isLoopback(ctx.page.hostname)) {
 		return { kind: 'frame', src: u.href.replace('//0.0.0.0', '//localhost') };
 	}
 
-	// Whatever name the device reached claude-mux by reaches this machine's other ports too.
+	// Whatever name the device reached claude-mux by reaches this machine's other ports too;
+	// another machine's ports are reached by that machine's name.
 	const remote = new URL(u.href);
-	remote.hostname = ctx.page.hostname;
+	remote.hostname = ctx.machine || ctx.page.hostname;
 	const card = { kind: 'card' as const, open: remote.href, command: `tailscale serve --bg --https=${port} http://localhost:${port}` };
+	// The command maps a port of the machine it runs on, so another machine's card says where.
+	const where = ctx.machine ? ` Run it on ${ctx.machine.split('.')[0]}.` : '';
+	const machine = ctx.machine ? ctx.machine.split('.')[0] : 'this machine';
 	if (ctx.detected.find((d) => d.port === port)?.loopbackOnly) {
 		return {
 			...card,
-			reason: `The server on port ${port} listens on 127.0.0.1 only, so nothing off this machine reaches it. Map it with tailscale serve, or restart it bound to 0.0.0.0.`
+			reason: `The server on port ${port} listens on 127.0.0.1 only, so nothing off ${machine} reaches it. Map it with tailscale serve, or restart it bound to 0.0.0.0.${where}`
 		};
 	}
 	if (pageSecure && remote.protocol === 'http:') {
 		return {
 			...card,
-			reason: `Port ${port} has no tailscale serve HTTPS mapping, and this page, served over HTTPS, cannot frame plain HTTP.`
+			reason: `Port ${port} has no tailscale serve HTTPS mapping on ${machine}, and this page, served over HTTPS, cannot frame plain HTTP.${where}`
 		};
 	}
 	return { kind: 'frame', src: remote.href };
