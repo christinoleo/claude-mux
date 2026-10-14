@@ -1,120 +1,92 @@
 /**
- * Every claude-mux on the tailnet, read at once.
+ * Every machine in the fleet, read at once.
  *
- * The page is served by one host and talks to that host's sessions through
- * `sessionStore`. The other hosts the server discovers over Tailscale each
- * get a read-only socket of their own here, carrying the same sessions
- * broadcast, so the sidebar can lay every machine's projects side by side.
- * Acting on a remote session's row (kill, new session, mark unread, closing a
- * project) goes through this page's own server, which relays it
- * (`apiBase()`); opening one still navigates to its own host.
+ * The page talks only to the machine that served it (ADR 0004). That machine
+ * follows every other one and keeps what each last said (its fleet state,
+ * `src/server/fleet-state.ts`), and sends it on the page's own sessions
+ * socket, which `sessionStore` reads; this store lays it beside the origin's
+ * own sessions. A machine that is off keeps its last known sessions here,
+ * with when it was last seen and when it is tried next. Acting on a remote
+ * session's row goes through the origin's relay (`apiBase()`); opening one
+ * still navigates to its own host.
  *
  * `selected` is which machine the sidebar shows: 'all', or one hostname. It
  * is remembered per browser, since it is a viewing preference.
  */
 
 import { browser } from '$app/environment';
-import { ReliableWebSocket } from './websocket-base.svelte';
 import { createPersisted } from './persisted';
+import { formatAgo } from '$lib/format';
 import { sessionStore, type Session } from './sessions.svelte';
 import { serverStore } from './servers.svelte';
-import { SessionsWsMessageSchema, type InboxTicket } from '$shared/types/ws-messages.js';
+import type { InboxTicket } from '$shared/types/ws-messages.js';
 import type { ServerInfo } from '$lib/types/servers';
 
 const selectedStore = createPersisted<string>('claude-mux-machine', 'all');
 
-/** One machine's view: who it is, whether we can hear it, and what it holds. */
+/** One machine's view: who it is, whether it answers, and what it holds. */
 export interface Machine {
 	server: ServerInfo;
 	/** The host that served this page: its sessions are the ones we can act on here. */
 	local: boolean;
-	connected: boolean;
+	/** Whether it answers now. The origin is online while the page's socket is. */
+	online: boolean;
+	/** When it was last heard from (ms, the origin's clock); null for the origin or one never heard. */
+	lastSeen: number | null;
+	/** While offline, when the origin tries it next. */
+	retryAt: number | null;
+	version: string | null;
 	sessions: Session[];
 	projects: string[];
 	/** Tickets on GitHub waiting on a person, for that machine's repos. */
 	inbox: InboxTicket[];
 }
 
-/** A read-only sessions socket to another host. */
-class RemoteSessions extends ReliableWebSocket {
-	sessions = $state<Session[]>([]);
-	projects = $state<string[]>([]);
-	inbox = $state<InboxTicket[]>([]);
-
-	constructor(readonly server: ServerInfo) {
-		super();
-	}
-
-	connect(): void {
-		this.doConnect();
-	}
-
-	disconnect(): void {
-		this.doDisconnect();
-	}
-
-	protected getWsUrl(): string {
-		const url = new URL(this.server.url);
-		url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-		url.pathname = '/api/sessions/stream';
-		url.search = '';
-		return url.toString();
-	}
-
-	protected getLogPrefix(): string {
-		return `[fleet:${this.server.hostname}]`;
-	}
-
-	protected handleMessage(event: MessageEvent): void {
-		let raw: unknown;
-		try {
-			raw = JSON.parse(event.data);
-		} catch {
-			return;
-		}
-		const parsed = SessionsWsMessageSchema.safeParse(raw);
-		if (!parsed.success) return;
-		const msg = parsed.data;
-		if (msg.type !== 'sessions' && msg.type !== 'connected') return;
-		this.sessions = msg.sessions as Session[];
-		if (msg.projects) this.projects = msg.projects;
-		if (msg.inbox) this.inbox = msg.inbox;
-	}
-}
-
 class FleetStore {
 	selected = $state<string>('all');
-	private remotes = $state<RemoteSessions[]>([]);
 	private started = false;
 
 	/** Every machine, this one first, then the others by name. */
 	machines: Machine[] = $derived.by(() => {
 		// Named as the tailnet knows it, even when the page was opened as localhost.
 		const hostname = serverStore.self || serverStore.current.hostname;
+		const selfId = sessionStore.selfId;
 		const local: Machine = {
-			server: { id: serverStore.selfId, hostname, url: serverStore.current.url },
+			server: { id: selfId, hostname, url: serverStore.current.url },
 			local: true,
-			connected: sessionStore.connected,
+			online: sessionStore.connected,
+			lastSeen: null,
+			retryAt: null,
+			version: null,
 			sessions: sessionStore.sessions,
 			projects: sessionStore.savedProjects,
 			inbox: sessionStore.inbox
 		};
-		// A page opened as localhost learns its tailnet name only when discovery
-		// answers, and the cached server list already names this host by it.
-		// sync() drops that remote a beat later; until then it must not stand
-		// beside the local machine under the same name, or the sidebar's keyed
-		// lists throw and the page stops updating until it is reloaded.
-		const others = this.remotes
-			.filter((r) => r.server.hostname !== hostname && r.server.id !== serverStore.selfId)
-			.map<Machine>((r) => ({
-				server: r.server,
+		// Never this machine again, under another name; and never two rows under
+		// one name, or the sidebar's keyed lists throw. Where two ids share a name
+		// (a machine whose id changed), the one heard from last stands.
+		const byName = new Map<string, (typeof sessionStore.fleet)[number]>();
+		for (const m of sessionStore.fleet) {
+			if (m.id === selfId || m.hostname === hostname) continue;
+			const other = byName.get(m.hostname);
+			const newer = (m.lastSeen ?? 0) > (other?.lastSeen ?? 0);
+			if (!other || (m.online && !other.online) || (m.online === other.online && newer)) byName.set(m.hostname, m);
+		}
+		const others: Machine[] = [];
+		for (const m of byName.values()) {
+			others.push({
+				server: { id: m.id, hostname: m.hostname, url: m.url },
 				local: false,
-				connected: r.connected,
-				sessions: r.sessions,
-				projects: r.projects,
-				inbox: r.inbox
-			}))
-			.sort((a, b) => a.server.hostname.localeCompare(b.server.hostname));
+				// Nothing reaches it while the page cannot reach its own origin.
+				online: m.online && sessionStore.connected,
+				lastSeen: m.lastSeen,
+				retryAt: m.retryAt,
+				version: m.version,
+				sessions: m.sessions as Session[],
+				projects: m.projects,
+				inbox: m.inbox
+			});
+		}
 		return [local, ...others];
 	});
 
@@ -129,9 +101,8 @@ class FleetStore {
 	fleet: boolean = $derived(this.machines.length > 1);
 
 	/**
-	 * Start following the other hosts. Called once from the sidebar; safe to
-	 * call again. Discovery is the server's, refreshed here so a machine that
-	 * came up since the list was cached is picked up.
+	 * Called once from the sidebar; safe to call again. Discovery is asked
+	 * only for this machine's own tailnet name.
 	 */
 	start(): void {
 		if (!browser || this.started) return;
@@ -141,42 +112,14 @@ class FleetStore {
 		void serverStore.refresh();
 	}
 
-	/**
-	 * Keep one socket per discovered host that is not this one. Runs from an
-	 * effect in the sidebar so it follows the server list as it changes.
-	 */
-	sync(): void {
-		const current = serverStore.current.hostname;
-		const self = serverStore.self;
-		// Keyed by the machine's id; a list cached before ids existed has none.
-		const wanted = serverStore.servers.filter(
-			(s) =>
-				s.id && s.hostname && s.url && s.id !== serverStore.selfId && s.hostname !== current && s.hostname !== self
-		);
-		const have = new Map(this.remotes.map((r) => [r.server.id, r]));
-		let changed = false;
-		for (const server of wanted) {
-			const existing = have.get(server.id);
-			if (existing && existing.server.url === server.url && existing.server.hostname === server.hostname) continue;
-			if (existing) existing.disconnect();
-			const remote = new RemoteSessions(server);
-			remote.connect();
-			have.set(server.id, remote);
-			changed = true;
-		}
-		for (const [id, remote] of have) {
-			if (!wanted.some((s) => s.id === id)) {
-				remote.disconnect();
-				have.delete(id);
-				changed = true;
-			}
-		}
-		if (changed) this.remotes = [...have.values()];
-	}
-
 	select(hostname: string): void {
 		this.selected = hostname;
 		selectedStore.save(hostname);
+	}
+
+	/** "Try now": have the origin reach an offline machine at once. */
+	async retry(machine: Machine): Promise<void> {
+		await fetch(`/api/fleet/${encodeURIComponent(machine.server.id)}/retry`, { method: 'POST' }).catch(() => {});
 	}
 }
 
@@ -188,4 +131,20 @@ export const fleetStore = new FleetStore();
  */
 export function apiBase(machine: Machine): string {
 	return machine.local ? '' : `/fleet/${encodeURIComponent(machine.server.id)}`;
+}
+
+/** "seen 3m ago", or "seen just now". */
+export function seenLabel(lastSeen: number, now: number): string {
+	const ago = formatAgo(lastSeen, now);
+	return ago === 'now' ? 'seen just now' : `seen ${ago} ago`;
+}
+
+/**
+ * Why nothing can be done on a machine right now, or null when it answers.
+ * Shown wherever an action on its sessions is turned off.
+ */
+export function offlineReason(machine: Machine, now: number): string | null {
+	if (machine.online || machine.local) return null;
+	const name = machine.server.hostname;
+	return machine.lastSeen ? `${name} is offline (${seenLabel(machine.lastSeen, now)})` : `${name} is offline`;
 }

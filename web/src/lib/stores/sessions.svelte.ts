@@ -10,7 +10,8 @@ import {
 	type QueuedMessageInfo,
 	type DeliveryInfo,
 	type SubagentInfo,
-	type ChangesInfo
+	type ChangesInfo,
+	type FleetMachineInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
 import { indicatorStateOf, needsYouKind } from '$shared/session-state.js';
@@ -145,9 +146,17 @@ class SessionStore extends ReliableWebSocket {
 	// Saved projects from localStorage
 	savedProjects = $state<string[]>([]);
 
+	/**
+	 * Every other machine, as this page's origin last heard from it, and the
+	 * origin's own id; `fleetStore` reads them. They ride this same socket
+	 * (`?fleet=1`), so the whole fleet comes over one connection.
+	 */
+	fleet = $state<FleetMachineInfo[]>([]);
+	selfId = $state('');
+
 	protected getWsUrl(): string {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-		return `${protocol}//${window.location.host}/api/sessions/stream`;
+		return `${protocol}//${window.location.host}/api/sessions/stream?fleet=1`;
 	}
 
 	protected getLogPrefix(): string {
@@ -168,6 +177,10 @@ class SessionStore extends ReliableWebSocket {
 				if (msg.projects) this.applyServerProjects(msg.projects);
 				if (msg.settings) this.settings = msg.settings;
 				if (msg.inbox && JSON.stringify(msg.inbox) !== JSON.stringify(this.inbox)) this.inbox = msg.inbox;
+				break;
+			case 'fleet':
+				this.selfId = msg.self;
+				this.fleet = msg.machines;
 				break;
 			case 'systemStats':
 				this.systemStats = { cpu: msg.cpu, ram: msg.ram, swap: msg.swap, ramTotal: msg.ramTotal, swapTotal: msg.swapTotal };

@@ -52,7 +52,7 @@ function devWebSocket() {
 
 			wss.on('connection', (ws, req) => {
 				const url = new URL(req.url || '', 'http://localhost');
-				const parsed = parseWsPath(url.pathname);
+				const parsed = parseWsPath(url.pathname, url.search);
 
 				if (!parsed) {
 					ws.close();
@@ -74,7 +74,7 @@ function devWebSocket() {
 				});
 
 				if (parsed.type === 'sessions') {
-					const accepted = sessionsWsManager.addClient(client);
+					const accepted = sessionsWsManager.addClient(client, { fleet: parsed.fleet });
 					if (!accepted) {
 						ws.close(1013, 'Max clients reached');
 						return;

@@ -16,6 +16,7 @@ import {
 	transcriptWsManager
 } from '$lib/server/ws-managers.js';
 import { ensurePushMonitor } from '$lib/server/push.js';
+import { ensureFleetState } from '$lib/server/fleet.js';
 import {
 	admitRelay,
 	openRelayUpstream,
@@ -28,8 +29,10 @@ import { MACHINE_ID } from '$lib/server/instance';
 
 // Pushes go to phones with every tab closed, so their events are watched from
 // the moment the server starts rather than when the first page connects.
+// The fleet state likewise follows the other machines whether or not a page is open.
 export const init: ServerInit = () => {
 	ensurePushMonitor();
+	ensureFleetState();
 };
 
 /**
@@ -42,6 +45,7 @@ type WsData = {
 	target?: string;
 	agent?: string;
 	base?: string;
+	fleet?: boolean;
 };
 
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
@@ -96,7 +100,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 			return new Response(null, { status: 101 });
 		}
 
-		const parsed = parseWsPath(url.pathname);
+		const parsed = parseWsPath(url.pathname, url.search);
 
 		// A WebSocket is not held to CORS, so the origin is checked here. The
 		// browser stream takes input for a logged-in browser, and only this
@@ -163,7 +167,7 @@ export const websocket = {
 
 		let accepted = false;
 		if (data.type === 'sessions') {
-			accepted = sessionsWsManager.addClient(client);
+			accepted = sessionsWsManager.addClient(client, { fleet: data.fleet });
 		} else if (data.type === 'terminal' && data.target) {
 			accepted = terminalWsManager.addClient(client, data.target);
 		} else if (data.type === 'transcript' && data.target) {

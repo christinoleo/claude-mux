@@ -243,6 +243,45 @@ const ConnectedMessageSchema = z.object({
 	timestamp: z.number()
 });
 
+/**
+ * Every other machine, as this one last heard from it (`src/server/fleet-state.ts`).
+ * Sent only to a page that asks for it (`?fleet=1`); `self` is this machine's id.
+ * A peer's sessions are its own broadcast, read with the same schema.
+ */
+/**
+ * A list read item by item: an item this schema cannot read is dropped and
+ * the rest kept. Another machine may run another version, and one session it
+ * describes differently must not cost the page that whole machine, or the fleet.
+ */
+function eachOf<T extends z.ZodType>(item: T) {
+	return z.array(z.unknown()).transform((items) =>
+		items.flatMap((raw) => {
+			const parsed = item.safeParse(raw);
+			return parsed.success ? [parsed.data as z.infer<T>] : [];
+		})
+	);
+}
+
+const FleetMachineSchema = z.object({
+	id: z.string(),
+	hostname: z.string(),
+	url: z.string(),
+	online: z.boolean(),
+	lastSeen: z.number().nullable(),
+	retryAt: z.number().nullable(),
+	version: z.string().nullable(),
+	sessions: eachOf(EnrichedSessionSchema),
+	projects: z.array(z.string()),
+	inbox: eachOf(InboxTicketSchema)
+});
+
+const FleetMessageSchema = z.object({
+	type: z.literal('fleet'),
+	self: z.string(),
+	machines: z.array(FleetMachineSchema),
+	timestamp: z.number()
+});
+
 const SystemStatsMessageSchema = z.object({
 	type: z.literal('systemStats'),
 	cpu: z.number(),
@@ -260,6 +299,7 @@ const SystemStatsMessageSchema = z.object({
 export const SessionsWsMessageSchema = z.discriminatedUnion('type', [
 	SessionsMessageSchema,
 	ConnectedMessageSchema,
+	FleetMessageSchema,
 	SystemStatsMessageSchema
 ]);
 
@@ -267,4 +307,5 @@ export type SessionsWsMessage = z.infer<typeof SessionsWsMessageSchema>;
 export type SessionsMessage = z.infer<typeof SessionsMessageSchema>;
 export type ConnectedMessage = z.infer<typeof ConnectedMessageSchema>;
 export type SystemStatsMessage = z.infer<typeof SystemStatsMessageSchema>;
+export type FleetMachineInfo = z.infer<typeof FleetMachineSchema>;
 export type EnrichedSession = z.infer<typeof EnrichedSessionSchema>;

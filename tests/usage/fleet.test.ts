@@ -173,3 +173,24 @@ describe("buildFleetReport", () => {
     expect(report.machines).toEqual([{ hostname: "local", ok: true, costUsd: 10 }]);
   });
 });
+
+describe("buildFleetReport over the fleet state", () => {
+  it("reports a machine known to be offline without asking it", async () => {
+    const asked: string[] = [];
+    const report = await buildFleetReport({
+      days: 7,
+      discover: () =>
+        Promise.resolve({
+          self: "alpha",
+          servers: [{ hostname: "beta", url: "https://beta:3456", online: false, reason: "offline, seen 5 min ago" }],
+        }),
+      loadLocal: () => Promise.resolve(LOCAL),
+      fetch: ((url: string) => {
+        asked.push(url);
+        return Promise.reject(new Error("unused"));
+      }) as unknown as typeof fetch,
+    });
+    expect(asked).toEqual([]);
+    expect(report.machines[1]).toMatchObject({ hostname: "beta", ok: false, error: "offline, seen 5 min ago" });
+  });
+});

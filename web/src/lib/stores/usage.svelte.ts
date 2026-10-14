@@ -5,7 +5,8 @@ import type { QuotaResult, UsageResponse } from '$lib/types/usage';
 const REFRESH_MS = 5 * 60 * 1000;
 
 /**
- * Plan limits and spend, polled once for the whole page.
+ * Plan limits and spend, polled once for the whole page. Spend is the
+ * fleet's (`/api/usage/all`): every machine the origin follows, summed.
  *
  * Subscribers are counted so the poll belongs to the store rather than to
  * whichever component happened to mount first: any number of readers share one
@@ -53,7 +54,7 @@ class UsageStore {
 
 	private async loadSummary(): Promise<void> {
 		try {
-			const res = await fetch(`/api/usage?days=30&tz=${encodeURIComponent(this.zone)}`);
+			const res = await fetch(`/api/usage/all?days=30&tz=${encodeURIComponent(this.zone)}`);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			this.summary = (await res.json()) as UsageResponse;
 		} catch {

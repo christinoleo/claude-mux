@@ -22,8 +22,6 @@ class ServerStore {
 	 * by its tailnet name, so this is what tells the two apart.
 	 */
 	self = $state('');
-	/** This machine's id, from the same answer. */
-	selfId = $derived(this.servers.find((s) => s.hostname === this.self)?.id ?? '');
 	loading = $state(false);
 	error = $state<string | null>(null);
 

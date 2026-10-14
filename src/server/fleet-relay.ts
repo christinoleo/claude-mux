@@ -195,15 +195,23 @@ function sendableCode(code: number): number {
 }
 
 /**
+ * A WebSocket to `base` + `path` sent the way the relay sends: no `Origin`,
+ * and marked as forwarded by `self`. Throws when the URL cannot be opened.
+ */
+export function openForwardedSocket(base: string, path: string, self: string): WebSocket {
+  const url = new URL(path, base);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  // Bun and Node's WebSocket both take headers in their second argument.
+  return new WebSocket(url, { headers: { [FORWARDED_HEADER]: self } } as unknown as string[]);
+}
+
+/**
  * Open the owner's end of a relayed socket at `base` + `path` and join it to
  * `client`: whatever either end sends reaches the other unchanged, text as
  * text and binary as binary, and either end closing closes the other. What
  * the browser sends before the owner has answered waits for it.
  */
 export function openRelayUpstream(base: string, path: string, client: RelaySocket, self: string): RelaySocket {
-  const url = new URL(path, base);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-
   const pending: (string | ArrayBuffer | Uint8Array)[] = [];
   let opened = false;
   let closed = false;
@@ -220,8 +228,7 @@ export function openRelayUpstream(base: string, path: string, client: RelaySocke
   };
 
   try {
-    // Bun and Node's WebSocket both take headers in their second argument.
-    socket = new WebSocket(url, { headers: { [FORWARDED_HEADER]: self } } as unknown as string[]);
+    socket = openForwardedSocket(base, path, self);
   } catch {
     finish(UNREACHABLE_CLOSE, "machine unreachable");
     return { send() {}, close() {} };
