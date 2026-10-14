@@ -1,6 +1,6 @@
 <script lang="ts">
 	import DictateButton from './DictateButton.svelte';
-	import { appendSaid } from '$lib/stores/voice.svelte';
+	import { keepsCaret, sayInto } from '$lib/dictation';
 	import type { TranscriptEntry } from '../../../../src/transcript/parser';
 	import type { PaneChoice } from '$shared/types/ws-messages.js';
 	import {
@@ -347,6 +347,7 @@
 		<Input
 			bind:ref={inputEl}
 			bind:value={draft}
+			{@attach keepsCaret}
 			data-dialog-input
 			class="free-input"
 			{placeholder}
@@ -358,7 +359,7 @@
 			<DictateButton
 				target={dictateTarget}
 				disabled={closed}
-				onText={(text) => (draft = appendSaid(draft, text))}
+				onText={(text) => void sayInto(inputEl, draft, text, (t) => (draft = t))}
 			/>
 		{/if}
 		<Button

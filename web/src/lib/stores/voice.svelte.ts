@@ -19,11 +19,6 @@ export interface Dictation {
 	command: boolean;
 }
 
-/** A field's text with what was just said added to the end of it. */
-export function appendSaid(draft: string, said: string): string {
-	return draft.trim() ? `${draft.trimEnd()} ${said}` : said;
-}
-
 interface PersistedSettings {
 	language: VoiceLanguage;
 	autoSubmit: boolean;

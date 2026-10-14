@@ -38,7 +38,8 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
 	import RenameSessionDialog from '$lib/components/RenameSessionDialog.svelte';
-	import { appendSaid, voiceStore } from '$lib/stores/voice.svelte';
+	import { voiceStore } from '$lib/stores/voice.svelte';
+	import { caretOf, insertSaid, keepsCaret, putCaret } from '$lib/dictation';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { attachmentsStore, type Attachment } from '$lib/stores/attachments.svelte';
 	import { untrack } from 'svelte';
@@ -1656,16 +1657,25 @@
 		if (from !== ref) {
 			// The page moved on while the words were being worked out: they wait
 			// in the composer of the session they were said to.
-			draftsStore.set(from, appendSaid(draftsStore.get(from), heard.text));
+			draftsStore.set(from, insertSaid(draftsStore.get(from), heard.text, null).text);
 			return true;
 		}
-		textInput = appendSaid(textInput, heard.text);
+		// A spoken slash command still goes to the end: set before the draft, it
+		// would take the draft as its arguments.
+		const spot = heard.command ? null : caretOf(textareaElement);
+		const next = insertSaid(textInput, heard.text, spot);
+		textInput = next.text;
 		// A slash command renders as its own kind of turn, not as something said.
 		said = heard.command ? null : heard.text;
 		await tick();
 		autoResize();
 		if (run) await run();
 		else if (voiceStore.autoSubmit) await sendText();
+		else if (spot) {
+			// Left in the box to be read: the caret waits after the words for another take.
+			putCaret(textareaElement, next.caret);
+			syncCaret();
+		}
 		return true;
 	}
 
@@ -2365,6 +2375,7 @@
 			<textarea
 			bind:this={textareaElement}
 			bind:value={textInput}
+			{@attach keepsCaret}
 			placeholder={modArmed ? 'Type keys, Enter to send as mod sequence…' : 'Type a message...'}
 			rows={1}
 			onkeydown={handleKeydown}

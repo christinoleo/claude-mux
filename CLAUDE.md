@@ -174,6 +174,11 @@ transcript badges at the moment the pane is handed the text, as pasted. A
 question's own microphone (`DictateButton.svelte`, in a grilling round and a
 dialog card's text field) starts a take under a field id, so the composer's
 controls leave it alone, and puts the words in that field.
+Every field takes dictation where its caret stands (`insertSaid()` in
+`web/src/lib/dictation.ts`, replacing a selection): the `keepsCaret`
+attachment records the caret a field leaves with, since the microphone takes
+focus, and a field nobody placed a caret in, or whose text changed since, gets
+the words at the end as before. A spoken slash command always goes to the end.
 
 The queue's drain does not take the hooks' word alone for a pane being free.
 Before each send it reads the pane (`readPaneHold()`) and holds while a
