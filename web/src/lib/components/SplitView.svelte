@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { quickSwitch } from '$lib/stores/quick-switch.svelte';
 	/**
 	 * Two session pages side by side, each in an iframe of this same origin,
 	 * which reaches a session on another machine through its relay.
@@ -80,6 +81,9 @@
 				break;
 			case 'ready':
 				announceFocus();
+				break;
+			case 'switch':
+				quickSwitch.open = true;
 				break;
 		}
 	}

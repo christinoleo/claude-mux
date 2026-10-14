@@ -560,15 +560,16 @@ rows behind the notice, Needs you disables its items, and a session page on
 it says so in its status line. Raise both constants when a change to what one
 machine asks of another would break an older one.
 
-Fleet preferences (what a person chose about the fleet: for now the sidebar's
-folded projects and its machine filter) live on the servers and
+Fleet preferences (what a person chose about the fleet: for now the project
+rail's order and the machine filter) live on the servers and
 are the same on every link and device; device preferences (notification mode,
 sound, theme, panel width) stay in browser storage. `src/fleet-prefs.ts` holds
 the keys and the merge: each key keeps the last value written to it, stamped
 with the writing server's clock and machine id, and two sets merge key by key
 to the later write (the id breaks a tie), so the fleet converges in any order.
-Keys are small and many (`fold:project:<project key>`, `machine-filter`)
-rather than one value per kind, so two machines folding two projects at once both keep their fold, and nothing is ever deleted: clearing
+Keys are small and many (`rail-order`, `machine-filter`; the cards' old
+`fold:project:<project key>` folds are no longer read) rather than one value
+per kind, so two machines writing two keys at once both keep theirs, and nothing is ever deleted: clearing
 one writes its default. Each machine keeps its copy in
 `~/.claude-mux/fleet-prefs.json` (`FleetPrefsStore`, `src/server/fleet-prefs.ts`);
 a page writes with `PUT /api/fleet/prefs` `{ key, value }`, a write is moved
@@ -602,14 +603,49 @@ PNG, then an ICO), then the prod URL's favicon (`siteIconUrl()`). `GET
 through the relay for another machine's; across machines the first icon found
 wins. A project with none is drawn as `projectInitials()` on `projectHue()`,
 a hue from its name chosen from `PROJECT_HUES`, which keep clear of the state
-and machine colours. The sidebar (`AllSessionsPanel.svelte`) draws one card per
-project across the visible machines: the tile (a shadcn `Avatar`, the icon
-with the initials as fallback), and each place's sessions under a line
-naming its machine (and its folder, for two checkouts on one machine) when the
-project is held in several, an offline machine's dimmed and `inert` under the
-"seen X ago" line at the top of the list. Closing a project from its card
-closes it on every machine that answers; "Remove" in the new-session dialog
-only where the dialog was opened.
+and machine colours; `ProjectTile.svelte` draws it (a shadcn `Avatar`, the
+icon with the initials as fallback).
+
+The drawer (`AllSessionsPanel.svelte`) is a rail of those tiles beside one
+list (spec #92, "The project rail"). `ProjectRail.svelte` draws the ⚡ Active
+tile, then every project the visible machines hold, those with nothing
+running drawn quieter, each with a badge: amber when a session there wants a
+person, green when one works or finished unseen (an offline machine's badge
+nothing). The order is the person's: `railOrder()` (`src/fleet-rail.ts`)
+takes the fleet preference `rail-order`, a list of project keys, and puts any
+project it has never seen at the top; dragging a tile (the mouse at once, a
+finger after a long press, so a finger can still scroll the rail) saves the
+whole order through `moveTile()`, which keeps the keys not on the rail now so
+a project whose machine is away returns to its place. Nothing else moves a
+tile. A page lands on Active: by project, the sessions wanting a person,
+working, finished unseen or open, under Needs you and the offline machines'
+"seen X ago" lines. A project's own list holds its live sessions, a machine's
+letter in its colour on each row when the project spans machines
+(`machineMarks()`: colours by sorted machine id, so the same on every link,
+and two letters where two machines share the first), workers nested under
+their daemon and subagents beneath their session, its tmux panes and closed
+sessions, then "New session", one button per machine that holds the folder
+(right-click or hold for another agent), disabled with the reason on one that
+is offline. Its menu offers the other agents, clearing closed sessions,
+copying the path, and closing the project on every machine that answers;
+"Remove" in the new-session dialog only where the dialog was opened. A
+Claude session in a directory that is nobody's project (`~`, `/tmp/x`) makes
+that directory a project of its own on its machine, and sessions that have not
+said where they run make a "no folder" project, so there are no loose rows; a
+plain tmux pane only joins a folder that is already a project.
+`SessionRow.svelte` draws its second line only when it says something:
+working, waiting, offline (the machine's reason), open, or a draft.
+
+The filter above the rail matches a session's title, folder, machine and
+issue number (`matchesQuery()`; `#100` finds the worker on issue 100), or a
+project's name or folder, which brings all its sessions; the rail narrows to
+the projects found. Ctrl+K (`QuickSwitch.svelte`, a shadcn `Command`) jumps
+to any session or project on the machines the drawer shows;
+the session page's slash-command palette moved to Ctrl+/ to make room, and a
+split's pane hands Ctrl+K to the page outside (`tellPane('switch')`, the
+`quickSwitch` store), whose drawer holds the switcher. The
+usage meters stay at the drawer's foot (`SidebarMeters.svelte`, in the
+layout).
 
 ## Key Data Flow
 

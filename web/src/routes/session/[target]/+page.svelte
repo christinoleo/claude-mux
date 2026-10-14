@@ -189,7 +189,7 @@
 	let paneFocused = $state(false);
 	let paneSide = $state<'a' | 'b' | null>(null);
 
-	function tellPane(action: 'focus' | 'focus-other' | 'swap' | 'zoom' | 'close' | 'ready') {
+	function tellPane(action: 'focus' | 'focus-other' | 'swap' | 'zoom' | 'close' | 'ready' | 'switch') {
 		if (!embed || window.parent === window) return;
 		window.parent.postMessage({ type: 'claude-mux:pane', action }, location.origin);
 	}
@@ -211,6 +211,10 @@
 				e.preventDefault();
 				const wanted = e.key === '1' ? 'a' : 'b';
 				tellPane(wanted === paneSide ? 'focus' : 'focus-other');
+			} else if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+				// The switcher lives in the drawer, which belongs to the page outside.
+				e.preventDefault();
+				tellPane('switch');
 			}
 		};
 		window.addEventListener('message', onMessage);
@@ -663,7 +667,8 @@
 		}
 		if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
 		const key = e.key.toLowerCase();
-		if (key === 'k') {
+		// Ctrl+K belongs to the drawer's fleet switcher; commands take the slash they start with.
+		if (key === '/') {
 			e.preventDefault();
 			commandsOpen = !commandsOpen;
 		} else if (key === '.') {
@@ -2652,7 +2657,7 @@
 							<Hint
 								icon="mdi:slash-forward"
 								label="Commands"
-								keys={MOD_LABEL + ' K'}
+								keys={MOD_LABEL + ' /'}
 								class="cx-g"
 								onclick={() => (commandsOpen = true)}
 							/>

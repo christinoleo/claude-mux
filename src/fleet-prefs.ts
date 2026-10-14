@@ -28,10 +28,8 @@ export const MAX_KEY_LENGTH = 1024;
 /** The filter on the sidebar's machines: 'all', or one machine's id. */
 export const MACHINE_FILTER = "machine-filter";
 
-/** Whether a project's card in the sidebar is folded, by its fleet key (`projectKey()` in `src/fleet-projects.ts`). */
-export function projectFoldKey(projectKey: string): string {
-  return `fold:project:${projectKey}`;
-}
+/** The project rail's order, a list of project keys (`src/fleet-rail.ts`). */
+export const RAIL_ORDER = "rail-order";
 
 /** Whether `a` was written after `b`; the machine id breaks a tie, so every machine picks the same one. */
 export function isLater(a: PrefEntry, b: PrefEntry): boolean {
