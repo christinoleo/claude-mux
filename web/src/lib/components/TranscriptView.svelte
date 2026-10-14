@@ -6,7 +6,7 @@
 	import DictateButton from './DictateButton.svelte';
 	import QuoteSelection from './QuoteSelection.svelte';
 	import GithubRefCards from './GithubRefCards.svelte';
-	import { appendSaid } from '$lib/stores/voice.svelte';
+	import { keepsCaret, sayInto } from '$lib/dictation';
 	import DialogCard from '$lib/components/DialogCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { toolIcon } from '$lib/tool-icons';
@@ -252,6 +252,10 @@
 		return a.mode === 'own' ? a.text : '';
 	}
 
+	/** Each question's own field, for dictation to find its caret. Read only in handlers. */
+	const ownFields: Record<string, HTMLTextAreaElement | undefined> = {};
+	const fieldKey = (id: string, q: GrillRound['questions'][number]) => `${id}:${q.n}`;
+
 	function tally(id: string, round: GrillRound): string {
 		let agreed = 0;
 		let own = 0;
@@ -475,6 +479,8 @@
 							<textarea
 								rows="1"
 								use:autosize
+								bind:this={ownFields[fieldKey(id, q)]}
+								{@attach keepsCaret}
 								placeholder={q.recommended ? 'Or answer in your own words' : 'Your answer'}
 								value={ownText(id, q)}
 								oninput={(e) => typeAnswer(id, q, e.currentTarget.value)}
@@ -483,7 +489,10 @@
 							{#if dictateTarget}
 								<DictateButton
 									target={dictateTarget}
-									onText={(text) => typeAnswer(id, q, appendSaid(ownText(id, q), text))}
+									onText={(text) =>
+										void sayInto(ownFields[fieldKey(id, q)], ownText(id, q), text, (t) =>
+											typeAnswer(id, q, t)
+										)}
 								/>
 							{/if}
 							<button
