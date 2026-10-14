@@ -22,7 +22,7 @@
 
 	const chosen = $derived(fleetStore.visible.length === 1 ? fleetStore.visible[0] : null);
 	const label = $derived(
-		fleetStore.fleet ? (chosen?.server.hostname ?? 'All machines') : fleetStore.machines[0]?.server.hostname || 'claude-mux'
+		fleetStore.fleet ? (chosen?.server.hostname ?? 'Fleet') : fleetStore.machines[0]?.server.hostname || 'claude-mux'
 	);
 	/** A machine left out of the filter has someone waiting on it. */
 	const wantsElsewhere = $derived(
@@ -52,6 +52,7 @@
 		{#each fleetStore.machines as machine (machine.server.id || machine.server.hostname)}
 			{@const reason = offlineReason(machine, clock.now)}
 			{@const on = fleetStore.selected === machine.server.id}
+			{@const n = live(machine)}
 			<button
 				type="button"
 				class="row"
@@ -66,7 +67,7 @@
 					{#if reason}<span class="sub">{machine.lastSeen ? `offline, ${seenLabel(machine.lastSeen, clock.now)}` : 'offline'}</span>{/if}
 				</span>
 				{#if wants(machine)}<span class="pill">wants you</span>{/if}
-				{#if live(machine) > 0}<span class="n">{live(machine)}</span>{/if}
+				{#if n > 0}<span class="n">{n}</span>{/if}
 				{#if on}<iconify-icon icon="mdi:check" class="check"></iconify-icon>{/if}
 			</button>
 		{/each}
@@ -79,14 +80,25 @@
 		align-items: center;
 		gap: 7px;
 		min-width: 0;
+		padding: 4px 6px;
+		border: 0;
 		border-radius: 8px;
+		background: transparent;
 		color: #e7e5e4;
 		font-size: 13px;
 		font-weight: 500;
 		cursor: pointer;
 	}
+	:global(.machine-filter-trigger:hover) {
+		background: var(--surface-3);
+	}
 	:global(.machine-filter-trigger:disabled) {
 		cursor: default;
+	}
+	:global(.machine-filter-trigger .hostname) {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	:global(.machine-filter-trigger .chev) {
 		font-size: 14px;

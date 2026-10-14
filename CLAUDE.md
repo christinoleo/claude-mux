@@ -526,7 +526,7 @@ one. Usage, the meters' and `/api/usage/all`, takes its machines from the fleet
 state, so an offline one is reported at once instead of waited on.
 
 The drawer's header holds the machine filter (`MachineFilter.svelte`): all
-machines or one, with each machine's live count, whether it is online and
+machines (the trigger reads "Fleet") or one, with each machine's live count, whether it is online and
 whether a session there wants a person, and an amber dot on the trigger when
 a machine filtered out does. It only narrows the sidebar (`fleetStore.select()`);
 it no longer sends the page to another machine's URL.

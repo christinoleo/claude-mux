@@ -82,11 +82,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 		const parsed = parseWsPath(url.pathname, url.search);
 
-		if (parsed && !pageOriginAllowed(origin, host)) {
-			return new Response('Forbidden', { status: 403 });
-		}
-
 		if (parsed) {
+			if (!pageOriginAllowed(origin, host)) return new Response('Forbidden', { status: 403 });
 			// @ts-expect-error - platform is provided by svelte-adapter-bun
 			await event.platform.server.upgrade(event.platform.request, {
 				data: parsed

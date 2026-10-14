@@ -1034,18 +1034,6 @@
 	}
 	.head :global(.machine-filter-trigger) {
 		flex: 1;
-		min-width: 0;
-		border: 0;
-		background: transparent;
-		padding: 4px 6px;
-	}
-	.head :global(.machine-filter-trigger:hover) {
-		background: var(--surface-3);
-	}
-	.head :global(.machine-filter-trigger .hostname) {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.panel :global(.ghost) {
 		width: 30px;

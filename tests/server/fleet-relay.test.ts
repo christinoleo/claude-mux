@@ -6,11 +6,11 @@ import { WebSocket as NodeSocket, WebSocketServer, type WebSocket as PeerSocket 
 import {
   FORWARDED_HEADER,
   UNREACHABLE_CLOSE,
+  admitRelay,
   openRelayUpstream,
   parseFleetPath,
   relayRequest,
 } from "../../src/server/fleet-relay.js";
-import { pageOriginAllowed } from "../../src/server/page-origin.js";
 
 /**
  * The relay seam: an origin server running the relay, with a fake peer
@@ -140,8 +140,8 @@ beforeAll(async () => {
   origin.on("upgrade", async (req, socket, head) => {
     const url = new URL(req.url ?? "/", originUrl);
     const target = parseFleetPath(url.pathname);
-    const base = target && pageOriginAllowed(req.headers.origin, req.headers.host) ? await resolveMachine(target.machine) : null;
-    if (!target || !base) {
+    const base = target && (await admitRelay(req.headers.origin, req.headers.host, target.machine, resolveMachine));
+    if (!target || typeof base !== "string") {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();
       return;
