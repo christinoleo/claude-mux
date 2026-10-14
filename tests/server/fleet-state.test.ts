@@ -137,7 +137,7 @@ describe("FleetState", () => {
     state.stop();
   });
 
-  it("keeps a dropped machine's sessions, marks it offline with when it was last seen, and retries with backoff", () => {
+  it("keeps a dropped machine's sessions, marks it offline with when it was last seen, and retries with backoff", async () => {
     const state = fleet(null);
     state.update([ENGAGE]);
     latest(ENGAGE.url).open();
@@ -169,6 +169,7 @@ describe("FleetState", () => {
     vi.advanceTimersByTime(60_000);
     latest(ENGAGE.url).open();
     latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [session("b")], projects: [] });
+    await vi.advanceTimersByTimeAsync(0);
     m = state.snapshot()[0];
     expect(m).toMatchObject({ online: true, retryAt: null, sessions: [session("b")], lastSeen: Date.now() });
     latest(ENGAGE.url).drop();
@@ -201,11 +202,12 @@ describe("FleetState", () => {
     state.stop();
   });
 
-  it("pings an open link and drops one that goes silent", () => {
+  it("pings an open link and drops one that goes silent", async () => {
     const state = fleet(null);
     state.update([ENGAGE]);
     const socket = latest(ENGAGE.url);
     socket.open();
+    await vi.advanceTimersByTimeAsync(0);
 
     vi.advanceTimersByTime(PING_MS);
     expect(socket.sent).toEqual(["ping"]);
@@ -227,6 +229,85 @@ describe("FleetState", () => {
     expect(sockets[0].closed).toBe(true);
     expect(latest(moved.url)).toBeDefined();
     expect(state.snapshot()[0].hostname).toBe("engage2");
+    state.stop();
+  });
+
+  it("moves a machine whose address reports another id to that id, keeping one record", async () => {
+    const path = join(dir, "fleet.json");
+    const ids = ["engage-old", "engage-new"];
+    let reported = ids[0];
+    const state = new FleetState({
+      selfId: "self",
+      path,
+      connect,
+      health: async () => ({ version: "1.2.3", protocol: 1, instance: reported }),
+    });
+    state.update([{ ...ENGAGE, id: "engage-old" }]);
+    latest(ENGAGE.url).open();
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [session("a")], projects: [] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state.snapshot().map((m) => [m.id, m.online])).toEqual([["engage-old", true]]);
+
+    // The machine starts reporting its stable id: the next link's health
+    // check moves the record, and the old id is never online again.
+    reported = ids[1];
+    latest(ENGAGE.url).drop();
+    await vi.advanceTimersByTimeAsync(5_000);
+    latest(ENGAGE.url).open();
+    expect(state.snapshot()[0].online).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state.snapshot().map((m) => [m.id, m.online])).toEqual([["engage-new", true]]);
+    expect(state.snapshot()[0].sessions).toEqual([session("a")]);
+    expect(state.machine("engage-old")).toBeNull();
+
+    // Discovery naming the new id at that address adds no second record.
+    state.update([{ ...ENGAGE, id: "engage-new" }]);
+    expect(state.snapshot().map((m) => m.id)).toEqual(["engage-new"]);
+    state.stop();
+    expect(JSON.parse(readFileSync(path, "utf8")).machines.map((m: { id: string }) => m.id)).toEqual(["engage-new"]);
+  });
+
+  it("folds two records kept for one address into the id it reports", async () => {
+    const state = fleet(null);
+    state.update([{ ...ENGAGE, id: "engage-old" }]);
+    latest(ENGAGE.url).open();
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [session("a")], projects: [] });
+    await vi.advanceTimersByTimeAsync(0);
+
+    state.update([{ ...ENGAGE, id: "engage-new" }]);
+    expect(state.snapshot().map((m) => m.id)).toEqual(["engage-new"]);
+    expect(state.snapshot()[0].sessions).toEqual([session("a")]);
+    state.stop();
+  });
+
+  it("keeps the live link and the fresher state when an old record is folded in", async () => {
+    const state = new FleetState({
+      selfId: "self",
+      path: null,
+      connect,
+      health: async () => ({ version: "1.2.3", protocol: 1, instance: "engage-new" }),
+    });
+    const moved = { ...ENGAGE, id: "engage-new", url: "https://engage-ts:3456" };
+    // An old record, kept for an address that has not answered yet, and the
+    // machine under its new id at another address, answering.
+    state.update([{ ...ENGAGE, id: "engage-old" }, moved]);
+    latest(moved.url).open();
+    latest(moved.url).broadcast({ type: "sessions", sessions: [session("fresh")], projects: ["/p/new"] });
+    await vi.advanceTimersByTimeAsync(0);
+    const live = latest(moved.url);
+    expect(state.snapshot().map((m) => [m.id, m.online])).toEqual([
+      ["engage-new", true],
+      ["engage-old", false],
+    ]);
+
+    // The old address answers with the new id: one record stays, on the link
+    // that already answered, with what it heard.
+    latest(ENGAGE.url).open();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state.snapshot().map((m) => [m.id, m.online])).toEqual([["engage-new", true]]);
+    expect(live.closed).toBe(false);
+    expect(latest(ENGAGE.url).closed).toBe(true);
+    expect(state.snapshot()[0]).toMatchObject({ url: moved.url, sessions: [session("fresh")], projects: ["/p/new"] });
     state.stop();
   });
 

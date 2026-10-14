@@ -63,6 +63,8 @@ class TerminalStore extends ReliableWebSocket {
 	private target: string | null = null;
 	/** The path the target's machine is reached through: '' here, `/fleet/<id>` elsewhere. */
 	private base = '';
+	/** What the socket reaches; a new base to the same address keeps it (see `TranscriptStore.setSession()`). */
+	private address = '';
 	private resizeTimer: ReturnType<typeof setTimeout> | null = null;
 	private lastSentSize: { cols: number; rows: number } | null = null;
 	private pendingHistory: (() => void) | null = null;
@@ -196,13 +198,14 @@ class TerminalStore extends ReliableWebSocket {
 	 * `base` names the target's machine (`machineBase()`), since targets
 	 * repeat across machines.
 	 */
-	setTarget(target: string | null | undefined, base = ''): void {
+	setTarget(target: string | null | undefined, base = '', address = base): void {
 		if (!browser) return;
 		const next = target ?? null;
 
 		// Same target: either no-op, or reattach the WS without clearing output.
 		// Preserves the buffer across transient disconnects (network blip, server reload).
-		if (this.target === next && this.base === base) {
+		if (this.target === next && this.address === address) {
+			this.base = base;
 			if (next === null) return;
 			if (this.ws) return;
 			this.doConnect();
@@ -222,6 +225,7 @@ class TerminalStore extends ReliableWebSocket {
 		this.clearView();
 		this.target = next;
 		this.base = base;
+		this.address = address;
 
 		if (next) this.doConnect();
 	}

@@ -81,3 +81,27 @@ export function relayBase(host: string | null, servers: ServerInfo[], self: stri
 export function localRef(ref: PaneRef, servers: ServerInfo[], self: string): PaneRef {
 	return machineBase(ref.host, servers, self) === '' ? { host: null, target: ref.target } : ref;
 }
+
+/**
+ * One machine per name, from records that may share one (a machine whose id
+ * changed, kept a while under both). The choice must not move as broadcasts
+ * arrive, or every name lookup (`machineBase()`) flips between two ids and the
+ * session page reconnects each time: one that answers wins over one that
+ * does not, then the id discovery reports for that name, then the lower id.
+ * Nothing that changes on every broadcast, such as when it was last heard,
+ * takes part.
+ */
+export function onePerName<T extends { id: string; hostname: string; online: boolean }>(
+	records: readonly T[],
+	discovered: readonly ServerInfo[]
+): T[] {
+	const reported = new Map(discovered.map((s) => [s.hostname.toLowerCase(), s.id]));
+	const rank = (m: T) => (m.online ? 0 : 2) + (m.id === reported.get(m.hostname.toLowerCase()) ? 0 : 1);
+	const byName = new Map<string, T>();
+	for (const m of records) {
+		const name = m.hostname.toLowerCase();
+		const other = byName.get(name);
+		if (!other || rank(m) < rank(other) || (rank(m) === rank(other) && m.id < other.id)) byName.set(name, m);
+	}
+	return [...byName.values()];
+}

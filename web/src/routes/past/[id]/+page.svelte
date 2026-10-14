@@ -37,7 +37,7 @@
 
 	const store = new TranscriptStore();
 	$effect(() => {
-		store.setSession(id || null, null, base);
+		store.setSession(id || null, null, base, route.address);
 	});
 	onDestroy(() => store.setSession(null));
 

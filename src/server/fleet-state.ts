@@ -163,6 +163,13 @@ export class FleetState {
     let changed = false;
     for (const address of found) {
       if (!address.id || address.id === this.options.selfId) continue;
+      // An address belongs to one machine: a record kept for it under another id is that machine's old id.
+      for (const other of [...this.peers.values()]) {
+        if (other.state.url === address.url && other.state.id !== address.id) {
+          this.rekey(other, address.id);
+          changed = true;
+        }
+      }
       const peer = this.peers.get(address.id);
       if (!peer) {
         this.peers.set(address.id, this.newPeer(emptyState(address)));
@@ -256,16 +263,31 @@ export class FleetState {
         peer.failures = 0;
         this.heard(peer);
         // Read once per link, and again with each ping until one answers: a
-        // protocol left stale would have the relay refuse the machine.
+        // protocol left stale would have the relay refuse the machine. The
+        // machine counts as online only once the first read is back, so a
+        // record whose address now answers with another id is moved to that
+        // id before it is ever marked online under the old one.
         let healthKnown = false;
         const readHealth = () =>
-          void this.readHealth(peer.state.url).then((health) => {
-            if (peer.link !== link || !health) return;
-            healthKnown = true;
-            const version = health.version ?? peer.state.version;
-            if (version === peer.state.version && health.protocol === peer.state.protocol) return;
-            this.setState(peer, { version, protocol: health.protocol });
-          });
+          void this.readHealth(peer.state.url)
+            .catch(() => null)
+            .then((health) => {
+              if (peer.link !== link) return;
+              const moved = !!health?.instance && health.instance !== peer.state.id;
+              if (moved) {
+                this.rekey(peer, health.instance!);
+                if (peer.link !== link) return this.changed();
+              }
+              const patch: Partial<FleetMachineState> = peer.state.online ? {} : { online: true };
+              if (health) {
+                healthKnown = true;
+                const version = health.version ?? peer.state.version;
+                if (version !== peer.state.version || health.protocol !== peer.state.protocol) {
+                  Object.assign(patch, { version, protocol: health.protocol });
+                }
+              }
+              if (moved || Object.keys(patch).length > 0) this.setState(peer, patch);
+            });
         peer.pingTimer = setInterval(() => {
           if (this.now() - (peer.state.lastSeen ?? 0) > SILENCE_MS) {
             this.lost(peer, link);
@@ -274,7 +296,6 @@ export class FleetState {
           link.send("ping");
           if (!healthKnown) readHealth();
         }, PING_MS);
-        this.setState(peer, { online: true });
         readHealth();
       },
       message: (data) => {
@@ -308,6 +329,39 @@ export class FleetState {
       this.open(peer);
     }, delay);
     this.setState(peer, { online: false, retryAt: this.now() + delay });
+  }
+
+  /**
+   * Move a record to the id its address now reports (a machine whose id
+   * changed, such as one that began to persist it). When a record is already
+   * kept under that id the two become one: the one with a link keeps it (the
+   * record under the new id when both or neither have one), the other is let
+   * go, and what they knew comes from whichever was heard from last. An
+   * address that turns out to be this machine is dropped altogether.
+   */
+  private rekey(peer: Peer, id: string): void {
+    if (this.peers.get(peer.state.id) === peer) this.peers.delete(peer.state.id);
+    if (id === this.options.selfId) {
+      this.drop(peer);
+      this.pastChanged();
+      return;
+    }
+    const existing = this.peers.get(id);
+    let kept = peer;
+    if (existing && existing !== peer) {
+      kept = peer.link && !existing.link ? peer : existing;
+      const other = kept === peer ? existing : peer;
+      this.drop(other);
+      const [fresher, staler] =
+        (other.state.lastSeen ?? 0) > (kept.state.lastSeen ?? 0) ? [other, kept] : [kept, other];
+      const { url, online, retryAt } = kept.state;
+      kept.state = { ...fresher.state, url, online, retryAt };
+      kept.past = fresher.past.length > 0 ? fresher.past : staler.past;
+      kept.lastFrame = null;
+    }
+    kept.state = { ...kept.state, id };
+    this.peers.set(id, kept);
+    this.pastChanged();
   }
 
   /** Let go of a peer's link and timers without touching its state. */
@@ -528,6 +582,8 @@ export function connectPeer(url: string, handlers: PeerHandlers): PeerLink {
 export interface PeerHealth {
   version: string | null;
   protocol: number;
+  /** The machine's stable id (`instance`), when its health check names one. */
+  instance?: string | null;
 }
 
 /** A peer's version and protocol from its health check; null when it does not answer. */
@@ -535,8 +591,12 @@ export async function fetchHealth(url: string): Promise<PeerHealth | null> {
   try {
     const res = await fetch(new URL("/api/health", url), { signal: AbortSignal.timeout(5_000) });
     if (!res.ok) return null;
-    const data = (await res.json()) as { version?: unknown; protocol?: unknown };
-    return { version: typeof data.version === "string" ? data.version : null, protocol: protocolOf(data) };
+    const data = (await res.json()) as { version?: unknown; protocol?: unknown; instance?: unknown };
+    return {
+      version: typeof data.version === "string" ? data.version : null,
+      protocol: protocolOf(data),
+      instance: typeof data.instance === "string" && data.instance ? data.instance : null,
+    };
   } catch {
     return null;
   }

@@ -29,7 +29,7 @@ import type { PluginsReport } from '$shared/fleet-plugins.js';
 import type { PastSession } from '$shared/past-session.js';
 import type { ServerInfo } from '$lib/types/servers';
 import { parseRef, type PaneRef } from '$lib/split-refs';
-import { relayBase } from '$lib/session-route';
+import { onePerName, relayBase } from '$lib/session-route';
 import { VERSION } from '$shared/utils/version.js';
 import { PROTOCOL, belowMinimum, protocolRefusal } from '$shared/fleet-protocol.js';
 
@@ -84,17 +84,13 @@ class FleetStore {
 			past: sessionStore.past
 		};
 		// Never this machine again, under another name; and never two rows under
-		// one name, or the sidebar's keyed lists throw. Where two ids share a name
-		// (a machine whose id changed), the one heard from last stands.
-		const byName = new Map<string, (typeof sessionStore.fleet)[number]>();
-		for (const m of sessionStore.fleet) {
-			if (m.id === selfId || m.hostname === hostname) continue;
-			const other = byName.get(m.hostname);
-			const newer = (m.lastSeen ?? 0) > (other?.lastSeen ?? 0);
-			if (!other || (m.online && !other.online) || (m.online === other.online && newer)) byName.set(m.hostname, m);
-		}
+		// one name, or the sidebar's keyed lists throw (`onePerName()`).
+		const kept = onePerName(
+			sessionStore.fleet.filter((m) => m.id !== selfId && m.hostname.toLowerCase() !== hostname.toLowerCase()),
+			serverStore.servers
+		);
 		const others: Machine[] = [];
-		for (const m of byName.values()) {
+		for (const m of kept) {
 			others.push({
 				server: { id: m.id, hostname: m.hostname, url: m.url },
 				local: false,
@@ -225,6 +221,16 @@ export function routeMachine(host: () => string | null) {
 		/** The name another machine's own ports (its dev servers) are reached by: its tailnet address. */
 		get machineHost() {
 			return machineHost;
+		},
+		/**
+		 * The machine the route's calls reach, by the name the route gives it
+		 * ('' for this one). Sockets are keyed by it rather than by `base`, so a
+		 * base that changes only because the machine's id did (`/fleet/<old>`
+		 * to `/fleet/<new>`), or because its record arrived after the page,
+		 * does not reload them.
+		 */
+		get address() {
+			return remoteHost ? `m:${remoteHost.toLowerCase()}` : '';
 		},
 		/** A session by tmux target or id: this machine's from its indexes, another's from its broadcast. */
 		session(target: string | null): Session | undefined {
