@@ -47,6 +47,9 @@
 	import ResizeDivider from '$lib/components/ResizeDivider.svelte';
 	import SidePanel from '$lib/components/side-panel/SidePanel.svelte';
 	import PanelToggle from '$lib/components/side-panel/PanelToggle.svelte';
+	import RemoteControlMenu from '$lib/components/RemoteControlMenu.svelte';
+	import { copyWithToast } from '$lib/side-panel/clipboard';
+	import { toast } from 'svelte-sonner';
 	import { sidePanelStore } from '$lib/stores/sidePanel.svelte';
 	import { PANES, PANE_KINDS, PANE_PARAMS, paneDef, panelKeyAction } from '$lib/side-panel/panes';
 	import { MediaQuery } from 'svelte/reactivity';
@@ -470,28 +473,37 @@
 					{ label: 'Refresh', icon: 'mdi:refresh', run: () => location.reload() }
 				]
 			: []),
-		// Remote Control: on, the row opens the session in the Claude app; off,
-		// it asks the session to turn it on through the control queue.
-		...(isAlive && isClaudeSession
-			? [
-					currentSession?.rc_url
-						? {
-								label: 'Open in Claude app',
-								icon: 'mdi:cellphone-link',
-								run: () => window.open(currentSession?.rc_url ?? '', '_blank')
-							}
-						: {
-								label: 'Remote Control',
-								icon: 'mdi:cellphone-link-off',
-								run: () => void connectRemoteControl()
-							}
-				]
-			: []),
 		...(isAlive && isClaudeSession
 			? [{ label: 'Restart Claude', icon: 'mdi:restart', run: () => (showConfirmRestart = true) }]
 			: []),
 		{ label: 'Kill pane', icon: 'mdi:power', run: () => (showConfirmKill = true), danger: true }
 	]);
+
+	/**
+	 * Remote Control's actions, drawn by the status line's menu and spliced
+	 * into the gamepad's chord menu, so the two offer the same rows. Kept out
+	 * of `headerActions` because that menu draws them itself. Turning is greyed
+	 * out in the menu while an ask is pending; `turnRemoteControl` ignores a
+	 * second ask either way.
+	 */
+	const rcActions: ChordAction[] = $derived.by(() => {
+		if (!isAlive || !isClaudeSession) return [];
+		const url = currentSession?.rc_url;
+		const disabled = rcPending !== null;
+		if (!url)
+			return [{ label: 'Turn on Remote Control', icon: 'mdi:cellphone-link', disabled, run: () => turnRemoteControl(true) }];
+		return [
+			{ label: 'Open in Claude app', icon: 'mdi:open-in-new', run: () => window.open(url, '_blank', 'noopener') },
+			{ label: 'Copy link', icon: 'mdi:link-variant', run: () => void copyWithToast(url, 'Link copied') },
+			{
+				label: 'Turn off Remote Control',
+				icon: 'mdi:cellphone-link-off',
+				danger: true,
+				disabled,
+				run: () => turnRemoteControl(false)
+			}
+		];
+	});
 
 	const ctrlActions: ChordAction[] = [
 		{ label: 'Ctrl+L', icon: 'mdi:eraser', run: () => void sendKeys('C-l') },
@@ -1284,11 +1296,49 @@
 		if (await post(sent.target, 'send', message)) clearSent(sent);
 	}
 
-	/** Ask the session to turn Remote Control on; the poll picks up the URL. */
-	async function connectRemoteControl() {
-		if (!target) return;
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/rc`, { method: 'POST' });
+	/** Which way Remote Control was asked to turn, until the poll sees it turn. */
+	let rcPending = $state<'on' | 'off' | null>(null);
+	/**
+	 * How long the pane gets to turn it before the ask is given up on. `/rc`
+	 * waits for a running turn to end, so this is the server's ask lifetime.
+	 */
+	const RC_PENDING_MS = 10 * 60_000;
+	// An ask belongs to the session it was made in.
+	$effect(() => {
+		void target;
+		rcPending = null;
+	});
+
+	/** Ask the session to turn Remote Control on or off; the poll sees the change. */
+	async function turnRemoteControl(on: boolean) {
+		if (!target || rcPending) return;
+		const way = on ? 'on' : 'off';
+		rcPending = way;
+		const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/rc`, {
+			method: on ? 'POST' : 'DELETE'
+		}).catch(() => null);
+		if (!res?.ok) {
+			rcPending = null;
+			toast.error(`Could not turn Remote Control ${way}`);
+		}
 	}
+
+	// A boolean, not the session: every broadcast is a new session object,
+	// and depending on it would restart the timer below on each one.
+	const rcOn = $derived(!!currentSession?.rc_url);
+	$effect(() => {
+		const wanted = rcPending;
+		if (!wanted) return;
+		if ((wanted === 'on') === rcOn) {
+			rcPending = null;
+			return;
+		}
+		const timer = setTimeout(() => {
+			rcPending = null;
+			toast.error(`Remote Control did not turn ${wanted}`);
+		}, RC_PENDING_MS);
+		return () => clearTimeout(timer);
+	});
 
 	async function acceptSuggestion() {
 		await sendKeys('Tab Enter');
@@ -1796,7 +1846,7 @@
 			},
 			R2: {
 				press: () =>
-					openChord([...headerActions, ...sidebarActionsStore.actions], 'Actions'),
+					openChord([...headerActions, ...rcActions, ...sidebarActionsStore.actions], 'Actions'),
 				release: releaseChord
 			},
 			DpadUp: () => {
@@ -2213,6 +2263,9 @@
 				<Hint icon={action.icon} label={action.label} class="mini" onclick={action.run} />
 			</span>
 		{/each}
+		{#if isAlive && isClaudeSession}
+			<RemoteControlMenu url={currentSession?.rc_url ?? null} pending={rcPending} actions={rcActions} />
+		{/if}
 		{#if isClaudeSession}
 			<PanelToggle open={panelKind !== null} session={currentSession!} onToggle={() => void togglePanel()} />
 		{/if}
