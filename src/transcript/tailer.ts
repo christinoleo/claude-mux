@@ -62,8 +62,10 @@ export function resolveTranscriptPath(
   return findTranscriptById(sessionId);
 }
 
-/** Scan every project directory for `<sessionId>.jsonl`. */
-function findTranscriptById(sessionId: string): string | null {
+/** Scan every project directory for `<sessionId>.jsonl`: how a past session, which has no session JSON, is found. */
+export function findTranscriptById(sessionId: string): string | null {
+  // An id comes off a URL; anything but a plain name could reach outside.
+  if (!/^[\w-]+$/.test(sessionId)) return null;
   const root = projectsRoot();
   let dirs: string[];
   try {

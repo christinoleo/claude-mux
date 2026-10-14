@@ -26,6 +26,7 @@ import { serverStore } from './servers.svelte';
 import type { InboxTicket } from '$shared/types/ws-messages.js';
 import type { ProjectReport } from '$shared/fleet-projects.js';
 import type { PluginsReport } from '$shared/fleet-plugins.js';
+import type { PastSession } from '$shared/past-session.js';
 import type { ServerInfo } from '$lib/types/servers';
 import { parseRef } from '$lib/split-refs';
 import { relayBase } from '$lib/session-route';
@@ -54,6 +55,8 @@ export interface Machine {
 	inbox: InboxTicket[];
 	/** Its Claude Code marketplaces and plugins; null until it reports them. */
 	plugins: PluginsReport | null;
+	/** Its past sessions, newest first; what it last listed while it is off. */
+	past: PastSession[];
 }
 
 class FleetStore {
@@ -77,7 +80,8 @@ class FleetStore {
 			projects: sessionStore.savedProjects,
 			projectReports: sessionStore.projectReports,
 			inbox: sessionStore.inbox,
-			plugins: sessionStore.plugins
+			plugins: sessionStore.plugins,
+			past: sessionStore.past
 		};
 		// Never this machine again, under another name; and never two rows under
 		// one name, or the sidebar's keyed lists throw. Where two ids share a name
@@ -104,7 +108,8 @@ class FleetStore {
 				projects: m.projects,
 				projectReports: m.projectReports ?? [],
 				inbox: m.inbox,
-				plugins: m.plugins ?? null
+				plugins: m.plugins ?? null,
+				past: sessionStore.fleetPast[m.id] ?? []
 			});
 		}
 		return [local, ...others];

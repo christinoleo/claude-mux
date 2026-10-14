@@ -15,7 +15,7 @@ import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { isDictated } from './dictation-marks.js';
-import { JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
+import { findTranscriptById, JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
 import { currentRemoteControlUrl, answerRemoteControlDialog, setRemoteControl } from './remote-control.js';
 import { getAllPaneTitles, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
 import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
@@ -64,6 +64,8 @@ import type { ChangesInfo, DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsW
 import { inboxTickets, issueFor, watchSessionRepos } from './github.js';
 import { projectReports } from './project-icons.js';
 import { pluginReader } from './plugins.js';
+import { PastSessionIndex, withoutLive } from '../transcript/past-sessions.js';
+import type { PastSession } from '../past-session.js';
 import { peekGitSummary } from './git.js';
 import { sessionChanges } from '../transcript/changes.js';
 
@@ -611,9 +613,14 @@ export interface FleetSource {
 	selfId: string;
 	snapshot(): unknown[];
 	subscribe(listener: () => void): () => void;
+	/** Every other machine's past sessions, by machine id; they change seldom and go in a message of their own. */
+	past(): Record<string, unknown[]>;
+	subscribePast(listener: () => void): () => void;
 }
 
 const FLEET_COALESCE_MS = 200;
+/** How often the transcripts on disk are listed again for the past sessions. */
+const PAST_REFRESH_MS = 30_000;
 
 /**
  * Where the fleet preferences come from (`src/server/fleet-prefs.ts`). Unlike
@@ -643,6 +650,15 @@ export class SessionsWsManager {
 	private droppedClients = 0;
 	private refreshing = false;
 	private refreshQueued = false;
+	/** This machine's transcripts, listed in the background (`src/transcript/past-sessions.ts`). */
+	private pastIndex = new PastSessionIndex();
+	/** Every transcript on disk, live ones included; null until first listed. */
+	private pastAll: PastSession[] | null = null;
+	/** The sessions the last broadcast listed, which are not past. */
+	private liveIds: Set<string> | null = null;
+	private lastPastHash = '';
+	private pastTimer: ReturnType<typeof setInterval> | null = null;
+	private stopFleetPast: (() => void) | null = null;
 
 	constructor(config?: WsConfig) {
 		this.config = { ...DEFAULT_CONFIG, ...config };
@@ -704,6 +720,8 @@ export class SessionsWsManager {
 			this.systemStatsTimer = setInterval(() => {
 				this.broadcastSystemStats();
 			}, 10_000);
+			void this.refreshPast();
+			this.pastTimer = setInterval(() => void this.refreshPast(), PAST_REFRESH_MS);
 		} else {
 			console.log('[ws:sessions] addClient: clients=', this.clients.size, 'hasUnsubscribe=', !!this.unsubscribe);
 		}
@@ -712,8 +730,12 @@ export class SessionsWsManager {
 			if (client.isOpen()) {
 				this.sendToClient(client, msg);
 				this.sendToClient(client, this.createSystemStatsMessage());
-				if (options.fleet && this.fleetSource) this.sendToClient(client, this.createFleetMessage(this.fleetSource));
+				if (options.fleet && this.fleetSource) {
+					this.sendToClient(client, this.createFleetMessage(this.fleetSource));
+					this.sendToClient(client, this.createFleetPastMessage(this.fleetSource));
+				}
 				if (this.prefsSource) this.sendToClient(client, this.createPrefsMessage(this.prefsSource));
+				if (this.pastAll && this.liveIds) this.sendToClient(client, this.createPastMessage(this.pastAll));
 			}
 		});
 		return true;
@@ -722,8 +744,45 @@ export class SessionsWsManager {
 	/** Start sending the fleet to the pages that ask for it, from `source` from now on. */
 	setFleetSource(source: FleetSource): void {
 		this.stopFleet?.();
+		this.stopFleetPast?.();
 		this.fleetSource = source;
 		this.stopFleet = source.subscribe(() => this.scheduleFleet());
+		this.stopFleetPast = source.subscribePast(() => {
+			if (this.fleetClients.size > 0) this.broadcastTo(this.fleetClients, this.createFleetPastMessage(source));
+		});
+	}
+
+	private createFleetPastMessage(source: FleetSource) {
+		return { type: 'fleet-past' as const, machines: source.past(), timestamp: Date.now() };
+	}
+
+	/**
+	 * This machine's past sessions: the transcripts on disk that no session in
+	 * the broadcast holds. Sent to every client, so a peer keeps them in its
+	 * fleet state and a page lists them, on connect and whenever they change.
+	 */
+	private createPastMessage(all: PastSession[]) {
+		return { type: 'past' as const, sessions: withoutLive(all, this.liveIds ?? new Set()), timestamp: Date.now() };
+	}
+
+	private async refreshPast(): Promise<void> {
+		try {
+			this.pastAll = await this.pastIndex.list();
+		} catch (err) {
+			console.error('[ws:sessions] listing past sessions failed:', err);
+			return;
+		}
+		this.broadcastPastIfChanged();
+	}
+
+	private broadcastPastIfChanged(): void {
+		// Not before the sessions are known, or a live one would pass for past.
+		if (!this.pastAll || !this.liveIds || this.clients.size === 0) return;
+		const message = this.createPastMessage(this.pastAll);
+		const hash = JSON.stringify(message.sessions);
+		if (hash === this.lastPastHash) return;
+		this.lastPastHash = hash;
+		this.broadcastTo(this.clients, message);
 	}
 
 	/** Send the fleet preferences to every client, from `source` from now on, and again on each change. */
@@ -821,11 +880,17 @@ export class SessionsWsManager {
 				this.systemStatsTimer = null;
 			}
 			stopSystemStats();
+			if (this.pastTimer) {
+				clearInterval(this.pastTimer);
+				this.pastTimer = null;
+			}
+			this.lastPastHash = '';
 		}
 	}
 
 	private async createSessionsMessageAsync(type: 'sessions' | 'connected') {
 		const sessions = await getEnrichedSessionsAsync();
+		this.liveIds = new Set(sessions.map((s) => s.id));
 		// The server remembers every directory a session has run in, so the
 		// sidebar's groups outlive their last session and are the same from
 		// every browser. Writes only when a directory is new.
@@ -885,6 +950,8 @@ export class SessionsWsManager {
 				if (hash === this.lastHash) {
 					return;
 				}
+				// A session that ended is past now, and one resumed is not.
+				this.broadcastPastIfChanged();
 				this.lastHash = hash;
 
 				const dropped = this.broadcastTo(this.clients, message).length;
@@ -1615,10 +1682,13 @@ export class TranscriptWsManager {
 		return state.attaching;
 	}
 
-	/** Where this session's JSONL lives, or null if it is not on disk yet. */
+	/**
+	 * Where this session's JSONL lives, or null if it is not on disk yet. A
+	 * past session has no session JSON, and is found by its id alone.
+	 */
 	private locate(sessionId: string): string | null {
 		const session = getSession(sessionId);
-		return session ? resolveTranscriptPath(session, sessionId) : null;
+		return session ? resolveTranscriptPath(session, sessionId) : findTranscriptById(sessionId);
 	}
 
 	/**

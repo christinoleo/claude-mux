@@ -23,6 +23,16 @@ export function sessionPath(ref: PaneRef, rest = ''): string {
 	return `${machine}/session/${encodeURIComponent(ref.target)}${rest}`;
 }
 
+/**
+ * The page of a past session (`/past/<id>`, `/m/<name>/past/<id>` on another
+ * machine): its transcript, read-only, with Resume. It is named by Claude
+ * Code's session id, since it has no pane.
+ */
+export function pastPath(host: string | null, id: string): string {
+	const machine = host ? `/m/${encodeURIComponent(host)}` : '';
+	return `${machine}/past/${encodeURIComponent(id)}`;
+}
+
 /** The session a pathname shows, or null when it is not a session's page. */
 export function parseSessionPath(pathname: string): SessionRoute | null {
 	const match = /^(?:\/m\/([^/]+))?\/session\/([^/]+)(\/.*)?$/.exec(pathname);

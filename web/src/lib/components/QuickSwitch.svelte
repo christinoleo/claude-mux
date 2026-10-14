@@ -1,7 +1,7 @@
 <script lang="ts" module>
 	export interface SwitchItem {
 		id: string;
-		kind: 'session' | 'project';
+		kind: 'session' | 'project' | 'past';
 		title: string;
 		/** The project and machine a session is in; where a project is held. */
 		detail: string;
@@ -23,7 +23,7 @@
 	import SessionStateIndicator from './SessionStateIndicator.svelte';
 
 	/**
-	 * Ctrl+K: jump to any session or project in the fleet by typing. The match
+	 * Ctrl+K: jump to any session, project or past session in the fleet by typing. The match
 	 * is the drawer filter's (`matchesQuery()`), so `#100` finds the worker on
 	 * issue 100 and a machine's name finds what runs there.
 	 */
@@ -38,6 +38,7 @@
 	const hits = $derived(items.filter((it) => matchesQuery(query, [it.title, ...it.fields])).slice(0, LIMIT));
 	const sessions = $derived(hits.filter((it) => it.kind === 'session'));
 	const projects = $derived(hits.filter((it) => it.kind === 'project'));
+	const past = $derived(hits.filter((it) => it.kind === 'past'));
 
 	function pick(item: SwitchItem) {
 		open = false;
@@ -49,10 +50,10 @@
 	bind:open
 	shouldFilter={false}
 	title="Jump to"
-	description="Find a session or project anywhere in the fleet"
+	description="Find a session, project or past session anywhere in the fleet"
 	class="quick-switch"
 >
-	<Command.Input bind:value={query} placeholder="Jump to a session or project…" />
+	<Command.Input bind:value={query} placeholder="Jump to a session, project or past session…" />
 	<Command.List class="max-h-[60dvh]">
 		<Command.Empty>Nothing matches.</Command.Empty>
 		{#if sessions.length > 0}
@@ -74,6 +75,18 @@
 						{#if item.tile}<ProjectTile {...item.tile} size={18} />{/if}
 						<span class="qs-title">{item.title}</span>
 						<span class="qs-detail">{item.detail}</span>
+					</Command.Item>
+				{/each}
+			</Command.Group>
+		{/if}
+		{#if past.length > 0}
+			<Command.Group heading="Past sessions">
+				{#each past as item (item.id)}
+					<Command.Item value={item.id} onSelect={() => pick(item)} class={item.off ? 'opacity-50' : ''}>
+						<span class="qs-st"><iconify-icon icon="mdi:history"></iconify-icon></span>
+						<span class="qs-title">{item.title}</span>
+						<span class="qs-detail">{item.detail}</span>
+						{#if item.machine}<span class="qs-mach" style="--m:{item.machine.color}" title={item.machine.name}>{item.machine.letter}</span>{/if}
 					</Command.Item>
 				{/each}
 			</Command.Group>

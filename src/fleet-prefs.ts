@@ -36,6 +36,15 @@ export function onlyHereKey(pluginKey: string): string {
   return `plugin:only-here:${pluginKey}`;
 }
 
+/**
+ * Whether a session was settled by hand (spec #92): one key per session,
+ * `settled:<machine id>:<session id>`, true while settled and false once
+ * un-settled, so two machines settling two sessions at once both keep theirs.
+ */
+export function settledKey(machineId: string, sessionId: string): string {
+  return `settled:${machineId}:${sessionId}`;
+}
+
 /** Whether `a` was written after `b`; the machine id breaks a tie, so every machine picks the same one. */
 export function isLater(a: PrefEntry, b: PrefEntry): boolean {
   return a.at !== b.at ? a.at > b.at : a.by > b.by;
