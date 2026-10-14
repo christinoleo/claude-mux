@@ -102,14 +102,14 @@
 	}
 
 	// Session ids are unique across machines, so one map holds the whole fleet.
+	// Only machines that answer are fed in: one that goes away drops out of
+	// `seen`, so what happened while it was gone is not replayed when it returns.
 	let seen = new Map<string, SeenSession>();
 	$effect(() => {
+		const answering = fleetStore.machines.filter((m) => m.local || m.online);
 		const machineOf = new Map<string, Machine>();
-		for (const m of fleetStore.machines) for (const s of m.sessions) machineOf.set(s.id, m);
-		const out = detectNotifications(
-			seen,
-			fleetStore.machines.flatMap((m) => m.sessions)
-		);
+		for (const m of answering) for (const s of m.sessions) machineOf.set(s.id, m);
+		const out = detectNotifications(seen, answering.flatMap((m) => m.sessions));
 		seen = out.seen;
 		// Only a new broadcast should re-run detection, not a preference or a navigation.
 		untrack(() => {

@@ -12,7 +12,7 @@
  */
 
 import { z } from "zod/v4";
-import { PUSH_VAPID, type FleetPrefs } from "./fleet-prefs.js";
+import { PUSH_VAPID, SERVER_ONLY_PREFIX, type FleetPrefs } from "./fleet-prefs.js";
 
 export interface PushEvents {
   /** A session started waiting on a person: a question or an approval. */
@@ -30,18 +30,18 @@ export interface PushSubscriptionRecord {
   vapid: string;
 }
 
-const VapidKeysSchema = z.object({ publicKey: z.string().min(1), privateKey: z.string().min(1) });
+export const VapidKeysSchema = z.object({ publicKey: z.string().min(1), privateKey: z.string().min(1) });
 
 export type VapidKeys = z.infer<typeof VapidKeysSchema>;
 
-const SubscriptionValueSchema = z.object({
+export const SubscriptionValueSchema = z.object({
   keys: z.object({ p256dh: z.string(), auth: z.string() }),
   events: z.object({ needsYou: z.boolean(), done: z.boolean() }),
   created_at: z.number(),
   vapid: z.string(),
 });
 
-const SUBSCRIPTION_PREFIX = "push:sub:";
+const SUBSCRIPTION_PREFIX = `${SERVER_ONLY_PREFIX}sub:`;
 
 /** The key a device's subscription is kept under: its endpoint, which is what identifies it. */
 export function subscriptionKey(endpoint: string): string {
@@ -49,8 +49,8 @@ export function subscriptionKey(endpoint: string): string {
 }
 
 /** What is kept under a device's key; a device forgotten keeps its key, holding null. */
-export function subscriptionValue(record: PushSubscriptionRecord): Omit<PushSubscriptionRecord, "endpoint"> {
-  return { keys: record.keys, events: record.events, created_at: record.created_at, vapid: record.vapid };
+export function subscriptionValue({ endpoint: _, ...value }: PushSubscriptionRecord): Omit<PushSubscriptionRecord, "endpoint"> {
+  return value;
 }
 
 /** The fleet's key pair, or null while no machine has made one. */

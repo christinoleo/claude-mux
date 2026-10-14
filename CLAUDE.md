@@ -786,7 +786,9 @@ seen for the first time raise nothing. The coordinator feeds it every
 machine's sessions (`fleetStore.machines`; session ids are unique across
 machines, so one map holds them all), names the session's machine in each
 alert, opens it at its own route (`sessionRef()`), and keeps quiet only for
-the sessions on screen, matched by machine and target. In the background
+the sessions on screen, matched by machine and target. Only machines that
+answer are fed in, so one that drops out leaves `seen` and its return replays
+nothing it did while away. In the background
 that becomes a system notification tagged with the session id; in front, a
 svelte-sonner toast. The sidebar foot holds the per-browser settings (mode
 `off | notifications | sound | both`, in-page toasts), and the favicon carries
@@ -808,15 +810,19 @@ forgetting any the push service answers 404/410.
 The devices and the key pair belong to the fleet, not to a machine
 (`src/fleet-push.ts`). They live in the fleet preferences under keys that
 start with `push:` (`isServerOnlyKey()`), so they spread between machines
-like any preference but a page is never sent them (`forPages()`) and cannot
-write them: `push:sub:<endpoint>` holds a device's keys, its events and the
+like any preference, but the sessions socket sends them only to another
+machine's fleet state (`isPeerLink()` in `src/server/fleet-relay.ts`: no
+`Origin`, and the `fleet-state` mark in the forwarded header, neither of which
+a browser can produce, even through the relay); everyone else gets
+`forPages()`, and a page cannot write them: `push:sub:<endpoint>` holds a device's keys, its events and the
 public key it subscribed with (null once forgotten), and `push:vapid` the
 fleet's VAPID pair. That one key keeps its first write rather than its last
 (`replaces()`), so the earliest pair made is the fleet's and every machine
 adopts it. Each machine watches only its own sessions and sends to every
 device on the list, which is how an event leaves once and a device subscribed
 through any machine hears all of them; a device subscribed under another key
-is passed over. The push's `url` is `/m/<owner's tailnet name>/session/<target>`
+is passed over, and a stored pair that is no key pair never holds
+`push:vapid` against one that is. The push's `url` is `/m/<owner's tailnet name>/session/<target>`
 and relative, so a tap opens it on the origin the device subscribed through,
 whose relay reaches the owner. `FleetPush` (`src/server/fleet-push.ts`) reads
 and writes all this; on start it brings in what a machine kept before

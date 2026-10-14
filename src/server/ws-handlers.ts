@@ -625,8 +625,8 @@ const PAST_REFRESH_MS = 30_000;
 /**
  * Where the fleet preferences come from (`src/server/fleet-prefs.ts`). Unlike
  * the fleet, they go to every client: a page reads them, and a peer that
- * follows this machine merges them into its own. A page is sent them without
- * the keys the servers keep among themselves (`forPages()`).
+ * follows this machine merges them into its own. Anyone but a peer is sent
+ * them without the keys the servers keep among themselves (`forPages()`).
  */
 export interface PrefsSource {
 	all(): unknown;
@@ -638,6 +638,8 @@ export class SessionsWsManager {
 	private clients = new Set<WsClient>();
 	/** The clients that asked for the fleet too (`?fleet=1`): pages, not peers. */
 	private fleetClients = new Set<WsClient>();
+	/** Other machines' fleet states (`isPeerLink()`): the only clients sent the whole preference set. */
+	private peerClients = new Set<WsClient>();
 	private fleetSource: FleetSource | null = null;
 	private stopFleet: (() => void) | null = null;
 	private prefsSource: PrefsSource | null = null;
@@ -679,7 +681,7 @@ export class SessionsWsManager {
 	/**
 	 * Add a client. Returns false if max clients reached.
 	 */
-	addClient(client: WsClient, options: { fleet?: boolean } = {}): boolean {
+	addClient(client: WsClient, options: { fleet?: boolean; peer?: boolean } = {}): boolean {
 		if (this.clients.size >= this.config.maxSessionsClients) {
 			log(
 				{
@@ -695,6 +697,7 @@ export class SessionsWsManager {
 
 		this.clients.add(client);
 		if (options.fleet) this.fleetClients.add(client);
+		if (options.peer) this.peerClients.add(client);
 		log(
 			{
 				level: 'debug',
@@ -738,7 +741,7 @@ export class SessionsWsManager {
 					this.sendToClient(client, this.createFleetMessage(this.fleetSource));
 					this.sendToClient(client, this.createFleetPastMessage(this.fleetSource));
 				}
-				if (this.prefsSource) this.sendToClient(client, this.createPrefsMessage(this.prefsSource, !!options.fleet));
+				if (this.prefsSource) this.sendToClient(client, this.createPrefsMessage(this.prefsSource, !!options.peer));
 				if (this.pastAll && this.liveIds) this.sendToClient(client, this.createPastMessage(this.pastAll, this.liveIds));
 			}
 		});
@@ -806,16 +809,16 @@ export class SessionsWsManager {
 		this.stopPrefs = source.subscribe(() => this.broadcastPrefs());
 	}
 
-	/** The set as a page (`fleet`) or a peer is sent it. */
-	private createPrefsMessage(source: PrefsSource, page: boolean) {
-		return { type: 'prefs' as const, prefs: page ? source.forPages() : source.all(), timestamp: Date.now() };
+	/** The set as a peer, or anyone else, is sent it. */
+	private createPrefsMessage(source: PrefsSource, peer: boolean) {
+		return { type: 'prefs' as const, prefs: peer ? source.all() : source.forPages(), timestamp: Date.now() };
 	}
 
 	private broadcastPrefs(): void {
 		if (!this.prefsSource || this.clients.size === 0) return;
-		const peers = new Set([...this.clients].filter((c) => !this.fleetClients.has(c)));
-		this.broadcastTo(this.fleetClients, this.createPrefsMessage(this.prefsSource, true));
-		this.broadcastTo(peers, this.createPrefsMessage(this.prefsSource, false));
+		const others = new Set([...this.clients].filter((c) => !this.peerClients.has(c)));
+		this.broadcastTo(this.peerClients, this.createPrefsMessage(this.prefsSource, true));
+		this.broadcastTo(others, this.createPrefsMessage(this.prefsSource, false));
 	}
 
 	private fleetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -854,6 +857,7 @@ export class SessionsWsManager {
 	private dropClient(client: WsClient): void {
 		this.clients.delete(client);
 		this.fleetClients.delete(client);
+		this.peerClients.delete(client);
 		this.droppedClients++;
 		try {
 			client.close();
@@ -864,6 +868,7 @@ export class SessionsWsManager {
 
 	removeClient(client: WsClient): void {
 		this.fleetClients.delete(client);
+		this.peerClients.delete(client);
 		const had = this.clients.delete(client);
 		if (had) {
 			log(

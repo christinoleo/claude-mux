@@ -127,11 +127,12 @@ class FleetStore {
 	);
 
 	/**
-	 * The sessions of every machine that answers, this one's included: what
-	 * the tab title and the favicon count. An offline machine's last word is
-	 * left out, since nothing there can be answered from here.
+	 * The sessions of every machine this page can act on, this one's
+	 * included: what the tab title and the favicon count. An offline or
+	 * too-old machine's sessions are left out, since nothing there can be
+	 * answered from here.
 	 */
-	answering: Session[] = $derived(this.machines.filter((m) => m.local || m.online).flatMap((m) => m.sessions));
+	answering: Session[] = $derived(this.machines.filter(reachable).flatMap((m) => m.sessions));
 
 	/** Whether there is more than this host to show. */
 	fleet: boolean = $derived(this.machines.length > 1);

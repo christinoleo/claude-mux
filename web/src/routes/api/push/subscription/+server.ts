@@ -11,7 +11,8 @@ export const GET: RequestHandler = ({ url }) => {
 	const endpoint = url.searchParams.get('endpoint');
 	const subscription = endpoint ? fleetPush().get(endpoint) : null;
 	if (!subscription) return json({ error: 'Not subscribed' }, { status: 404 });
-	return json({ events: subscription.events, current: subscription.vapid === vapidKeys().publicKey });
+	// Read only: asking about a device must not make the fleet a key pair.
+	return json({ events: subscription.events, current: subscription.vapid === fleetPush().keys()?.publicKey });
 };
 
 /**

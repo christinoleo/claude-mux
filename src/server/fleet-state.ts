@@ -24,7 +24,7 @@ import { readFileSync } from "node:fs";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { ProjectReportSchema, type ProjectReport } from "../fleet-projects.js";
 import { eachOf } from "../types/ws-messages.js";
-import { openForwardedSocket } from "./fleet-relay.js";
+import { FLEET_STATE_SENDER, openForwardedSocket } from "./fleet-relay.js";
 import { protocolOf } from "../fleet-protocol.js";
 import { PluginsReportSchema, type PluginsReport } from "../fleet-plugins.js";
 import { PastSessionSchema, type PastSession } from "../past-session.js";
@@ -492,7 +492,7 @@ const CONNECT_TIMEOUT_MS = 10_000;
 export function connectPeer(url: string, handlers: PeerHandlers): PeerLink {
   let socket: WebSocket;
   try {
-    socket = openForwardedSocket(url, "/api/sessions/stream", "fleet-state");
+    socket = openForwardedSocket(url, "/api/sessions/stream", FLEET_STATE_SENDER);
   } catch {
     queueMicrotask(handlers.close);
     return { send() {}, close() {} };

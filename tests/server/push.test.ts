@@ -145,9 +145,7 @@ describe("push across the fleet", () => {
       if (s.endpoint.endsWith("gone")) throw Object.assign(new Error("Gone"), { statusCode: 410 });
       if (s.endpoint.endsWith("flaky")) throw Object.assign(new Error("Busy"), { statusCode: 503 });
     };
-    const devices = { subscriptions: () => push.subscriptions(), forget: (e: string[]) => push.forget(e) };
-
-    expect(await deliverPush(pushMessageFor(session(), "completion", "omarchy"), send, devices)).toBe(1);
+    expect(await deliverPush(pushMessageFor(session(), "completion", "omarchy"), send, push)).toBe(1);
     expect(sent.sort()).toEqual(["https://push/flaky completion", "https://push/gone completion"]);
     // A refusal that is not 404/410 is the service's trouble, not the device's.
     expect(push.subscriptions().map((s) => s.endpoint).sort()).toEqual(["https://push/flaky", "https://push/needs"]);

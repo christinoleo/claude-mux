@@ -47,10 +47,20 @@ export class FleetPrefsStore {
    * value that cannot be kept.
    */
   set(key: string, value: unknown): boolean {
-    if (!isPrefKey(key) || value === undefined) return false;
-    const before = this.prefs[key]?.at ?? 0;
-    const at = Math.max(this.now(), before + 1);
-    this.prefs = { ...this.prefs, [key]: { value, at, by: this.options.selfId } };
+    return this.setAll({ [key]: value });
+  }
+
+  /** Several writes as one change, so the set is written and sent once; false, writing nothing, if any cannot be kept. */
+  setAll(values: Record<string, unknown>): boolean {
+    const entries = Object.entries(values);
+    if (entries.some(([key, value]) => !isPrefKey(key) || value === undefined)) return false;
+    if (entries.length === 0) return true;
+    const prefs = { ...this.prefs };
+    for (const [key, value] of entries) {
+      const at = Math.max(this.now(), (prefs[key]?.at ?? 0) + 1);
+      prefs[key] = { value, at, by: this.options.selfId };
+    }
+    this.prefs = prefs;
     this.changed();
     return true;
   }

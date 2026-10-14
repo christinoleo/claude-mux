@@ -20,6 +20,7 @@ function devWebSocket() {
 				resizePane
 			} = await import('../src/server/ws-handlers.js');
 			type WsClient = import('../src/server/ws-handlers.js').WsClient;
+			const { FORWARDED_HEADER, isPeerLink } = await import('../src/server/fleet-relay.js');
 
 			// Use globalThis-backed singletons so API mutation routes and
 			// this WS plugin share the same client registry.
@@ -74,7 +75,9 @@ function devWebSocket() {
 				});
 
 				if (parsed.type === 'sessions') {
-					const accepted = sessionsWsManager.addClient(client, { fleet: parsed.fleet });
+					const forwarded = req.headers[FORWARDED_HEADER];
+					const peer = isPeerLink(req.headers.origin, typeof forwarded === 'string' ? forwarded : null);
+					const accepted = sessionsWsManager.addClient(client, { fleet: parsed.fleet, peer });
 					if (!accepted) {
 						ws.close(1013, 'Max clients reached');
 						return;

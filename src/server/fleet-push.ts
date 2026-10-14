@@ -7,13 +7,15 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { PUSH_VAPID } from "../fleet-prefs.js";
+import { z } from "zod/v4";
 import {
   fleetVapid,
   subscriptionIn,
   subscriptionKey,
   subscriptionsIn,
   subscriptionValue,
-  type PushEvents,
+  SubscriptionValueSchema,
+  VapidKeysSchema,
   type PushSubscriptionRecord,
   type VapidKeys,
 } from "../fleet-push.js";
@@ -62,28 +64,17 @@ export class FleetPush {
   save(subscription: Omit<PushSubscriptionRecord, "created_at">): PushSubscriptionRecord {
     const record: PushSubscriptionRecord = {
       ...subscription,
-      events: { needsYou: subscription.events.needsYou, done: subscription.events.done },
       created_at: this.get(subscription.endpoint)?.created_at ?? this.now(),
     };
     this.prefs.set(subscriptionKey(record.endpoint), subscriptionValue(record));
     return record;
   }
 
-  /** Change which events a device takes; null when it is not subscribed. */
-  setEvents(endpoint: string, events: PushEvents): PushSubscriptionRecord | null {
-    const record = this.get(endpoint);
-    return record ? this.save({ ...record, events }) : null;
-  }
-
   /** Forget the given devices on every machine. Returns how many were there to forget. */
   forget(endpoints: Iterable<string>): number {
-    let forgotten = 0;
-    for (const endpoint of new Set(endpoints)) {
-      if (!this.get(endpoint)) continue;
-      this.prefs.set(subscriptionKey(endpoint), null);
-      forgotten++;
-    }
-    return forgotten;
+    const known = [...new Set(endpoints)].filter((endpoint) => this.get(endpoint));
+    this.prefs.setAll(Object.fromEntries(known.map((endpoint) => [subscriptionKey(endpoint), null])));
+    return known.length;
   }
 
   /**
@@ -96,18 +87,22 @@ export class FleetPush {
     const local = readLocalKeys(vapidPath);
     if (!local) return;
     this.offerKeys(local.keys, local.at);
-    for (const old of readLocalSubscriptions(subscriptionsPath)) {
-      if (subscriptionKey(old.endpoint) in this.prefs.all()) continue;
-      this.prefs.set(subscriptionKey(old.endpoint), subscriptionValue({ ...old, vapid: local.keys.publicKey }));
-    }
+    const held = this.prefs.all();
+    const fresh = readLocalSubscriptions(subscriptionsPath).filter((old) => !(subscriptionKey(old.endpoint) in held));
+    this.prefs.setAll(
+      Object.fromEntries(
+        fresh.map((old) => [subscriptionKey(old.endpoint), subscriptionValue({ ...old, vapid: local.keys.publicKey })]),
+      ),
+    );
   }
 }
 
+const LocalSubscriptionSchema = SubscriptionValueSchema.omit({ vapid: true }).extend({ endpoint: z.string() });
+
 function readLocalKeys(path: string): { keys: VapidKeys; at: number } | null {
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf-8")) as Partial<VapidKeys>;
-    if (!parsed.publicKey || !parsed.privateKey) return null;
-    return { keys: { publicKey: parsed.publicKey, privateKey: parsed.privateKey }, at: statSync(path).mtimeMs };
+    const parsed = VapidKeysSchema.safeParse(JSON.parse(readFileSync(path, "utf-8")));
+    return parsed.success ? { keys: parsed.data, at: statSync(path).mtimeMs } : null;
   } catch {
     return null;
   }
@@ -121,13 +116,8 @@ function readLocalSubscriptions(path: string): Omit<PushSubscriptionRecord, "vap
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(
-    (v): v is Omit<PushSubscriptionRecord, "vapid"> =>
-      typeof v?.endpoint === "string" &&
-      typeof v.keys?.p256dh === "string" &&
-      typeof v.keys?.auth === "string" &&
-      typeof v.events?.needsYou === "boolean" &&
-      typeof v.events?.done === "boolean" &&
-      typeof v.created_at === "number",
-  );
+  return parsed.flatMap((v) => {
+    const row = LocalSubscriptionSchema.safeParse(v);
+    return row.success ? [row.data] : [];
+  });
 }

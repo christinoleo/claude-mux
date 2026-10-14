@@ -60,10 +60,5 @@ export function sendPush(subscription: PushSubscriptionRecord, message: PushMess
 export function ensurePushMonitor(): void {
 	const g = globalThis as GlobalWithPush;
 	if (g.__claudeMuxPushMonitor) return;
-	const push = fleetPush();
-	g.__claudeMuxPushMonitor = startPushMonitor(
-		sendPush,
-		{ subscriptions: () => push.subscriptions(), forget: (endpoints) => push.forget(endpoints) },
-		selfName
-	);
+	g.__claudeMuxPushMonitor = startPushMonitor(sendPush, fleetPush(), selfName);
 }

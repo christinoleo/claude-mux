@@ -17,6 +17,8 @@ import { ensurePushMonitor } from '$lib/server/push.js';
 import { ensureFleetState, relayGate } from '$lib/server/fleet.js';
 import {
 	admitRelay,
+	FORWARDED_HEADER,
+	isPeerLink,
 	openRelayUpstream,
 	parseFleetPath,
 	relayRequest,
@@ -44,6 +46,8 @@ type WsData = {
 	agent?: string;
 	base?: string;
 	fleet?: boolean;
+	/** Another machine's fleet state (`isPeerLink()`). */
+	peer?: boolean;
 };
 
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
@@ -86,7 +90,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 			if (!pageOriginAllowed(origin, host)) return new Response('Forbidden', { status: 403 });
 			// @ts-expect-error - platform is provided by svelte-adapter-bun
 			await event.platform.server.upgrade(event.platform.request, {
-				data: parsed
+				data: { ...parsed, peer: isPeerLink(origin, event.request.headers.get(FORWARDED_HEADER)) } satisfies WsData
 			});
 			return new Response(null, { status: 101 });
 		}
@@ -135,7 +139,7 @@ export const websocket = {
 
 		let accepted = false;
 		if (data.type === 'sessions') {
-			accepted = sessionsWsManager.addClient(client, { fleet: data.fleet });
+			accepted = sessionsWsManager.addClient(client, { fleet: data.fleet, peer: data.peer });
 		} else if (data.type === 'terminal' && data.target) {
 			accepted = terminalWsManager.addClient(client, data.target);
 		} else if (data.type === 'transcript' && data.target) {

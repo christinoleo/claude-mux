@@ -66,3 +66,21 @@ describe("mergePrefs", () => {
     expect(mergePrefs({}, [entry(1, 1)]).prefs).toEqual({});
   });
 });
+
+describe("the fleet's push key pair", () => {
+  const pair = { publicKey: "p", privateKey: "k" };
+
+  it("keeps the earliest pair, whichever arrives first", () => {
+    const early = { value: pair, at: 1, by: "omarchy" };
+    const late = { value: { publicKey: "q", privateKey: "l" }, at: 9, by: "engage" };
+    expect(mergePrefs({ "push:vapid": late }, { "push:vapid": early }).prefs["push:vapid"]).toEqual(early);
+    expect(mergePrefs({ "push:vapid": early }, { "push:vapid": late }).changed).toEqual([]);
+  });
+
+  it("never lets something that is no key pair hold the key", () => {
+    const broken = { value: { publicKey: "" }, at: 1, by: "omarchy" };
+    const good = { value: pair, at: 9, by: "engage" };
+    expect(mergePrefs({ "push:vapid": broken }, { "push:vapid": good }).prefs["push:vapid"]).toEqual(good);
+    expect(mergePrefs({ "push:vapid": good }, { "push:vapid": broken }).changed).toEqual([]);
+  });
+});

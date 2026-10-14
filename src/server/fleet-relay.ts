@@ -196,6 +196,22 @@ function sendableCode(code: number): number {
   return 1000;
 }
 
+/** What a machine's fleet state names itself as when it follows another machine's sessions socket. */
+export const FLEET_STATE_SENDER = "fleet-state";
+
+/**
+ * Whether a socket is another machine's fleet state following this one: no
+ * `Origin` and marked as sent by it. A browser can set neither (it always
+ * sends an `Origin`, and no custom header on a WebSocket), and the relay
+ * marks what it forwards with its machine id, so a page never passes, even
+ * through the relay. Only a peer is sent what the servers keep among
+ * themselves (`isServerOnlyKey()`); the tailnet remains the only check on
+ * who may claim to be one.
+ */
+export function isPeerLink(origin: string | null | undefined, forwarded: string | null | undefined): boolean {
+  return !origin && forwarded === FLEET_STATE_SENDER;
+}
+
 /**
  * A WebSocket to `base` + `path` sent the way the relay sends: no `Origin`,
  * and marked as forwarded by `self`. Throws when the URL cannot be opened.

@@ -69,9 +69,21 @@ export function isLater(a: PrefEntry, b: PrefEntry): boolean {
   return a.at !== b.at ? a.at > b.at : a.by > b.by;
 }
 
-/** Whether `incoming` replaces `mine` under `key`: the later write, or the earlier for `PUSH_VAPID`. */
+/**
+ * Whether `incoming` replaces `mine` under `key`: the later write, or the
+ * earlier for `PUSH_VAPID`, where a pair that is no pair at all never holds
+ * the key against one that is (it could otherwise never be replaced).
+ */
 export function replaces(key: string, incoming: PrefEntry, mine: PrefEntry): boolean {
-  return key === PUSH_VAPID ? isLater(mine, incoming) : isLater(incoming, mine);
+  if (key !== PUSH_VAPID) return isLater(incoming, mine);
+  const usable = isKeyPair(incoming.value);
+  if (usable !== isKeyPair(mine.value)) return usable;
+  return isLater(mine, incoming);
+}
+
+function isKeyPair(value: unknown): boolean {
+  const pair = value as { publicKey?: unknown; privateKey?: unknown } | null;
+  return typeof pair?.publicKey === "string" && pair.publicKey !== "" && typeof pair.privateKey === "string" && pair.privateKey !== "";
 }
 
 export function isPrefKey(key: unknown): key is string {

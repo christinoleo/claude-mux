@@ -4,6 +4,8 @@ import { gzipSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { WebSocket as NodeSocket, WebSocketServer, type WebSocket as PeerSocket } from "ws";
 import {
+  FLEET_STATE_SENDER,
+  isPeerLink,
   FORWARDED_HEADER,
   UNREACHABLE_CLOSE,
   admitRelay,
@@ -201,6 +203,15 @@ function until(check: () => boolean): Promise<void> {
     tick();
   });
 }
+
+describe("isPeerLink", () => {
+  it("is another machine's fleet state, never a page, even one the relay forwards", () => {
+    expect(isPeerLink(undefined, FLEET_STATE_SENDER)).toBe(true);
+    expect(isPeerLink("https://omarchy:3456", FLEET_STATE_SENDER)).toBe(false);
+    expect(isPeerLink(undefined, "0ae87274-machine-id")).toBe(false);
+    expect(isPeerLink(undefined, null)).toBe(false);
+  });
+});
 
 describe("parseFleetPath", () => {
   it("splits the machine from the owner's own path", () => {

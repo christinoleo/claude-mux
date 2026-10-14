@@ -12,12 +12,10 @@
 		type NotificationMode
 	} from '$lib/notifications';
 	import {
-		currentSubscription,
 		keepSubscriptionCurrent,
 		pushUnavailable,
 		saveEvents,
 		sendTestPush,
-		serverEvents,
 		subscribe,
 		unsubscribe,
 		type PushEvents
@@ -168,13 +166,11 @@
 	$effect(() => {
 		if (pushBlocked) return;
 		void (async () => {
-			await keepSubscriptionCurrent().catch(() => {});
-			const sub = await currentSubscription();
 			// A subscription the fleet forgot (its push service said the device
 			// was gone, or it was turned off elsewhere) cannot be reached, so it
-			// counts as off. One under an old key is renewed by the coordinator.
-			const known = sub ? await serverEvents(sub) : null;
-			pushSub = known ? sub : null;
+			// counts as off. One under an old key is renewed on the way.
+			const known = await keepSubscriptionCurrent();
+			pushSub = known?.subscription ?? null;
 			if (known) pushEvents = known.events;
 		})().catch(() => {});
 	});

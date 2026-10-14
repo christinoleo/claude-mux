@@ -74,7 +74,7 @@
 	// Show sidebar only on session and past-session pages (not on main page)
 	const showSidebar = $derived(route !== null || isPastPath($page.url.pathname));
 
-	// This machine's session on the page, for the screenshots panel and alerts
+	// This machine's session on the page, for the screenshots panel
 	const currentTarget = $derived(route && !route.ref.host && !route.rest ? route.ref.target : null);
 
 	/** The sessions on screen, on any machine, which need no alert while the window is in front. */

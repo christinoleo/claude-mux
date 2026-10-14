@@ -121,24 +121,30 @@ export async function sendTestPush(subscription: PushSubscription): Promise<void
  * Keep this device's subscription on the fleet's key, without asking: a
  * device subscribed under a key the fleet no longer uses (its machine's own,
  * before the fleet adopted an older one) is subscribed again under the
- * fleet's, taking the same events. Does nothing where push is off.
+ * fleet's, taking the same events. Answers the subscription and its events as
+ * they stand after, or null where push is off.
  */
-export function keepSubscriptionCurrent(): Promise<void> {
+export function keepSubscriptionCurrent(): Promise<PushState | null> {
 	// Callers that overlap (the coordinator and the settings) share one run.
 	return (renewing ??= renew().finally(() => {
 		renewing = null;
 	}));
 }
 
-let renewing: Promise<void> | null = null;
+export interface PushState {
+	subscription: PushSubscription;
+	events: PushEvents;
+}
 
-async function renew(): Promise<void> {
-	if (pushUnavailable() || Notification.permission !== 'granted') return;
+let renewing: Promise<PushState | null> | null = null;
+
+async function renew(): Promise<PushState | null> {
+	if (pushUnavailable() || Notification.permission !== 'granted') return null;
 	const subscription = await currentSubscription();
-	if (!subscription) return;
+	if (!subscription) return null;
 	const known = await serverEvents(subscription);
-	if (known?.current) return;
 	// A device the fleet forgot (gone, or turned off elsewhere) stays off.
-	if (!known) return;
-	await subscribe(known.events);
+	if (!known) return null;
+	if (known.current) return { subscription, events: known.events };
+	return { subscription: await subscribe(known.events), events: known.events };
 }
