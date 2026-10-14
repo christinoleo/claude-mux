@@ -39,9 +39,14 @@ function hardTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   });
 }
 
+/** What the last `list-panes` that answered returned, for a tick on which tmux does not. */
+let lastPanes = new Map<string, PaneInfo>();
+
 /**
  * Batch-fetch every pane in a single tmux command.
  * Returns a Map of "session:window.pane" -> its title, size, command and folder.
+ * When tmux does not answer in time, the last list stands: an empty one
+ * would read as every pane closed and every shell gone.
  */
 export async function listAllPanes(): Promise<Map<string, PaneInfo>> {
   const result = new Map<string, PaneInfo>();
@@ -49,10 +54,15 @@ export async function listAllPanes(): Promise<Map<string, PaneInfo>> {
     execFileAsync("tmux", [
       "list-panes", "-a", "-F",
       "#{session_name}:#{window_index}.#{pane_index}\t#{session_attached}\t#{pane_width}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}"
-    ], { encoding: "utf-8", timeout: 2000 }).then((r) => r.stdout),
+    ], { encoding: "utf-8", timeout: 2000 }).then(
+      (r) => r.stdout,
+      // Killed for taking too long says nothing; refused (no server) means no panes.
+      (err: { killed?: boolean }) => (err?.killed ? null : ""),
+    ),
     2500,
-    "",
+    null,
   );
+  if (stdout === null) return lastPanes;
   for (const line of stdout.trim().split("\n")) {
     if (!line) continue;
     // The title comes last because it is the one field that may hold a tab.
@@ -67,6 +77,7 @@ export async function listAllPanes(): Promise<Map<string, PaneInfo>> {
       cwd: cwd ?? "",
     });
   }
+  lastPanes = result;
   return result;
 }
 

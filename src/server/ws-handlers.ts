@@ -1008,7 +1008,9 @@ export class SessionsWsManager {
 				// The inbox changes on GitHub's clock, not the sessions', so it counts
 				// too, and so do the project reports and plugins, read in the background
 				// (a plugins report is never changed once read, so its time stands for it).
-				const hash = JSON.stringify([message.sessions, message.panes, message.inbox, message.projectReports, message.plugins?.readAt]);
+				// A pane's title is only a tooltip and some programs animate it, so it alone sends nothing.
+				const panes = message.panes.map(({ title: _title, ...pane }) => pane);
+				const hash = JSON.stringify([message.sessions, panes, message.inbox, message.projectReports, message.plugins?.readAt]);
 				if (hash === this.lastHash) {
 					return;
 				}

@@ -148,6 +148,8 @@ class SessionStore extends ReliableWebSocket {
 	inbox = $state<InboxTicket[]>([]);
 	/** What this machine says about each of its projects, to match them across machines. */
 	projectReports = $state<ProjectReport[]>([]);
+	/** Whether a sessions list has arrived: until then an empty list says nothing. */
+	listed = $state(false);
 	/** This machine's tmux panes that run no Claude session. */
 	panes = $state.raw<PlainPane[]>([]);
 	/** This machine's Claude Code marketplaces and plugins; null until it has read them. */
@@ -191,6 +193,7 @@ class SessionStore extends ReliableWebSocket {
 		switch (msg.type) {
 			case 'sessions':
 			case 'connected':
+				this.listed = true;
 				this.toLocalClock(msg.sessions as Session[], msg.timestamp);
 				this.diffAndUpdate(msg.sessions as Session[]);
 				if (msg.projects) this.applyServerProjects(msg.projects);

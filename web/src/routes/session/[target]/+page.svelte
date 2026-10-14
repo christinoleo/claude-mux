@@ -120,7 +120,7 @@
 	const targetMissing = $derived(
 		remoteHost
 			? remoteMissing
-			: sessionStore.receivedData && !isClaudeSession && !isPlainPane
+			: sessionStore.listed && !isClaudeSession && !isPlainPane
 	);
 	const paneIsDead = $derived(claudeSessionDead || targetMissing);
 	const isAlive = $derived(!paneIsDead && (isClaudeSession || isPlainPane));
