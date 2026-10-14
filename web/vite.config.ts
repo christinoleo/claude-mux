@@ -232,7 +232,9 @@ export default defineConfig({
 	plugins: [tailwindcss(), sveltekit(), devWebSocket()],
 	server: {
 		host: '0.0.0.0',
-		allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',').map((h) => h.trim()) ?? true
+		allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',').map((h) => h.trim()) ?? true,
+		// As in production, /api/ answers its own page only (ADR 0004); Vite would otherwise allow loopback origins.
+		cors: false
 	},
 	build: {
 		target: 'esnext',

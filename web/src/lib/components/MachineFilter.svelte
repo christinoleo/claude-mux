@@ -22,7 +22,7 @@
 
 	const chosen = $derived(fleetStore.visible.length === 1 ? fleetStore.visible[0] : null);
 	const label = $derived(
-		fleetStore.fleet ? (chosen?.server.hostname ?? 'Fleet') : fleetStore.machines[0]?.server.hostname || 'claude-mux'
+		fleetStore.fleet ? (chosen ? chosen.server.hostname || 'this machine' : 'Fleet') : fleetStore.machines[0]?.server.hostname || 'claude-mux'
 	);
 	/** A machine left out of the filter has someone waiting on it. */
 	const wantsElsewhere = $derived(
