@@ -14,6 +14,7 @@ import {
 	type FleetMachineInfo
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
+import { fleetPrefsStore } from './fleet-prefs.svelte';
 import { indicatorStateOf, needsYouKind } from '$shared/session-state.js';
 import { sessionDisplayName } from '$shared/session-notifications.js';
 export { asking } from '$shared/session-notifications.js';
@@ -181,6 +182,9 @@ class SessionStore extends ReliableWebSocket {
 			case 'fleet':
 				this.selfId = msg.self;
 				this.fleet = msg.machines;
+				break;
+			case 'prefs':
+				fleetPrefsStore.receive(msg.prefs);
 				break;
 			case 'systemStats':
 				this.systemStats = { cpu: msg.cpu, ram: msg.ram, swap: msg.swap, ramTotal: msg.ramTotal, swapTotal: msg.swapTotal };

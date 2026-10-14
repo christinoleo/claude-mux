@@ -10,19 +10,19 @@
  * session's row goes through the origin's relay (`apiBase()`); opening one
  * still navigates to its own host.
  *
- * `selected` is which machine the sidebar shows: 'all', or one hostname. It
- * is remembered per browser, since it is a viewing preference.
+ * `selected` is which machine the sidebar shows: 'all', or one machine's id.
+ * It is a fleet preference (`fleetPrefsStore`), so every link and device
+ * shows the same machines.
  */
 
 import { browser } from '$app/environment';
-import { createPersisted } from './persisted';
+import { fleetPrefsStore } from './fleet-prefs.svelte';
+import { MACHINE_FILTER } from '$shared/fleet-prefs.js';
 import { formatAgo } from '$lib/format';
 import { sessionStore, type Session } from './sessions.svelte';
 import { serverStore } from './servers.svelte';
 import type { InboxTicket } from '$shared/types/ws-messages.js';
 import type { ServerInfo } from '$lib/types/servers';
-
-const selectedStore = createPersisted<string>('claude-mux-machine', 'all');
 
 /** One machine's view: who it is, whether it answers, and what it holds. */
 export interface Machine {
@@ -43,7 +43,6 @@ export interface Machine {
 }
 
 class FleetStore {
-	selected = $state<string>('all');
 	private started = false;
 
 	/** Every machine, this one first, then the others by name. */
@@ -90,11 +89,15 @@ class FleetStore {
 		return [local, ...others];
 	});
 
+	/** 'all', or the id of the one machine the sidebar shows; 'all' while the one chosen is not in the fleet. */
+	selected: string = $derived.by(() => {
+		const chosen = fleetPrefsStore.get<string>(MACHINE_FILTER, 'all');
+		return this.machines.some((m) => m.server.id === chosen) ? chosen : 'all';
+	});
+
 	/** The machines the sidebar is showing right now. */
 	visible: Machine[] = $derived(
-		this.selected === 'all'
-			? this.machines
-			: this.machines.filter((m) => m.server.hostname === this.selected)
+		this.selected === 'all' ? this.machines : this.machines.filter((m) => m.server.id === this.selected)
 	);
 
 	/** Whether there is more than this host to show. */
@@ -107,14 +110,13 @@ class FleetStore {
 	start(): void {
 		if (!browser || this.started) return;
 		this.started = true;
-		this.selected = selectedStore.load();
 		serverStore.init();
 		void serverStore.refresh();
 	}
 
-	select(hostname: string): void {
-		this.selected = hostname;
-		selectedStore.save(hostname);
+	/** Show one machine, by id, or 'all'. */
+	select(id: string): void {
+		void fleetPrefsStore.set(MACHINE_FILTER, id);
 	}
 
 	/** "Try now": have the origin reach an offline machine at once. */

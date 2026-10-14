@@ -613,12 +613,24 @@ export interface FleetSource {
 
 const FLEET_COALESCE_MS = 200;
 
+/**
+ * Where the fleet preferences come from (`src/server/fleet-prefs.ts`). Unlike
+ * the fleet, they go to every client: a page reads them, and a peer that
+ * follows this machine merges them into its own.
+ */
+export interface PrefsSource {
+	all(): unknown;
+	subscribe(listener: () => void): () => void;
+}
+
 export class SessionsWsManager {
 	private clients = new Set<WsClient>();
 	/** The clients that asked for the fleet too (`?fleet=1`): pages, not peers. */
 	private fleetClients = new Set<WsClient>();
 	private fleetSource: FleetSource | null = null;
 	private stopFleet: (() => void) | null = null;
+	private prefsSource: PrefsSource | null = null;
+	private stopPrefs: (() => void) | null = null;
 	private unsubscribe: (() => void) | null = null;
 	private interruptCheckTimer: ReturnType<typeof setInterval> | null = null;
 	private cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -699,6 +711,7 @@ export class SessionsWsManager {
 				this.sendToClient(client, msg);
 				this.sendToClient(client, this.createSystemStatsMessage());
 				if (options.fleet && this.fleetSource) this.sendToClient(client, this.createFleetMessage(this.fleetSource));
+				if (this.prefsSource) this.sendToClient(client, this.createPrefsMessage(this.prefsSource));
 			}
 		});
 		return true;
@@ -709,6 +722,22 @@ export class SessionsWsManager {
 		this.stopFleet?.();
 		this.fleetSource = source;
 		this.stopFleet = source.subscribe(() => this.scheduleFleet());
+	}
+
+	/** Send the fleet preferences to every client, from `source` from now on, and again on each change. */
+	setPrefsSource(source: PrefsSource): void {
+		this.stopPrefs?.();
+		this.prefsSource = source;
+		this.stopPrefs = source.subscribe(() => this.broadcastPrefs());
+	}
+
+	private createPrefsMessage(source: PrefsSource) {
+		return { type: 'prefs' as const, prefs: source.all(), timestamp: Date.now() };
+	}
+
+	private broadcastPrefs(): void {
+		if (!this.prefsSource || this.clients.size === 0) return;
+		this.broadcastTo(this.clients, this.createPrefsMessage(this.prefsSource));
 	}
 
 	private fleetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -728,13 +757,15 @@ export class SessionsWsManager {
 
 	private broadcastFleet(): void {
 		if (!this.fleetSource || this.fleetClients.size === 0) return;
-		const message = this.createFleetMessage(this.fleetSource);
+		this.broadcastTo(this.fleetClients, this.createFleetMessage(this.fleetSource));
+	}
+
+	/** Send `message` to each of `clients`, dropping any that cannot take it; returns those dropped. */
+	private broadcastTo(clients: Set<WsClient>, message: SessionsWsMessage | Record<string, unknown>): WsClient[] {
 		const data = JSON.stringify(message);
-		for (const client of [...this.fleetClients]) {
-			if (!this.sendToClient(client, message, data)) {
-				this.dropClient(client);
-			}
-		}
+		const drops = [...clients].filter((client) => !this.sendToClient(client, message, data));
+		for (const client of drops) this.dropClient(client);
+		return drops;
 	}
 
 	/**
@@ -846,20 +877,15 @@ export class SessionsWsManager {
 					return;
 				}
 				this.lastHash = hash;
-				const data = JSON.stringify(message);
 
-				const drops: WsClient[] = [];
-				for (const client of [...this.clients]) {
-					if (!this.sendToClient(client, message, data)) drops.push(client);
-				}
-				for (const client of drops) {
-					this.dropClient(client);
+				const dropped = this.broadcastTo(this.clients, message).length;
+				if (dropped > 0) {
 					log(
 						{
 							level: 'warn',
 							component: 'sessions',
 							message: 'Dropped slow client',
-							data: { total: this.clients.size }
+							data: { dropped, total: this.clients.size }
 						},
 						this.config
 					);
@@ -890,15 +916,7 @@ export class SessionsWsManager {
 		const hash = JSON.stringify(message);
 		if (hash === this.lastStatsHash) return;
 		this.lastStatsHash = hash;
-
-		const data = JSON.stringify(message);
-		const drops: WsClient[] = [];
-		for (const client of [...this.clients]) {
-			if (!this.sendToClient(client, message, data)) drops.push(client);
-		}
-		for (const client of drops) {
-			this.dropClient(client);
-		}
+		this.broadcastTo(this.clients, message);
 	}
 
 	private sendToClient(

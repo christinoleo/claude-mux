@@ -70,6 +70,8 @@ export interface FleetStateOptions {
   connect?: PeerConnector;
   /** A peer's version, read when its socket opens. */
   version?: (url: string) => Promise<string | null>;
+  /** A peer's fleet preferences, as its socket sent them (`src/server/fleet-prefs.ts`). */
+  prefs?: (prefs: unknown) => void;
   now?: () => number;
 }
 
@@ -278,10 +280,14 @@ export class FleetState {
 
   private receive(peer: Peer, data: string): void {
     if (data === "pong") return;
-    let msg: { type?: unknown; sessions?: unknown; projects?: unknown; inbox?: unknown };
+    let msg: { type?: unknown; sessions?: unknown; projects?: unknown; inbox?: unknown; prefs?: unknown };
     try {
       msg = JSON.parse(data);
     } catch {
+      return;
+    }
+    if (msg?.type === "prefs") {
+      this.options.prefs?.(msg.prefs);
       return;
     }
     if (msg?.type !== "sessions" && msg?.type !== "connected") return;

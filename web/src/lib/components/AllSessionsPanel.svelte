@@ -39,29 +39,36 @@
 	import type { InboxTicket } from '$shared/types/ws-messages.js';
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { createPersisted } from '$lib/stores/persisted';
+	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
+	import { machineFoldKey, projectFoldKey } from '$shared/fleet-prefs.js';
 	import { sidebarActionsStore, type ChordAction } from '$lib/stores/sidebarActions.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
 	import { formatRef, type PaneRef } from '$lib/split-refs';
 
 	/**
-	 * Machines folded shut in this browser. Other machines start folded — a
-	 * list of every project on every host is long to scan — and this one
-	 * starts open; the fold is remembered here, since it is a way of looking.
-	 * A folded machine still says how many sessions it runs, and turns amber
-	 * when one of them is asking for a person.
+	 * Machines and projects folded shut. Folds are fleet preferences
+	 * (`fleetPrefsStore`), so a fold made on one link shows on every link and
+	 * device. A machine nobody folded or opened starts folded unless it served
+	 * this page — a list of every project on every host is long to scan; a
+	 * project starts open. A folded machine still says how many sessions it
+	 * runs, and a folded one of either kind turns amber when a session in it
+	 * is asking for a person.
 	 */
-	const foldStore = createPersisted<Record<string, boolean>>('claude-mux-folded-machines', {});
-	let folded = $state<Record<string, boolean>>({});
-	onMount(() => {
-		folded = foldStore.load();
-	});
 	function isFolded(machine: Machine): boolean {
-		const stored = folded[machine.server.hostname];
-		return stored ?? !machine.local;
+		return fleetPrefsStore.get(machineFoldKey(machine.server.id), !machine.local);
+	}
+	function isProjectFolded(machine: Machine, card: Card): boolean {
+		return fleetPrefsStore.get(projectFoldKey(machine.server.id, card.cwd), false);
+	}
+	/** Flip a fold; a machine with no id yet has no key to keep it under. */
+	function toggleKey(machine: Machine, key: string, folded: boolean) {
+		if (machine.server.id) void fleetPrefsStore.set(key, !folded);
 	}
 	function toggleFold(machine: Machine) {
-		folded = { ...folded, [machine.server.hostname]: !isFolded(machine) };
-		foldStore.save(folded);
+		toggleKey(machine, machineFoldKey(machine.server.id), isFolded(machine));
+	}
+	function toggleProjectFold(machine: Machine, card: Card) {
+		toggleKey(machine, projectFoldKey(machine.server.id, card.cwd), isProjectFolded(machine, card));
 	}
 
 	/**
@@ -720,11 +727,21 @@
 {/snippet}
 
 {#snippet projectCard(machine: Machine, card: Card)}
-	<section class="card proj" class:wants={card.wants}>
+	{@const pfolded = isProjectFolded(machine, card)}
+	<section class="card proj" class:wants={card.wants} class:pfolded>
 		<div class="proj-h">
-			<span class="chip" style="background:{card.color}">{card.name.slice(0, 1).toLowerCase()}</span>
-			<span class="pname" title={card.cwd}>{card.name}</span>
-			<span class="pcount">{card.rows.filter((r) => !r.orchestrator).length}</span>
+			<button
+				type="button"
+				class="pfold"
+				aria-expanded={!pfolded}
+				title={pfolded ? 'Show this project' : 'Fold this project'}
+				onclick={() => toggleProjectFold(machine, card)}
+			>
+				<span class="chip" style="background:{card.color}">{card.name.slice(0, 1).toLowerCase()}</span>
+				<span class="pname" title={card.cwd}>{card.name}</span>
+				{#if pfolded}<iconify-icon class="pchev" icon="mdi:chevron-right"></iconify-icon>{/if}
+				<span class="pcount">{card.rows.filter((r) => !r.orchestrator).length}</span>
+			</button>
 			<button
 				type="button"
 				class="pbtn"
@@ -739,20 +756,22 @@
 				<iconify-icon icon="mdi:close"></iconify-icon>
 			</button>
 		</div>
-		{#each card.rows as row (row.session.id)}
-			{@render sessionRow(machine, row)}
-		{/each}
-		{#each card.panes as pane (pane.target)}
-			{@render paneRow(machine, pane)}
-		{/each}
-		{#if card.dead.length > 0}
-			<div class="dead">
-				<span class="n">{card.dead.length}</span>
-				{card.dead.length === 1 ? 'closed session' : 'closed sessions'}
-				{#if machine.local}
-					<button type="button" class="sweep" onclick={() => sweepDead(machine, card.dead)}>clear</button>
-				{/if}
-			</div>
+		{#if !pfolded}
+			{#each card.rows as row (row.session.id)}
+				{@render sessionRow(machine, row)}
+			{/each}
+			{#each card.panes as pane (pane.target)}
+				{@render paneRow(machine, pane)}
+			{/each}
+			{#if card.dead.length > 0}
+				<div class="dead">
+					<span class="n">{card.dead.length}</span>
+					{card.dead.length === 1 ? 'closed session' : 'closed sessions'}
+					{#if machine.local}
+						<button type="button" class="sweep" onclick={() => sweepDead(machine, card.dead)}>clear</button>
+					{/if}
+				</div>
+			{/if}
 		{/if}
 	</section>
 {/snippet}
@@ -798,11 +817,12 @@
 				<button
 					type="button"
 					class="m"
-					class:on={fleetStore.selected === machine.server.hostname}
+					class:on={fleetStore.selected === machine.server.id}
 					class:wants={machineWants(machine)}
 					role="tab"
 					title={offlineReason(machine, clock.now) ?? machine.server.url}
-					onclick={() => fleetStore.select(machine.server.hostname)}
+					disabled={!machine.server.id}
+					onclick={() => fleetStore.select(machine.server.id)}
 				>
 					<span class="dot" class:off={!machine.online}></span>
 					{machine.server.hostname || 'this machine'}
@@ -1333,6 +1353,33 @@
 	.chip.dim {
 		background: var(--surface-3);
 		color: var(--dim);
+	}
+	/* The chip, name and count fold the card: shut, only the heading stays,
+	   amber when a session in it wants a person. */
+	.pfold {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.pfold:hover .pname {
+		color: var(--muted);
+	}
+	.pchev {
+		font-size: 14px;
+		color: var(--faint);
+	}
+	.proj.pfolded.wants .pname,
+	.proj.pfolded.wants .pchev {
+		color: var(--amber);
 	}
 	.pname {
 		flex: 1;
