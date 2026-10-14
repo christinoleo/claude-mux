@@ -13,15 +13,10 @@ import { buildFleetReport } from '../../../../../../src/usage/fleet.js';
  */
 export const GET: RequestHandler = async ({ url, fetch }) => {
 	const query = parseUsageQuery(url.searchParams);
-	// Peers are probed on the port they serve, which is not necessarily the one
-	// this request arrived on — a dev server on 3434 still aggregates hosts
-	// running the service on 3456.
-	const port = url.searchParams.get('port') || url.port || '3456';
-
 	return json(
 		await buildFleetReport({
 			...query,
-			discover: () => discoverServers(port),
+			discover: discoverServers,
 			fetch
 		})
 	);

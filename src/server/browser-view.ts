@@ -18,6 +18,7 @@ import { execFile } from 'child_process';
 import { lookup } from 'dns/promises';
 import { readFile, stat } from 'fs/promises';
 import { isIP } from 'net';
+import { relayOriginAllowed } from './fleet-relay.js';
 import { homedir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
@@ -647,11 +648,4 @@ export class BrowserWsManager {
  * so not even the tailnet origins the API trusts are let in. A request with
  * no Origin did not come from a page.
  */
-export function browserOriginAllowed(origin: string | null | undefined, host: string | null | undefined): boolean {
-	if (!origin) return true;
-	try {
-		return !!host && new URL(origin).host === host;
-	} catch {
-		return false;
-	}
-}
+export const browserOriginAllowed = relayOriginAllowed;

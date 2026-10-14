@@ -5,8 +5,9 @@
  * `sessionStore`. The other hosts the server discovers over Tailscale each
  * get a read-only socket of their own here, carrying the same sessions
  * broadcast, so the sidebar can lay every machine's projects side by side.
- * Acting on a remote session — opening it, typing into it — is done on its
- * own host: the sidebar navigates there rather than proxying the terminal.
+ * Acting on a remote session's row (kill, new session, mark unread, closing a
+ * project) goes through this page's own server, which relays it
+ * (`apiBase()`); opening one still navigates to its own host.
  *
  * `selected` is which machine the sidebar shows: 'all', or one hostname. It
  * is remembered per browser, since it is a viewing preference.
@@ -91,7 +92,7 @@ class FleetStore {
 		// Named as the tailnet knows it, even when the page was opened as localhost.
 		const hostname = serverStore.self || serverStore.current.hostname;
 		const local: Machine = {
-			server: { hostname, url: serverStore.current.url },
+			server: { id: serverStore.selfId, hostname, url: serverStore.current.url },
 			local: true,
 			connected: sessionStore.connected,
 			sessions: sessionStore.sessions,
@@ -104,7 +105,7 @@ class FleetStore {
 		// beside the local machine under the same name, or the sidebar's keyed
 		// lists throw and the page stops updating until it is reloaded.
 		const others = this.remotes
-			.filter((r) => r.server.hostname !== hostname)
+			.filter((r) => r.server.hostname !== hostname && r.server.id !== serverStore.selfId)
 			.map<Machine>((r) => ({
 				server: r.server,
 				local: false,
@@ -147,24 +148,26 @@ class FleetStore {
 	sync(): void {
 		const current = serverStore.current.hostname;
 		const self = serverStore.self;
+		// Keyed by the machine's id; a list cached before ids existed has none.
 		const wanted = serverStore.servers.filter(
-			(s) => s.hostname && s.url && s.hostname !== current && s.hostname !== self
+			(s) =>
+				s.id && s.hostname && s.url && s.id !== serverStore.selfId && s.hostname !== current && s.hostname !== self
 		);
-		const have = new Map(this.remotes.map((r) => [r.server.hostname, r]));
+		const have = new Map(this.remotes.map((r) => [r.server.id, r]));
 		let changed = false;
 		for (const server of wanted) {
-			const existing = have.get(server.hostname);
-			if (existing && existing.server.url === server.url) continue;
+			const existing = have.get(server.id);
+			if (existing && existing.server.url === server.url && existing.server.hostname === server.hostname) continue;
 			if (existing) existing.disconnect();
 			const remote = new RemoteSessions(server);
 			remote.connect();
-			have.set(server.hostname, remote);
+			have.set(server.id, remote);
 			changed = true;
 		}
-		for (const [hostname, remote] of have) {
-			if (!wanted.some((s) => s.hostname === hostname)) {
+		for (const [id, remote] of have) {
+			if (!wanted.some((s) => s.id === id)) {
 				remote.disconnect();
-				have.delete(hostname);
+				have.delete(id);
 				changed = true;
 			}
 		}
@@ -178,3 +181,11 @@ class FleetStore {
 }
 
 export const fleetStore = new FleetStore();
+
+/**
+ * Where a machine's API is reached from this page: this server for its own
+ * sessions, and this server's relay (`/fleet/<id>`) for any other machine's.
+ */
+export function apiBase(machine: Machine): string {
+	return machine.local ? '' : `/fleet/${encodeURIComponent(machine.server.id)}`;
+}
