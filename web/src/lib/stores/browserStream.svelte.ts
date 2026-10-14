@@ -17,12 +17,18 @@ export class BrowserStream extends ReliableWebSocket {
 	onFrame: ((frame: Frame) => void) | null = null;
 
 	private tabId: string | null = null;
+	/** Where the tab's machine is reached: '' for the origin, `/fleet/<id>` through its relay. */
+	private base = '';
 
-	/** Show `tabId`. Opening the tab already open does nothing unless `again`. */
-	open(tabId: string, again = false): void {
-		if (this.tabId === tabId && !again && this.closedReason === null) return;
+	/**
+	 * Show `tabId` of the browser the machine at `base` drives. Opening the
+	 * tab already open does nothing unless `again`.
+	 */
+	open(tabId: string, base: string, again = false): void {
+		if (this.tabId === tabId && this.base === base && !again && this.closedReason === null) return;
 		this.doDisconnect();
 		this.tabId = tabId;
+		this.base = base;
 		this.closedReason = null;
 		this.url = null;
 		this.resetReceived();
@@ -41,7 +47,7 @@ export class BrowserStream extends ReliableWebSocket {
 
 	protected getWsUrl(): string {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-		return `${protocol}//${window.location.host}/api/browser/${encodeURIComponent(this.tabId!)}/stream`;
+		return `${protocol}//${window.location.host}${this.base}/api/browser/${encodeURIComponent(this.tabId!)}/stream`;
 	}
 
 	protected getLogPrefix(): string {

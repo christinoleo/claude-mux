@@ -480,9 +480,19 @@ session itself comes from the fleet store's copy of that machine's broadcast
 page keeps per session (drafts, attachments, view, side panel, the voice
 take's owner) is keyed by the ref the split already uses, `target` here and
 `host@target` elsewhere, since tmux targets repeat across machines; the voice
-store reaches the owner's machine through `sessionApi()`. The side panel's
-panes still read this machine (#95), so a remote row offers no "Open
-<pane>" menu. Another machine's session counts as missing ten seconds after
+store reaches the owner's machine through `sessionApi()`. The side panel
+hands its panes the same base (`base` in `PaneBodyProps`), so Files,
+Changes, History, Web and the Browser source read the session's own machine;
+the Web pane also gets that machine's tailnet name (`machineHost`), because
+another machine's `localhost` is reached by its name, never the page's
+(`resolveEmbed()`'s `machine`). The remote browser view is reached the same
+way: a page on engage opens omarchy's browser through `/fleet/<omarchy
+id>/api/browser/…`, and the forwarded socket, carrying no `Origin`, reaches
+omarchy as its own page's. Split view frames pages of this same origin
+(`paneUrl()` in `split-refs.ts`: `/m/<name>/session/<target>?embed=1` for
+another machine's session), so its frames and the page outside talk by
+`postMessage` to `location.origin` only, and an embedded pane names its
+machine when the route does. Another machine's session counts as missing ten seconds after
 the origin's socket answers without it, since one started from the sidebar is
 on the page before its machine lists it; a non-Claude pane started
 there opens on its own machine, whose broadcast lists Claude sessions only.

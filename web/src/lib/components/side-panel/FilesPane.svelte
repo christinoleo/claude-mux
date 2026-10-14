@@ -12,6 +12,7 @@
 	 * whether ignored entries are listed persist per session. Shiki loads the
 	 * first time a file is drawn.
 	 */
+	import { sessionApiAt } from '$lib/stores/fleet.svelte';
 	import { untrack } from 'svelte';
 	import type { ThemedToken } from 'shiki/core';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
@@ -37,10 +38,10 @@
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { copyWithToast } from '$lib/side-panel/clipboard';
 
-	let { session, params, setParams, setActions, mention, active }: PaneBodyProps = $props();
+	let { session, base, params, setParams, setActions, mention, active }: PaneBodyProps = $props();
 
 	const sessionId = $derived(session?.id ?? null);
-	const api = $derived(sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/files` : null);
+	const api = $derived(sessionId ? `${sessionApiAt(base, sessionId)}/files` : null);
 	const prefs = $derived(filesPaneStore.get(sessionId));
 	const showIgnored = $derived(prefs.showIgnored === true);
 	// Only paths inside the root belong here; an older build could save others.

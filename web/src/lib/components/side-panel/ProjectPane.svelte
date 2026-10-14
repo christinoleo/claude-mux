@@ -5,10 +5,11 @@
 	 * simplest pane there is, shipped with the panel so the container has
 	 * something to hold before the Changes, Files and Web panes arrive.
 	 */
+	import { sessionApiAt } from '$lib/stores/fleet.svelte';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
 	import type { ProjectInfo } from '$shared/server/project.js';
 
-	let { session, setActions, active }: PaneBodyProps = $props();
+	let { session, base, setActions, active }: PaneBodyProps = $props();
 
 	let info = $state<ProjectInfo | null>(null);
 	let error = $state<string | null>(null);
@@ -22,7 +23,7 @@
 		loading = true;
 		error = null;
 		try {
-			const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/project`);
+			const res = await fetch(`${sessionApiAt(base, id)}/project`);
 			const body = await res.json();
 			if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
 			if (mine === seq) info = body as ProjectInfo;

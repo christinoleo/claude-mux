@@ -172,6 +172,15 @@ export function routeMachine(host: () => string | null) {
 	const base = $derived(relayBase(host(), fleetStore.servers(), selfName()));
 	const remoteHost = $derived(base !== '' ? host() : null);
 	const machine = $derived(remoteHost ? (fleetStore.remote(remoteHost) ?? null) : null);
+	const serverUrl = $derived(machine?.server.url ?? null);
+	const machineHost = $derived.by(() => {
+		if (!remoteHost) return null;
+		try {
+			return new URL(serverUrl ?? '').hostname || remoteHost;
+		} catch {
+			return remoteHost;
+		}
+	});
 	onMount(() => fleetStore.start());
 	return {
 		get base() {
@@ -182,6 +191,10 @@ export function routeMachine(host: () => string | null) {
 		},
 		get machine() {
 			return machine;
+		},
+		/** The name another machine's own ports (its dev servers) are reached by: its tailnet address. */
+		get machineHost() {
+			return machineHost;
 		},
 		/** A session by tmux target or id: this machine's from its indexes, another's from its broadcast. */
 		session(target: string | null): Session | undefined {

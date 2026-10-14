@@ -9,7 +9,7 @@
  */
 
 import type { ServerInfo } from '$lib/types/servers';
-import { sessionPath } from './session-route';
+import { machineBase, sessionPath } from './session-route';
 
 export interface PaneRef {
 	/** Tailnet hostname, or null for the host that served this page. */
@@ -39,32 +39,22 @@ export function sameRef(a: PaneRef | null, b: PaneRef | null): boolean {
 	return (a.host ?? null) === (b.host ?? null) && a.target === b.target;
 }
 
-/** The origin a pane's host answers on; null when the host is not known. */
-export function hostOrigin(ref: PaneRef, servers: ServerInfo[], self: string): string | null {
-	if (!ref.host || ref.host === self) return '';
-	const server = servers.find((s) => s.hostname === ref.host);
-	return server?.url.replace(/\/$/, '') ?? null;
-}
-
-/**
- * The URL a pane's iframe loads: that host's session page in embed mode,
- * with the pane's view preserved. Null when the host is unknown, which the
- * split shows as an unreachable pane rather than a broken frame.
- */
-export function paneUrl(ref: PaneRef, servers: ServerInfo[], self: string): string | null {
-	const origin = hostOrigin(ref, servers, self);
-	if (origin === null) return null;
-	return `${origin}/session/${encodeURIComponent(ref.target)}?embed=1`;
-}
-
 /**
  * Where to go for a single session: always a page of this host, which
  * reaches another host's session through its relay (`/m/<host>/session/…`).
+ * A host not known yet keeps its name; its page says when the machine
+ * does not answer.
  */
-export function singleUrl(ref: PaneRef, servers: ServerInfo[], self: string): string | null {
-	const origin = hostOrigin(ref, servers, self);
-	if (origin === null) return null;
-	return sessionPath(origin === '' ? { host: null, target: ref.target } : ref);
+export function singleUrl(ref: PaneRef, servers: ServerInfo[], self: string): string {
+	return sessionPath(machineBase(ref.host, servers, self) === '' ? { host: null, target: ref.target } : ref);
+}
+
+/**
+ * The URL a pane's iframe loads: the session's page on this same origin, in
+ * embed mode, whichever machine the session is on.
+ */
+export function paneUrl(ref: PaneRef, servers: ServerInfo[], self: string): string {
+	return `${singleUrl(ref, servers, self)}?embed=1`;
 }
 
 /** The URL of a split with `a` in the first pane and `b` in the second. */

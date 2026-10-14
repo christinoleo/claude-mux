@@ -97,4 +97,23 @@ describe("resolveEmbed", () => {
       src: "http://box.ts.net:5173/",
     });
   });
+
+  it("reads another machine's localhost as that machine, even from a page on localhost", () => {
+    const e = resolveEmbed("http://localhost:5173/a", ctx("http://localhost:3434", { machine: "distilo.ts.net" }));
+    expect(e).toEqual({ kind: "frame", src: "http://distilo.ts.net:5173/a" });
+  });
+
+  it("offers another machine's unmapped server under that machine's name from an HTTPS page", () => {
+    const e = resolveEmbed("http://localhost:5173/", ctx("https://omarchy.ts.net", { machine: "distilo.ts.net" }));
+    expect(e).toMatchObject({ kind: "card", open: "http://distilo.ts.net:5173/" });
+    expect(e.kind === "card" && e.reason).toMatch(/on distilo.*Run it on distilo\./);
+  });
+
+  it("frames another machine's server through that machine's own serve mapping", () => {
+    const e = resolveEmbed(
+      "http://localhost:5173/",
+      ctx("https://omarchy.ts.net", { machine: "distilo.ts.net", serves: { 5173: "https://distilo.ts.net:5173" } })
+    );
+    expect(e).toEqual({ kind: "frame", src: "https://distilo.ts.net:5173/" });
+  });
 });

@@ -10,6 +10,7 @@
 	 * the session) and the source (`source`), so a link can open any of it.
 	 * While shown, the pane re-reads whenever the session's hooks report in.
 	 */
+	import { sessionApiAt } from '$lib/stores/fleet.svelte';
 	import { untrack } from 'svelte';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
 	import { Toggle } from '$lib/components/ui/toggle';
@@ -25,7 +26,7 @@
 	} from '$lib/side-panel/changes';
 	import DiffLines from './DiffLines.svelte';
 
-	let { session, params, setParams, setActions, openPane, active }: PaneBodyProps = $props();
+	let { session, base, params, setParams, setActions, openPane, active }: PaneBodyProps = $props();
 
 	const sessionId = $derived(session?.id ?? null);
 	/** Git when the session sits in a repo, else its log; a `source` param overrides. */
@@ -54,7 +55,7 @@
 		const mine = ++listSeq;
 		loadingList = true;
 		try {
-			const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/changes?source=${src}`);
+			const res = await fetch(`${sessionApiAt(base, id)}/changes?source=${src}`);
 			const body = await res.json();
 			if (mine !== listSeq) return;
 			if (res.status === 404 && src === 'git') {
@@ -156,7 +157,7 @@
 		// An empty turn is the one before the first prompt; no turn at all is every turn.
 		if (turnId !== undefined) q.set('turn', turnId ?? '');
 		try {
-			const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/changes/diff?${q}`);
+			const res = await fetch(`${sessionApiAt(base, id)}/changes/diff?${q}`);
 			const text = await res.text();
 			if (mine !== diffSeq) return;
 			if (!res.ok) throw new Error((JSON.parse(text) as { error?: string }).error ?? `HTTP ${res.status}`);
@@ -194,7 +195,7 @@
 	 */
 	async function workingText(file: string): Promise<string | null> {
 		if (!sessionId) return null;
-		const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/files/read?${new URLSearchParams({ path: file })}`);
+		const res = await fetch(`${sessionApiAt(base, sessionId)}/files/read?${new URLSearchParams({ path: file })}`);
 		if (!res.ok) return null;
 		const read = (await res.json()) as { kind: string; text?: string };
 		return read.kind === 'text' ? (read.text ?? null) : null;

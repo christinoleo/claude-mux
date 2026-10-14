@@ -14,6 +14,7 @@
 	 * One more source is not a site at all: `?url=browser` shows a tab of the
 	 * remote browser a session drives (`BrowserView.svelte`), `?tab=` naming it.
 	 */
+	import { sessionApiAt } from '$lib/stores/fleet.svelte';
 	import { copyWithToast } from '$lib/side-panel/clipboard';
 	import { untrack } from 'svelte';
 	import { toast } from 'svelte-sonner';
@@ -33,7 +34,7 @@
 	import { webPaneStore } from '$lib/stores/webPane.svelte';
 	import BrowserView from './BrowserView.svelte';
 
-	let { session, params, setParams, setActions, active }: PaneBodyProps = $props();
+	let { session, base, machineHost, params, setParams, setActions, active }: PaneBodyProps = $props();
 
 	/** How often discovery runs while the pane is showing. */
 	const POLL_MS = 5_000;
@@ -50,7 +51,7 @@
 	async function loadInfo(id: string) {
 		const mine = ++infoSeq;
 		try {
-			const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/web`);
+			const res = await fetch(`${sessionApiAt(base, id)}/web`);
 			const body = await res.json();
 			if (mine !== infoSeq) return;
 			if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -147,7 +148,7 @@
 	const embed = $derived.by(() => {
 		if (!target || !info) return null;
 		try {
-			return resolveEmbed(target, { page: location, serves: info.serves, detected: info.detected });
+			return resolveEmbed(target, { page: location, machine: machineHost, serves: info.serves, detected: info.detected });
 		} catch {
 			return 'invalid' as const;
 		}
@@ -164,7 +165,7 @@
 		if (!src) return;
 		let stale = false;
 		const q = new URLSearchParams({ url: src, origin: location.origin });
-		fetch(`/api/web/frame?${q}`)
+		fetch(`${base}/api/web/frame?${q}`)
 			.then((res) => res.json() as Promise<FrameCheck>)
 			.catch((err): FrameCheck => ({ embeddable: null, reason: String(err) }))
 			.then((result) => {
@@ -257,6 +258,7 @@
 		<BrowserView
 			bind:this={browserView}
 			{sessionId}
+			{base}
 			{active}
 			tab={params.tab}
 			onPick={(id) => setParams({ tab: id })}
