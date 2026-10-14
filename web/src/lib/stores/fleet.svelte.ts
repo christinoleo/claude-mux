@@ -241,6 +241,15 @@ export function liveCount(machine: Machine): number {
 	return machine.sessions.filter((s) => s.pane_alive !== false).length;
 }
 
+/**
+ * Whether a machine runs another claude-mux than this page: its version
+ * differs, or it is known to be too old to report one. A machine not yet
+ * heard from is not marked.
+ */
+export function versionDrifts(machine: Machine): boolean {
+	return machine.version ? machine.version !== VERSION : machine.protocol === 0;
+}
+
 /** "offline, seen 3m ago", or "offline" for a machine never heard from. */
 export function offlineLabel(machine: Machine, now: number): string {
 	return machine.lastSeen ? `offline, ${seenLabel(machine.lastSeen, now)}` : 'offline';
@@ -252,7 +261,7 @@ export function offlineLabel(machine: Machine, now: number): string {
  */
 export function offlineReason(machine: Machine, now: number): string | null {
 	if (machine.online || machine.local) return null;
-	const name = machine.server.hostname;
+	const name = machineName(machine);
 	return machine.lastSeen ? `${name} is offline (${seenLabel(machine.lastSeen, now)})` : `${name} is offline`;
 }
 

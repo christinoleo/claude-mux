@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { clock } from '$lib/stores/clock.svelte';
-	import { apiBase, blockedReason, fleetStore, liveCount, machineName, offlineLabel, offlineReason, type Machine } from '$lib/stores/fleet.svelte';
+	import { apiBase, blockedReason, fleetStore, liveCount, machineName, offlineLabel, offlineReason, versionDrifts, type Machine } from '$lib/stores/fleet.svelte';
 	import { browserIO, updateAll, updateMachine, updateOrder, type StepProgress } from '$lib/fleet-update';
 	import { VERSION } from '$shared/utils/version.js';
 
@@ -25,7 +25,7 @@
 	let progress = $state<Record<string, StepProgress>>({});
 	let runningAll = $state(false);
 	/** Set when "Update all" finishes: what failed, in order. */
-	let summary = $state<{ name: string; result: StepProgress }[] | null>(null);
+	let summary = $state<{ id: string; name: string; result: StepProgress }[] | null>(null);
 	/** An update is under way, or queued behind one. */
 	const busy = $derived(Object.values(progress).some((p) => p.state !== 'ok' && p.state !== 'failed'));
 	/** This page's own machine came back on another version, so the page is stale. */
@@ -49,7 +49,7 @@
 		// An offline machine cannot be reached to update; it is reported with the failures.
 		const skipped = rows.flatMap((r) => {
 			const why = offlineReason(r.machine, clock.now);
-			return why ? [{ name: machineName(r.machine), result: { state: 'failed', line: why, output: '', version: null } as StepProgress }] : [];
+			return why ? [{ id: r.id, name: machineName(r.machine), result: { state: 'failed', line: why, output: '', version: null } as StepProgress }] : [];
 		});
 		const todo = rows.filter((r) => !offlineReason(r.machine, clock.now));
 		summary = null;
@@ -58,7 +58,7 @@
 		try {
 			const results = await updateAll(todo, runOne);
 			summary = [
-				...results.filter((r) => r.result.state === 'failed').map((r) => ({ name: machineName(r.machine.machine), result: r.result })),
+				...results.filter((r) => r.result.state === 'failed').map((r) => ({ id: r.machine.id, name: machineName(r.machine.machine), result: r.result })),
 				...skipped
 			];
 		} finally {
@@ -95,7 +95,7 @@
 			{@const p = progress[row.id]}
 			{@const blocked = blockedReason(m, clock.now)}
 			{@const offline = offlineReason(m, clock.now)}
-			{@const drift = m.version !== VERSION}
+			{@const drift = versionDrifts(m)}
 			<li class="station {p?.state ?? 'idle'}" class:off={!m.online}>
 				<span class="node" aria-hidden="true">
 					{#if p?.state === 'ok'}<iconify-icon icon="mdi:check"></iconify-icon>
@@ -157,7 +157,7 @@
 				<p>Every machine updated.</p>
 			{:else}
 				<h2>{summary.length === 1 ? 'One machine' : `${summary.length} machines`} did not update</h2>
-				{#each summary as f (f.name)}
+				{#each summary as f (f.id)}
 					<div class="fail">
 						<b>{f.name}</b>
 						<span>{f.result.line}</span>

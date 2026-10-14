@@ -15,7 +15,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync } from "node:fs";
+import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isPidAlive } from "../utils/pid.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
@@ -70,10 +70,21 @@ function readText(path: string): string | null {
 }
 
 /**
- * The last update started from `dir`, or null when none was. One whose shell
- * is gone without writing an exit code was killed, and counts as failed.
+ * How long an update may run before it counts as failed. Its pid alone cannot
+ * say, since after a reboot another process may hold it.
  */
-export function readUpdateJob(dir: string, isAlive: (pid: number) => boolean = isPidAlive): UpdateJob | null {
+export const UPDATE_DEADLINE_MS = 30 * 60_000;
+
+/**
+ * The last update started from `dir`, or null when none was. One whose shell
+ * is gone without writing an exit code, or that has run past its deadline,
+ * counts as failed.
+ */
+export function readUpdateJob(
+  dir: string,
+  isAlive: (pid: number) => boolean = isPidAlive,
+  now: () => number = Date.now
+): UpdateJob | null {
   const raw = readText(join(dir, "job.json"));
   if (raw === null) return null;
   let job: JobFile;
@@ -95,7 +106,7 @@ export function readUpdateJob(dir: string, isAlive: (pid: number) => boolean = i
     }
     return { ...base, state: exitCode === 0 ? "ok" : "failed", exitCode, finishedAt };
   }
-  if (job.pid !== null && isAlive(job.pid)) return { ...base, state: "running", exitCode: null, finishedAt: null };
+  if (job.pid !== null && isAlive(job.pid) && now() - job.startedAt < UPDATE_DEADLINE_MS) return { ...base, state: "running", exitCode: null, finishedAt: null };
   return { ...base, state: "failed", exitCode: null, finishedAt: null, output: `${output}\n(the update ended without a result)`.trimStart() };
 }
 
@@ -123,7 +134,7 @@ export interface StartUpdateOptions {
  * whether this call started it.
  */
 export function startUpdate(opts: StartUpdateOptions): { started: boolean; job: UpdateJob } {
-  const running = readUpdateJob(opts.dir);
+  const running = readUpdateJob(opts.dir, undefined, opts.now);
   if (running?.state === "running") return { started: false, job: running };
 
   mkdirSync(opts.dir, { recursive: true });
@@ -140,6 +151,15 @@ export function startUpdate(opts: StartUpdateOptions): { started: boolean; job: 
     env: { ...process.env, CLAUDE_MUX_UPDATE_EXIT: join(opts.dir, "exit") },
   });
   closeSync(log);
+  // A shell that cannot be started never writes its exit code; this one does.
+  child.on("error", (err) => {
+    try {
+      writeFileSync(join(opts.dir, "exit"), "127");
+      writeFileSync(logPath, `could not start the update: ${err.message}\n`);
+    } catch {
+      // Nothing more to say.
+    }
+  });
   child.unref();
   const job: JobFile = { startedAt, fromVersion: opts.fromVersion, pid: child.pid ?? null };
   writeFileAtomic(join(opts.dir, "job.json"), JSON.stringify(job));

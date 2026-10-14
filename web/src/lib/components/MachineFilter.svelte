@@ -1,8 +1,7 @@
 <script lang="ts">
 	import * as Popover from '$lib/components/ui/popover';
 	import { clock } from '$lib/stores/clock.svelte';
-	import { fleetStore, machineName, offlineLabel, offlineReason, type Machine } from '$lib/stores/fleet.svelte';
-	import { VERSION } from '$shared/utils/version.js';
+	import { fleetStore, machineName, offlineLabel, offlineReason, versionDrifts, type Machine } from '$lib/stores/fleet.svelte';
 
 	/**
 	 * The drawer's machine filter: which machines the sidebar shows, all of
@@ -31,7 +30,7 @@
 	);
 
 	/** Machines on another claude-mux version than this page's own (the origin's is this page's). */
-	const drifting = $derived(fleetStore.machines.filter((m) => m.version !== VERSION).length);
+	const drifting = $derived(fleetStore.machines.filter(versionDrifts).length);
 
 	function pick(id: string) {
 		fleetStore.select(id);
@@ -69,7 +68,7 @@
 				<span class="name">
 					{machineName(machine)}
 					{#if reason}<span class="sub">{offlineLabel(machine, clock.now)}</span>
-					{:else if machine.version !== VERSION}<span class="sub">{machine.version ?? 'older'}, update</span>{/if}
+					{:else if versionDrifts(machine)}<span class="sub">{machine.version ?? 'older'}, update</span>{/if}
 				</span>
 				{#if wants(machine)}<span class="pill">wants you</span>{/if}
 				{#if n > 0}<span class="n">{n}</span>{/if}

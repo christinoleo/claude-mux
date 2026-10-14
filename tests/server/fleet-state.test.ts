@@ -8,6 +8,7 @@ import {
   PING_MS,
   SILENCE_MS,
   retryDelay,
+  type PeerHealth,
   type PeerHandlers,
   type PeerLink,
 } from "../../src/server/fleet-state.js";
@@ -341,5 +342,27 @@ describe("connectPeer", () => {
     state.stop();
     wss.close();
     server.close();
+  });
+});
+
+describe("a peer's protocol", () => {
+  beforeEach(() => {
+    sockets = [];
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("is read again on each ping until its health check answers, keeping the version it knew", async () => {
+    const answers: (PeerHealth | null)[] = [null, { version: null, protocol: 0 }];
+    const state = new FleetState({ selfId: "self", path: null, connect, health: async () => answers.shift() ?? null });
+    state.update([ENGAGE]);
+    latest(ENGAGE.url).open();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(state.snapshot()[0].protocol).toBeNull();
+
+    latest(ENGAGE.url).broadcast({ type: "sessions", sessions: [] });
+    await vi.advanceTimersByTimeAsync(PING_MS);
+    expect(state.snapshot()[0]).toMatchObject({ protocol: 0, version: null });
+    state.stop();
   });
 });

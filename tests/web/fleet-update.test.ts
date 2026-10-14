@@ -64,6 +64,24 @@ describe("updateMachine", () => {
     expect(asked[0]).toBe("POST /fleet/engage-id/api/update");
   });
 
+  it("waits for the restart when the old server still answers after the update", async () => {
+    const { io } = scripted({ status: 202, body: job("running") }, [
+      { status: 200, body: { version: "0.30.9", ...job("ok", "Restarting claude-mux.service (systemd)...\nUpdate complete.\n", { fromVersion: "0.30.9" }) } },
+      { status: 200, body: { version: "0.31.0", ...job("ok", "Update complete.\n", { fromVersion: "0.30.9" }) } },
+    ]);
+    const seen: string[] = [];
+    const result = await updateMachine("", (p) => seen.push(p.state), io);
+    expect(seen).toEqual(["starting", "restarting", "ok"]);
+    expect(result.version).toBe("0.31.0");
+  });
+
+  it("takes an update that had nothing to do at its word", async () => {
+    const { io } = scripted({ status: 202, body: job("running") }, [
+      { status: 200, body: { version: "0.31.0", ...job("ok", "Already on latest. Use --force to reinstall.\n", { fromVersion: "0.31.0" }) } },
+    ]);
+    expect(await updateMachine("", () => {}, io)).toMatchObject({ state: "ok", version: "0.31.0" });
+  });
+
   it("waits for a job it started, not the one before", async () => {
     const { io } = scripted({ status: 202, body: job("running") }, [
       { status: 200, body: job("ok", "old run\n", { startedAt: 1 }) },

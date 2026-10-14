@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readUpdateJob, selfCommand, startUpdate } from "../../src/server/self-update.js";
+import { UPDATE_DEADLINE_MS, readUpdateJob, selfCommand, startUpdate } from "../../src/server/self-update.js";
 
 /**
  * The update a page starts: run detached, read back from its files. The
@@ -61,6 +61,12 @@ describe("readUpdateJob", () => {
     expect(job).toMatchObject({ state: "failed", exitCode: null });
     expect(job?.output).toMatch(/ended without a result/);
   });
+});
+
+it("counts an update past its deadline as failed, whoever holds its pid now", () => {
+  writeFileSync(join(dir, "job.json"), JSON.stringify({ startedAt: 0, fromVersion: "x", pid: 1 }));
+  expect(readUpdateJob(dir, () => true, () => UPDATE_DEADLINE_MS + 1)?.state).toBe("failed");
+  expect(readUpdateJob(dir, () => true, () => 1)?.state).toBe("running");
 });
 
 describe("selfCommand", () => {

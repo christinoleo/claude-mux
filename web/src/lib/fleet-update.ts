@@ -36,6 +36,11 @@ export interface UpdateTiming {
 	timeoutMs: number;
 }
 
+/** How long a machine that finished its update may keep answering with the old version. */
+const RESTART_GRACE_MS = 30_000;
+/** What `claude-mux update` prints when it installs nothing and restarts nothing. */
+const NOTHING_TO_DO = /Already on latest|skipping restart/;
+
 export const DEFAULT_TIMING: UpdateTiming = { pollMs: 1_500, timeoutMs: 10 * 60_000 };
 
 /** The machines in the order they are updated: as given, with the origin moved last. */
@@ -50,6 +55,7 @@ export function lastLine(output: string): string {
 }
 
 interface JobAnswer {
+	fromVersion?: unknown;
 	state?: unknown;
 	startedAt?: unknown;
 	output?: unknown;
@@ -93,6 +99,7 @@ export async function updateMachine(
 	const startedAt = startJob.startedAt;
 	const deadline = io.now() + timing.timeoutMs;
 	let output = '';
+	let restartWait: number | undefined;
 
 	while (io.now() < deadline) {
 		await io.sleep(timing.pollMs);
@@ -113,7 +120,16 @@ export async function updateMachine(
 			report({ state: 'running', line: lastLine(output) || 'Updating…', output, version: null });
 			continue;
 		}
-		if (job.state === 'ok') return report({ state: 'ok', line: lastLine(output) || 'Updated', output, version });
+		if (job.state === 'ok') {
+			// The update exits as soon as it has asked for the restart, so the old
+			// server may still be the one answering; it is given a while to go.
+			const stale = version !== null && version === job.fromVersion && !NOTHING_TO_DO.test(output);
+			if (stale && (restartWait ??= io.now() + RESTART_GRACE_MS) > io.now()) {
+				report({ state: 'restarting', line: 'Restarting…', output, version: null });
+				continue;
+			}
+			return report({ state: 'ok', line: lastLine(output) || 'Updated', output, version });
+		}
 		const code = typeof job.exitCode === 'number' ? ` (exit ${job.exitCode})` : '';
 		return fail(`${lastLine(output) || 'Update failed'}${code}`, output);
 	}

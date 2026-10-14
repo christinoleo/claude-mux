@@ -228,19 +228,27 @@ export class FleetState {
         if (peer.link !== link) return;
         peer.failures = 0;
         this.heard(peer);
+        // Read once per link, and again with each ping until one answers: a
+        // protocol left stale would have the relay refuse the machine.
+        let healthKnown = false;
+        const readHealth = () =>
+          void this.readHealth(peer.state.url).then((health) => {
+            if (peer.link !== link || !health) return;
+            healthKnown = true;
+            const version = health.version ?? peer.state.version;
+            if (version === peer.state.version && health.protocol === peer.state.protocol) return;
+            this.setState(peer, { version, protocol: health.protocol });
+          });
         peer.pingTimer = setInterval(() => {
           if (this.now() - (peer.state.lastSeen ?? 0) > SILENCE_MS) {
             this.lost(peer, link);
             return;
           }
           link.send("ping");
+          if (!healthKnown) readHealth();
         }, PING_MS);
         this.setState(peer, { online: true });
-        void this.readHealth(peer.state.url).then((health) => {
-          if (peer.link !== link || !health) return;
-          if (health.version === peer.state.version && health.protocol === peer.state.protocol) return;
-          this.setState(peer, health);
-        });
+        readHealth();
       },
       message: (data) => {
         if (peer.link !== link) return;
