@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { spawnSync } from "child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { spawn, spawnSync } from "child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { SessionsWsMessageSchema } from "../../src/types/ws-messages.js";
@@ -12,18 +12,29 @@ const HOOK = join(__dirname, "../../src/hooks/claude-mux-hook.ts");
 let home: string;
 let transcript: string;
 
-function runHook(event: Record<string, unknown>): void {
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home };
+function hookEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, ...extra };
   delete env.TMUX;
   delete env.TMUX_PANE;
   delete env.MAESTRO_ROLE;
   delete env.MAESTRO_ISSUE;
-  const result = spawnSync("bun", [HOOK], {
-    input: JSON.stringify({ session_id: "s1", cwd: home, transcript_path: transcript, ...event }),
-    env,
-    encoding: "utf-8",
-  });
+  return env;
+}
+
+function hookInput(event: Record<string, unknown>): string {
+  return JSON.stringify({ session_id: "s1", cwd: home, transcript_path: transcript, ...event });
+}
+
+function runHook(event: Record<string, unknown>): void {
+  const result = spawnSync("bun", [HOOK], { input: hookInput(event), env: hookEnv(), encoding: "utf-8" });
   expect(result.status).toBe(0);
+}
+
+/** The hook in the background, holding the session between its read and its write for `holdMs`. */
+function startHook(event: Record<string, unknown>, holdMs: number): Promise<number | null> {
+  const child = spawn("bun", [HOOK], { env: hookEnv({ CLAUDE_MUX_TEST_HOLD_MS: String(holdMs) }) });
+  child.stdin.end(hookInput(event));
+  return new Promise((resolve) => child.on("exit", resolve));
 }
 
 function session(): Session & { subagents: Subagent[]; agent_calls?: unknown[] } {
@@ -84,6 +95,59 @@ describe("hook: subagents", () => {
     const done = session().subagents;
     expect(done.map((a) => a.state)).toEqual(["done", "done"]);
     expect(done[1].ended_at).toEqual(expect.any(Number));
+  });
+
+  it("keeps a background agent whose start lands while its call's PostToolUse is mid-write", async () => {
+    spawnAgent("toolu_bg", "Research in the background");
+    // A background agent's call returns at once, so its PostToolUse reads the
+    // session before the SubagentStart writes and would write after it.
+    const post = startHook({ hook_event_name: "PostToolUse", tool_name: "Agent", tool_use_id: "toolu_bg" }, 500);
+    const lock = join(home, ".claude-mux", "sessions", "s1.json.lock");
+    const deadline = Date.now() + 5000;
+    while (!existsSync(lock) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+    expect(existsSync(lock)).toBe(true);
+
+    runHook({ hook_event_name: "SubagentStart", agent_id: "bg", agent_type: "Explore" });
+    expect(await post).toBe(0);
+
+    const after = session();
+    expect(after.subagents).toMatchObject([{ id: "bg", state: "running", tool_use_id: "toolu_bg", description: "Research in the background" }]);
+    expect(after.agent_calls).toEqual([]);
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it("keeps a background agent running while a shell it started runs, through its stops and wake-ups", () => {
+    spawnAgent("toolu_bg", "Sleepy");
+    runHook({ hook_event_name: "SubagentStart", agent_id: "bg", agent_type: "Explore" });
+    runHook({ hook_event_name: "PostToolUse", agent_id: "bg", tool_name: "Bash", tool_input: { command: "sleep 45" }, tool_response: { backgroundTaskId: "sh1" } });
+    expect(session().subagents[0].shells).toEqual(["sh1"]);
+
+    const running = [
+      { id: "bg", type: "subagent", status: "running", agent_type: "Explore" },
+      { id: "sh1", type: "shell", status: "running" },
+    ];
+    runHook({ hook_event_name: "SubagentStop", agent_id: "bg", agent_type: "Explore", background_tasks: running });
+    expect(session().subagents[0]).toMatchObject({ state: "running", ended_at: null });
+    // The parent's turn ends with only the agent's shell left; the agent is still not done.
+    runHook({ hook_event_name: "Stop", background_tasks: [running[1]] });
+    expect(session().subagents[0].state).toBe("running");
+
+    // The shell's end wakes the agent under the same id, which must not take
+    // the call parked for a later agent of the same type.
+    spawnAgent("toolu_next", "Next one");
+    runHook({ hook_event_name: "SubagentStart", agent_id: "bg", agent_type: "Explore" });
+    expect(session().subagents).toHaveLength(1);
+    expect(session().agent_calls).toHaveLength(1);
+
+    runHook({ hook_event_name: "SubagentStop", agent_id: "bg", agent_type: "Explore", background_tasks: [running[0]] });
+    expect(session().subagents[0]).toMatchObject({ state: "done", description: "Sleepy", ended_at: expect.any(Number) });
+  });
+
+  it("ends an agent whose stop lists only the parent's own shells", () => {
+    spawnAgent("toolu_1", "Quick");
+    runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });
+    runHook({ hook_event_name: "SubagentStop", agent_id: "a1", agent_type: "Explore", background_tasks: [{ id: "dev", type: "shell", status: "running" }] });
+    expect(session().subagents[0].state).toBe("done");
   });
 
   it("takes the description from the agent's meta.json when Claude Code has written it", () => {

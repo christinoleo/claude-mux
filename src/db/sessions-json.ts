@@ -11,6 +11,7 @@ import {
 import { join, resolve } from "path";
 import { homedir } from "os";
 import { isPidAlive } from "../utils/pid.js";
+import { withSessionLock } from "./session-lock.js";
 
 // Paths
 const LEGACY_CLAUDE_WATCH_DIR = join(homedir(), ".claude-watch");
@@ -70,6 +71,8 @@ export interface Subagent {
   tool_use_id?: string | null;
   /** The tool the agent last called while running; cleared at its stop. */
   current_tool?: string | null;
+  /** Background shells the agent started; while one runs, its stop is a pause. */
+  shells?: string[];
 }
 
 export interface Session {
@@ -156,6 +159,16 @@ function writeSessionFile(session: Session): void {
 }
 
 /**
+ * Read, change and write a session under the lock the hook takes too, so
+ * neither side's write drops the other's (a subagent the hook just recorded,
+ * say). `change` writes the file itself, or leaves it alone.
+ */
+function changeSession<T>(id: string, change: (session: Session | null) => T): T {
+  ensureSessionsDir();
+  return withSessionLock(getSessionPath(id), () => change(getSession(id)));
+}
+
+/**
  * Read a session from its JSON file.
  */
 export function getSession(id: string): Session | null {
@@ -173,28 +186,28 @@ export function getSession(id: string): Session | null {
  * Create or update a session.
  */
 export function upsertSession(input: SessionInput): Session {
-  const existing = getSession(input.id);
+  return changeSession(input.id, (existing) => {
+    const session: Session = {
+      v: SCHEMA_VERSION,
+      id: input.id,
+      pid: input.pid,
+      cwd: input.cwd,
+      transcript_path: input.transcript_path ?? existing?.transcript_path ?? null,
+      git_root: input.git_root ?? existing?.git_root ?? null,
+      tmux_target: input.tmux_target ?? existing?.tmux_target ?? null,
+      state: input.state ?? existing?.state ?? "busy",
+      current_action: input.current_action ?? existing?.current_action ?? null,
+      prompt_text: input.prompt_text ?? existing?.prompt_text ?? null,
+      last_update: Date.now(),
+      linked_to: input.linked_to ?? existing?.linked_to ?? null,
+      rc_url: input.rc_url ?? existing?.rc_url ?? null,
+      display_name: existing?.display_name ?? null,
+      agent: input.agent ?? existing?.agent ?? "claude",
+    };
 
-  const session: Session = {
-    v: SCHEMA_VERSION,
-    id: input.id,
-    pid: input.pid,
-    cwd: input.cwd,
-    transcript_path: input.transcript_path ?? existing?.transcript_path ?? null,
-    git_root: input.git_root ?? existing?.git_root ?? null,
-    tmux_target: input.tmux_target ?? existing?.tmux_target ?? null,
-    state: input.state ?? existing?.state ?? "busy",
-    current_action: input.current_action ?? existing?.current_action ?? null,
-    prompt_text: input.prompt_text ?? existing?.prompt_text ?? null,
-    last_update: Date.now(),
-    linked_to: input.linked_to ?? existing?.linked_to ?? null,
-    rc_url: input.rc_url ?? existing?.rc_url ?? null,
-    display_name: existing?.display_name ?? null,
-    agent: input.agent ?? existing?.agent ?? "claude",
-  };
-
-  writeSessionFile(session);
-  return session;
+    writeSessionFile(session);
+    return session;
+  });
 }
 
 /**
@@ -213,27 +226,28 @@ export function sanitizeDisplayName(name: string | null | undefined): string | n
  * Update specific fields of a session.
  */
 export function updateSession(id: string, update: SessionUpdate): void {
-  const session = getSession(id);
-  if (!session) return;
+  changeSession(id, (session) => {
+    if (!session) return;
 
-  if (update.state !== undefined) {
-    session.state = update.state;
-  }
-  if (update.current_action !== undefined) {
-    session.current_action = update.current_action;
-  }
-  if (update.prompt_text !== undefined) {
-    session.prompt_text = update.prompt_text;
-  }
-  if (update.rc_url !== undefined) {
-    session.rc_url = update.rc_url;
-  }
-  if (update.display_name !== undefined) {
-    session.display_name = sanitizeDisplayName(update.display_name);
-  }
-  session.last_update = Date.now();
+    if (update.state !== undefined) {
+      session.state = update.state;
+    }
+    if (update.current_action !== undefined) {
+      session.current_action = update.current_action;
+    }
+    if (update.prompt_text !== undefined) {
+      session.prompt_text = update.prompt_text;
+    }
+    if (update.rc_url !== undefined) {
+      session.rc_url = update.rc_url;
+    }
+    if (update.display_name !== undefined) {
+      session.display_name = sanitizeDisplayName(update.display_name);
+    }
+    session.last_update = Date.now();
 
-  writeSessionFile(session);
+    writeSessionFile(session);
+  });
 }
 
 /**
@@ -241,13 +255,15 @@ export function updateSession(id: string, update: SessionUpdate): void {
  */
 export function deleteSession(id: string): void {
   const path = getSessionPath(id);
-  try {
-    if (existsSync(path)) {
-      unlinkSync(path);
+  withSessionLock(path, () => {
+    try {
+      if (existsSync(path)) {
+        unlinkSync(path);
+      }
+    } catch {
+      // Ignore errors (file may already be deleted)
     }
-  } catch {
-    // Ignore errors (file may already be deleted)
-  }
+  });
   // Sweep this session's attachment dir. Single cleanup site for attachment
   // backing files (see docs/adr/0002).
   try {
@@ -264,32 +280,34 @@ export function deleteSession(id: string): void {
  * Clear chrome_active flag for a session.
  */
 export function clearChromeActive(id: string): boolean {
-  const session = getSession(id);
-  if (!session) return false;
+  return changeSession(id, (session) => {
+    if (!session) return false;
 
-  session.chrome_active = false;
-  session.last_update = Date.now();
-  writeSessionFile(session);
-  return true;
+    session.chrome_active = false;
+    session.last_update = Date.now();
+    writeSessionFile(session);
+    return true;
+  });
 }
 
 /**
  * Remove a screenshot from a session.
  */
 export function removeScreenshot(id: string, screenshotPath: string): boolean {
-  const session = getSession(id);
-  if (!session || !session.screenshots) return false;
+  return changeSession(id, (session) => {
+    if (!session || !session.screenshots) return false;
 
-  const initialLength = session.screenshots.length;
-  session.screenshots = session.screenshots.filter((s) => s.path !== screenshotPath);
+    const initialLength = session.screenshots.length;
+    session.screenshots = session.screenshots.filter((s) => s.path !== screenshotPath);
 
-  if (session.screenshots.length === initialLength) {
-    return false; // Screenshot not found
-  }
+    if (session.screenshots.length === initialLength) {
+      return false; // Screenshot not found
+    }
 
-  session.last_update = Date.now();
-  writeSessionFile(session);
-  return true;
+    session.last_update = Date.now();
+    writeSessionFile(session);
+    return true;
+  });
 }
 
 /**
