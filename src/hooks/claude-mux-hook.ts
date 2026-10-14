@@ -31,7 +31,7 @@ import { homedir } from "os";
 import { parseMcpToolName } from "../transcript/mcp.js";
 import { readSubagentMeta, subagentDir, type SubagentMeta } from "../transcript/tailer.js";
 import type { Subagent } from "../db/sessions-json.js";
-import { withSessionLock } from "../db/session-lock.js";
+import { sleep, withSessionLock } from "../db/session-lock.js";
 import { ASKING, AWAITING_INPUT } from "../session-state.js";
 
 // Paths
@@ -171,9 +171,15 @@ function pausedOnBackground(session: Session): boolean {
  * ids the agent's own PostToolUse reported.
  */
 function pausedOnShell(agent: Subagent, input: HookInput): boolean {
-  const own = new Set(agent.shells ?? []);
-  return (input.background_tasks ?? []).some(t => t.id !== undefined && own.has(t.id));
+  if (agent.paused_at && agent.paused_at < Date.now() - MAX_PAUSE_MS) return false;
+  return (input.background_tasks ?? []).some(t => t.id !== undefined && agent.shells?.includes(t.id));
 }
+
+/**
+ * A shell that never ends (a dev server the agent left running) would hold its
+ * agent "running" for good; past this the pause counts as the agent's end.
+ */
+const MAX_PAUSE_MS = 30 * 60 * 1000;
 
 /** "Waiting on agent: Explore", "Waiting on 3 background tasks". */
 function describeBackground(tasks: BackgroundTask[]): string {
@@ -238,6 +244,12 @@ function writeSession(session: Session): void {
   }
   if (session.subagents?.length) {
     const now = Date.now();
+    for (const a of session.subagents) {
+      if (a.state === "running" && a.paused_at && a.paused_at < now - MAX_PAUSE_MS) {
+        a.state = "done";
+        a.ended_at = a.paused_at;
+      }
+    }
     session.subagents = session.subagents.filter(
       a =>
         a.ended_at === null ||
@@ -250,15 +262,18 @@ function writeSession(session: Session): void {
   renameSync(tmpPath, path);
 }
 
+/** Under the lock, so a hook mid-change sees the file gone instead of writing it back. */
 function deleteSessionFile(id: string): void {
   const path = getSessionPath(id);
-  try {
-    if (existsSync(path)) {
-      unlinkSync(path);
+  lockSession(id, () => {
+    try {
+      if (existsSync(path)) {
+        unlinkSync(path);
+      }
+    } catch {
+      // Ignore
     }
-  } catch {
-    // Ignore
-  }
+  });
 }
 
 /**
@@ -276,7 +291,7 @@ function deleteSessionsByPid(pid: number, exceptId?: string): void {
       try {
         const session = JSON.parse(readFileSync(path, "utf-8")) as Session;
         if (session.pid === pid) {
-          unlinkSync(path);
+          deleteSessionFile(sessionId);
         }
       } catch {
         // Skip corrupt files
@@ -479,7 +494,6 @@ function handleSessionStart(input: HookInput): void {
 
   const gitRoot = getGitRoot(input.cwd);
 
-  ensureSessionsDir();
   lockSession(input.session_id, () => {
     const existing = readSession(input.session_id);
     const session: Session = {
@@ -518,18 +532,22 @@ function maestroFields(): Pick<Session, "maestro_role" | "maestro_issue"> {
  * Read the session, apply `change`, write it back, all under the session's
  * lock, so two hooks firing at once (a background agent's PostToolUse and its
  * SubagentStart land within milliseconds) both keep their change. Whatever
- * needs tmux, git or ps is looked up before, by the caller or here.
+ * needs tmux, git or ps is looked up before, by the caller or here; the pane
+ * the event came from is recorded unless `tmux` is false.
  */
-function changeSession(input: HookInput, change: (session: Session) => void): void {
-  ensureSessionsDir();
-  const path = getSessionPath(input.session_id);
-  const fresh = existsSync(path) ? null : newSession(input);
+function changeSession(input: HookInput, change: (session: Session) => void, { tmux = true } = {}): void {
+  const exists = existsSync(getSessionPath(input.session_id));
+  const tmuxTarget = tmux || !exists ? getTmuxTarget() : null;
+  const fresh = exists ? null : newSession(input, tmuxTarget);
   lockSession(input.session_id, () => {
-    const session = readSession(input.session_id) ?? fresh ?? newSession(input);
+    // Gone since the check above: the session ended, and must not come back.
+    const session = readSession(input.session_id) ?? fresh;
+    if (!session) return;
     // Sessions written before this field existed, and resumed sessions whose
     // file moved, pick it up on their next event.
     if (input.transcript_path) session.transcript_path = input.transcript_path;
     if (session.maestro_role === undefined) Object.assign(session, maestroFields());
+    session.tmux_target = tmuxTarget ?? session.tmux_target;
     holdForTest();
     change(session);
     writeSession(session);
@@ -537,18 +555,18 @@ function changeSession(input: HookInput, change: (session: Session) => void): vo
 }
 
 function lockSession(id: string, fn: () => void): void {
+  ensureSessionsDir();
   withSessionLock(getSessionPath(id), fn, () => debugLog(`lock: ${id} still held after waiting, writing without it`));
 }
 
 /** Tests widen the gap between read and write to prove two hooks cannot interleave there. */
 function holdForTest(): void {
   const ms = Number(process.env.CLAUDE_MUX_TEST_HOLD_MS);
-  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  if (ms > 0) sleep(ms);
 }
 
 /** A session first heard of mid-flight (a resumed one, say): the facts its SessionStart would have gathered. */
-function newSession(input: HookInput): Session {
-  const tmuxTarget = getTmuxTarget();
+function newSession(input: HookInput, tmuxTarget: string | null): Session {
   let linkedTo: string | null = null;
   if (tmuxTarget) {
     linkedTo = deleteSessionsByTmuxTarget(tmuxTarget, input.session_id);
@@ -598,11 +616,9 @@ function setPaneTitle(target: string, title: string): void {
 }
 
 function handleUserPromptSubmit(input: HookInput): void {
-  const tmuxTarget = getTmuxTarget();
   let title: string | null = null;
   let paneTarget: string | null = null;
   changeSession(input, session => {
-    session.tmux_target = tmuxTarget ?? session.tmux_target;
     session.state = "busy";
     session.current_action = "Thinking...";
     session.background_tasks = 0;
@@ -635,11 +651,9 @@ function handleUserPromptSubmit(input: HookInput): void {
 }
 
 function handleStop(input: HookInput): void {
-  const tmuxTarget = getTmuxTarget();
   changeSession(input, session => {
     const pending = wakingTasks(input);
 
-    session.tmux_target = tmuxTarget ?? session.tmux_target;
     session.background_tasks = pending.length;
     if (pending.length > 0) {
       // Paused, not done: a background agent or shell will wake the turn again.
@@ -668,9 +682,7 @@ function handleStop(input: HookInput): void {
 }
 
 function handlePermissionRequest(input: HookInput): void {
-  const tmuxTarget = getTmuxTarget();
   changeSession(input, session => {
-    session.tmux_target = tmuxTarget ?? session.tmux_target;
     session.state = "waiting";
     // AskUserQuestion goes through the permission machinery too; keep saying
     // it is a question, which is what the notification below reads.
@@ -680,9 +692,7 @@ function handlePermissionRequest(input: HookInput): void {
 }
 
 function handleNotificationIdle(input: HookInput): void {
-  const tmuxTarget = getTmuxTarget();
   changeSession(input, session => {
-    session.tmux_target = tmuxTarget ?? session.tmux_target;
     // The prompt sits idle while a background agent works, and this fires a
     // minute in. The last Stop knew whether work was still in flight; trust it.
     if (!pausedOnBackground(session)) {
@@ -694,9 +704,7 @@ function handleNotificationIdle(input: HookInput): void {
 }
 
 function handleNotificationPermission(input: HookInput): void {
-  const tmuxTarget = getTmuxTarget();
   changeSession(input, session => {
-    session.tmux_target = tmuxTarget ?? session.tmux_target;
     // Claude Code sends its permission notification for a question as well,
     // seconds after the dialog is drawn. The question is not asking for
     // permission, and reading it as one sends the dashboard to the terminal
@@ -712,9 +720,7 @@ function handleNotificationPermission(input: HookInput): void {
 }
 
 function handleNotificationElicitation(input: HookInput): void {
-  const tmuxTarget = getTmuxTarget();
   changeSession(input, session => {
-    session.tmux_target = tmuxTarget ?? session.tmux_target;
     session.state = "waiting";
     session.current_action = AWAITING_INPUT;
     session.last_update = Date.now();
@@ -722,9 +728,7 @@ function handleNotificationElicitation(input: HookInput): void {
 }
 
 function handlePreToolUse(input: HookInput): void {
-  const tmuxTarget = getTmuxTarget();
   changeSession(input, session => {
-    session.tmux_target = tmuxTarget ?? session.tmux_target;
     session.last_update = Date.now();
     if (input.agent_id) {
       // A subagent's tool calls arrive under the parent's session id. The parent
@@ -771,21 +775,20 @@ function handlePreToolUse(input: HookInput): void {
 }
 
 function handlePostToolUse(input: HookInput): void {
-  const tmuxTarget = getTmuxTarget();
   changeSession(input, session => {
-    session.tmux_target = tmuxTarget ?? session.tmux_target;
     session.state = "busy";
     // Same as PreToolUse: a subagent's tool events leave the parent's label alone.
     if (!input.agent_id) session.current_action = null;
     const shell = input.tool_response?.backgroundTaskId;
     const agent = input.agent_id ? session.subagents?.find(a => a.id === input.agent_id) : undefined;
-    if (agent && typeof shell === "string") agent.shells = [...(agent.shells ?? []), shell];
+    if (agent && typeof shell === "string" && !agent.shells?.includes(shell)) {
+      agent.shells = [...(agent.shells ?? []), shell];
+    }
     session.last_update = Date.now();
   });
 }
 
 function handlePostToolUseFailure(input: HookInput): void {
-  const tmuxTarget = getTmuxTarget();
   changeSession(input, session => {
     // An agent that dies with an error still gets its SubagentStop, either side
     // of this; the failure is what tells the two endings apart.
@@ -797,7 +800,6 @@ function handlePostToolUseFailure(input: HookInput): void {
       }
     }
 
-    session.tmux_target = tmuxTarget ?? session.tmux_target;
     session.state = "busy";
     session.current_action = null;
     session.last_update = Date.now();
@@ -883,10 +885,12 @@ function handleSubagentStart(input: HookInput): void {
   changeSession(input, session => {
     const known = session.subagents?.find(a => a.id === agentId);
     if (known) {
+      if (known.state === "failed") return;
       // Woken by a shell it started (see pausedOnShell): the same agent, and
       // no parked call of its own left to take.
       known.state = "running";
       known.ended_at = null;
+      known.paused_at = null;
       session.last_update = Date.now();
       return;
     }
@@ -896,7 +900,7 @@ function handleSubagentStart(input: HookInput): void {
     const agent = newSubagent(agentId, type, transcriptPath, meta, takeAgentCall(session, type, meta.toolUseId));
     session.subagents = [...(session.subagents ?? []), agent];
     session.last_update = Date.now();
-  });
+  }, { tmux: false });
 }
 
 function handleSubagentStop(input: HookInput): void {
@@ -916,7 +920,9 @@ function handleSubagentStop(input: HookInput): void {
       session.subagents = [...(session.subagents ?? []), agent];
     }
     agent.current_tool = null;
-    if (!pausedOnShell(agent, input)) {
+    if (pausedOnShell(agent, input)) {
+      agent.paused_at ??= Date.now();
+    } else {
       if (agent.state === "running") agent.state = "done";
       agent.ended_at ??= Date.now();
     }
@@ -930,11 +936,11 @@ function handleSubagentStop(input: HookInput): void {
       session.subagents = (session.subagents ?? []).filter(a => a.id !== agent.id);
     }
     session.last_update = Date.now();
-  });
+  }, { tmux: false });
 }
 
 function handleSessionEnd(input: HookInput): void {
-  lockSession(input.session_id, () => deleteSessionFile(input.session_id));
+  deleteSessionFile(input.session_id);
 }
 
 async function main(): Promise<void> {

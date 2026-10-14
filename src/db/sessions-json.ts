@@ -73,6 +73,8 @@ export interface Subagent {
   current_tool?: string | null;
   /** Background shells the agent started; while one runs, its stop is a pause. */
   shells?: string[];
+  /** When the agent stopped with one of its shells still running; see MAX_PAUSE_MS in the hook. */
+  paused_at?: number | null;
 }
 
 export interface Session {
@@ -384,7 +386,7 @@ export function cleanupStaleSessions(): number {
 
         // Skip PID 0 (unknown) - only session-end can clean those
         if (session.pid > 0 && !isPidAlive(session.pid)) {
-          unlinkSync(path);
+          withSessionLock(path, () => unlinkSync(path));
           removed++;
         }
       } catch {

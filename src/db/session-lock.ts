@@ -1,5 +1,4 @@
-import { openSync, writeSync, closeSync, readFileSync, statSync, unlinkSync, renameSync } from "fs";
-import { randomBytes } from "crypto";
+import { openSync, writeSync, closeSync, readFileSync, statSync, unlinkSync, renameSync, linkSync } from "fs";
 
 /**
  * Every writer of a session JSON — the hook's processes and the server alike —
@@ -15,7 +14,8 @@ const STALE_MS = 3_000;
 const WAIT_MS = 1_000;
 
 const sleeper = new Int32Array(new SharedArrayBuffer(4));
-function sleep(ms: number): void {
+/** Block the thread: the hook is synchronous, and the server's waits are a few ms. */
+export function sleep(ms: number): void {
   Atomics.wait(sleeper, 0, 0, ms);
 }
 
@@ -25,7 +25,8 @@ function code(e: unknown): string | undefined {
 
 /** Take the lock, or answer null when it stayed held past `WAIT_MS`. */
 function acquire(lockPath: string): string | null {
-  const token = `${process.pid}:${randomBytes(6).toString("hex")}`;
+  // Unique among the writers holding it at once; crypto would only slow the hook's start.
+  const token = `${process.pid}:${Date.now()}:${Math.random()}`;
   const deadline = Date.now() + WAIT_MS;
   let backoff = 2;
   for (;;) {
@@ -45,16 +46,22 @@ function acquire(lockPath: string): string | null {
 }
 
 /**
- * Move a stale lock aside before removing it: of two writers that both find it
- * stale, only one rename succeeds, so the other cannot delete the lock the
- * first then takes.
+ * Move a stale lock aside before removing it. Two writers can both find it
+ * stale; the first moves it and takes a fresh lock, and the second's rename
+ * may then move that fresh one. So the moved file is checked again: a fresh
+ * lock is put back (a link fails rather than overwrite one taken since) and
+ * only a stale one is removed.
  */
 function breakIfStale(lockPath: string): void {
   try {
     if (Date.now() - statSync(lockPath).mtimeMs < STALE_MS) return;
     const aside = `${lockPath}.${process.pid}.stale`;
     renameSync(lockPath, aside);
-    unlinkSync(aside);
+    try {
+      if (Date.now() - statSync(aside).mtimeMs < STALE_MS) linkSync(aside, lockPath);
+    } finally {
+      unlinkSync(aside);
+    }
   } catch {
     // Released or broken by someone else meanwhile.
   }

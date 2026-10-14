@@ -143,6 +143,29 @@ describe("hook: subagents", () => {
     expect(session().subagents[0]).toMatchObject({ state: "done", description: "Sleepy", ended_at: expect.any(Number) });
   });
 
+  it("ends a paused agent once its pause has run past half an hour", () => {
+    spawnAgent("toolu_bg", "Left a server running");
+    runHook({ hook_event_name: "SubagentStart", agent_id: "bg", agent_type: "Explore" });
+    runHook({ hook_event_name: "PostToolUse", agent_id: "bg", tool_name: "Bash", tool_response: { backgroundTaskId: "dev" } });
+    runHook({ hook_event_name: "SubagentStop", agent_id: "bg", agent_type: "Explore", background_tasks: [{ id: "dev", type: "shell", status: "running" }] });
+    const s = session();
+    expect(s.subagents[0].state).toBe("running");
+
+    const longAgo = Date.now() - 31 * 60 * 1000;
+    s.subagents[0].paused_at = longAgo;
+    writeFileSync(join(home, ".claude-mux", "sessions", "s1.json"), JSON.stringify(s));
+    runHook({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "/x" } });
+    expect(session().subagents[0]).toMatchObject({ state: "done", ended_at: longAgo });
+  });
+
+  it("leaves a failed agent failed when a start under its id arrives", () => {
+    spawnAgent("toolu_1", "Doomed");
+    runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });
+    runHook({ hook_event_name: "PostToolUseFailure", tool_name: "Agent", tool_use_id: "toolu_1", error: "boom" });
+    runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });
+    expect(session().subagents[0].state).toBe("failed");
+  });
+
   it("ends an agent whose stop lists only the parent's own shells", () => {
     spawnAgent("toolu_1", "Quick");
     runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });

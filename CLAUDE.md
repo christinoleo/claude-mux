@@ -105,7 +105,9 @@ ps happen before the lock, never under it. A background agent can also end
 its turn while a shell it started still runs; the shell's end wakes it with a
 second `SubagentStart` under the same id. The agent's own `PostToolUse` names
 each such shell (`backgroundTaskId`, kept as the agent's `shells`), and while
-one is listed in a stop's `background_tasks` the agent stays `running`.
+one is listed in a stop's `background_tasks` the agent stays `running`, for
+at most half an hour (a dev server it left behind never ends). Deletes take the
+lock too, and a hook that finds its session gone under the lock writes nothing.
 
 ### 2. SvelteKit Web Server + WebSocket
 The web server (`web/`) is built with SvelteKit and svelte-adapter-bun:
