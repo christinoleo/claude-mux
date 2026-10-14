@@ -380,22 +380,19 @@ export class FleetState {
   }
 
   private changed(): void {
-    for (const listener of this.listeners) {
-      try {
-        listener();
-      } catch (err) {
-        console.error("[fleet] listener failed:", err);
-      }
-    }
-    this.schedulePersist();
+    this.notify(this.listeners, "listener");
   }
 
   private pastChanged(): void {
-    for (const listener of this.pastListeners) {
+    this.notify(this.pastListeners, "past listener");
+  }
+
+  private notify(listeners: Set<() => void>, what: string): void {
+    for (const listener of listeners) {
       try {
         listener();
       } catch (err) {
-        console.error("[fleet] past listener failed:", err);
+        console.error(`[fleet] ${what} failed:`, err);
       }
     }
     this.schedulePersist();

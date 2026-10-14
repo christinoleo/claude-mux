@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod/v4";
+import { findDeepestProject } from "./fleet-projects.js";
 
 /** One past session, as a machine publishes it with its fleet state. */
 export const PastSessionSchema = z.object({
@@ -43,12 +44,10 @@ export function pastByRoot(
   live: ReadonlySet<string>
 ): Map<string, PastSession[]> {
   const out = new Map<string, PastSession[]>();
+  const named = roots.filter(Boolean);
   for (const p of past) {
     if (live.has(p.id) || !p.cwd) continue;
-    let best: string | null = null;
-    for (const root of roots) {
-      if (root && (p.cwd === root || p.cwd.startsWith(`${root}/`)) && (!best || root.length > best.length)) best = root;
-    }
+    const best = findDeepestProject(p.cwd, named);
     if (best === null) continue;
     const list = out.get(best);
     if (list) list.push(p);

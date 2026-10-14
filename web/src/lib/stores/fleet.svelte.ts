@@ -19,7 +19,7 @@
 import { browser } from '$app/environment';
 import { onMount } from 'svelte';
 import { fleetPrefsStore } from './fleet-prefs.svelte';
-import { MACHINE_FILTER } from '$shared/fleet-prefs.js';
+import { MACHINE_FILTER, settledKey } from '$shared/fleet-prefs.js';
 import { formatAgo } from '$lib/format';
 import { sessionStore, type Session } from './sessions.svelte';
 import { serverStore } from './servers.svelte';
@@ -233,6 +233,20 @@ export function routeMachine(host: () => string | null) {
  */
 export function apiBase(machine: Machine): string {
 	return machine.local ? '' : `/fleet/${encodeURIComponent(machine.server.id)}`;
+}
+
+/** How a machine is told apart in the merge and in its settled keys: its id, or its name before the id is known. */
+export function machineKey(machine: Machine): string {
+	return machine.server.id || machine.server.hostname;
+}
+
+/** Whether a session was settled by hand, a fleet preference (`settledKey()`). */
+export function isSettled(machine: Machine, sessionId: string): boolean {
+	return fleetPrefsStore.get<boolean>(settledKey(machineKey(machine), sessionId), false) === true;
+}
+
+export function setSettled(machine: Machine, sessionId: string, settled: boolean): void {
+	void fleetPrefsStore.set(settledKey(machineKey(machine), sessionId), settled);
 }
 
 /** "seen 3m ago", or "seen just now". */

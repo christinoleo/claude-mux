@@ -21,6 +21,7 @@ import type { ProjectReport } from '$shared/fleet-projects.js';
 import type { PluginsReport } from '$shared/fleet-plugins.js';
 import type { PastSession } from '$shared/past-session.js';
 export { asking } from '$shared/session-notifications.js';
+export { findDeepestProject } from '$shared/fleet-projects.js';
 
 const savedProjectsStore = createPersisted<string[]>('claude-mux-projects', []);
 
@@ -162,8 +163,8 @@ class SessionStore extends ReliableWebSocket {
 	fleet = $state<FleetMachineInfo[]>([]);
 	selfId = $state('');
 	/** This machine's past sessions (`src/transcript/past-sessions.ts`), and every other machine's by id. */
-	past = $state<PastSession[]>([]);
-	fleetPast = $state<Record<string, PastSession[]>>({});
+	past = $state.raw<PastSession[]>([]);
+	fleetPast = $state.raw<Record<string, PastSession[]>>({});
 
 	protected getWsUrl(): string {
 		const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -472,12 +473,3 @@ export function postVisit(base: string, id: string, unread = false): void {
 	}).catch(() => {});
 }
 
-export function findDeepestProject(path: string, projects: Iterable<string>): string | null {
-	let best: string | null = null;
-	for (const p of projects) {
-		if (path === p || path.startsWith(p + '/')) {
-			if (!best || p.length > best.length) best = p;
-		}
-	}
-	return best;
-}

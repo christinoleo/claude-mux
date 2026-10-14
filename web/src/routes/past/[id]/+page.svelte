@@ -3,7 +3,7 @@
 	 * A past session (GLOSSARY.md): a conversation whose transcript is on its
 	 * machine's disk with no pane. Its transcript reads here as a session's
 	 * does, and nothing starts until Resume, which continues it on that
-	 * machine, in its folder (`requestResume()`). A session already running is
+	 * machine, in its folder (`resumePast()`). A session already running is
 	 * opened instead, and a machine that is off keeps Resume until it is back.
 	 *
 	 * The entries come over the same transcript socket a live session uses,
@@ -19,13 +19,11 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { drawer } from '$lib/stores/drawer.svelte';
-	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
 	import { blockedReason, fleetStore, routeMachine } from '$lib/stores/fleet.svelte';
 	import { sessionPath } from '$lib/session-route';
 	import { formatAgo } from '$lib/format';
 	import { pastLabel } from '$shared/past-session.js';
-	import { settledKey } from '$shared/fleet-prefs.js';
-	import { requestResume } from '$lib/past-resume';
+	import { resumePast } from '$lib/past-resume';
 
 	const id = $derived(decodeURIComponent($page.params.id ?? ''));
 	const route = routeMachine(() => $page.params.machine ?? null);
@@ -69,20 +67,16 @@
 	async function resume(cwd?: string) {
 		busy = true;
 		error = null;
-		const result = await requestResume(base, id, cwd);
+		const result = await resumePast(machine, base, id, cwd);
 		busy = false;
-		if (result.kind === 'folder-gone') {
-			if (result.root && !cwd) gone = { cwd: result.cwd, root: result.root };
-			else error = `${result.cwd ?? 'The folder it ran in'} is gone, and no project folder holds it.`;
+		if (result.kind === 'offer-root') {
+			gone = { cwd: result.cwd, root: result.root };
 			return;
 		}
 		if (result.kind === 'error') {
 			error = result.message;
 			return;
 		}
-		// Back among the live ones, should it have been settled before it ended.
-		const key = machine ? settledKey(machine.server.id || machine.server.hostname, id) : null;
-		if (key && fleetPrefsStore.get<boolean>(key, false)) void fleetPrefsStore.set(key, false);
 		void goto(sessionPath({ host: remoteHost, target: result.tmuxTarget }));
 	}
 
@@ -102,10 +96,11 @@
 		<div class="what">
 			<h1 title={past?.prompt ?? undefined}>{title}</h1>
 			{#if past}
+				{@const ago = formatAgo(past.lastActivity, clock.now)}
 				<p class="sub">
 					{past.cwd ?? 'folder unknown'}{#if past.branch}<span class="branch">{past.branch}</span>{/if}
 					{#if machine && (remoteHost || fleetStore.fleet)}<span>on {machine.server.hostname}</span>{/if}
-					<span>{formatAgo(past.lastActivity, clock.now) === 'now' ? 'active just now' : `last active ${formatAgo(past.lastActivity, clock.now)} ago`}</span>
+					<span>{ago === 'now' ? 'active just now' : `last active ${ago} ago`}</span>
 				</p>
 			{/if}
 		</div>

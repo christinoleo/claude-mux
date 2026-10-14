@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { localRef, machineBase, parseSessionPath, relayBase, sessionPath } from "../../web/src/lib/session-route.js";
+import { isPastPath, localRef, machineBase, parseSessionPath, pastPath, relayBase, sessionPath } from "../../web/src/lib/session-route.js";
 import { paneUrl, singleUrl } from "../../web/src/lib/split-refs.js";
 
 const servers = [
@@ -132,4 +132,15 @@ describe("paneUrl", () => {
     const listed = [...servers, { id: "c3", hostname: "Distilo", url: "x" }];
     expect(paneUrl({ host: "c3", target: "m:1.0" }, listed, "distilo")).toBe("/session/m%3A1.0?embed=1");
   });
+});
+
+describe('pastPath', () => {
+	it("names another machine's past session by its machine, and is told apart from a session's page", () => {
+		expect(pastPath(null, 'abc-1')).toBe('/past/abc-1');
+		expect(pastPath('engage', 'abc-1')).toBe('/m/engage/past/abc-1');
+		expect(isPastPath('/m/engage/past/abc-1')).toBe(true);
+		expect(isPastPath('/past/abc-1')).toBe(true);
+		expect(isPastPath('/session/main:1.0')).toBe(false);
+		expect(parseSessionPath('/past/abc-1')).toBeNull();
+	});
 });

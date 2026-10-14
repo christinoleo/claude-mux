@@ -307,3 +307,12 @@ export function siteIconUrl(html: string, pageUrl: string): string {
     return new URL("/favicon.ico", pageUrl).href;
   }
 }
+
+/** The deepest of `projects` that is `path` or holds it; null when none does. */
+export function findDeepestProject(path: string, projects: Iterable<string>): string | null {
+  let best: string | null = null;
+  for (const p of projects) {
+    if ((path === p || path.startsWith(p + "/")) && (!best || p.length > best.length)) best = p;
+  }
+  return best;
+}

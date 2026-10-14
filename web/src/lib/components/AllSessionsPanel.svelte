@@ -11,7 +11,19 @@
 		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
-	import { apiBase, blockedReason, fleetStore, liveCount, offlineReason, reachable, selfName, type Machine } from '$lib/stores/fleet.svelte';
+	import {
+		apiBase,
+		blockedReason,
+		fleetStore,
+		isSettled,
+		liveCount,
+		machineKey,
+		offlineReason,
+		reachable,
+		selfName,
+		setSettled,
+		type Machine
+	} from '$lib/stores/fleet.svelte';
 	import { localRef, parseSessionPath, pastPath, sessionPath } from '$lib/session-route';
 	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
 	import DiffBadge from '$lib/components/DiffBadge.svelte';
@@ -40,9 +52,9 @@
 	import { STORAGE_KEYS } from '$lib/constants';
 	import { createPersisted } from '$lib/stores/persisted';
 	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
-	import { RAIL_ORDER, settledKey } from '$shared/fleet-prefs.js';
+	import { RAIL_ORDER } from '$shared/fleet-prefs.js';
 	import { pastByRoot, pastLabel, SETTLED_SHOWN, type PastSession } from '$shared/past-session.js';
-	import { requestResume } from '$lib/past-resume';
+	import { resumePast } from '$lib/past-resume';
 	import { formatAgo } from '$lib/format';
 	import { guessReport, isHomeDir, mergeProjects, projectHue, projectInitials } from '$shared/fleet-projects.js';
 	import { machineMarks, matchesQuery, moveTile, railOrder, type MachineMark } from '$shared/fleet-rail.js';
@@ -192,6 +204,8 @@
 		live: number;
 		/** Each machine and root that holds it, one per line, for a tooltip. */
 		where: string;
+		/** Its past sessions from every place it is held, newest first. */
+		past: { place: Place; past: PastSession }[];
 	}
 
 	const tmuxPanes = $derived(tmuxPanesStore.panes);
@@ -395,34 +409,20 @@
 		return machine.server.hostname || 'this machine';
 	}
 
-	/** How a machine is told apart in the merge: its id, or its name before the id is known. */
-	function machineKey(machine: Machine): string {
-		return machine.server.id || machine.server.hostname;
-	}
-
 	function placeKey(machine: Machine, root: string): string {
 		return `${machineKey(machine)}\0${root}`;
 	}
 
 	// ── Settled ──────────────────────────────────────────────────────────────
 
-	/** Whether a session was settled by hand, a fleet preference (`settledKey()`). */
-	function isSettled(machine: Machine, sessionId: string): boolean {
-		return fleetPrefsStore.get<boolean>(settledKey(machineKey(machine), sessionId), false) === true;
-	}
-
 	/**
 	 * Settle a live session: it moves to Settled on every link, and its machine
 	 * ends it when Claude Code sits idle at its prompt (`settleCloses()`);
 	 * anything else keeps running there.
 	 */
-	function settle(machine: Machine, s: Session) {
-		void fleetPrefsStore.set(settledKey(machineKey(machine), s.id), true);
-		void fetch(`${apiBase(machine)}/api/sessions/${encodeURIComponent(s.id)}/settle`, { method: 'POST' }).catch(() => {});
-	}
-
-	function unsettle(machine: Machine, s: Session) {
-		void fleetPrefsStore.set(settledKey(machineKey(machine), s.id), false);
+	function settle(machine: Machine, id: string) {
+		setSettled(machine, id, true);
+		void fetch(`${apiBase(machine)}/api/sessions/${encodeURIComponent(id)}/settle`, { method: 'POST' }).catch(() => {});
 	}
 
 	/** Which projects' Settled sections are open; each starts folded. */
@@ -440,24 +440,32 @@
 	/** Where a dragged row would land: a project's Settled header, or its live list. */
 	let dropOn = $state<'settled' | 'live' | null>(null);
 
-	function dropSettle(e: DragEvent) {
-		const d = dragged;
-		dropOn = null;
-		if (!d || isSettled(d.machine, d.session.id)) return;
-		e.preventDefault();
-		settle(d.machine, d.session);
+	/** Whether the dragged row can land there: a live one on Settled, a settled one back on the list. */
+	function canDrop(to: 'settled' | 'live'): boolean {
+		return !!dragged && isSettled(dragged.machine, dragged.session.id) === (to === 'live');
 	}
-	function dropUnsettle(e: DragEvent) {
-		const d = dragged;
-		dropOn = null;
-		if (!d || !isSettled(d.machine, d.session.id)) return;
+	function dragOver(e: DragEvent, to: 'settled' | 'live') {
+		if (!canDrop(to)) return;
 		e.preventDefault();
-		unsettle(d.machine, d.session);
+		dropOn = to;
+	}
+	function drop(e: DragEvent, to: 'settled' | 'live') {
+		const d = dragged;
+		const ok = canDrop(to);
+		dropOn = null;
+		if (!d || !ok) return;
+		e.preventDefault();
+		if (to === 'settled') settle(d.machine, d.session.id);
+		else setSettled(d.machine, d.session.id, false);
+	}
+
+	function pastHref(machine: Machine, p: PastSession): string {
+		return pastPath(machine.local ? null : machine.server.hostname, p.id);
 	}
 
 	/** Open a past session's page, where its transcript is read before anything restarts. */
 	function openPast(machine: Machine, p: PastSession) {
-		goto(pastPath(machine.local ? null : machine.server.hostname, p.id));
+		goto(pastHref(machine, p));
 		onSessionSelect?.();
 	}
 
@@ -467,12 +475,8 @@
 	 * agrees. A session running already is opened instead.
 	 */
 	async function resume(machine: Machine, p: PastSession, cwd?: string) {
-		const result = await requestResume(apiBase(machine), p.id, cwd);
-		if (result.kind === 'folder-gone') {
-			if (!result.root || cwd) {
-				alert(`${result.cwd ?? 'The folder it ran in'} is gone, and no project folder holds it.`);
-				return;
-			}
+		const result = await resumePast(machine, apiBase(machine), p.id, cwd);
+		if (result.kind === 'offer-root') {
 			const root = result.root;
 			showConfirm('Folder is gone', `${result.cwd} no longer exists. Resume “${pastLabel(p)}” in ${root}?`, () => void resume(machine, p, root));
 			return;
@@ -481,16 +485,7 @@
 			alert(result.message);
 			return;
 		}
-		// Back to the list it came from, should it have been settled before it ended.
-		if (isSettled(machine, p.id)) void fleetPrefsStore.set(settledKey(machineKey(machine), p.id), false);
 		goToSession(machine, result.tmuxTarget);
-	}
-
-	/** A project's past sessions from every place it is held, newest first. */
-	function pastOf(card: Card): { place: Place; past: PastSession }[] {
-		return card.places
-			.flatMap((place) => place.past.map((past) => ({ place, past })))
-			.sort((a, b) => b.past.lastActivity - a.past.lastActivity);
 	}
 
 	/** A project's icon, from the machine that has it. */
@@ -547,7 +542,10 @@
 				reachable: places.filter((p) => reachable(p.machine)),
 				spans: new Set(places.map((p) => p.machine)).size > 1,
 				live: places.reduce((n, p) => n + p.rows.filter((r) => !r.orchestrator).length, 0),
-				where: places.map((p) => `${p.machine.server.hostname}:${p.root}`).join('\n')
+				where: places.map((p) => `${p.machine.server.hostname}:${p.root}`).join('\n'),
+				past: places
+					.flatMap((place) => place.past.map((past) => ({ place, past })))
+					.sort((a, b) => b.past.lastActivity - a.past.lastActivity)
 			});
 		}
 		// The rail is in the person's order (`railOrder()`): a project it has
@@ -673,12 +671,15 @@
 			});
 		}
 		for (const card of cards) {
-			for (const { place, past } of pastOf(card)) {
+			for (const { place, past } of card.past) {
 				items.push({
 					id: `past:${place.key}:${past.id}`,
 					kind: 'past',
 					title: pastLabel(past),
-					detail: `${card.name} · ${formatAgo(past.lastActivity, clock.now)}`,
+					// A getter, so only the rows drawn read the clock, not the whole list each second.
+					get detail() {
+						return `${card.name} · ${formatAgo(past.lastActivity, clock.now)}`;
+					},
 					fields: [past.prompt, past.title, past.cwd, past.branch, card.name, place.machine.server.hostname],
 					machine: fleetStore.fleet ? markOf(place.machine) : null,
 					off: !reachable(place.machine),
@@ -1024,8 +1025,8 @@
 		menu={[
 			...(s.tmux_target && !splitStore.active ? panelMenu(machine, s.tmux_target) : []),
 			isSettled(machine, s.id)
-				? { label: 'Un-settle', icon: 'mdi:tray-arrow-up', run: () => unsettle(machine, s) }
-				: { label: 'Settle', icon: 'mdi:tray-arrow-down', run: () => settle(machine, s) }
+				? { label: 'Un-settle', icon: 'mdi:tray-arrow-up', run: () => setSettled(machine, s.id, false) }
+				: { label: 'Settle', icon: 'mdi:tray-arrow-down', run: () => settle(machine, s.id) }
 		]}
 		machine={marked ? markOf(machine) : null}
 		{offline}
@@ -1189,14 +1190,9 @@
 		class="livezone"
 		class:drop={dropOn === 'live'}
 		role="list"
-		ondragover={(e) => {
-			if (dragged && isSettled(dragged.machine, dragged.session.id)) {
-				e.preventDefault();
-				dropOn = 'live';
-			}
-		}}
+		ondragover={(e) => dragOver(e, 'live')}
 		ondragleave={() => (dropOn = null)}
-		ondrop={dropUnsettle}
+		ondrop={(e) => drop(e, 'live')}
 	>
 		{#each card.places as place (place.key)}
 			{@render placeRows(place, card.spans, true)}
@@ -1209,7 +1205,7 @@
 
 {#snippet settledSection(card: Card)}
 	{@const settledRows = card.places.flatMap((place) => place.settled.map((session) => ({ place, session })))}
-	{@const past = pastOf(card)}
+	{@const past = card.past}
 	{@const open = settledOpen.has(card.key)}
 	{@const shown = settledAll.has(card.key) ? past : past.slice(0, SETTLED_SHOWN)}
 	{#if settledRows.length + past.length > 0 || dragged}
@@ -1220,14 +1216,9 @@
 				class="shead"
 				class:drop={dropOn === 'settled'}
 				aria-expanded={open}
-				ondragover={(e) => {
-					if (dragged && !isSettled(dragged.machine, dragged.session.id)) {
-						e.preventDefault();
-						dropOn = 'settled';
-					}
-				}}
+				ondragover={(e) => dragOver(e, 'settled')}
 				ondragleave={() => (dropOn = null)}
-				ondrop={dropSettle}
+				ondrop={(e) => drop(e, 'settled')}
 				onclick={() => (settledOpen = toggleIn(settledOpen, card.key))}
 			>
 				<iconify-icon class="chev" class:open icon="mdi:chevron-right"></iconify-icon>
@@ -1250,7 +1241,7 @@
 							{#snippet child({ props })}
 								<a
 									{...props}
-									href={pastPath(place.machine.local ? null : place.machine.server.hostname, p.id)}
+									href={pastHref(place.machine, p)}
 									class="row past"
 									class:off
 									title={off ? `${pastLabel(p)} · resume when ${machineLabel(place.machine)} is back` : `${pastLabel(p)}${p.branch ? ` · ${p.branch}` : ''}`}

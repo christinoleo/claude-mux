@@ -16,9 +16,10 @@
  */
 
 import { open, readdir, readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { type PastSession } from "../past-session.js";
+import { parseSlashCommand } from "./parser.js";
+import { projectsRoot } from "./tailer.js";
 
 
 /** How much of each end of a transcript is read. */
@@ -28,10 +29,6 @@ export const MAX_LABEL = 160;
 
 const SESSION_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i;
 
-/** Where Claude Code keeps every project's transcripts. Read at call time: the tests move HOME. */
-export function projectsRoot(): string {
-  return join(homedir(), ".claude", "projects");
-}
 
 type Entry = Record<string, unknown>;
 
@@ -80,11 +77,8 @@ export function promptText(entry: Entry): string | null {
     text = block.text;
   }
   if (!text?.trim()) return null;
-  const command = text.match(/<command-name>([^<]*)<\/command-name>/);
-  if (command) {
-    const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1]?.trim();
-    return clip(args ? `${command[1].trim()} ${args}` : command[1].trim());
-  }
+  const command = parseSlashCommand(text);
+  if (command) return clip(command.args ? `${command.name} ${command.args}` : command.name);
   if (/^\s*<(local-command|command-message|system-reminder|bash-|user-memory)/.test(text) || text.startsWith("Caveat:")) {
     return null;
   }

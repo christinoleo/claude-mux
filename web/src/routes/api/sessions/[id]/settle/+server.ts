@@ -13,8 +13,7 @@ import { endSession } from '$lib/server/end-session.js';
 export const POST: RequestHandler = async ({ params }) => {
 	const id = decodeURIComponent(params.id);
 	const session = (await getEnrichedSessionsAsync()).find((s) => s.id === id);
-	if (!session) return json({ ok: true, closed: false });
-	if (!settleCloses(session)) return json({ ok: true, closed: false });
+	if (!session || !settleCloses(session)) return json({ ok: true, closed: false });
 	endSession(session.id, session.pid, session.tmux_target);
 	return json({ ok: true, closed: true });
 };

@@ -33,6 +33,11 @@ export function pastPath(host: string | null, id: string): string {
 	return `${machine}/past/${encodeURIComponent(id)}`;
 }
 
+/** Whether a pathname is a past session's page (`pastPath()`). */
+export function isPastPath(pathname: string): boolean {
+	return /^(?:\/m\/[^/]+)?\/past\/[^/]+$/.test(pathname);
+}
+
 /** The session a pathname shows, or null when it is not a session's page. */
 export function parseSessionPath(pathname: string): SessionRoute | null {
 	const match = /^(?:\/m\/([^/]+))?\/session\/([^/]+)(\/.*)?$/.exec(pathname);

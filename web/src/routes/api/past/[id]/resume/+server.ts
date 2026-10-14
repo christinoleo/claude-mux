@@ -27,12 +27,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const id = decodeURIComponent(params.id);
 	const body = await request.json().catch(() => ({}));
 	const transcript = findTranscriptById(id);
+	const [sessions, past] = await Promise.all([
+		getEnrichedSessionsAsync(),
+		transcript ? readPastSession(transcript) : null
+	]);
 	const plan = planResume({
 		id,
 		cwd: typeof body?.cwd === 'string' && body.cwd ? body.cwd : null,
-		sessions: await getEnrichedSessionsAsync(),
+		sessions,
 		transcript,
-		ranIn: transcript ? ((await readPastSession(transcript))?.cwd ?? null) : null,
+		ranIn: past?.cwd ?? null,
 		projects: getSavedProjects(),
 		isDir
 	});

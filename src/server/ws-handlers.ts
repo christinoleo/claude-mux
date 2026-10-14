@@ -657,6 +657,8 @@ export class SessionsWsManager {
 	/** The sessions the last broadcast listed, which are not past. */
 	private liveIds: Set<string> | null = null;
 	private lastPastHash = '';
+	/** What the last past check saw, so a tick that changed neither skips the filter and the hash. */
+	private lastPastInput: { all: PastSession[]; live: string } | null = null;
 	private pastTimer: ReturnType<typeof setInterval> | null = null;
 	private stopFleetPast: (() => void) | null = null;
 
@@ -735,7 +737,7 @@ export class SessionsWsManager {
 					this.sendToClient(client, this.createFleetPastMessage(this.fleetSource));
 				}
 				if (this.prefsSource) this.sendToClient(client, this.createPrefsMessage(this.prefsSource));
-				if (this.pastAll && this.liveIds) this.sendToClient(client, this.createPastMessage(this.pastAll));
+				if (this.pastAll && this.liveIds) this.sendToClient(client, this.createPastMessage(this.pastAll, this.liveIds));
 			}
 		});
 		return true;
@@ -761,8 +763,8 @@ export class SessionsWsManager {
 	 * the broadcast holds. Sent to every client, so a peer keeps them in its
 	 * fleet state and a page lists them, on connect and whenever they change.
 	 */
-	private createPastMessage(all: PastSession[]) {
-		return { type: 'past' as const, sessions: withoutLive(all, this.liveIds ?? new Set()), timestamp: Date.now() };
+	private createPastMessage(all: PastSession[], live: ReadonlySet<string>) {
+		return { type: 'past' as const, sessions: withoutLive(all, live), timestamp: Date.now() };
 	}
 
 	private async refreshPast(): Promise<void> {
@@ -778,7 +780,10 @@ export class SessionsWsManager {
 	private broadcastPastIfChanged(): void {
 		// Not before the sessions are known, or a live one would pass for past.
 		if (!this.pastAll || !this.liveIds || this.clients.size === 0) return;
-		const message = this.createPastMessage(this.pastAll);
+		const live = [...this.liveIds].sort().join('\n');
+		if (this.lastPastInput?.all === this.pastAll && this.lastPastInput.live === live) return;
+		this.lastPastInput = { all: this.pastAll, live };
+		const message = this.createPastMessage(this.pastAll, this.liveIds);
 		const hash = JSON.stringify(message.sessions);
 		if (hash === this.lastPastHash) return;
 		this.lastPastHash = hash;
@@ -885,6 +890,7 @@ export class SessionsWsManager {
 				this.pastTimer = null;
 			}
 			this.lastPastHash = '';
+			this.lastPastInput = null;
 		}
 	}
 

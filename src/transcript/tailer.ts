@@ -24,7 +24,7 @@ export function transcriptPathFor(cwd: string, sessionId: string): string {
 }
 
 // Read at call time, not at module load: the tests point HOME at a temp dir.
-function projectsRoot(): string {
+export function projectsRoot(): string {
   return join(homedir(), ".claude", "projects");
 }
 
