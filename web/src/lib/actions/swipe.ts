@@ -36,7 +36,7 @@ const EDGE = 24;
 /** How long after a swipe a click still belongs to it. */
 const CLICK_WINDOW = 500;
 
-type Axis = 'x' | 'y';
+export type Axis = 'x' | 'y';
 
 /**
  * Can this element scroll under the finger, along the axis and the way it is
@@ -60,7 +60,7 @@ function scrollsAlong(el: Element, axis: Axis, forward: boolean): boolean {
 }
 
 /** Does anything between the finger and the node want this gesture instead? */
-function scrollTakesIt(path: Element[], axis: Axis, forward: boolean): boolean {
+export function scrollTakesIt(path: Element[], axis: Axis, forward: boolean): boolean {
 	return path.some(
 		(el) =>
 			// A textarea scrolls its own text without saying so in `overflow`.
@@ -70,7 +70,7 @@ function scrollTakesIt(path: Element[], axis: Axis, forward: boolean): boolean {
 }
 
 /** The finger's element and everything above it, up to and including the node. */
-function pathTo(from: EventTarget | null, node: HTMLElement): Element[] {
+export function pathTo(from: EventTarget | null, node: HTMLElement): Element[] {
 	const path: Element[] = [];
 	for (let el = from instanceof Element ? from : null; el; el = el.parentElement) {
 		path.push(el);

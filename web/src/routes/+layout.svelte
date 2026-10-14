@@ -23,6 +23,8 @@
 	import { fleetStore, selfName } from '$lib/stores/fleet.svelte';
 	import NotificationCoordinator from '$lib/components/NotificationCoordinator.svelte';
 	import { Toaster } from '$lib/components/ui/sonner';
+	import { holdScroll } from '$lib/actions/holdScroll';
+	import { MediaQuery } from 'svelte/reactivity';
 
 	let { children } = $props();
 
@@ -57,6 +59,14 @@
 
 	/** Driven from the session composer's status line, which carries the toggle. */
 	const drawerOpen = $derived(drawer.open);
+	/**
+	 * On a phone the open drawer covers the page, and the page behind must not
+	 * move under it: it is made inert, so nothing there takes a touch or focus,
+	 * and `holdScroll` keeps a drag on the drawer from reaching the document.
+	 * Inert leaves the transcript's scroll position alone.
+	 */
+	const narrow = new MediaQuery('(max-width: 768px)');
+	const drawerCovers = $derived(drawerOpen && narrow.current);
 	let sidebarElement: HTMLElement | null = $state(null);
 	let touchStartX = 0;
 	let touchCurrentX = 0;
@@ -246,6 +256,7 @@
 			ontouchstart={handleTouchStart}
 			ontouchmove={handleTouchMove}
 			ontouchend={handleTouchEnd}
+			use:holdScroll={{ enabled: () => drawerCovers }}
 		>
 			<div class="sidebar-content">
 				<AllSessionsPanel compact onSessionSelect={closeDrawer} />
@@ -267,7 +278,7 @@
 			></div>
 		</aside>
 
-		<main class="content">
+		<main class="content" inert={drawerCovers}>
 			{#if splitOn && splitA && splitB}
 				<SplitView a={splitA} b={splitB} />
 			{:else}
