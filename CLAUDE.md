@@ -575,9 +575,12 @@ wins. A project with none is drawn as `projectInitials()` on `projectHue()`,
 a hue from its name chosen from `PROJECT_HUES`, which keep clear of the state
 and machine colours. The sidebar (`AllSessionsPanel.svelte`) draws one card per
 project across the visible machines: the tile (a shadcn `Avatar`, the icon
-with the initials as fallback), and each machine's sessions under a line
-naming it when the project spans several, an offline machine's dimmed and
-`inert` under the "seen X ago" line at the top of the list.
+with the initials as fallback), and each place's sessions under a line
+naming its machine (and its folder, for two checkouts on one machine) when the
+project is held in several, an offline machine's dimmed and `inert` under the
+"seen X ago" line at the top of the list. Closing a project from its card
+closes it on every machine that answers; "Remove" in the new-session dialog
+only where the dialog was opened.
 
 ## Key Data Flow
 

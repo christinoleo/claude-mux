@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -107,6 +107,36 @@ describe("readProject", () => {
     const none = await readProject(root, { home, fetch: fakeFetch({}) });
     expect(none.icon).toBeNull();
     expect(none.report.icon).toBeNull();
+  });
+
+  it("does not take a page served for every path as the site's icon", async () => {
+    const root = join(home, "Projects", "spa");
+    mkdirSync(root, { recursive: true });
+    write(join(root, ".claude-mux.json"), JSON.stringify({ urls: { prod: "https://spa.test/" } }));
+    const fetcher = fakeFetch({
+      "https://spa.test/": { body: "<html><body>app</body></html>", type: "text/html" },
+      "https://spa.test/favicon.ico": { body: "<html><body>app</body></html>", type: "text/html" },
+    });
+    expect((await readProject(root, { home, fetch: fetcher })).icon).toBeNull();
+  });
+
+  it("gives up on an icon larger than an icon can be", async () => {
+    const root = join(home, "Projects", "huge");
+    mkdirSync(root, { recursive: true });
+    write(join(root, ".claude-mux.json"), JSON.stringify({ icon: "https://cdn.test/huge.png" }));
+    const fetcher = fakeFetch({ "https://cdn.test/huge.png": { body: Buffer.alloc(2 * 1024 * 1024), type: "image/png" } });
+    expect((await readProject(root, { home, fetch: fetcher })).icon).toBeNull();
+  });
+
+  it("reads a repo reached through a symlink as the repo itself", async () => {
+    const real = join(home, "real", "repo");
+    gitInit(real, "https://github.com/leo/repo.git");
+    write(join(real, "static/favicon.svg"), "<svg/>");
+    mkdirSync(join(home, "Projects"), { recursive: true });
+    symlinkSync(real, join(home, "Projects", "repo"));
+    const { report, icon } = await readProject(join(home, "Projects", "repo"), { home });
+    expect(report).toMatchObject({ remote: "github.com/leo/repo", sub: "", home: "repo" });
+    expect(icon?.type).toBe("image/svg+xml");
   });
 
   it("names a subfolder of a repo by where it sits in it", async () => {

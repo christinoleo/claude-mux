@@ -13,7 +13,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { open, readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, relative } from "node:path";
 import { imageMimeFor } from "../utils/image-types.js";
@@ -71,18 +71,19 @@ function iconType(path: string): string | null {
 export async function readProject(root: string, deps: ReadDeps = {}): Promise<ProjectRead> {
   const home = confinePath(join(deps.home ?? homedir(), "Projects"), root);
 
-  const repo = await repoRoot(root);
-  const base = repo ?? root;
+  // git names the repo with its symlinks resolved, so the root is compared resolved too.
+  const [repo, real] = await Promise.all([repoRoot(root), realpath(root).catch(() => root)]);
+  const base = repo ?? real;
   const [remote, { config }, files] = await Promise.all([
     repo ? readRemote(repo) : null,
     readProjectConfig(base),
-    findIconFiles(root, repo !== null),
+    findIconFiles(real, repo !== null),
   ]);
-  const sub = repo && remote ? relative(repo, root) : "";
+  const sub = repo && remote ? relative(repo, real) : "";
   const sources = iconSources({
     configIcon: config?.icon,
-    // Found under `root`; read from `base`, where the config's paths start too.
-    files: files.map((f) => ({ ...f, path: relative(base, join(root, f.path)) })),
+    // Found under the root; read from `base`, where the config's paths start too.
+    files: files.map((f) => ({ ...f, path: relative(base, join(real, f.path)) })),
     prodUrl: config?.urls.prod ?? null,
   });
 
@@ -185,13 +186,39 @@ async function readIconFile(base: string, path: string): Promise<ProjectIcon | n
   }
 }
 
-async function fetchBody(url: string, fetcher: typeof fetch, limit: number): Promise<{ bytes: Uint8Array<ArrayBuffer>; type: string } | null> {
+interface Fetched {
+  bytes: Uint8Array<ArrayBuffer>;
+  type: string;
+  /** Where the response came from, after redirects. */
+  url: string;
+}
+
+/** A response's body, given up on once it passes `limit` bytes rather than read whole first. */
+async function fetchBody(url: string, fetcher: typeof fetch, limit: number): Promise<Fetched | null> {
   try {
     const res = await fetcher(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: "follow" });
-    if (!res.ok) return null;
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.length === 0 || bytes.length > limit) return null;
-    return { bytes, type: (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase() };
+    if (!res.ok || !res.body) return null;
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > limit) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+    if (size === 0) return null;
+    const bytes = new Uint8Array(size);
+    let at = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, at);
+      at += chunk.length;
+    }
+    return { bytes, type: (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase(), url: res.url || url };
   } catch {
     return null;
   }
@@ -202,7 +229,10 @@ async function fetchIcon(url: string, fetcher: typeof fetch): Promise<ProjectIco
   if (!body) return null;
   let type = body.type;
   if (!type.startsWith("image/")) {
-    // Some servers send an icon as octet-stream; the name still says what it is.
+    // Some servers send an icon as octet-stream, or with no type at all; the
+    // name still says what it is. Anything else (an app's index.html served
+    // for every path) is not an icon.
+    if (type && type !== "application/octet-stream") return null;
     type = iconType(new URL(url).pathname) ?? "";
   }
   return type ? { bytes: body.bytes, type } : null;
@@ -211,7 +241,8 @@ async function fetchIcon(url: string, fetcher: typeof fetch): Promise<ProjectIco
 async function fetchSiteIcon(pageUrl: string, fetcher: typeof fetch): Promise<ProjectIcon | null> {
   const page = await fetchBody(pageUrl, fetcher, MAX_PAGE_BYTES);
   const html = page && page.type.includes("html") ? new TextDecoder().decode(page.bytes) : "";
-  return fetchIcon(siteIconUrl(html, pageUrl), fetcher);
+  // Its links are relative to where the page ended up, after any redirect.
+  return fetchIcon(siteIconUrl(html, page?.url ?? pageUrl), fetcher);
 }
 
 // ── the cache the broadcast reads ────────────────────────────────────────────

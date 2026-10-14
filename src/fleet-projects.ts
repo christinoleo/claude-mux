@@ -90,7 +90,9 @@ function repoName(report: ProjectReport): string | null {
  * by the folder on the first machine, the name a person gave it.
  */
 export function projectName(reports: readonly ProjectReport[]): string {
-  const repo = repoName(reports[0]);
+  // A guessed report among them says nothing of the repo; the first real one does.
+  const withRemote = reports.find((r) => r.remote);
+  const repo = withRemote ? repoName(withRemote) : null;
   const folders = reports.map(folderName);
   return repo && folders.includes(repo) ? repo : folders[0];
 }
@@ -103,7 +105,7 @@ export function projectName(reports: readonly ProjectReport[]): string {
  * same name (`mergeProjects()`).
  */
 export function guessReport(root: string): ProjectReport & { guessed: true } {
-  const home = /^\/(?:home|Users)\/[^/]+\/Projects\/(.+)$/.exec(root)?.[1] ?? null;
+  const home = /^(?:\/(?:home|Users)\/[^/]+|\/root)\/Projects\/(.+)$/.exec(root)?.[1] ?? null;
   return { root, remote: null, sub: "", home, icon: null, guessed: true };
 }
 

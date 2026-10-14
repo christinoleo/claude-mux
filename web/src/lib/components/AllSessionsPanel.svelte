@@ -128,7 +128,10 @@
 	function removeFromPicker() {
 		const target = agentPicker;
 		agentPicker = null;
-		if (target?.card) closeProject(target.card);
+		// Only where the dialog was opened: the project stays on its other machines.
+		if (target?.card) {
+			closeProject(target.card, target.card.places.filter((p) => p.machine === target.machine && p.root === target.cwd));
+		}
 	}
 
 	// ── the model: one card per project, across machines ────────────────────
@@ -153,6 +156,8 @@
 		key: string;
 		machine: Machine;
 		root: string;
+		/** How it is told from the project's other places: its machine, and its folder when that machine holds two. */
+		label: string;
 		rows: Row[];
 		dead: Session[];
 		panes: TmuxPane[];
@@ -172,7 +177,7 @@
 		places: Place[];
 		/** The places whose machine answers, where a session can start. */
 		reachable: Place[];
-		/** Whether it is held by more than one of them, so each place says which. */
+		/** Whether it is held in more than one place, so each place says which. */
 		spans: boolean;
 		/** Its live sessions, orchestrators not counted. */
 		live: number;
@@ -354,7 +359,15 @@
 
 		const places = new Map<string, Place>();
 		for (const [root, bucket] of byRoot) {
-			places.set(root, { key: placeKey(machine, root), machine, root, rows: rowsFor(bucket.live, root), dead: bucket.dead, panes: bucket.panes });
+			places.set(root, {
+				key: placeKey(machine, root),
+				machine,
+				root,
+				label: machineLabel(machine),
+				rows: rowsFor(bucket.live, root),
+				dead: bucket.dead,
+				panes: bucket.panes
+			});
 		}
 		return {
 			places,
@@ -362,11 +375,17 @@
 				key: placeKey(machine, ''),
 				machine,
 				root: '',
+				label: machineLabel(machine),
 				dead: [],
 				rows: rowsFor(loose.filter((s) => matches(getSessionDisplayName(s))), null),
 				panes: query.trim() ? loosePanes.filter((p) => matches(p.target)) : loosePanes
 			}
 		};
+	}
+
+	/** A machine's name, as a place under a project says it. */
+	function machineLabel(machine: Machine): string {
+		return machine.server.hostname || 'this machine';
 	}
 
 	/** How a machine is told apart in the merge: its id, or its name before the id is known. */
@@ -403,10 +422,14 @@
 		const cards: Card[] = [];
 		const quiet: Card[] = [];
 		for (const project of projects) {
-			const places = project.places
+			const shown = project.places
 				.filter((p) => visible.has(p.machineId))
 				.map((p) => byKey.get(p.machineId)!.places.get(p.root)!);
-			if (places.length === 0) continue;
+			if (shown.length === 0) continue;
+			// Two checkouts of one repo on one machine are told apart by their folders.
+			const places = shown.map((p) =>
+				shown.some((o) => o !== p && o.machine === p.machine) ? { ...p, label: `${p.label} · ${p.root.split('/').pop()}` } : p
+			);
 			const icon = project.icon;
 			const iconAt = icon && fleetStore.machines.find((m) => machineKey(m) === icon.machineId);
 			const card: Card = {
@@ -418,7 +441,7 @@
 				wants: places.some((p) => p.rows.some((r) => wantsHuman(r.session))),
 				places,
 				reachable: places.filter((p) => p.machine.online),
-				spans: new Set(places.map((p) => p.machine)).size > 1,
+				spans: places.length > 1,
 				live: places.reduce((n, p) => n + p.rows.filter((r) => !r.orchestrator).length, 0),
 				where: places.map((p) => `${p.machine.server.hostname}:${p.root}`).join('\n')
 			};
@@ -581,16 +604,23 @@
 		for (const s of dead) void killSessionReq(machine, s);
 	}
 
-	/** Close a project wherever the list shows it: its sessions killed, its folder taken off each machine's list. */
-	function closeProject(card: Card) {
-		const live = card.live;
+	/**
+	 * Close a project in the given places (every place the list shows, by
+	 * default): its sessions killed, its folder taken off each machine's list.
+	 * An offline machine cannot be asked, so its place is left as it is.
+	 */
+	function closeProject(card: Card, among: Place[] = card.places) {
+		const places = among.filter((p) => p.machine.online);
+		if (places.length === 0) return;
+		const live = places.reduce((n, p) => n + p.rows.filter((r) => !r.orchestrator).length, 0);
+		const where = card.spans ? ` on ${places.map((p) => p.label).join(', ')}` : '';
 		const msg =
 			live > 0
-				? `Kill ${live} session${live === 1 ? '' : 's'} in ${card.name} and remove the project?`
-				: `Remove ${card.name} from the list? Its sessions are gone; the folder stays.`;
+				? `Kill ${live} session${live === 1 ? '' : 's'} in ${card.name}${where} and remove the project?`
+				: `Remove ${card.name}${where} from the list? Its sessions are gone; the folder stays.`;
 		showConfirm('Close project', msg, async () => {
 			await Promise.all(
-				card.places.map(async ({ machine, root, rows, dead }) => {
+				places.map(async ({ machine, root, rows, dead }) => {
 					const sessions = [...rows.filter((r) => !r.orchestrator).map((r) => r.session), ...dead];
 					await Promise.all(sessions.map((s) => killSessionReq(machine, s)));
 					if (machine.local) sessionStore.removeProject(root);
@@ -807,7 +837,7 @@
 	<div class="place" class:off={!!offline} inert={!!offline}>
 		{#if labelled}
 			<div class="pmachine" title={offline ?? (place.root || undefined)}>
-				<span class="dot" class:off={!place.machine.online}></span>{place.machine.server.hostname || 'this machine'}
+				<span class="dot" class:off={!place.machine.online}></span>{place.label}
 			</div>
 		{/if}
 		{#each place.rows as row (row.session.id)}
@@ -866,7 +896,7 @@
 					<Popover.Content class="menu" align="end" sideOffset={6}>
 						{#each reachable as place (place.key)}
 							<button type="button" class="mitem" title={place.root} onclick={() => { newMenu = null; agentPicker = { machine: place.machine, cwd: place.root, card }; }}>
-								<iconify-icon icon="mdi:plus"></iconify-icon>New session on {place.machine.server.hostname || 'this machine'}
+								<iconify-icon icon="mdi:plus"></iconify-icon>New session on {place.label}
 							</button>
 						{/each}
 					</Popover.Content>
@@ -980,7 +1010,7 @@
 								{#each AGENT_IDS as id (id)}
 									{@const meta = AGENTS[id]}
 									<button type="button" class="mitem" onclick={() => { quietMenu = null; void newSessionInProject(place.machine, place.root, id); }}>
-										<iconify-icon icon={meta.icon} style="color: {meta.color};"></iconify-icon>New {meta.label} session{#if card.spans} on {place.machine.server.hostname}{/if}
+										<iconify-icon icon={meta.icon} style="color: {meta.color};"></iconify-icon>New {meta.label} session{#if card.spans} on {place.label}{/if}
 									</button>
 								{/each}
 							{/each}

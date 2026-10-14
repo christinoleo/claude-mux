@@ -102,6 +102,7 @@ describe("matching one project across machines", () => {
       guessed: true,
     });
     expect(guessReport("/home/leo/work").home).toBeNull();
+    expect(guessReport("/root/Projects/x").home).toBe("x");
   });
 
   it("joins an unreported folder to the one repo of its name, as an older machine's must be", () => {
@@ -113,6 +114,17 @@ describe("matching one project across machines", () => {
     expect(projects.map((p) => [p.key, p.name, p.places.map((x) => x.machineId)])).toEqual([
       ["git:github.com/leo/claude-mux", "claude-mux", ["omarchy", "distilo", "engage"]],
       ["dir:quita", "quita", ["distilo"]],
+    ]);
+  });
+
+  it("names a project after its repo even when a guessed folder comes first", () => {
+    const projects = mergeProjects([
+      { id: "omarchy", reports: [guessReport("/home/leo/Projects/claude-watch")] },
+      { id: "distilo", reports: [report("/home/leo/Projects/claude-watch", { remote: "github.com/leo/claude-mux", home: "claude-watch" })] },
+      { id: "engage", reports: [report("/home/leo/Projects/claude-mux", { remote: "github.com/leo/claude-mux", home: "claude-mux" })] },
+    ]);
+    expect(projects.map((p) => [p.name, p.places.map((x) => x.machineId)])).toEqual([
+      ["claude-mux", ["omarchy", "distilo", "engage"]],
     ]);
   });
 
