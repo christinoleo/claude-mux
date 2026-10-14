@@ -22,19 +22,26 @@
 	import { drawer } from '$lib/stores/drawer.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { appendQuote } from '$lib/quote';
+	import { routeMachine } from '$lib/stores/fleet.svelte';
+	import { sessionPath } from '$lib/session-route';
+	import { formatRef } from '$lib/split-refs';
 
 	const target = $derived(decodeURIComponent($page.params.target ?? ''));
 	const agentId = $derived(decodeURIComponent($page.params.agentId ?? ''));
 
-	const session = $derived(
-		sessionStore.sessionByTarget.get(target) ?? sessionStore.sessionById.get(target)
-	);
+	/** The parent's machine, as on the session page: '' here, the relay path elsewhere. */
+	const route = routeMachine(() => $page.params.machine ?? null);
+	const base = $derived(route.base);
+	const remoteHost = $derived(route.remoteHost);
+	const sessions = $derived(remoteHost ? (route.machine?.sessions ?? []) : sessionStore.sessions);
+	const session = $derived(route.session(target));
 	const parentName = $derived(session ? getSessionDisplayName(session) : target);
-	const parentHref = $derived(`/session/${encodeURIComponent(target)}`);
+	const parentHref = $derived(sessionPath({ host: remoteHost, target }));
 
 	/** There is no composer here: the quote joins the parent's draft, and the reader follows it there. */
 	function quoteToParent(text: string) {
-		draftsStore.set(target, appendQuote(draftsStore.get(target), text));
+		const ref = formatRef({ host: remoteHost, target });
+		draftsStore.set(ref, appendQuote(draftsStore.get(ref), text));
 		void goto(`${parentHref}?compose`);
 	}
 
@@ -44,12 +51,14 @@
 	const store = new TranscriptStore();
 	// Held through a sessions-socket reconnect, when the list is briefly
 	// empty: dropping the id would throw away the entries and the scroll.
-	let sessionId = $state<string | null>(null);
+	// It is held with its machine, so moving to another machine's agent does
+	// not open the old id there.
+	let held = $state<{ id: string; base: string } | null>(null);
 	$effect(() => {
-		if (session) sessionId = session.id;
+		if (session) held = { id: session.id, base };
 	});
 	$effect(() => {
-		store.setSession(sessionId, agentId);
+		store.setSession(held?.base === base ? held.id : null, agentId, base);
 	});
 	onDestroy(() => store.setSession(null));
 
@@ -91,9 +100,9 @@
 
 	/** Neither the hooks nor the files have heard of it. */
 	const unknown = $derived(
-		store.receivedData && !store.available && !hooked && sessionStore.sessions.length > 0
+		store.receivedData && !store.available && !hooked && sessions.length > 0
 	);
-	const noSession = $derived(sessionStore.sessions.length > 0 && !session);
+	const noSession = $derived(sessions.length > 0 && !session);
 
 	// ── keep to the newest line while the reader is at the bottom ─────────
 	let scroller: HTMLDivElement | null = $state(null);
@@ -194,6 +203,7 @@
 							loadingEarlier={store.loadingEarlier}
 							onLoadEarlier={() => void loadEarlier()}
 							onQuote={quoteToParent}
+							{base}
 						/>
 					{/key}
 				{/if}

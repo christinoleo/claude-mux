@@ -3,19 +3,26 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { sessionStore } from '$lib/stores/sessions.svelte';
+	import { sessionStore, type Session } from '$lib/stores/sessions.svelte';
 
 	interface Props {
 		/** The session to rename; `null` keeps the dialog closed. */
 		sessionId: string | null;
 		onClose: () => void;
+		/** Another machine's sessions, and the relay path to it; this machine's by default. */
+		sessions?: Session[];
+		base?: string;
 	}
 
-	let { sessionId, onClose }: Props = $props();
+	let { sessionId, onClose, sessions, base = '' }: Props = $props();
 
 	// Looked up rather than passed in, so the dialog reads the live session
 	// instead of a snapshot frozen at the moment the row was clicked.
-	const session = $derived(sessionId ? sessionStore.sessionById.get(sessionId) ?? null : null);
+	const session = $derived.by(() => {
+		if (!sessionId) return null;
+		if (sessions) return sessions.find((s) => s.id === sessionId) ?? null;
+		return sessionStore.sessionById.get(sessionId) ?? null;
+	});
 
 	let value = $state('');
 	let inputEl = $state<HTMLInputElement | null>(null);
@@ -84,7 +91,7 @@
 		onClose();
 		if (!target || next === (target.display_name ?? '')) return;
 		try {
-			await fetch(`/api/sessions/${encodeURIComponent(target.id)}/rename`, {
+			await fetch(`${base}/api/sessions/${encodeURIComponent(target.id)}/rename`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name: next || null })
@@ -103,7 +110,7 @@
 		}
 		onClose();
 		try {
-			await fetch(`/api/sessions/${encodeURIComponent(target.id)}/kill`, {
+			await fetch(`${base}/api/sessions/${encodeURIComponent(target.id)}/kill`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ pid: target.pid, tmux_target: target.tmux_target })

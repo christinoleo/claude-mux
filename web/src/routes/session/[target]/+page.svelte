@@ -31,6 +31,9 @@
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { modelDisplayName } from '$shared/claude/model-name.js';
 	import { serverStore } from '$lib/stores/servers.svelte';
+	import { routeMachine, selfName, sessionApiAt } from '$lib/stores/fleet.svelte';
+	import { parseSessionPath, sessionPath } from '$lib/session-route';
+	import { formatRef } from '$lib/split-refs';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
 	import RenameSessionDialog from '$lib/components/RenameSessionDialog.svelte';
@@ -68,20 +71,54 @@
 	const target = $derived($page.params.target ? decodeURIComponent($page.params.target) : null);
 	const voiceEnabled = $derived(Boolean($page.data.voiceEnabled));
 
-	// Find session state from session store (O(1) Map lookup)
-	const currentSession = $derived(
-		(target ? sessionStore.sessionByTarget.get(target) : undefined) ??
-		(target ? sessionStore.sessionById.get(target) : undefined)
-	);
+	/**
+	 * The machine the route names, `/m/<host>/session/<target>`. Its calls go
+	 * through this server's relay (`base`); this machine's own, named or not,
+	 * go straight here.
+	 */
+	const route = routeMachine(() => $page.params.machine ?? null);
+	const base = $derived(route.base);
+	const remoteHost = $derived(route.remoteHost);
+	/**
+	 * The session as every per-session store keeps it (drafts, attachments,
+	 * views, voice): its target here, `host@target` on another machine,
+	 * since targets repeat across machines.
+	 */
+	const ref = $derived(target ? formatRef({ host: remoteHost, target }) : null);
+	/** A session's API on this page's machine, by id or tmux target. */
+	const api = (id: string) => sessionApiAt(base, id);
 
-	const tmuxPane = $derived(target ? tmuxPanesStore.panes.find((p) => p.target === target) ?? null : null);
+	const currentSession = $derived(route.session(target));
+
+	// Plain (non-Claude) panes are listed only for this machine.
+	const tmuxPane = $derived(
+		target && !remoteHost ? tmuxPanesStore.panes.find((p) => p.target === target) ?? null : null
+	);
 	const isClaudeSession = $derived(currentSession != null);
 	const isPlainPane = $derived(!isClaudeSession && tmuxPane != null);
 	const claudeSessionDead = $derived(
 		isClaudeSession && !!currentSession?.tmux_target && currentSession?.pane_alive === false
 	);
+	/**
+	 * Another machine's session is missing when the origin, whose socket
+	 * carries every machine it follows, has answered without it. That holds a
+	 * while before it counts: a session started from the sidebar is on the
+	 * page before its machine lists it.
+	 */
+	const REMOTE_MISSING_GRACE_MS = 10_000;
+	const remoteGone = $derived(!!remoteHost && !isClaudeSession && sessionStore.receivedData);
+	let remoteMissing = $state(false);
+	$effect(() => {
+		void ref;
+		remoteMissing = false;
+		if (!remoteGone) return;
+		const settle = setTimeout(() => (remoteMissing = true), REMOTE_MISSING_GRACE_MS);
+		return () => clearTimeout(settle);
+	});
 	const targetMissing = $derived(
-		tmuxPanesStore.loaded && sessionStore.sessions.length > 0 && !isClaudeSession && !isPlainPane
+		remoteHost
+			? remoteMissing
+			: tmuxPanesStore.loaded && sessionStore.sessions.length > 0 && !isClaudeSession && !isPlainPane
 	);
 	const paneIsDead = $derived(claudeSessionDead || targetMissing);
 	const isAlive = $derived(!paneIsDead && (isClaudeSession || isPlainPane));
@@ -123,7 +160,7 @@
 		const fresh = lastVisit?.id !== s.id;
 		if (!fresh && (!isUnread(s) || lastVisit!.turn === turn)) return;
 		lastVisit = { id: s.id, turn };
-		postVisit('', s.id);
+		postVisit(base, s.id);
 	});
 	// Inline status next to the title. Skip bare states (idle/busy/etc.)
 	// since the state symbol + color already convey them; only show when
@@ -150,7 +187,7 @@
 	/** Whether this pane runs on the same host as the page outside; a remote one names its host. */
 	let paneLocal = $state(true);
 	/** This host's tailnet name, for the label a pane on another host needs. */
-	const machineName = $derived(embed ? serverStore.self || serverStore.current.hostname : '');
+	const machineName = $derived(embed ? selfName() : '');
 
 	function tellPane(action: 'focus' | 'focus-other' | 'swap' | 'zoom' | 'close' | 'ready') {
 		if (!embed || window.parent === window) return;
@@ -194,12 +231,12 @@
 		if (!canTranscript) return 'terminal';
 		const param = $page.url.searchParams.get('view');
 		if (param === 'terminal' || param === 'transcript') return param;
-		return viewModesStore.get(target);
+		return viewModesStore.get(ref);
 	});
 
 	function toggleView() {
 		const next = viewMode === 'transcript' ? 'terminal' : 'transcript';
-		viewModesStore.set(target, next);
+		viewModesStore.set(ref, next);
 		const params = new URLSearchParams($page.url.searchParams);
 		if (next === 'terminal') params.set('view', 'terminal');
 		else params.delete('view');
@@ -223,7 +260,7 @@
 		const kind = readPanel($page.url.searchParams, PANE_KINDS);
 		return kind && !paneDef(kind)?.unavailable?.(currentSession ?? null) ? kind : null;
 	});
-	const panelPrefs = $derived(sidePanelStore.get(target));
+	const panelPrefs = $derived(sidePanelStore.get(ref));
 	const inlineQuery = new MediaQuery(INLINE_MEDIA_QUERY);
 	const phoneQuery = new MediaQuery(PHONE_MEDIA_QUERY);
 	const panelInline = $derived(inlineQuery.current);
@@ -233,12 +270,12 @@
 	 * the column rather than unmounting it, so reopening finds every pane as
 	 * it was left.
 	 */
-	let panelKept = $state<{ target: string | null; kind: string } | null>(null);
+	let panelKept = $state<{ ref: string | null; kind: string } | null>(null);
 	$effect(() => {
-		if (panelKind) panelKept = { target, kind: panelKind };
+		if (panelKind) panelKept = { ref, kind: panelKind };
 	});
 	const panelColumnKind = $derived(
-		panelKind ?? (panelKept?.target === target ? panelKept.kind : null)
+		panelKind ?? (panelKept?.ref === ref ? panelKept.kind : null)
 	);
 	const panelMaximized = $derived(panelInline && panelKind !== null && panelPrefs.maximized === true);
 	/** The column's width mid-drag; saved to the session's prefs when the drag ends. */
@@ -251,7 +288,7 @@
 	/** Show `kind`'s pane (or close the panel, for null). Opening and closing push history. */
 	function openPanel(kind: string | null) {
 		if (kind === panelKind) return;
-		if (kind) sidePanelStore.update(target, { last: kind });
+		if (kind) sidePanelStore.update(ref, { last: kind });
 		navigateQuery(panelQuery($page.url.searchParams, kind, PANE_PARAMS));
 	}
 
@@ -340,7 +377,7 @@
 		if (turnEnded === null && untrack(() => turnChanges?.id) === id) return;
 		let stale = false;
 		const load = () =>
-			fetch(`/api/sessions/${encodeURIComponent(id)}/changes?source=session`)
+			fetch(`${api(id)}/changes?source=session`)
 				.then((res) => (res.ok ? (res.json() as Promise<Listing>) : null))
 				.then((body) => {
 					if (stale || !body) return;
@@ -363,7 +400,7 @@
 	/** Returns whether it did anything. */
 	function toggleMaximize(): boolean {
 		if (!panelInline || !panelKind) return false;
-		sidePanelStore.update(target, { maximized: !panelPrefs.maximized });
+		sidePanelStore.update(ref, { maximized: !panelPrefs.maximized });
 		return true;
 	}
 
@@ -376,7 +413,7 @@
 	}
 
 	function endPanelResize() {
-		if (panelDragWidth !== null) sidePanelStore.update(target, { width: panelDragWidth });
+		if (panelDragWidth !== null) sidePanelStore.update(ref, { width: panelDragWidth });
 		panelDragWidth = null;
 	}
 
@@ -407,7 +444,7 @@
 	 * A queued message loaded into the composer. What was typed before is put
 	 * aside and comes back once the edit is saved or cancelled.
 	 */
-	let editing = $state<{ target: string; id: string; draft: string } | null>(null);
+	let editing = $state<{ ref: string; api: string; id: string; draft: string } | null>(null);
 	/** Said once, when an edit outlived the message it was editing. */
 	let editNotice = $state<string | null>(null);
 	let showConfirmKill = $state(false);
@@ -541,7 +578,7 @@
 		return out;
 	}
 
-	const attachments = $derived(attachmentsStore.get(target));
+	const attachments = $derived(attachmentsStore.get(ref));
 	let cameraInput: HTMLInputElement | null = $state(null);
 	let galleryInput: HTMLInputElement | null = $state(null);
 	let filesInput: HTMLInputElement | null = $state(null);
@@ -912,20 +949,22 @@
 	// and history reset together; only attach when target is confirmed alive
 	// and the raw mirror is the active view.
 	$effect(() => {
-		terminalStore.setTarget(isAlive && viewMode === 'terminal' ? target : null);
+		terminalStore.setTarget(isAlive && viewMode === 'terminal' ? target : null, base);
 	});
 
 	// Same contract for the transcript store, keyed by session id.
 	$effect(() => {
 		transcriptStore.setSession(
-			isAlive && viewMode === 'transcript' ? (currentSession?.id ?? null) : null
+			isAlive && viewMode === 'transcript' ? (currentSession?.id ?? null) : null,
+			null,
+			base
 		);
 	});
 
 	// New target: forget any scrolled-up state from the previous session so the
 	// view always opens pinned to the latest output.
 	$effect(() => {
-		target;
+		ref;
 		viewMode;
 		untrack(() => {
 			userScrolledUp = false;
@@ -970,7 +1009,7 @@
 	// comes with the state that produced it.
 	afterNavigate(() => {
 		setTimeout(() => {
-			const urlTarget = decodeURIComponent(location.pathname.split('/session/')[1] ?? '');
+			const urlTarget = parseSessionPath(location.pathname)?.ref.target ?? '';
 			const shown = currentSession?.tmux_target ?? target;
 			if (urlTarget && shown && urlTarget !== shown) {
 				reportClient('stale', {
@@ -993,7 +1032,8 @@
 	onMount(() => tmuxPanesStore.subscribe());
 
 	$effect(() => {
-		if (!browser || !target) return;
+		// The landing page reopens this machine's last session, by target alone.
+		if (!browser || !target || remoteHost) return;
 		try {
 			if (isAlive) {
 				localStorage.setItem(STORAGE_KEYS.lastSession, target);
@@ -1009,12 +1049,12 @@
 	// otherwise a target switch would persist the previous textInput under the
 	// new target.
 	$effect.pre(() => {
-		const t = target;
+		const t = ref;
 		untrack(() => {
 			// An edit belongs to its session: leaving it gives that session its
 			// own draft back, and the queued message keeps its text.
-			if (editing && editing.target !== t) {
-				draftsStore.set(editing.target, editing.draft);
+			if (editing && editing.ref !== t) {
+				draftsStore.set(editing.ref, editing.draft);
 				editing = null;
 			}
 			editNotice = null;
@@ -1024,7 +1064,7 @@
 	});
 
 	$effect(() => {
-		draftsStore.set(target, textInput);
+		draftsStore.set(ref, textInput);
 	});
 
 	function handleScroll() {
@@ -1176,7 +1216,7 @@
 
 	async function postToPane(body: Record<string, unknown>) {
 		if (!target) return;
-		await fetch(`/api/sessions/${encodeURIComponent(target)}/send`, {
+		await fetch(`${api(target)}/send`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(body)
@@ -1238,14 +1278,18 @@
 	}
 
 	interface Composed {
-		target: string;
+		/** The session's key in the drafts and attachments stores. */
+		ref: string;
+		/** Its API, so a reply that lands after a move still finds the session it left. */
+		api: string;
 		text: string;
 		chipIds: string[];
 	}
 
 	/** What a send is about to deliver, taken before it awaits the server. */
-	function composed(t: string): Composed {
-		return { target: t, text: textInput, chipIds: attachments.map((a) => a.localId) };
+	function composed(): Composed | null {
+		if (!target || !ref) return null;
+		return { ref, api: api(target), text: textInput, chipIds: attachments.map((a) => a.localId) };
 	}
 
 	/**
@@ -1255,9 +1299,9 @@
 	 * session they went to.
 	 */
 	function clearSent(sent: Composed) {
-		for (const id of sent.chipIds) attachmentsStore.remove(sent.target, id);
-		if (sent.target !== target) {
-			if (draftsStore.get(sent.target) === sent.text) draftsStore.set(sent.target, '');
+		for (const id of sent.chipIds) attachmentsStore.remove(sent.ref, id);
+		if (sent.ref !== ref) {
+			if (draftsStore.get(sent.ref) === sent.text) draftsStore.set(sent.ref, '');
 			return;
 		}
 		if (textInput !== sent.text) return;
@@ -1274,7 +1318,7 @@
 		route: 'send' | 'queue' | 'steer',
 		message: Record<string, unknown>
 	): Promise<boolean> {
-		const res = await fetch(`/api/sessions/${encodeURIComponent(to)}/${route}`, {
+		const res = await fetch(`${to}/${route}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(message)
@@ -1286,14 +1330,15 @@
 	}
 
 	/** A message composed elsewhere on the page — a grilling round's answers. */
-	const sendReply = async (text: string) => target != null && (await post(target, 'send', { text }));
+	const sendReply = async (text: string) => target != null && (await post(api(target), 'send', { text }));
 
 	/** Put the draft in the pane's prompt box and leave the Enter to the pane. */
 	async function sendTextRaw() {
-		if (!target || !canSend || (!textInput && readyPaths.length === 0)) return;
-		const sent = composed(target);
+		if (!canSend || (!textInput && readyPaths.length === 0)) return;
+		const sent = composed();
+		if (!sent) return;
 		const message = { text: sent.text, raw: true, attachments: readyPaths };
-		if (await post(sent.target, 'send', message)) clearSent(sent);
+		if (await post(sent.api, 'send', message)) clearSent(sent);
 	}
 
 	/** Which way Remote Control was asked to turn, until the poll sees it turn. */
@@ -1305,7 +1350,7 @@
 	const RC_PENDING_MS = 10 * 60_000;
 	// An ask belongs to the session it was made in.
 	$effect(() => {
-		void target;
+		void ref;
 		rcPending = null;
 	});
 
@@ -1314,7 +1359,7 @@
 		if (!target || rcPending) return;
 		const way = on ? 'on' : 'off';
 		rcPending = way;
-		const res = await fetch(`/api/sessions/${encodeURIComponent(target)}/rc`, {
+		const res = await fetch(`${api(target)}/rc`, {
 			method: on ? 'POST' : 'DELETE'
 		}).catch(() => null);
 		if (!res?.ok) {
@@ -1354,14 +1399,15 @@
 
 	/** Deliver the draft; it leaves the composer only once the session has taken it. */
 	async function deliver(how: Delivery) {
-		if (!target || !canSend || !hasDraft) return;
-		const sent = composed(target);
+		if (!canSend || !hasDraft) return;
+		const sent = composed();
+		if (!sent) return;
 		const message = { text: sent.text, attachments: readyPaths, dictated };
 		// The draft stays put on a refusal, so nothing typed or said is lost.
 		const taken =
 			how === 'send' || how === 'queue'
-				? await post(sent.target, how, message)
-				: await post(sent.target, 'steer', { ...message, mode: how });
+				? await post(sent.api, how, message)
+				: await post(sent.api, 'steer', { ...message, mode: how });
 		if (taken) clearSent(sent);
 	}
 	const steerText = () => deliver('steer');
@@ -1371,9 +1417,9 @@
 
 
 	function startEdit(item: QueuedMessageInfo) {
-		if (!target) return;
+		if (!target || !ref) return;
 		if (editing) cancelEdit();
-		editing = { target, id: item.id, draft: textInput };
+		editing = { ref, api: api(target), id: item.id, draft: textInput };
 		editNotice = null;
 		textInput = item.text;
 		void tick().then(() => {
@@ -1404,8 +1450,8 @@
 
 	async function saveEdit() {
 		if (!editing || !textInput.trim()) return;
-		const { target: t, id } = editing;
-		const res = await fetch(`/api/sessions/${encodeURIComponent(t)}/queue`, {
+		const { api: to, id } = editing;
+		const res = await fetch(`${to}/queue`, {
 			method: 'PATCH',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ id, text: textInput })
@@ -1424,7 +1470,7 @@
 	$effect(() => {
 		if (
 			editing &&
-			editing.target === target &&
+			editing.ref === ref &&
 			currentSession &&
 			!queue.some((m) => m.id === editing!.id)
 		) {
@@ -1453,7 +1499,7 @@
 		const form = new FormData();
 		form.append('file', file);
 		try {
-			const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/attach`, {
+			const res = await fetch(`${api(sessionId)}/attach`, {
 				method: 'POST',
 				body: form,
 				signal
@@ -1472,7 +1518,7 @@
 	}
 
 	function uploadAttachment(file: File) {
-		if (!target) return;
+		if (!ref) return;
 		const localId = makeLocalId();
 		const thumb = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
 		const abort = new AbortController();
@@ -1486,8 +1532,8 @@
 			thumb,
 			abort
 		};
-		attachmentsStore.add(target, chip);
-		void doUpload(target, localId, file, abort.signal);
+		attachmentsStore.add(ref, chip);
+		void doUpload(ref, localId, file, abort.signal);
 	}
 
 	function uploadFiles(files: FileList | File[] | null | undefined) {
@@ -1497,18 +1543,18 @@
 
 	function retryAttachment(localId: string) {
 		const chip = attachments.find((a) => a.localId === localId);
-		if (!target || !chip || chip.status !== 'failed') return;
+		if (!ref || !chip || chip.status !== 'failed') return;
 		const abort = new AbortController();
-		attachmentsStore.patch(target, localId, { status: 'uploading', error: undefined, abort });
-		void doUpload(target, localId, chip.file, abort.signal);
+		attachmentsStore.patch(ref, localId, { status: 'uploading', error: undefined, abort });
+		void doUpload(ref, localId, chip.file, abort.signal);
 	}
 
 	function removeAttachment(localId: string) {
-		const chip = attachmentsStore.remove(target, localId);
+		const chip = attachmentsStore.remove(ref, localId);
 		if (chip?.status === 'ready' && chip.path && currentSession?.id) {
 			// Best-effort server cleanup; chip is gone either way.
 			void fetch(
-				`/api/sessions/${encodeURIComponent(currentSession.id)}/attach?path=${encodeURIComponent(chip.path)}`,
+				`${api(currentSession.id)}/attach?path=${encodeURIComponent(chip.path)}`,
 				{ method: 'DELETE' }
 			);
 		}
@@ -1588,7 +1634,7 @@
 
 	/** The composer's own take is running, as opposed to a question field's. */
 	const speaking = $derived(
-		voiceEnabled && voiceStore.status === 'recording' && voiceStore.isOwnedBy(target)
+		voiceEnabled && voiceStore.status === 'recording' && voiceStore.isOwnedBy(ref)
 	);
 
 	/**
@@ -1600,10 +1646,10 @@
 	 */
 	async function finishVoice(run?: () => unknown): Promise<boolean> {
 		if (!speaking) return false;
-		const from = target;
+		const from = ref;
 		const heard = await voiceStore.stop();
 		if (!heard || !from) return true;
-		if (from !== target) {
+		if (from !== ref) {
 			// The page moved on while the words were being worked out: they wait
 			// in the composer of the session they were said to.
 			draftsStore.set(from, appendSaid(draftsStore.get(from), heard.text));
@@ -1621,11 +1667,11 @@
 
 	/** The microphone's one key: start a take, end it, or give up on its transcription. */
 	async function toggleVoice() {
-		if (!target || !voiceEnabled) return;
-		if (voiceStore.isActive && !voiceStore.isOwnedBy(target)) return;
+		if (!ref || !voiceEnabled) return;
+		if (voiceStore.isActive && !voiceStore.isOwnedBy(ref)) return;
 		if (voiceStore.status === 'transcribing') voiceStore.cancelTranscribing();
 		else if (voiceStore.status === 'recording') await finishVoice();
-		else await voiceStore.startRecording(target);
+		else await voiceStore.startRecording(ref);
 	}
 
 	/** The ways to end a take that keep it: the composer's own verbs for a draft. */
@@ -1733,7 +1779,7 @@
 	}
 
 	async function runText(text: string) {
-		if (target) await post(target, 'send', { text });
+		if (target) await post(api(target), 'send', { text });
 	}
 
 	function chordStep(delta: number) {
@@ -1824,7 +1870,7 @@
 			},
 			B: async () => {
 				if (chordMenuOpen) return closeChord();
-				if (voiceStore.isOwnedBy(target)) {
+				if (voiceStore.isOwnedBy(ref)) {
 					await voiceStore.cancel();
 				} else {
 					void sendKeys('Escape');
@@ -1920,7 +1966,7 @@
 				cancelEdit();
 				return;
 			}
-			if (voiceStore.isOwnedBy(target)) {
+			if (voiceStore.isOwnedBy(ref)) {
 				await voiceStore.cancel();
 				return;
 			}
@@ -2003,14 +2049,14 @@
 
 	async function killSession() {
 		if (currentSession) {
-			await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/kill`, {
+			await fetch(`${api(currentSession.id)}/kill`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ pid: currentSession.pid, tmux_target: currentSession.tmux_target })
 			});
 		} else if (target) {
 			// No session record (stale URL) — still attempt to kill the tmux pane by target
-			await fetch(`/api/sessions/${encodeURIComponent(target)}/kill`, {
+			await fetch(`${api(target)}/kill`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ pid: 0, tmux_target: target })
@@ -2026,7 +2072,7 @@
 	 */
 	async function restartSession(upgrade = false): Promise<boolean> {
 		if (!currentSession) return false;
-		const res = await fetch(`/api/sessions/${encodeURIComponent(currentSession.id)}/restart`, {
+		const res = await fetch(`${api(currentSession.id)}/restart`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ upgrade })
@@ -2157,7 +2203,12 @@
 	</div>
 {/if}
 
-<RenameSessionDialog sessionId={renameId} onClose={() => (renameId = null)} />
+<RenameSessionDialog
+	sessionId={renameId}
+	onClose={() => (renameId = null)}
+	sessions={remoteHost ? (route.machine?.sessions ?? []) : undefined}
+	{base}
+/>
 
 {#snippet attachMenu()}
 <Popover.Content side="top" class="w-auto p-2 bg-[#1a1a1a] border-[#333]">
@@ -2367,14 +2418,14 @@
 		/>
 		{#if viewMode === 'transcript'}
 				<!-- Keyed by session: what a card saw of one pane's dialog says nothing about the next. -->
-				{#key target}
+				{#key ref}
 					<TranscriptView
 						entries={transcriptStore.entries}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
 						{fileLink}
 						onQuote={quoteInComposer}
 						repoSession={currentSession?.git_root ? currentSession.id : null}
-						agentLink={(id) => `/session/${encodeURIComponent(target ?? '')}/agent/${encodeURIComponent(id)}`}
+						agentLink={(id) => sessionPath({ host: remoteHost, target: target ?? '' }, `/agent/${encodeURIComponent(id)}`)}
 						turnChanges={sessionChanges}
 						{changesLink}
 						available={transcriptStore.available}
@@ -2389,7 +2440,8 @@
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={sendKeys}
 						onSendPaneText={sendPaneText}
-						dictateTarget={voiceEnabled ? target : null}
+						dictateTarget={voiceEnabled ? ref : null}
+						{base}
 						olderCount={transcriptStore.firstIndex}
 						loadingEarlier={transcriptStore.loadingEarlier}
 						onLoadEarlier={() => holdPlaceThrough(transcriptStore.loadEarlier())}
@@ -2417,11 +2469,12 @@
 		{#if target}
 		<QueueStrip
 			{target}
+			{base}
 			sessionId={currentSession?.id ?? null}
 			{queue}
 			paneQueue={currentSession?.pane_queue ?? []}
 			busy={isBusy}
-			editingId={editing?.target === target ? editing.id : null}
+			editingId={editing?.ref === ref ? editing.id : null}
 			onEdit={startEdit}
 		/>
 		{/if}
@@ -2447,7 +2500,7 @@
 			>
 				<ContextGauge context={transcriptStore.context}>
 					{#snippet notch()}
-						<VoiceMeter {target} actions={voiceActions} />
+						<VoiceMeter target={ref} actions={voiceActions} />
 					{/snippet}
 				</ContextGauge>
 
@@ -2476,6 +2529,7 @@
 									<CommandList
 										bind:this={slashList}
 										cwd={currentSession?.cwd}
+										{base}
 										pinned={pinnedCommands}
 										query={slashQuery}
 										onselect={chooseSlash}
@@ -2540,14 +2594,14 @@
 											{/each}
 										</div>
 										{#if attachments.length > 1}
-											<button type="button" class="attach-clear" onclick={() => attachmentsStore.clear(target)}>
+											<button type="button" class="attach-clear" onclick={() => attachmentsStore.clear(ref)}>
 												Remove all
 											</button>
 										{/if}
 									</Popover.Content>
 								</Popover.Root>
 							{/if}
-							{#if editing?.target === target}
+							{#if editing?.ref === ref}
 								<div class="editbar">
 									<iconify-icon icon="mdi:pencil-outline"></iconify-icon>
 									<span>Editing a queued message. Enter saves it in place.</span>
@@ -2647,7 +2701,7 @@
 					<!-- the rail — the two controls a thumb reaches for, given the
 					     height of both lanes rather than the footer's alone -->
 					<div class="rail">
-						{#if voiceEnabled}<VoiceButton {target} onToggle={() => void toggleVoice()} />{/if}
+						{#if voiceEnabled}<VoiceButton target={ref} onToggle={() => void toggleVoice()} />{/if}
 						<div class="act-wrap">
 							<button
 								type="button"
@@ -2697,7 +2751,7 @@
 </div>
 
 {#snippet sidePanel(kind: string, open: boolean)}
-	{#key target}
+	{#key ref}
 		<SidePanel
 			{kind}
 			{open}
@@ -2724,7 +2778,7 @@
 				title="Drag to resize · double-click for the default width"
 				onmove={resizePanel}
 				onend={endPanelResize}
-				onreset={() => sidePanelStore.update(target, { width: undefined })}
+				onreset={() => sidePanelStore.update(ref, { width: undefined })}
 			/>
 		</div>
 		<aside class="side-panel" aria-label="Side panel" hidden={!panelKind}>
@@ -2750,7 +2804,7 @@
 {/if}
 </div>
 
-<CommandPalette bind:open={commandsOpen} cwd={currentSession?.cwd} pinned={pinnedCommands} onselect={fillInput} />
+<CommandPalette bind:open={commandsOpen} cwd={currentSession?.cwd} {base} pinned={pinnedCommands} onselect={fillInput} />
 
 <AlertDialog.Root bind:open={showConfirmKill}>
 	<AlertDialog.Content>

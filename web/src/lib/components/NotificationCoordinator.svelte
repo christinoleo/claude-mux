@@ -15,7 +15,7 @@
 		type SessionNotification
 	} from '$shared/session-notifications.js';
 	import { sessionStore, wantsHuman, type Session } from '$lib/stores/sessions.svelte';
-	import { serverStore } from '$lib/stores/servers.svelte';
+	import { selfName } from '$lib/stores/fleet.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import {
 		hasDesktopNotifications,
@@ -53,7 +53,7 @@
 
 		if (hasNotificationSound(mode)) playNotificationSound(kind === 'completion' ? 'completion' : 'needs-you');
 
-		const host = serverStore.self || serverStore.current.hostname || null;
+		const host = selfName() || null;
 		const { title, body } = notificationText(s, kind, host);
 		const target = s.tmux_target ?? s.id;
 

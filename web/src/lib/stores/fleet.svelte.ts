@@ -7,8 +7,9 @@
  * socket, which `sessionStore` reads; this store lays it beside the origin's
  * own sessions. A machine that is off keeps its last known sessions here,
  * with when it was last seen and when it is tried next. Acting on a remote
- * session's row goes through the origin's relay (`apiBase()`); opening one
- * still navigates to its own host.
+ * session's row goes through the origin's relay (`apiBase()`), and opening
+ * one stays on this page at `/m/<host>/session/<target>`, whose calls take the
+ * same way (`routeMachine()`, `sessionApi()`).
  *
  * `selected` is which machine the sidebar shows: 'all', or one machine's id.
  * It is a fleet preference (`fleetPrefsStore`), so every link and device
@@ -16,6 +17,7 @@
  */
 
 import { browser } from '$app/environment';
+import { onMount } from 'svelte';
 import { fleetPrefsStore } from './fleet-prefs.svelte';
 import { MACHINE_FILTER } from '$shared/fleet-prefs.js';
 import { formatAgo } from '$lib/format';
@@ -23,6 +25,8 @@ import { sessionStore, type Session } from './sessions.svelte';
 import { serverStore } from './servers.svelte';
 import type { InboxTicket } from '$shared/types/ws-messages.js';
 import type { ServerInfo } from '$lib/types/servers';
+import { parseRef } from '$lib/split-refs';
+import { relayBase } from '$lib/session-route';
 
 /** One machine's view: who it is, whether it answers, and what it holds. */
 export interface Machine {
@@ -48,7 +52,7 @@ class FleetStore {
 	/** Every machine, this one first, then the others by name. */
 	machines: Machine[] = $derived.by(() => {
 		// Named as the tailnet knows it, even when the page was opened as localhost.
-		const hostname = serverStore.self || serverStore.current.hostname;
+		const hostname = selfName();
 		const selfId = sessionStore.selfId;
 		const local: Machine = {
 			server: { id: selfId, hostname, url: serverStore.current.url },
@@ -114,6 +118,17 @@ class FleetStore {
 		void serverStore.refresh();
 	}
 
+	/** Another machine by the short name a session's route gives it. */
+	remote(hostname: string): Machine | undefined {
+		const name = hostname.toLowerCase();
+		return this.machines.find((m) => !m.local && m.server.hostname.toLowerCase() === name);
+	}
+
+	/** Every machine this page knows the id of: the fleet the origin follows, then discovery's list. */
+	servers(): ServerInfo[] {
+		return [...this.machines.filter((m) => !m.local).map((m) => m.server), ...serverStore.servers];
+	}
+
 	/** Show one machine, by id, or 'all'. */
 	select(id: string): void {
 		void fleetPrefsStore.set(MACHINE_FILTER, id);
@@ -126,6 +141,56 @@ class FleetStore {
 }
 
 export const fleetStore = new FleetStore();
+
+/** The short name of this page's own machine, as session routes compare it. */
+export function selfName(): string {
+	return serverStore.self || serverStore.current.hostname;
+}
+
+/** A session's API from this page, `<base>/api/sessions/<id or target>`. */
+export function sessionApiAt(base: string, id: string): string {
+	return `${base}/api/sessions/${encodeURIComponent(id)}`;
+}
+
+/**
+ * A session's API from this page by its ref (`target` here, `host@target`
+ * elsewhere), reached the way its page reaches it (`relayBase()`).
+ */
+export function sessionApi(ref: string): string | null {
+	const parsed = parseRef(ref);
+	if (!parsed) return null;
+	return sessionApiAt(relayBase(parsed.host, fleetStore.servers(), selfName()), parsed.target);
+}
+
+/**
+ * The machine a session's route names (`/m/<host>/…`), for the pages that
+ * show one: where its API is (`base`), its name when it is not this machine
+ * (`remoteHost`), and, for another machine, what the origin last heard of it
+ * (`machine`). Call it while a component initialises.
+ */
+export function routeMachine(host: () => string | null) {
+	const base = $derived(relayBase(host(), fleetStore.servers(), selfName()));
+	const remoteHost = $derived(base !== '' ? host() : null);
+	const machine = $derived(remoteHost ? (fleetStore.remote(remoteHost) ?? null) : null);
+	onMount(() => fleetStore.start());
+	return {
+		get base() {
+			return base;
+		},
+		get remoteHost() {
+			return remoteHost;
+		},
+		get machine() {
+			return machine;
+		},
+		/** A session by tmux target or id: this machine's from its indexes, another's from its broadcast. */
+		session(target: string | null): Session | undefined {
+			if (!target) return undefined;
+			if (remoteHost) return machine?.sessions.find((s) => s.tmux_target === target || s.id === target);
+			return sessionStore.sessionByTarget.get(target) ?? sessionStore.sessionById.get(target);
+		}
+	};
+}
 
 /**
  * Where a machine's API is reached from this page: this server for its own

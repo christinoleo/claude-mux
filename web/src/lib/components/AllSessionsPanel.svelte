@@ -12,8 +12,8 @@
 		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
-	import { apiBase, fleetStore, offlineReason, seenLabel, type Machine } from '$lib/stores/fleet.svelte';
-	import { serverStore } from '$lib/stores/servers.svelte';
+	import { apiBase, fleetStore, offlineReason, seenLabel, selfName, type Machine } from '$lib/stores/fleet.svelte';
+	import { localRef, parseSessionPath, sessionPath } from '$lib/session-route';
 	import SessionRow, { type RowMenuItem } from '$lib/components/SessionRow.svelte';
 	import DiffBadge from '$lib/components/DiffBadge.svelte';
 	import { PANES } from '$lib/side-panel/panes';
@@ -183,11 +183,22 @@
 	const tmuxPanes = $derived(tmuxPanesStore.panes);
 	const tmuxPanesLoaded = $derived(tmuxPanesStore.loaded);
 
-	const currentTarget = $derived(
-		$page.url.pathname.startsWith('/session/')
-			? decodeURIComponent($page.url.pathname.split('/session/')[1])
-			: null
-	);
+	/**
+	 * The session the page shows, as a ref: no host for this machine's, even
+	 * when its route names it, so it compares equal to the row that opens it.
+	 */
+	const current = $derived.by((): PaneRef | null => {
+		const ref = parseSessionPath($page.url.pathname)?.ref;
+		return ref ? localRef(ref, fleetStore.servers(), selfName()) : null;
+	});
+
+	/** Whether a machine's session is the one on the page. */
+	function isCurrent(machine: Machine, tmuxTarget: string | null): boolean {
+		if (!current || !tmuxTarget || current.target !== tmuxTarget) return false;
+		return machine.local
+			? current.host === null
+			: current.host?.toLowerCase() === machine.server.hostname.toLowerCase();
+	}
 
 	/**
 	 * Whether a directory is nobody's project. The server knows the home
@@ -256,7 +267,7 @@
 	}
 
 	function agentHref(machine: Machine, target: string, agentId: string): string {
-		return `${pageBase(machine)}/session/${encodeURIComponent(target)}/agent/${encodeURIComponent(agentId)}`;
+		return sessionPath(refOf(machine, target), `/agent/${encodeURIComponent(agentId)}`);
 	}
 
 	/** The tmux session a pane belongs to: `main` of `main:2.0`. */
@@ -413,11 +424,6 @@
 
 	// ── actions ──────────────────────────────────────────────────────────────
 
-	/** Where a machine's pages live: this origin for the local one, its URL otherwise. */
-	function pageBase(machine: Machine): string {
-		return machine.local ? '' : machine.server.url;
-	}
-
 	/** How a split names this session: `target`, or `host@target` off this machine. */
 	function refOf(machine: Machine, tmuxTarget: string): PaneRef {
 		return { host: machine.local ? null : machine.server.hostname, target: tmuxTarget };
@@ -426,14 +432,14 @@
 	/** The session the page shows now, as a pane ref, for starting a split beside it. */
 	function currentRef(): PaneRef | null {
 		if (splitStore.active) return splitStore.pane(splitStore.focus);
-		return currentTarget ? { host: null, target: currentTarget } : null;
+		return current;
 	}
 
 	/**
 	 * Open a session. With a split on, it goes to the focused pane (⌥ for the
 	 * other); without one, ⌥ opens it beside the current session as a split,
-	 * and a plain click goes to the session — on its own host when remote,
-	 * since the terminal and composer talk to that host.
+	 * and a plain click goes to the session, on this page whichever machine
+	 * it is on.
 	 */
 	function openSession(machine: Machine, tmuxTarget: string, other = false) {
 		const ref = refOf(machine, tmuxTarget);
@@ -442,7 +448,7 @@
 			onSessionSelect?.();
 			return;
 		}
-		if (other && currentTarget) {
+		if (other && current) {
 			splitStore.splitWith(ref, currentRef());
 			onSessionSelect?.();
 			return;
@@ -450,15 +456,10 @@
 		goToSession(machine, tmuxTarget);
 	}
 
-	/** Go to a session's page, on its own host when remote. */
+	/** Go to a session's page: `/m/<host>/session/…` for another machine's. */
 	function goToSession(machine: Machine, tmuxTarget: string, query = '') {
-		const path = `/session/${encodeURIComponent(tmuxTarget)}${query}`;
-		if (machine.local) {
-			goto(path);
-			onSessionSelect?.();
-		} else {
-			window.location.href = `${machine.server.url}${path}`;
-		}
+		goto(`${sessionPath(refOf(machine, tmuxTarget))}${query}`);
+		onSessionSelect?.();
 	}
 
 	/**
@@ -560,6 +561,12 @@
 			if (data.record) sessionStore.optimisticAdd(data.record);
 		}
 		const tmuxTarget = data.tmuxTarget || data.session + ':0.0';
+		// Another machine's broadcast lists only Claude sessions, so a page here
+		// could not show any other agent's pane: that one opens on its machine.
+		if (!machine.local && agent !== 'claude') {
+			window.location.href = `${machine.server.url}/session/${encodeURIComponent(tmuxTarget)}`;
+			return;
+		}
 		openSession(machine, tmuxTarget);
 	}
 
@@ -662,7 +669,7 @@
 				<SubagentRow
 					{agent}
 					{href}
-					active={machine.local && $page.url.pathname === href}
+					active={$page.url.pathname === href}
 					onclick={() => {
 						markOpened(agent.id);
 						onSessionSelect?.();
@@ -676,20 +683,20 @@
 {#snippet rowWithAgents(machine: Machine, row: Row)}
 	{@const s = row.session}
 	{@const agents = agentsOf(s)}
-	{@const isActive = machine.local && s.tmux_target === currentTarget}
-	{@const draftable = machine.local && !isActive && !!s.tmux_target}
+	{@const isActive = isCurrent(machine, s.tmux_target)}
+	{@const draftKey = s.tmux_target && !isActive ? formatRef(refOf(machine, s.tmux_target)) : null}
 	<SessionRow
 		session={s}
 		title={rowTitle(row)}
 		where={rowWhere(row, agents)}
-		href={machine.local && s.tmux_target ? `/session/${encodeURIComponent(s.tmux_target)}` : `${machine.server.url}/session/${encodeURIComponent(s.tmux_target ?? '')}`}
+		href={sessionPath(refOf(machine, s.tmux_target ?? ''))}
 		hint={(machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`) + (canDrag ? ' · ⌥-click or drag to open side by side' : '')}
 		active={isActive}
 		tag={paneTag(machine, s.tmux_target)}
 		orchestrator={row.orchestrator}
 		worker={row.worker}
-		draft={draftable ? draftsStore.preview(s.tmux_target!) : ''}
-		staged={draftable ? attachmentsStore.count(s.tmux_target!) : 0}
+		draft={draftKey ? draftsStore.preview(draftKey) : ''}
+		staged={draftKey ? attachmentsStore.count(draftKey) : 0}
 		draggable={canDrag && !!s.tmux_target}
 		onkill={machine.local && !compact ? () => killSession(machine, s) : null}
 		onmarkunread={isActive || paneTag(machine, s.tmux_target) ? null : () => postVisit(apiBase(machine), s.id, true)}
@@ -697,7 +704,7 @@
 		onlongpress={() => { if (machine.local) renameId = s.id; }}
 		ondragstart={(e) => s.tmux_target && dragStart(e, machine, s.tmux_target)}
 		ondragend={dragEnd}
-		menu={s.tmux_target && !splitStore.active ? panelMenu(machine, s.tmux_target) : []}
+		menu={machine.local && s.tmux_target && !splitStore.active ? panelMenu(machine, s.tmux_target) : []}
 	>
 		{#snippet meta()}<DiffBadge changes={s.changes} />{/snippet}
 	</SessionRow>
@@ -705,7 +712,7 @@
 {/snippet}
 
 {#snippet paneRow(machine: Machine, pane: TmuxPane)}
-	{@const isActive = pane.target === currentTarget}
+	{@const isActive = isCurrent(machine, pane.target)}
 	{@const detected = detectPaneAgent(pane.command || '')}
 	{@const meta = detected ? AGENTS[detected] : null}
 	<a

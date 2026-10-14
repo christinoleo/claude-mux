@@ -9,6 +9,7 @@
  */
 
 import type { ServerInfo } from '$lib/types/servers';
+import { sessionPath } from './session-route';
 
 export interface PaneRef {
 	/** Tailnet hostname, or null for the host that served this page. */
@@ -57,14 +58,13 @@ export function paneUrl(ref: PaneRef, servers: ServerInfo[], self: string): stri
 }
 
 /**
- * Where to go for a single session: this host's page for a local one, the
- * remote host's page for one of theirs — which is a full navigation, since the
- * terminal and composer run against the session's own server.
+ * Where to go for a single session: always a page of this host, which
+ * reaches another host's session through its relay (`/m/<host>/session/…`).
  */
 export function singleUrl(ref: PaneRef, servers: ServerInfo[], self: string): string | null {
 	const origin = hostOrigin(ref, servers, self);
 	if (origin === null) return null;
-	return `${origin}/session/${encodeURIComponent(ref.target)}`;
+	return sessionPath(origin === '' ? { host: null, target: ref.target } : ref);
 }
 
 /** The URL of a split with `a` in the first pane and `b` in the second. */

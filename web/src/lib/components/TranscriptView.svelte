@@ -48,6 +48,7 @@
 		onLoadEarlier,
 		onSendReply,
 		dictateTarget = null,
+		base = '',
 		fileLink,
 		repoSession = null,
 		agentLink,
@@ -96,6 +97,8 @@
 		onSendReply?: (text: string) => Promise<boolean>;
 		/** The session a question's own microphone records for; null where voice is off. */
 		dictateTarget?: string | null;
+		/** The relay path to the session's machine, '' for this one: where its images are read. */
+		base?: string;
 		/** The link that opens a file a tool row touched or a message names, at a line; without it neither draws one. */
 		fileLink?: (path: string, line: number | null) => string;
 		/** The session whose repo a bare `#123` in a message is looked up in; null where it has none. */
@@ -853,7 +856,7 @@
 						<section class="pane result" class:ok={entry.result.ok} class:fail={!entry.result.ok}>
 							<header class="pane-head">{entry.result.ok ? 'Result' : 'Error'}</header>
 							{#each entry.result.images ?? [] as path, i (i)}
-								{@const src = `/api/files/image?path=${encodeURIComponent(path)}`}
+								{@const src = `${base}/api/files/image?path=${encodeURIComponent(path)}`}
 								<a class="result-image" href={src} target="_blank" rel="noopener">
 									<img {src} alt={path.split('/').pop()} loading="lazy" />
 								</a>

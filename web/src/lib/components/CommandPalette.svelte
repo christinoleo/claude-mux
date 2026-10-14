@@ -6,11 +6,14 @@
 	let {
 		open = $bindable(false),
 		cwd,
+		base = '',
 		pinned = [],
 		onselect
 	}: {
 		open: boolean;
 		cwd?: string | null;
+		/** The relay path to the machine `cwd` is on, '' for this one. */
+		base?: string;
 		pinned?: string[];
 		onselect: (insert: string) => void;
 	} = $props();
@@ -75,6 +78,6 @@
 			</button>
 		</div>
 
-		<CommandList bind:this={list} {cwd} {pinned} {query} onselect={choose} />
+		<CommandList bind:this={list} {cwd} {base} {pinned} {query} onselect={choose} />
 	</Dialog.Content>
 </Dialog.Root>
