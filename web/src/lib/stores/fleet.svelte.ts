@@ -219,7 +219,7 @@ export function apiBase(machine: Machine): string {
 }
 
 /** "seen 3m ago", or "seen just now". */
-function seenLabel(lastSeen: number, now: number): string {
+export function seenLabel(lastSeen: number, now: number): string {
 	const ago = formatAgo(lastSeen, now);
 	return ago === 'now' ? 'seen just now' : `seen ${ago} ago`;
 }
