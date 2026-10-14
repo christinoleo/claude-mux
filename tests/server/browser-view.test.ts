@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   BrowserWsManager,
-  browserOriginAllowed,
   findBrowserEntry,
   isTabId,
   parseTabs,
@@ -135,23 +134,6 @@ describe("toCdpInput", () => {
     expect(toCdpInput({ type: "text", text: "" })).toBeNull();
     expect(toCdpInput("reload")).toBeNull();
     expect(toCdpInput(null)).toBeNull();
-  });
-});
-
-describe("browserOriginAllowed", () => {
-  it("lets in the page this server served, and requests that are not from a page", () => {
-    expect(browserOriginAllowed(null, "box:3456")).toBe(true);
-    expect(browserOriginAllowed("http://192.168.1.5:3456", "192.168.1.5:3456")).toBe(true);
-    expect(browserOriginAllowed("https://box.tail1234.ts.net:3456", "box.tail1234.ts.net:3456")).toBe(true);
-    expect(browserOriginAllowed("http://localhost:3434", "localhost:3434")).toBe(true);
-  });
-
-  it("keeps out every other origin, a tailnet's and a local dev server's included", () => {
-    expect(browserOriginAllowed("https://evil.example", "box.tail1234.ts.net:3456")).toBe(false);
-    expect(browserOriginAllowed("https://other.tail9999.ts.net", "box.tail1234.ts.net:3456")).toBe(false);
-    expect(browserOriginAllowed("http://localhost:5173", "localhost:3456")).toBe(false);
-    expect(browserOriginAllowed("null", "box:3456")).toBe(false);
-    expect(browserOriginAllowed("https://box:3456", null)).toBe(false);
   });
 });
 

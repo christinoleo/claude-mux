@@ -394,12 +394,11 @@ screencast never starts. A tab's connection opens with its first viewer and
 closes with its last, and the pane keeps its socket only while it is showing.
 What a viewer sends is rebuilt field by field in `toCdpInput()` into mouse,
 wheel, key, text and touch calls, plus reload; nothing there closes,
-navigates, reorders or activates a tab, and nothing should. The upgrade
-checks `Origin` (`browserOriginAllowed()`), since a WebSocket is not held to
-CORS and this one types into a logged-in browser: only the page this server
-served gets in, not the tailnet origins the rest of the API trusts, and
-`/api/browser/` answers no cross-origin read either. A viewer turned away is
-sent a `closed` message with the reason, which is what stops its reconnecting.
+navigates, reorders or activates a tab, and nothing should. Like every
+socket, its upgrade checks `Origin` (`pageOriginAllowed()`, §10), which
+matters more here since this one types into a logged-in browser. A viewer
+turned away is sent a `closed` message with the reason, which is what stops
+its reconnecting.
 
 The tab shown defaults to the one the session last opened or selected:
 `src/transcript/browser-tab.ts` reads the last page list the MCP server
@@ -451,6 +450,13 @@ without it before any hook runs. The relay itself answers only its own page:
 another origin, even a tailnet one, gets 403. A machine nobody knows answers
 404 and one that does not answer 502, each as `{ error, machine }`; a socket
 to an unreachable machine closes with 1014.
+
+Since the page needs no other machine, nothing crosses origins. `/api/` sends
+no CORS headers, and every socket upgrade, the relay's and the server's own
+channels alike (`hooks.server.ts`, and the dev plugin in `vite.config.ts`),
+goes through `pageOriginAllowed()` (`src/server/page-origin.ts`): an `Origin`
+whose host is not the request's `Host` is refused, another tailnet machine's
+page included, and a client sending no `Origin` (a peer, curl) is let in.
 
 A machine is keyed by a stable id kept in `~/.claude-mux/machine-id`
 (`loadMachineId()`), which `/api/health` reports as `instance`; the hostname is
@@ -518,6 +524,12 @@ rows are dimmed and `inert`, and the reason Needs you's items from it are
 disabled. Needs you names each item's machine whenever the fleet has more than
 one. Usage, the meters' and `/api/usage/all`, takes its machines from the fleet
 state, so an offline one is reported at once instead of waited on.
+
+The drawer's header holds the machine filter (`MachineFilter.svelte`): all
+machines or one, with each machine's live count, whether it is online and
+whether a session there wants a person, and an amber dot on the trigger when
+a machine filtered out does. It only narrows the sidebar (`fleetStore.select()`);
+it no longer sends the page to another machine's URL.
 
 Fleet preferences (what a person chose about the fleet: for now the sidebar's
 folded machines and projects and its machine filter) live on the servers and

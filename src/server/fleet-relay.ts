@@ -18,6 +18,8 @@
  * Vite dev server) both provide.
  */
 
+import { pageOriginAllowed } from "./page-origin.js";
+
 export const FORWARDED_HEADER = "x-claude-mux-forwarded";
 
 /**
@@ -49,20 +51,6 @@ export function parseFleetPath(pathname: string): FleetPath | null {
 
 /** Where a machine's API is reached, by its id; null for a machine nobody knows. */
 export type MachineResolver = (machine: string) => Promise<string | null>;
-
-/**
- * Whether a page at `origin` may use the relay. Only the page this server
- * served: the relay acts on every machine, so a tailnet origin is not enough.
- * A client that sends no Origin is not a browser page, and is let through.
- */
-export function relayOriginAllowed(origin: string | null | undefined, host: string | null | undefined): boolean {
-  if (!origin) return true;
-  try {
-    return !!host && new URL(origin).host === host;
-  } catch {
-    return false;
-  }
-}
 
 function errorResponse(status: number, error: string, machine: string): Response {
   return new Response(JSON.stringify({ error, machine }), {
@@ -108,7 +96,7 @@ export async function admitRelay(
   machine: string,
   resolve: MachineResolver
 ): Promise<string | Response> {
-  if (!relayOriginAllowed(origin, host)) return errorResponse(403, "cross-origin request refused", machine);
+  if (!pageOriginAllowed(origin, host)) return errorResponse(403, "cross-origin request refused", machine);
   return (await resolve(machine)) ?? errorResponse(404, "unknown machine", machine);
 }
 

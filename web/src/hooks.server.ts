@@ -2,13 +2,11 @@ import { type Handle, type ServerInit } from '@sveltejs/kit';
 import {
 	handleWsMessage,
 	parseWsPath,
-	TRUSTED_ORIGIN,
 	resizePane,
-	socketOriginAllowed,
 	type WsClient,
 	type WsMessageHandlers
 } from '$shared/server/ws-handlers.js';
-import { browserOriginAllowed } from '$shared/server/browser-view.js';
+import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import {
 	browserWsManager,
 	sessionsWsManager,
@@ -51,33 +49,15 @@ type WsData = {
 // Map to store WebSocket data (type, target, and client wrapper for proper cleanup)
 const wsDataMap = new WeakMap<WebSocket, WsData & { client: WsClient; upstream?: RelaySocket }>();
 
-// Handle function for SvelteKit
 /**
- * Another claude-mux on the tailnet may read this one from the browser: the
- * sidebar shows every machine's sessions at once, which means the page served
- * by one host fetches and streams from the others. Browsers allow that only
- * when the other host says so, and it says so for tailnet origins alone —
- * `*.ts.net`, plus the loopback names a dev server answers on. There is no
- * login to protect here beyond the tailnet itself, so the tailnet is the line
- * (`TRUSTED_ORIGIN`).
+ * The page reaches other machines only through this server's relay (ADR
+ * 0004), so `/api/` sends no CORS headers: a browser holds every other origin,
+ * another claude-mux's page included, to reading nothing here. Sockets are not
+ * held to CORS, and are checked against the page's own host instead.
  */
-function corsHeaders(origin: string): Record<string, string> {
-	return {
-		'Access-Control-Allow-Origin': origin,
-		'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-		'Access-Control-Allow-Headers': 'Content-Type',
-		'Access-Control-Max-Age': '600',
-		Vary: 'Origin'
-	};
-}
-
 export const handle: Handle = async ({ event, resolve }) => {
 	const origin = event.request.headers.get('origin');
 	const fleet = parseFleetPath(event.url.pathname);
-	const crossSite = !!origin && origin !== event.url.origin && TRUSTED_ORIGIN.test(origin);
-	if (crossSite && event.request.method === 'OPTIONS' && event.url.pathname.startsWith('/api/')) {
-		return new Response(null, { status: 204, headers: corsHeaders(origin) });
-	}
 
 	// Check for WebSocket upgrade
 	const connectionHeader = event.request.headers.get('connection');
@@ -102,11 +82,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 		const parsed = parseWsPath(url.pathname, url.search);
 
-		// A WebSocket is not held to CORS, so the origin is checked here. The
-		// browser stream takes input for a logged-in browser, and only this
-		// server's own page may open it.
-		const allowed = parsed?.type === 'browser' ? browserOriginAllowed(origin, host) : socketOriginAllowed(origin, host);
-		if (parsed && !allowed) {
+		if (parsed && !pageOriginAllowed(origin, host)) {
 			return new Response('Forbidden', { status: 403 });
 		}
 
@@ -121,12 +97,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	if (fleet) return relayRequest(event.request, fleet, machineUrl, MACHINE_ID);
 
-	const response = await resolve(event);
-	// The remote browser's tabs are this server's own page's business, never another origin's.
-	if (crossSite && event.url.pathname.startsWith('/api/') && !event.url.pathname.startsWith('/api/browser/')) {
-		for (const [name, value] of Object.entries(corsHeaders(origin))) response.headers.set(name, value);
-	}
-	return response;
+	return resolve(event);
 };
 
 // WebSocket handlers for svelte-adapter-bun (passed straight to Bun.serve).
