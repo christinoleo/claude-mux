@@ -11,6 +11,7 @@ import { AGENT_IDS } from '../agents.js';
 import { PrefEntrySchema } from '../fleet-prefs.js';
 import { ProjectReportSchema } from '../fleet-projects.js';
 import { PluginsReportSchema } from '../fleet-plugins.js';
+import { PastSessionSchema } from '../past-session.js';
 
 // ============================================================================
 // Session data schemas
@@ -310,6 +311,20 @@ const PrefsMessageSchema = z.object({
 	timestamp: z.number()
 });
 
+/** This machine's past sessions (`src/transcript/past-sessions.ts`), sent on connect and when they change. */
+const PastMessageSchema = z.object({
+	type: z.literal('past'),
+	sessions: eachOf(PastSessionSchema),
+	timestamp: z.number()
+});
+
+/** Every other machine's past sessions by machine id, from the fleet state; to pages that asked for the fleet. */
+const FleetPastMessageSchema = z.object({
+	type: z.literal('fleet-past'),
+	machines: z.record(z.string(), eachOf(PastSessionSchema)),
+	timestamp: z.number()
+});
+
 const SystemStatsMessageSchema = z.object({
 	type: z.literal('systemStats'),
 	cpu: z.number(),
@@ -329,6 +344,8 @@ export const SessionsWsMessageSchema = z.discriminatedUnion('type', [
 	ConnectedMessageSchema,
 	FleetMessageSchema,
 	PrefsMessageSchema,
+	PastMessageSchema,
+	FleetPastMessageSchema,
 	SystemStatsMessageSchema
 ]);
 

@@ -18,7 +18,7 @@
 	import SplitView from '$lib/components/SplitView.svelte';
 	import { splitStore } from '$lib/stores/split.svelte';
 	import { parseRef } from '$lib/split-refs';
-	import { localRef, parseSessionPath } from '$lib/session-route';
+	import { isPastPath, localRef, parseSessionPath } from '$lib/session-route';
 	import { serverStore } from '$lib/stores/servers.svelte';
 	import { fleetStore, selfName } from '$lib/stores/fleet.svelte';
 	import NotificationCoordinator from '$lib/components/NotificationCoordinator.svelte';
@@ -71,8 +71,8 @@
 	let sidebarWidth = $state(DEFAULT_WIDTH);
 	let isResizing = $state(false);
 
-	// Show sidebar only on session detail pages (not on main page)
-	const showSidebar = $derived(route !== null);
+	// Show sidebar only on session and past-session pages (not on main page)
+	const showSidebar = $derived(route !== null || isPastPath($page.url.pathname));
 
 	// This machine's session on the page, for the screenshots panel and alerts
 	const currentTarget = $derived(route && !route.ref.host && !route.rest ? route.ref.target : null);

@@ -586,7 +586,8 @@ it says so in its status line. Raise both constants when a change to what one
 machine asks of another would break an older one.
 
 Fleet preferences (what a person chose about the fleet: for now the project
-rail's order, the machine filter and the plugins marked "only here") live on the servers and
+rail's order, the machine filter, the plugins marked "only here" and which
+sessions are settled) live on the servers and
 are the same on every link and device; device preferences (notification mode,
 sound, theme, panel width) stay in browser storage. `src/fleet-prefs.ts` holds
 the keys and the merge: each key keeps the last value written to it, stamped
@@ -671,6 +672,66 @@ split's pane hands Ctrl+K to the page outside (`tellPane('switch')`, the
 `quickSwitch` store), whose drawer holds the switcher. The
 usage meters stay at the drawer's foot (`SidebarMeters.svelte`, in the
 layout).
+
+### 11. Past sessions and Settled
+
+A past session (GLOSSARY.md) is a transcript on its machine's disk with no
+live session. `src/transcript/past-sessions.ts` lists them: only the files at
+the top of each `~/.claude/projects/<dir>/` (a subagent's sit below, in
+`<id>/subagents/`), each read at its two ends, never whole
+(`readPastSession()`): the head gives the first prompt (a slash command as
+typed; tool results, meta and command output skipped), the tail the latest
+`cwd` and `gitBranch`, the last timestamp and the title (`custom-title` from
+/rename, the `custom-title.json` beside the transcript, else `ai-title`; one
+written mid-file is missed and the prompt stands in). Sidechain, SDK
+(`entrypoint: sdk-*`, so `claude -p`) and empty transcripts are left out.
+`PastSessionIndex` keeps what it read keyed by size and mtime, so after the
+first listing (about half a second for 300 files) a refresh is a directory
+walk and a stat per file. Claude Code's 30-day cleanup is left alone.
+
+The sessions socket lists them in the background every 30 s
+(`PAST_REFRESH_MS`) and sends `{ type: 'past', sessions }` to every client on
+connect and whenever the list changes, with every session whose pane is
+alive left out (`withoutLive()`; a closed pane's row does not hide its
+conversation), so a session that ends shows up
+and one resumed leaves at once. The shape (`PastSession`) is in
+`src/past-session.ts`, apart from `node:fs` so the page can import it. The
+fleet state keeps each peer's list beside its state rather than in it, and
+persists it in `fleet.json`, so an offline machine's conversations stay
+listed; pages that asked for the fleet get them as `{ type: 'fleet-past',
+machines }`, sent apart from the fleet message because they are many and
+change seldom. `fleetStore` hangs them on each machine as `past`.
+
+Each project's list in the drawer ends with a folded **Settled** section
+(`settledSection` in `AllSessionsPanel.svelte`): the live sessions settled by
+hand, then the project's past sessions from every machine newest first
+(`pastByRoot()` puts each under the deepest project root holding its folder),
+ten shown and "N more" for the rest, each labelled by `pastLabel()` with its
+machine's letter and age. An offline machine's past rows are dimmed with
+"resume when it's back". Settling is by hand only: "Settle"/"Un-settle" in a
+row's right-click menu, or dragging a row onto the Settled header and a
+settled one back onto the list. It is a fleet preference, one key per session
+(`settledKey()`, `settled:<machine id>:<session id>`), and the page also posts
+`/api/sessions/<id>/settle` to the session's machine, which ends Claude Code
+and closes its pane when `settleCloses()` says it sits idle at its prompt
+(nothing typed or queued, no spinner, no subagent running), and leaves
+anything else running. A settled session is out of Active; its tile still
+turns amber when it wants a person.
+
+A past session opens at `/past/<id>` (`/m/<name>/past/<id>` for another
+machine's; `pastPath()`), its transcript read-only over the ordinary
+transcript socket, whose `locate()` falls back to `findTranscriptById()` when
+no session JSON names the id. **Resume** (on the page, or the row's menu)
+posts `/api/past/<id>/resume` to the owning machine, which `planResume()`
+(`src/server/past-resume.ts`) decides: a session already live answers with its
+pane, which the page opens, so no second process writes one transcript;
+otherwise `claude --resume <transcript>` starts in a tmux session of its own
+(`startSession()`, `web/src/lib/server/start-session.ts`, which New session
+uses too) in the folder it ran in, registered under its own id; when that
+folder is gone the route answers 409 with the project's root
+(`fallbackRoot()`), which the page offers, and resumes there once chosen.
+Resuming clears the session's settled mark. Ctrl+K lists past sessions after
+everything live.
 
 ## Key Data Flow
 

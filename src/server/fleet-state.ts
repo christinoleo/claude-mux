@@ -27,6 +27,7 @@ import { eachOf } from "../types/ws-messages.js";
 import { openForwardedSocket } from "./fleet-relay.js";
 import { protocolOf } from "../fleet-protocol.js";
 import { PluginsReportSchema, type PluginsReport } from "../fleet-plugins.js";
+import { PastSessionSchema, type PastSession } from "../past-session.js";
 
 /** A machine discovery found: its stable id, its name, and where its API is. */
 export interface PeerAddress {
@@ -113,13 +114,20 @@ interface Peer {
    * timestamp left out), so a repeat is not broadcast and written again.
    */
   lastFrame: string | null;
+  /**
+   * Its past sessions, as it last listed them. Kept beside the state rather than
+   * in it: they change seldom and are many, so they are sent apart from the
+   * fleet message that goes out on every broadcast.
+   */
+  past: PastSession[];
 }
 
-type Persisted = { machines: Omit<FleetMachineState, "online" | "retryAt">[] };
+type Persisted = { machines: (Omit<FleetMachineState, "online" | "retryAt"> & { past?: unknown })[] };
 
 export class FleetState {
   private peers = new Map<string, Peer>();
   private listeners = new Set<() => void>();
+  private pastListeners = new Set<() => void>();
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private persistedAt = 0;
   private stopped = false;
@@ -133,8 +141,8 @@ export class FleetState {
     this.connect = options.connect ?? connectPeer;
     this.readHealth = options.health ?? fetchHealth;
     this.now = options.now ?? Date.now;
-    for (const saved of this.restore()) {
-      this.peers.set(saved.id, this.newPeer({ ...saved, online: false, retryAt: null }));
+    for (const { state, past } of this.restore()) {
+      this.peers.set(state.id, { ...this.newPeer({ ...state, online: false, retryAt: null }), past });
     }
   }
 
@@ -201,6 +209,22 @@ export class FleetState {
       .sort((a, b) => a.hostname.localeCompare(b.hostname) || a.id.localeCompare(b.id));
   }
 
+  /**
+   * Every other machine's past sessions, by machine id: what it listed last,
+   * kept while it is off so its conversations stay on the page.
+   */
+  past(): Record<string, PastSession[]> {
+    const out: Record<string, PastSession[]> = {};
+    for (const [id, peer] of this.peers) out[id] = peer.past;
+    return out;
+  }
+
+  /** Called after a machine's past sessions change. Returns the unsubscribe. */
+  subscribePast(listener: () => void): () => void {
+    this.pastListeners.add(listener);
+    return () => this.pastListeners.delete(listener);
+  }
+
   /** Called after every change to the snapshot. Returns the unsubscribe. */
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -217,7 +241,7 @@ export class FleetState {
   }
 
   private newPeer(state: FleetMachineState): Peer {
-    return { state, link: null, failures: 0, retryTimer: null, pingTimer: null, lastFrame: null };
+    return { state, link: null, failures: 0, retryTimer: null, pingTimer: null, lastFrame: null, past: [] };
   }
 
   private open(peer: Peer): void {
@@ -324,6 +348,15 @@ export class FleetState {
       this.options.prefs?.(msg.prefs);
       return;
     }
+    if (msg?.type === "past") {
+      const sessions = (msg as { sessions?: unknown }).sessions;
+      if (!Array.isArray(sessions)) return;
+      const past = PastSchema.parse(sessions);
+      if (JSON.stringify(past) === JSON.stringify(peer.past)) return;
+      peer.past = past;
+      this.pastChanged();
+      return;
+    }
     if (msg?.type !== "sessions" && msg?.type !== "connected") return;
     if (!Array.isArray(msg.sessions)) return;
     // A plugins report is never changed once read, so its time stands for it.
@@ -347,11 +380,19 @@ export class FleetState {
   }
 
   private changed(): void {
-    for (const listener of this.listeners) {
+    this.notify(this.listeners, "listener");
+  }
+
+  private pastChanged(): void {
+    this.notify(this.pastListeners, "past listener");
+  }
+
+  private notify(listeners: Set<() => void>, what: string): void {
+    for (const listener of listeners) {
       try {
         listener();
       } catch (err) {
-        console.error("[fleet] listener failed:", err);
+        console.error(`[fleet] ${what} failed:`, err);
       }
     }
     this.schedulePersist();
@@ -371,7 +412,10 @@ export class FleetState {
     if (!path) return;
     this.persistedAt = this.now();
     const body: Persisted = {
-      machines: this.snapshot().map(({ online: _online, retryAt: _retryAt, ...kept }) => kept),
+      machines: this.snapshot().map(({ online: _online, retryAt: _retryAt, ...kept }) => ({
+        ...kept,
+        past: this.peers.get(kept.id)?.past ?? [],
+      })),
     };
     try {
       writeFileAtomic(path, JSON.stringify(body));
@@ -380,7 +424,7 @@ export class FleetState {
     }
   }
 
-  private restore(): FleetMachineState[] {
+  private restore(): { state: FleetMachineState; past: PastSession[] }[] {
     const path = this.options.path;
     if (!path) return [];
     let saved: Persisted;
@@ -393,15 +437,18 @@ export class FleetState {
     return saved.machines
       .filter((m) => m && typeof m.id === "string" && typeof m.url === "string" && m.id !== this.options.selfId)
       .map((m) => ({
-        ...emptyState({ id: m.id, hostname: String(m.hostname ?? m.id), url: m.url }),
-        lastSeen: typeof m.lastSeen === "number" ? m.lastSeen : null,
-        version: typeof m.version === "string" ? m.version : null,
-        protocol: typeof m.protocol === "number" ? m.protocol : null,
-        sessions: Array.isArray(m.sessions) ? m.sessions : [],
-        projects: Array.isArray(m.projects) ? m.projects : [],
-        projectReports: Array.isArray(m.projectReports) ? ReportsSchema.parse(m.projectReports) : [],
-        inbox: Array.isArray(m.inbox) ? m.inbox : [],
-        plugins: readPlugins(m.plugins),
+        state: {
+          ...emptyState({ id: m.id, hostname: String(m.hostname ?? m.id), url: m.url }),
+          lastSeen: typeof m.lastSeen === "number" ? m.lastSeen : null,
+          version: typeof m.version === "string" ? m.version : null,
+          protocol: typeof m.protocol === "number" ? m.protocol : null,
+          sessions: Array.isArray(m.sessions) ? m.sessions : [],
+          projects: Array.isArray(m.projects) ? m.projects : [],
+          projectReports: Array.isArray(m.projectReports) ? ReportsSchema.parse(m.projectReports) : [],
+          inbox: Array.isArray(m.inbox) ? m.inbox : [],
+          plugins: readPlugins(m.plugins),
+        },
+        past: Array.isArray(m.past) ? PastSchema.parse(m.past) : [],
       }));
   }
 }
@@ -432,6 +479,7 @@ function readPlugins(raw: unknown): PluginsReport | null {
 
 /** The reports a peer sent that this version can read; any other is dropped. */
 const ReportsSchema = eachOf(ProjectReportSchema);
+const PastSchema = eachOf(PastSessionSchema);
 
 /** How long a peer has to accept its socket before the attempt counts as failed. */
 const CONNECT_TIMEOUT_MS = 10_000;

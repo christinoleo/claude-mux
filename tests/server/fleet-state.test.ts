@@ -340,6 +340,31 @@ describe("FleetState", () => {
     second.stop();
   });
 
+  it("keeps each machine's past sessions apart from the fleet message, tells their own listeners, and restores them", async () => {
+    const state = fleet();
+    state.update([ENGAGE]);
+    latest(ENGAGE.url).open();
+    const fleetListener = vi.fn();
+    const pastListener = vi.fn();
+    state.subscribe(fleetListener);
+    state.subscribePast(pastListener);
+    const past = { id: "p1", cwd: "/p/a", branch: "main", title: null, prompt: "fix it", lastActivity: 1 };
+    latest(ENGAGE.url).broadcast({ type: "past", sessions: [past, { id: 3 }], timestamp: 1 });
+    latest(ENGAGE.url).broadcast({ type: "past", sessions: [past], timestamp: 2 });
+    expect(pastListener).toHaveBeenCalledTimes(1);
+    expect(fleetListener).not.toHaveBeenCalled();
+    expect(state.past()).toEqual({ [ENGAGE.id]: [past] });
+    expect(state.snapshot()[0]).not.toHaveProperty("past");
+
+    // A machine that goes off keeps its list, across a restart too.
+    latest(ENGAGE.url).drop();
+    expect(state.past()[ENGAGE.id]).toEqual([past]);
+    state.stop();
+    const again = fleet();
+    expect(again.past()).toEqual({ [ENGAGE.id]: [past] });
+    again.stop();
+  });
+
   it("starts empty from a missing or broken file", () => {
     expect(fleet(join(dir, "missing.json")).snapshot()).toEqual([]);
   });

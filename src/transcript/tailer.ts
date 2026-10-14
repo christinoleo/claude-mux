@@ -14,6 +14,7 @@ import {
   readdirSync,
   readFileSync,
   readSync,
+  statSync,
 } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
@@ -24,7 +25,7 @@ export function transcriptPathFor(cwd: string, sessionId: string): string {
 }
 
 // Read at call time, not at module load: the tests point HOME at a temp dir.
-function projectsRoot(): string {
+export function projectsRoot(): string {
   return join(homedir(), ".claude", "projects");
 }
 
@@ -62,8 +63,10 @@ export function resolveTranscriptPath(
   return findTranscriptById(sessionId);
 }
 
-/** Scan every project directory for `<sessionId>.jsonl`. */
-function findTranscriptById(sessionId: string): string | null {
+/** Scan every project directory for `<sessionId>.jsonl`: how a past session, which has no session JSON, is found. */
+export function findTranscriptById(sessionId: string): string | null {
+  // An id comes off a URL; anything but a plain name could reach outside.
+  if (!/^[\w-]+$/.test(sessionId)) return null;
   const root = projectsRoot();
   let dirs: string[];
   try {
@@ -71,11 +74,18 @@ function findTranscriptById(sessionId: string): string | null {
   } catch {
     return null;
   }
+  // A transcript moved by /cd can be in two directories: the newer is the one in use.
+  let best: { path: string; mtimeMs: number } | null = null;
   for (const dir of dirs) {
     const candidate = join(root, dir, `${sessionId}.jsonl`);
-    if (existsSync(candidate)) return candidate;
+    try {
+      const { mtimeMs } = statSync(candidate);
+      if (!best || mtimeMs > best.mtimeMs) best = { path: candidate, mtimeMs };
+    } catch {
+      // Not in this directory.
+    }
   }
-  return null;
+  return best?.path ?? null;
 }
 
 export interface SubagentFile {
