@@ -65,9 +65,9 @@ export function peekTranscriptPath(session: {
   return path;
 }
 
-/** The last TAIL_BYTES of the file, as lines; the first is usually cut mid-record. */
-function readTailLines(path: string, size: number): string[] {
-  const length = Math.min(size, TAIL_BYTES);
+/** The last `bytes` of the file, as lines; the first is usually cut mid-record. */
+export function readTailLines(path: string, size: number, bytes = TAIL_BYTES): string[] {
+  const length = Math.min(size, bytes);
   if (length === 0) return [];
   const buffer = Buffer.alloc(length);
   const fd = openSync(path, "r");

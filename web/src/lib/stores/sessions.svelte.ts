@@ -11,7 +11,8 @@ import {
 	type DeliveryInfo,
 	type SubagentInfo,
 	type ChangesInfo,
-	type FleetMachineInfo
+	type FleetMachineInfo,
+	type UpgradeStatus
 } from '$shared/types/ws-messages.js';
 import type { SessionAgent } from '$shared/db/index.js';
 import { fleetPrefsStore } from './fleet-prefs.svelte';
@@ -70,6 +71,8 @@ export interface Session {
 	pane_choice?: PaneChoice | null;
 	/** Claude Code's footer notice about its own update. */
 	pane_update?: { kind: 'installed' | 'available' | 'failed'; text: string; command?: string } | null;
+	/** The upgrade the status line started: running, or why it did not restart. */
+	upgrade?: UpgradeStatus | null;
 	/** The spinner line while a turn runs, split into its parts; `started_at` is in this browser's clock. */
 	pane_activity?: PaneActivity | null;
 	/** Share of the context window in use as of the latest reply; null when unknown. */
@@ -119,6 +122,7 @@ function sessionChanged(a: Session, b: Session): boolean {
 		if (JSON.stringify(a.pane_choice) !== JSON.stringify(b.pane_choice)) return true;
 	}
 	if ((a.pane_update?.text ?? null) !== (b.pane_update?.text ?? null)) return true;
+	if ((a.upgrade?.at ?? null) !== (b.upgrade?.at ?? null)) return true;
 	if (JSON.stringify(a.pane_activity ?? null) !== JSON.stringify(b.pane_activity ?? null)) return true;
 	// Subagents: a fresh array each tick, so compare contents.
 	if (JSON.stringify(a.subagents ?? []) !== JSON.stringify(b.subagents ?? [])) return true;

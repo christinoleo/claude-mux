@@ -2089,8 +2089,8 @@
 	 * Quits Claude Code and reopens this conversation in the same pane — the
 	 * way to pick up an update or re-read skills without losing the session.
 	 */
-	async function restartSession(upgrade = false): Promise<boolean> {
-		if (!currentSession) return false;
+	async function restartSession(upgrade = false): Promise<{ startedAt?: number } | null> {
+		if (!currentSession) return null;
 		const res = await fetch(`${api(currentSession.id)}/restart`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -2099,26 +2099,48 @@
 		if (!res.ok) {
 			const body = (await res.json().catch(() => ({}))) as { error?: string };
 			alert(`Could not ${upgrade ? 'upgrade' : 'restart'} Claude Code: ${body.error ?? res.statusText}`);
+			return null;
 		}
-		return res.ok;
+		return (await res.json().catch(() => ({}))) as { startedAt?: number };
 	}
 
 	/**
-	 * The session an upgrade was started in from here. The server answers once
-	 * the command is typed and restarts when it has run, so the button waits on
-	 * what the pane shows: the notice going, or long enough that it failed.
+	 * The session an upgrade was started in from here, until the server's own
+	 * word on it arrives. The server answers once the command is typed and
+	 * restarts when it has run; while it waits, and when it gives up without
+	 * restarting, the session's `upgrade` says so.
 	 */
-	let upgrading = $state<string | null>(null);
+	let upgrading = $state<{ id: string; startedAt: number; clickedAt: number } | null>(null);
+	const upgrade = $derived(currentSession?.upgrade ?? null);
 	const UPGRADE_WAIT_MS = 6 * 60_000;
 	async function upgradeSession() {
 		if (!currentSession) return;
 		const id = currentSession.id;
-		if (await restartSession(true)) upgrading = id;
+		const started = await restartSession(true);
+		if (started) upgrading = { id, startedAt: started.startedAt ?? 0, clickedAt: Date.now() };
 	}
 	$effect(() => {
-		if (!upgrading) return;
-		if (upgrading === currentSession?.id && !paneUpdate?.command) return void (upgrading = null);
-		const giveUp = setTimeout(() => (upgrading = null), UPGRADE_WAIT_MS);
+		if (!upgrading || upgrading.id !== currentSession?.id) return;
+		// The server's status for this run carries the `at` it answered with,
+		// so an ended run is told from a running one without the page having
+		// caught it running, and both clocks stay the server's.
+		const ours = upgrade && upgrade.at >= upgrading.startedAt ? upgrade : null;
+		if (ours?.state === 'running') {
+			// Still going: wait, but no longer than the server itself would.
+		} else if (ours) {
+			upgrading = null;
+			toast.error(ours.message ?? 'The upgrade did not restart Claude Code', {
+				description: ours.output ?? undefined,
+				duration: 30_000
+			});
+			return;
+		} else if (!paneUpdate?.command) {
+			// No status and no notice: it restarted into the new version.
+			upgrading = null;
+			return;
+		}
+		const left = upgrading.clickedAt + UPGRADE_WAIT_MS - Date.now();
+		const giveUp = setTimeout(() => (upgrading = null), Math.max(0, left));
 		return () => clearTimeout(giveUp);
 	});
 
@@ -2312,7 +2334,7 @@
 			{:else if paneUpdate.command && isAlive && isClaudeSession}
 				<!-- The notice names its own fix. It is typed into Claude Code as a
 				     shell line, which only a session waiting for input will run. -->
-				{@const running = upgrading === currentSession?.id}
+				{@const running = upgrade?.state === 'running' || upgrading?.id === currentSession?.id}
 				<button
 					type="button"
 					class="say upd installed"
@@ -2325,6 +2347,20 @@
 					<iconify-icon icon={running ? 'mdi:loading' : 'mdi:update'} class:spin={running}></iconify-icon>
 					{running ? 'Upgrading…' : 'Update available · upgrade and restart'}
 				</button>
+				{#if upgrade && upgrade.state !== 'running'}
+					<!-- Why the last upgrade left the session running the old version. -->
+					<span
+						class="say upd failed"
+						title={[upgrade.message, upgrade.output].filter(Boolean).join('\n\n')}
+					>
+						<iconify-icon icon="mdi:alert-circle-outline"></iconify-icon>
+						{upgrade.state === 'unchanged'
+							? 'upgrade did nothing'
+							: upgrade.state === 'timeout'
+								? 'upgrade timed out'
+								: 'upgrade failed'}
+					</span>
+				{/if}
 			{:else}
 				<span class="say upd {paneUpdate.kind}" title={paneUpdate.text}>
 					<iconify-icon icon="mdi:update"></iconify-icon>
