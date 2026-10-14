@@ -2,13 +2,13 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { WebSocketServer, type WebSocket as PeerSocket } from "ws";
+import { WebSocket as NodeSocket, WebSocketServer, type WebSocket as PeerSocket } from "ws";
 import {
   FORWARDED_HEADER,
   UNREACHABLE_CLOSE,
+  admitRelay,
   openRelayUpstream,
   parseFleetPath,
-  relayOriginAllowed,
   relayRequest,
 } from "../../src/server/fleet-relay.js";
 
@@ -140,8 +140,8 @@ beforeAll(async () => {
   origin.on("upgrade", async (req, socket, head) => {
     const url = new URL(req.url ?? "/", originUrl);
     const target = parseFleetPath(url.pathname);
-    const base = target && relayOriginAllowed(req.headers.origin, req.headers.host) ? await resolveMachine(target.machine) : null;
-    if (!target || !base) {
+    const base = target && (await admitRelay(req.headers.origin, req.headers.host, target.machine, resolveMachine));
+    if (!target || typeof base !== "string") {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();
       return;
@@ -327,6 +327,19 @@ describe("relay over WebSocket", () => {
     expect(event.reason).toBe("peer says bye");
   });
 
+  it("refuses a socket from another machine's page, before anything reaches the owner", async () => {
+    const before = seenSockets.length;
+    const ws = new NodeSocket(`${originUrl.replace("http", "ws")}/fleet/peer/api/sessions/stream`, {
+      origin: "https://engage.taimen-pirarucu.ts.net:3456",
+    });
+    const refused = await new Promise<boolean>((r) => {
+      ws.on("open", () => r(false));
+      ws.on("error", () => r(true));
+    });
+    expect(refused).toBe(true);
+    expect(seenSockets.length).toBe(before);
+  });
+
   it("closes as unreachable when the owner does not answer", async () => {
     const client = connect("/fleet/gone/api/sessions/stream");
     const event = await client.closed;
@@ -335,13 +348,3 @@ describe("relay over WebSocket", () => {
   });
 });
 
-describe("relayOriginAllowed", () => {
-  const host = "omarchy.taimen-pirarucu.ts.net:8443";
-  it("lets in only the page this server served, or a client with no Origin", () => {
-    expect(relayOriginAllowed("https://omarchy.taimen-pirarucu.ts.net:8443", host)).toBe(true);
-    expect(relayOriginAllowed(null, host)).toBe(true);
-    expect(relayOriginAllowed("https://engage.taimen-pirarucu.ts.net:3456", host)).toBe(false);
-    expect(relayOriginAllowed("http://localhost:3434", host)).toBe(false);
-    expect(relayOriginAllowed("null", host)).toBe(false);
-  });
-});

@@ -32,7 +32,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { browser } from '$app/environment';
 	import { longPress } from '$lib/actions/longPress';
-	import ServerPicker from './ServerPicker.svelte';
+	import MachineFilter from './MachineFilter.svelte';
 	import RenameSessionDialog from './RenameSessionDialog.svelte';
 	import FolderPicker from './FolderPicker.svelte';
 	import NeedsYou from './NeedsYou.svelte';
@@ -394,7 +394,7 @@
 		views.some((v) => v.cards.length + v.quiet.length + v.loose.length + v.loosePanes.length > 0)
 	);
 
-	/** Live sessions per machine, for the strip. */
+	/** Live sessions per machine, for the machine filter. */
 	function liveCount(machine: Machine): number {
 		return machine.sessions.filter((s) => s.pane_alive !== false).length;
 	}
@@ -785,7 +785,7 @@
 
 <div class="panel" class:compact>
 	<header class="card head">
-		<ServerPicker />
+		<MachineFilter live={liveCount} wants={machineWants} />
 		<button type="button" class="ghost" class:lit={searchOpen} title="Find a session" onclick={() => { searchOpen = !searchOpen; if (!searchOpen) query = ''; }}>
 			<iconify-icon icon="mdi:magnify"></iconify-icon>
 		</button>
@@ -817,27 +817,6 @@
 		/>
 	{/if}
 
-	{#if fleetStore.fleet}
-		<div class="machines" role="tablist" aria-label="Machines">
-			<button type="button" class="m" class:on={fleetStore.selected === 'all'} role="tab" onclick={() => fleetStore.select('all')}>all</button>
-			{#each fleetStore.machines as machine (machine.server.hostname)}
-				<button
-					type="button"
-					class="m"
-					class:on={fleetStore.selected === machine.server.id}
-					class:wants={machineWants(machine)}
-					role="tab"
-					title={offlineReason(machine, clock.now) ?? machine.server.url}
-					disabled={!machine.server.id}
-					onclick={() => fleetStore.select(machine.server.id)}
-				>
-					<span class="dot" class:off={!machine.online}></span>
-					{machine.server.hostname || 'this machine'}
-					{#if liveCount(machine) > 0}<span class="n">{liveCount(machine)}</span>{/if}
-				</button>
-			{/each}
-		</div>
-	{/if}
 
 	<div class="list">
 		{#if !query.trim()}
@@ -1053,20 +1032,8 @@
 		gap: 6px;
 		padding: 7px 7px 7px 8px;
 	}
-	.head :global(.server-picker-trigger) {
+	.head :global(.machine-filter-trigger) {
 		flex: 1;
-		min-width: 0;
-		border: 0;
-		background: transparent;
-		padding: 4px 6px;
-	}
-	.head :global(.server-picker-trigger:hover) {
-		background: var(--surface-3);
-	}
-	.head :global(.server-picker-trigger .hostname) {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.panel :global(.ghost) {
 		width: 30px;
@@ -1156,44 +1123,6 @@
 		border-color: #3f3f46;
 	}
 
-	/* ── machines strip ─────────────────────────────────────── */
-	.machines {
-		display: flex;
-		gap: 6px;
-		overflow-x: auto;
-		scrollbar-width: none;
-		padding: 0 1px;
-	}
-	.machines::-webkit-scrollbar {
-		display: none;
-	}
-	.m {
-		flex: none;
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		height: 26px;
-		padding: 0 9px;
-		border-radius: 8px;
-		border: 1px solid var(--line-soft);
-		background: var(--surface);
-		color: var(--muted);
-		font-size: 12px;
-		cursor: pointer;
-	}
-	.m.on {
-		border-color: var(--line);
-		background: var(--surface-3);
-		color: var(--text);
-	}
-	.m.wants {
-		border-color: #5a4310;
-	}
-	.m .n {
-		font-family: var(--font-mono);
-		font-size: 11px;
-		color: var(--dim);
-	}
 	.dot {
 		width: 6px;
 		height: 6px;

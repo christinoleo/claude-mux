@@ -26,7 +26,7 @@ function devWebSocket() {
 			const { browserWsManager, sessionsWsManager, terminalWsManager, transcriptWsManager } = await import(
 				'./src/lib/server/ws-managers.js'
 			);
-			const { browserOriginAllowed } = await import('../src/server/browser-view.js');
+			const { pageOriginAllowed } = await import('../src/server/page-origin.js');
 
 			// Track WebSocket -> target mapping for cleanup
 			const wsTargets = new WeakMap<WebSocket, string>();
@@ -59,8 +59,8 @@ function devWebSocket() {
 					return;
 				}
 
-				// The browser stream takes input for a logged-in browser, and a WebSocket is not held to CORS.
-				if (parsed.type === 'browser' && !browserOriginAllowed(req.headers.origin, req.headers.host)) {
+				// A WebSocket is not held to CORS: only this server's own page may open one.
+				if (!pageOriginAllowed(req.headers.origin, req.headers.host)) {
 					ws.close(1008, 'Forbidden');
 					return;
 				}
@@ -232,7 +232,9 @@ export default defineConfig({
 	plugins: [tailwindcss(), sveltekit(), devWebSocket()],
 	server: {
 		host: '0.0.0.0',
-		allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',').map((h) => h.trim()) ?? true
+		allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',').map((h) => h.trim()) ?? true,
+		// As in production, /api/ answers its own page only (ADR 0004); Vite would otherwise allow loopback origins.
+		cors: false
 	},
 	build: {
 		target: 'esnext',

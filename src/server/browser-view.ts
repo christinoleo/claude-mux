@@ -18,7 +18,6 @@ import { execFile } from 'child_process';
 import { lookup } from 'dns/promises';
 import { readFile, stat } from 'fs/promises';
 import { isIP } from 'net';
-import { relayOriginAllowed } from './fleet-relay.js';
 import { homedir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
@@ -637,15 +636,3 @@ export class BrowserWsManager {
 		if (call) stream.send(call.method, call.params);
 	}
 }
-
-// ── who may connect ─────────────────────────────────────────────────────
-
-/**
- * Whether a WebSocket upgrade may open the browser stream. A WebSocket is not
- * held to CORS, so without this any site open in a browser on the tailnet
- * could connect and drive the person's logged-in browser. Only the page this
- * server itself served may: the pane never reads another machine's browser,
- * so not even the tailnet origins the API trusts are let in. A request with
- * no Origin did not come from a page.
- */
-export const browserOriginAllowed = relayOriginAllowed;
