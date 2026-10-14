@@ -31,6 +31,7 @@ import { homedir } from "os";
 import { parseMcpToolName } from "../transcript/mcp.js";
 import { readSubagentMeta, subagentDir, type SubagentMeta } from "../transcript/tailer.js";
 import type { Subagent } from "../db/sessions-json.js";
+import { sleep, withSessionLock } from "../db/session-lock.js";
 import { ASKING, AWAITING_INPUT } from "../session-state.js";
 
 // Paths
@@ -102,7 +103,9 @@ interface Session {
 
 /** One entry of the Stop payload's `background_tasks`. */
 interface BackgroundTask {
+  id?: string;
   type?: string;
+  status?: string;
   agent_type?: string;
 }
 
@@ -125,11 +128,13 @@ interface HookInput {
     subagent_type?: string;
   };
   tool_use_id?: string;
+  /** PostToolUse: a Bash run in the background answers with the id of its task. */
+  tool_response?: { backgroundTaskId?: unknown };
   /**
-   * Stop payload: work still in flight when the turn ended. A turn that ends
-   * with a background agent or shell running is paused, not finished — the
-   * task's completion wakes the session again without any prompt from the user.
-   * Claude Code lists only running work here.
+   * Stop and SubagentStop payloads: work still in flight when the turn ended.
+   * A turn that ends with a background agent or shell running is paused, not
+   * finished — the task's completion wakes the session again without any
+   * prompt from the user. Claude Code lists only running work here.
    */
   background_tasks?: BackgroundTask[];
   /**
@@ -158,6 +163,23 @@ function wakingTasks(input: HookInput): BackgroundTask[] {
 function pausedOnBackground(session: Session): boolean {
   return (session.background_tasks ?? 0) > 0;
 }
+
+/**
+ * A background agent's turn can end while a shell it started still runs; the
+ * shell's end wakes it, with a SubagentStart under the same id. Until then it
+ * is paused, not finished. The shells are told apart from the parent's by the
+ * ids the agent's own PostToolUse reported.
+ */
+function pausedOnShell(agent: Subagent, input: HookInput): boolean {
+  if (agent.paused_at && agent.paused_at < Date.now() - MAX_PAUSE_MS) return false;
+  return (input.background_tasks ?? []).some(t => t.id !== undefined && agent.shells?.includes(t.id));
+}
+
+/**
+ * A shell that never ends (a dev server the agent left running) would hold its
+ * agent "running" for good; past this the pause counts as the agent's end.
+ */
+const MAX_PAUSE_MS = 30 * 60 * 1000;
 
 /** "Waiting on agent: Explore", "Waiting on 3 background tasks". */
 function describeBackground(tasks: BackgroundTask[]): string {
@@ -222,6 +244,12 @@ function writeSession(session: Session): void {
   }
   if (session.subagents?.length) {
     const now = Date.now();
+    for (const a of session.subagents) {
+      if (a.state === "running" && a.paused_at && a.paused_at < now - MAX_PAUSE_MS) {
+        a.state = "done";
+        a.ended_at = a.paused_at;
+      }
+    }
     session.subagents = session.subagents.filter(
       a =>
         a.ended_at === null ||
@@ -234,15 +262,18 @@ function writeSession(session: Session): void {
   renameSync(tmpPath, path);
 }
 
+/** Under the lock, so a hook mid-change sees the file gone instead of writing it back. */
 function deleteSessionFile(id: string): void {
   const path = getSessionPath(id);
-  try {
-    if (existsSync(path)) {
-      unlinkSync(path);
+  lockSession(id, () => {
+    try {
+      if (existsSync(path)) {
+        unlinkSync(path);
+      }
+    } catch {
+      // Ignore
     }
-  } catch {
-    // Ignore
-  }
+  });
 }
 
 /**
@@ -260,7 +291,7 @@ function deleteSessionsByPid(pid: number, exceptId?: string): void {
       try {
         const session = JSON.parse(readFileSync(path, "utf-8")) as Session;
         if (session.pid === pid) {
-          unlinkSync(path);
+          deleteSessionFile(sessionId);
         }
       } catch {
         // Skip corrupt files
@@ -439,7 +470,6 @@ async function readStdin(): Promise<HookInput> {
 function handleSessionStart(input: HookInput): void {
   const tmuxTarget = getTmuxTarget();
   const pid = getClaudePid();
-  const existing = readSession(input.session_id);
   const source = input.source ?? "startup";
   // What a SessionStart keeps, widest source first — each rung includes the one
   // below it. compact fires mid-turn and the agent carries straight on, so even
@@ -464,24 +494,27 @@ function handleSessionStart(input: HookInput): void {
 
   const gitRoot = getGitRoot(input.cwd);
 
-  const session: Session = {
-    ...(keepContext && existing ? existing : {}),
-    v: SCHEMA_VERSION,
-    id: input.session_id,
-    pid,
-    cwd: input.cwd,
-    transcript_path: input.transcript_path ?? existing?.transcript_path ?? null,
-    git_root: gitRoot,
-    tmux_target: tmuxTarget,
-    state: keepRunState ? (existing?.state ?? "idle") : "idle",
-    current_action: keepRunState ? (existing?.current_action ?? null) : null,
-    prompt_text: keepContext ? (existing?.prompt_text ?? null) : null,
-    display_name: keepName ? (existing?.display_name ?? null) : null,
-    last_update: Date.now(),
-    linked_to: linkedTo ?? existing?.linked_to ?? null,
-    ...maestroFields(),
-  };
-  writeSession(session);
+  lockSession(input.session_id, () => {
+    const existing = readSession(input.session_id);
+    const session: Session = {
+      ...(keepContext && existing ? existing : {}),
+      v: SCHEMA_VERSION,
+      id: input.session_id,
+      pid,
+      cwd: input.cwd,
+      transcript_path: input.transcript_path ?? existing?.transcript_path ?? null,
+      git_root: gitRoot,
+      tmux_target: tmuxTarget,
+      state: keepRunState ? (existing?.state ?? "idle") : "idle",
+      current_action: keepRunState ? (existing?.current_action ?? null) : null,
+      prompt_text: keepContext ? (existing?.prompt_text ?? null) : null,
+      display_name: keepName ? (existing?.display_name ?? null) : null,
+      last_update: Date.now(),
+      linked_to: linkedTo ?? existing?.linked_to ?? null,
+      ...maestroFields(),
+    };
+    writeSession(session);
+  });
 }
 
 /**
@@ -495,18 +528,45 @@ function maestroFields(): Pick<Session, "maestro_role" | "maestro_issue"> {
   return { maestro_role: role, maestro_issue: role && Number.isFinite(issue) ? issue : null };
 }
 
-function getOrCreateSession(input: HookInput): Session {
-  const existing = readSession(input.session_id);
-  if (existing) {
+/**
+ * Read the session, apply `change`, write it back, all under the session's
+ * lock, so two hooks firing at once (a background agent's PostToolUse and its
+ * SubagentStart land within milliseconds) both keep their change. Whatever
+ * needs tmux, git or ps is looked up before, by the caller or here; the pane
+ * the event came from is recorded unless `tmux` is false.
+ */
+function changeSession(input: HookInput, change: (session: Session) => void, { tmux = true } = {}): void {
+  const exists = existsSync(getSessionPath(input.session_id));
+  const tmuxTarget = tmux || !exists ? getTmuxTarget() : null;
+  const fresh = exists ? null : newSession(input, tmuxTarget);
+  lockSession(input.session_id, () => {
+    // Gone since the check above: the session ended, and must not come back.
+    const session = readSession(input.session_id) ?? fresh;
+    if (!session) return;
     // Sessions written before this field existed, and resumed sessions whose
     // file moved, pick it up on their next event.
-    if (input.transcript_path) existing.transcript_path = input.transcript_path;
-    if (existing.maestro_role === undefined) Object.assign(existing, maestroFields());
-    return existing;
-  }
+    if (input.transcript_path) session.transcript_path = input.transcript_path;
+    if (session.maestro_role === undefined) Object.assign(session, maestroFields());
+    session.tmux_target = tmuxTarget ?? session.tmux_target;
+    holdForTest();
+    change(session);
+    writeSession(session);
+  });
+}
 
-  // Session doesn't exist (e.g., resumed session) - create it
-  const tmuxTarget = getTmuxTarget();
+function lockSession(id: string, fn: () => void): void {
+  ensureSessionsDir();
+  withSessionLock(getSessionPath(id), fn, () => debugLog(`lock: ${id} still held after waiting, writing without it`));
+}
+
+/** Tests widen the gap between read and write to prove two hooks cannot interleave there. */
+function holdForTest(): void {
+  const ms = Number(process.env.CLAUDE_MUX_TEST_HOLD_MS);
+  if (ms > 0) sleep(ms);
+}
+
+/** A session first heard of mid-flight (a resumed one, say): the facts its SessionStart would have gathered. */
+function newSession(input: HookInput, tmuxTarget: string | null): Session {
   let linkedTo: string | null = null;
   if (tmuxTarget) {
     linkedTo = deleteSessionsByTmuxTarget(tmuxTarget, input.session_id);
@@ -556,206 +616,194 @@ function setPaneTitle(target: string, title: string): void {
 }
 
 function handleUserPromptSubmit(input: HookInput): void {
-  const session = getOrCreateSession(input);
-
-  session.tmux_target = getTmuxTarget() ?? session.tmux_target;
-  session.state = "busy";
-  session.current_action = "Thinking...";
-  session.background_tasks = 0;
-  session.turn_started_at = Date.now();
-  // A new turn retires the last one's ending; one cut short by Escape never
-  // gets a Stop, and must not come back as the old turn's unread "Done".
-  session.turn_completed_at = null;
-  // Capture the first user prompt as session name and set pane title.
-  // Slash commands are control input, not a description of the work — and one of
-  // them (`/rename`) is injected by the dashboard, which would otherwise title the
-  // session after its own rename call.
-  if (input.prompt && !session.prompt_text && !/^\s*\//.test(input.prompt)) {
-    session.prompt_text = input.prompt.slice(0, 120);
-    const title = promptToTitle(input.prompt);
-    if (title && session.tmux_target) {
-      setPaneTitle(session.tmux_target, title);
+  let title: string | null = null;
+  let paneTarget: string | null = null;
+  changeSession(input, session => {
+    session.state = "busy";
+    session.current_action = "Thinking...";
+    session.background_tasks = 0;
+    session.turn_started_at = Date.now();
+    // A new turn retires the last one's ending; one cut short by Escape never
+    // gets a Stop, and must not come back as the old turn's unread "Done".
+    session.turn_completed_at = null;
+    // Capture the first user prompt as session name and set pane title.
+    // Slash commands are control input, not a description of the work — and one of
+    // them (`/rename`) is injected by the dashboard, which would otherwise title the
+    // session after its own rename call.
+    if (input.prompt && !session.prompt_text && !/^\s*\//.test(input.prompt)) {
+      session.prompt_text = input.prompt.slice(0, 120);
+      title = promptToTitle(input.prompt);
+      paneTarget = session.tmux_target;
     }
-  }
-  // Mirror Claude's `/rename <name>` slash command into display_name. Kept in
-  // step with sanitizeDisplayName in src/db/sessions-json.ts, which does the same
-  // normalising for names arriving from the dashboard — this file stays free of
-  // repo imports so it starts fast on every hook event.
-  const renamed = input.prompt?.match(/^\s*\/rename(?:\s+(.*))?$/);
-  if (renamed) {
-    const next = (renamed[1] ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
-    session.display_name = next || null;
-  }
-  session.last_update = Date.now();
-  writeSession(session);
+    // Mirror Claude's `/rename <name>` slash command into display_name. Kept in
+    // step with sanitizeDisplayName in src/db/sessions-json.ts, which does the same
+    // normalising for names arriving from the dashboard — this file stays free of
+    // repo imports so it starts fast on every hook event.
+    const renamed = input.prompt?.match(/^\s*\/rename(?:\s+(.*))?$/);
+    if (renamed) {
+      const next = (renamed[1] ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+      session.display_name = next || null;
+    }
+    session.last_update = Date.now();
+  });
+  // Outside the lock: tmux is slow next to a file write.
+  if (title && paneTarget) setPaneTitle(paneTarget, title);
 }
 
 function handleStop(input: HookInput): void {
-  const session = getOrCreateSession(input);
-  const pending = wakingTasks(input);
+  changeSession(input, session => {
+    const pending = wakingTasks(input);
 
-  session.tmux_target = getTmuxTarget() ?? session.tmux_target;
-  session.background_tasks = pending.length;
-  if (pending.length > 0) {
-    // Paused, not done: a background agent or shell will wake the turn again.
-    session.state = "busy";
-    session.current_action = describeBackground(pending);
-  } else {
-    session.state = "idle";
-    session.current_action = null;
-    // Nothing will wake the turn, so no agent is still running: one cut short
-    // by Escape never sends its SubagentStop, and a parked call that never
-    // started (denied, say) must not lend its description to a later agent.
-    const now = Date.now();
-    for (const agent of session.subagents ?? []) {
-      if (agent.state === "running") {
-        agent.state = "done";
-        agent.ended_at = now;
+    session.background_tasks = pending.length;
+    if (pending.length > 0) {
+      // Paused, not done: a background agent or shell will wake the turn again.
+      session.state = "busy";
+      session.current_action = describeBackground(pending);
+    } else {
+      session.state = "idle";
+      session.current_action = null;
+      // Nothing will wake the turn, so no agent is still running: one cut short
+      // by Escape never sends its SubagentStop, and a parked call that never
+      // started (denied, say) must not lend its description to a later agent.
+      const now = Date.now();
+      for (const agent of session.subagents ?? []) {
+        if (agent.state === "running" && !pausedOnShell(agent, input)) {
+          agent.state = "done";
+          agent.ended_at = now;
+        }
       }
+      session.agent_calls = [];
+      // The dashboard's unread "Done" compares this against when someone last
+      // looked at the session; a pause on background work is not an ending.
+      session.turn_completed_at = Date.now();
     }
-    session.agent_calls = [];
-    // The dashboard's unread "Done" compares this against when someone last
-    // looked at the session; a pause on background work is not an ending.
-    session.turn_completed_at = Date.now();
-  }
-  session.last_update = Date.now();
-  writeSession(session);
+    session.last_update = Date.now();
+  });
 }
 
 function handlePermissionRequest(input: HookInput): void {
-  const session = getOrCreateSession(input);
-
-  session.tmux_target = getTmuxTarget() ?? session.tmux_target;
-  session.state = "waiting";
-  // AskUserQuestion goes through the permission machinery too; keep saying
-  // it is a question, which is what the notification below reads.
-  session.current_action = input.tool_name === "AskUserQuestion" ? ASKING : "Waiting...";
-  session.last_update = Date.now();
-  writeSession(session);
+  changeSession(input, session => {
+    session.state = "waiting";
+    // AskUserQuestion goes through the permission machinery too; keep saying
+    // it is a question, which is what the notification below reads.
+    session.current_action = input.tool_name === "AskUserQuestion" ? ASKING : "Waiting...";
+    session.last_update = Date.now();
+  });
 }
 
 function handleNotificationIdle(input: HookInput): void {
-  const session = getOrCreateSession(input);
-
-  session.tmux_target = getTmuxTarget() ?? session.tmux_target;
-  // The prompt sits idle while a background agent works, and this fires a
-  // minute in. The last Stop knew whether work was still in flight; trust it.
-  if (!pausedOnBackground(session)) {
-    session.state = "idle";
-    session.current_action = null;
-  }
-  session.last_update = Date.now();
-  writeSession(session);
+  changeSession(input, session => {
+    // The prompt sits idle while a background agent works, and this fires a
+    // minute in. The last Stop knew whether work was still in flight; trust it.
+    if (!pausedOnBackground(session)) {
+      session.state = "idle";
+      session.current_action = null;
+    }
+    session.last_update = Date.now();
+  });
 }
 
 function handleNotificationPermission(input: HookInput): void {
-  const session = getOrCreateSession(input);
-
-  session.tmux_target = getTmuxTarget() ?? session.tmux_target;
-  // Claude Code sends its permission notification for a question as well,
-  // seconds after the dialog is drawn. The question is not asking for
-  // permission, and reading it as one sends the dashboard to the terminal
-  // for an answer it could offer itself; the wait also started back when
-  // the question did.
-  if (session.state === "waiting" && session.current_action === ASKING) {
-    writeSession(session);
-    return;
-  }
-  session.state = "permission";
-  session.current_action = "Waiting for permission";
-  session.last_update = Date.now();
-  writeSession(session);
+  changeSession(input, session => {
+    // Claude Code sends its permission notification for a question as well,
+    // seconds after the dialog is drawn. The question is not asking for
+    // permission, and reading it as one sends the dashboard to the terminal
+    // for an answer it could offer itself; the wait also started back when
+    // the question did.
+    if (session.state === "waiting" && session.current_action === ASKING) {
+      return;
+    }
+    session.state = "permission";
+    session.current_action = "Waiting for permission";
+    session.last_update = Date.now();
+  });
 }
 
 function handleNotificationElicitation(input: HookInput): void {
-  const session = getOrCreateSession(input);
-
-  session.tmux_target = getTmuxTarget() ?? session.tmux_target;
-  session.state = "waiting";
-  session.current_action = AWAITING_INPUT;
-  session.last_update = Date.now();
-  writeSession(session);
+  changeSession(input, session => {
+    session.state = "waiting";
+    session.current_action = AWAITING_INPUT;
+    session.last_update = Date.now();
+  });
 }
 
 function handlePreToolUse(input: HookInput): void {
-  const session = getOrCreateSession(input);
-
-  session.tmux_target = getTmuxTarget() ?? session.tmux_target;
-  session.last_update = Date.now();
-  if (input.agent_id) {
-    // A subagent's tool calls arrive under the parent's session id. The parent
-    // is busy, but what it is doing is waiting on the agent, not reading foo.ts;
-    // the tool is the agent's own current step.
-    session.state = "busy";
-    const agent = session.subagents?.find(a => a.id === input.agent_id);
-    if (agent && input.tool_name) {
-      agent.current_tool = parseMcpToolName(input.tool_name)?.tool ?? input.tool_name;
+  changeSession(input, session => {
+    session.last_update = Date.now();
+    if (input.agent_id) {
+      // A subagent's tool calls arrive under the parent's session id. The parent
+      // is busy, but what it is doing is waiting on the agent, not reading foo.ts;
+      // the tool is the agent's own current step.
+      session.state = "busy";
+      const agent = session.subagents?.find(a => a.id === input.agent_id);
+      if (agent && input.tool_name) {
+        agent.current_tool = parseMcpToolName(input.tool_name)?.tool ?? input.tool_name;
+      }
+    } else if (input.tool_name === "AskUserQuestion") {
+      // The tool's whole job is to wait for the user, so the session is waiting
+      // from the moment it is called. The permission notification says the
+      // same thing a beat later; reporting it here means the dashboard shows
+      // the dialog's rows as soon as they are drawn, not after that beat.
+      session.state = "waiting";
+      session.current_action = ASKING;
+    } else {
+      session.state = "busy";
+      session.current_action = input.tool_name
+        ? formatToolAction(input.tool_name, input.tool_input)
+        : "Working...";
     }
-  } else if (input.tool_name === "AskUserQuestion") {
-    // The tool's whole job is to wait for the user, so the session is waiting
-    // from the moment it is called. The permission notification says the
-    // same thing a beat later; reporting it here means the dashboard shows
-    // the dialog's rows as soon as they are drawn, not after that beat.
-    session.state = "waiting";
-    session.current_action = ASKING;
-  } else {
-    session.state = "busy";
-    session.current_action = input.tool_name
-      ? formatToolAction(input.tool_name, input.tool_input)
-      : "Working...";
-  }
 
-  if (isAgentTool(input.tool_name) && !input.agent_id) {
-    session.agent_calls = [
-      ...(session.agent_calls ?? []).slice(-(MAX_AGENT_CALLS - 1)),
-      {
-        type: input.tool_input?.subagent_type ?? "general-purpose",
-        description: input.tool_input?.description ?? null,
-        tool_use_id: input.tool_use_id ?? null,
-      },
-    ];
-  }
+    if (isAgentTool(input.tool_name) && !input.agent_id) {
+      session.agent_calls = [
+        ...(session.agent_calls ?? []).slice(-(MAX_AGENT_CALLS - 1)),
+        {
+          type: input.tool_input?.subagent_type ?? "general-purpose",
+          description: input.tool_input?.description ?? null,
+          tool_use_id: input.tool_use_id ?? null,
+        },
+      ];
+    }
 
-  if (input.tool_name?.includes("take_screenshot") && input.tool_input?.filePath) {
-    session.screenshots = session.screenshots || [];
-    session.screenshots.push({
-      path: input.tool_input.filePath,
-      timestamp: Date.now(),
-    });
-  }
-
-  writeSession(session);
+    if (input.tool_name?.includes("take_screenshot") && input.tool_input?.filePath) {
+      session.screenshots = session.screenshots || [];
+      session.screenshots.push({
+        path: input.tool_input.filePath,
+        timestamp: Date.now(),
+      });
+    }
+  });
 }
 
 function handlePostToolUse(input: HookInput): void {
-  const session = getOrCreateSession(input);
-
-  session.tmux_target = getTmuxTarget() ?? session.tmux_target;
-  session.state = "busy";
-  // Same as PreToolUse: a subagent's tool events leave the parent's label alone.
-  if (!input.agent_id) session.current_action = null;
-  session.last_update = Date.now();
-  writeSession(session);
+  changeSession(input, session => {
+    session.state = "busy";
+    // Same as PreToolUse: a subagent's tool events leave the parent's label alone.
+    if (!input.agent_id) session.current_action = null;
+    const shell = input.tool_response?.backgroundTaskId;
+    const agent = input.agent_id ? session.subagents?.find(a => a.id === input.agent_id) : undefined;
+    if (agent && typeof shell === "string" && !agent.shells?.includes(shell)) {
+      agent.shells = [...(agent.shells ?? []), shell];
+    }
+    session.last_update = Date.now();
+  });
 }
 
 function handlePostToolUseFailure(input: HookInput): void {
-  const session = getOrCreateSession(input);
-
-  // An agent that dies with an error still gets its SubagentStop, either side
-  // of this; the failure is what tells the two endings apart.
-  if (isAgentTool(input.tool_name) && input.tool_use_id) {
-    const agent = session.subagents?.find(a => a.tool_use_id === input.tool_use_id);
-    if (agent) {
-      agent.state = "failed";
-      agent.ended_at ??= Date.now();
+  changeSession(input, session => {
+    // An agent that dies with an error still gets its SubagentStop, either side
+    // of this; the failure is what tells the two endings apart.
+    if (isAgentTool(input.tool_name) && input.tool_use_id) {
+      const agent = session.subagents?.find(a => a.tool_use_id === input.tool_use_id);
+      if (agent) {
+        agent.state = "failed";
+        agent.ended_at ??= Date.now();
+      }
     }
-  }
 
-  session.tmux_target = getTmuxTarget() ?? session.tmux_target;
-  session.state = "busy";
-  session.current_action = null;
-  session.last_update = Date.now();
-  writeSession(session);
+    session.state = "busy";
+    session.current_action = null;
+    session.last_update = Date.now();
+  });
 }
 
 /** The tool that spawns a subagent: `Agent`, called `Task` before Claude Code 2.1. */
@@ -832,48 +880,63 @@ function newSubagent(
 }
 
 function handleSubagentStart(input: HookInput): void {
-  if (!input.agent_id) return;
-  const session = getOrCreateSession(input);
-
-  const type = input.agent_type || "general-purpose";
-  const transcriptPath = subagentTranscriptPath(input, input.agent_id);
-  const meta = agentMeta(transcriptPath);
-  const agent = newSubagent(input.agent_id, type, transcriptPath, meta, takeAgentCall(session, type, meta.toolUseId));
-  session.subagents = [...(session.subagents ?? []).filter(a => a.id !== agent.id), agent];
-  session.last_update = Date.now();
-  writeSession(session);
+  const agentId = input.agent_id;
+  if (!agentId) return;
+  changeSession(input, session => {
+    const known = session.subagents?.find(a => a.id === agentId);
+    if (known) {
+      if (known.state === "failed") return;
+      // Woken by a shell it started (see pausedOnShell): the same agent, and
+      // no parked call of its own left to take.
+      known.state = "running";
+      known.ended_at = null;
+      known.paused_at = null;
+      session.last_update = Date.now();
+      return;
+    }
+    const type = input.agent_type || "general-purpose";
+    const transcriptPath = subagentTranscriptPath(input, agentId);
+    const meta = agentMeta(transcriptPath);
+    const agent = newSubagent(agentId, type, transcriptPath, meta, takeAgentCall(session, type, meta.toolUseId));
+    session.subagents = [...(session.subagents ?? []), agent];
+    session.last_update = Date.now();
+  }, { tmux: false });
 }
 
 function handleSubagentStop(input: HookInput): void {
-  if (!input.agent_id) return;
-  const session = getOrCreateSession(input);
-
-  let agent = session.subagents?.find(a => a.id === input.agent_id);
-  const transcriptPath =
-    input.agent_transcript_path ?? subagentTranscriptPath(input, input.agent_id) ?? agent?.transcript_path ?? null;
-  // Read again even when the start found a description: that one may have come
-  // from pairing the start with a parked call by type, and the meta is exact.
-  const meta = agentMeta(transcriptPath);
-  if (!agent) {
-    // Started before the hook knew about subagents, or its start was pruned.
-    agent = newSubagent(input.agent_id, input.agent_type || "general-purpose", transcriptPath, meta);
-    agent.started_at = fileBirth(transcriptPath);
-    session.subagents = [...(session.subagents ?? []), agent];
-  }
-  if (agent.state === "running") agent.state = "done";
-  agent.ended_at ??= Date.now();
-  agent.current_tool = null;
-  agent.transcript_path = transcriptPath;
-  agent.description = meta.description ?? agent.description;
-  agent.tool_use_id = meta.toolUseId ?? agent.tool_use_id;
-  // Claude Code also reports agents of its own (an agent-type hook, say) that
-  // no Agent call spawned and that leave no transcript: nothing to open, and a
-  // row per turn of "general-purpose". An Agent call's agent has one or both.
-  if (!agent.tool_use_id && !(transcriptPath && existsSync(transcriptPath))) {
-    session.subagents = (session.subagents ?? []).filter(a => a.id !== agent.id);
-  }
-  session.last_update = Date.now();
-  writeSession(session);
+  const agentId = input.agent_id;
+  if (!agentId) return;
+  changeSession(input, session => {
+    let agent = session.subagents?.find(a => a.id === agentId);
+    const transcriptPath =
+      input.agent_transcript_path ?? subagentTranscriptPath(input, agentId) ?? agent?.transcript_path ?? null;
+    // Read again even when the start found a description: that one may have come
+    // from pairing the start with a parked call by type, and the meta is exact.
+    const meta = agentMeta(transcriptPath);
+    if (!agent) {
+      // Started before the hook knew about subagents, or its start was pruned.
+      agent = newSubagent(agentId, input.agent_type || "general-purpose", transcriptPath, meta);
+      agent.started_at = fileBirth(transcriptPath);
+      session.subagents = [...(session.subagents ?? []), agent];
+    }
+    agent.current_tool = null;
+    if (pausedOnShell(agent, input)) {
+      agent.paused_at ??= Date.now();
+    } else {
+      if (agent.state === "running") agent.state = "done";
+      agent.ended_at ??= Date.now();
+    }
+    agent.transcript_path = transcriptPath;
+    agent.description = meta.description ?? agent.description;
+    agent.tool_use_id = meta.toolUseId ?? agent.tool_use_id;
+    // Claude Code also reports agents of its own (an agent-type hook, say) that
+    // no Agent call spawned and that leave no transcript: nothing to open, and a
+    // row per turn of "general-purpose". An Agent call's agent has one or both.
+    if (!agent.tool_use_id && !(transcriptPath && existsSync(transcriptPath))) {
+      session.subagents = (session.subagents ?? []).filter(a => a.id !== agent.id);
+    }
+    session.last_update = Date.now();
+  }, { tmux: false });
 }
 
 function handleSessionEnd(input: HookInput): void {

@@ -94,6 +94,21 @@ a running agent and folds a finished one into the parent's count the moment it
 ends ("3 agents done"), while a failed one keeps its red row until it is opened from
 this browser.
 
+A background agent's call returns at once, so its `PostToolUse` and its
+`SubagentStart` run in two hook processes within milliseconds, and each reads,
+changes and writes the same session JSON. Every writer, the hook's
+`changeSession()` and the server's in `src/db/sessions-json.ts` alike, does
+that under `withSessionLock()` (`src/db/session-lock.ts`): a `<id>.json.lock`
+made with exclusive create, broken when older than 3 s, and given up on after
+a second, when the write goes ahead without it. Lookups that run tmux, git or
+ps happen before the lock, never under it. A background agent can also end
+its turn while a shell it started still runs; the shell's end wakes it with a
+second `SubagentStart` under the same id. The agent's own `PostToolUse` names
+each such shell (`backgroundTaskId`, kept as the agent's `shells`), and while
+one is listed in a stop's `background_tasks` the agent stays `running`, for
+at most half an hour (a dev server it left behind never ends). Deletes take the
+lock too, and a hook that finds its session gone under the lock writes nothing.
+
 ### 2. SvelteKit Web Server + WebSocket
 The web server (`web/`) is built with SvelteKit and svelte-adapter-bun:
 - **File watcher** (`src/server/watcher.ts`): Polls JSON files for changes (500ms interval)
