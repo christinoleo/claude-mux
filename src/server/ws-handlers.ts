@@ -1998,6 +1998,24 @@ export function handleWsMessage(msgStr: string, handlers?: WsMessageHandlers): '
 export const TRUSTED_ORIGIN =
 	/^https?:\/\/(?:[a-z0-9-]+\.)*[a-z0-9-]+\.ts\.net(?::\d+)?$|^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i;
 
+/**
+ * Whether a socket may be opened from a page at `origin`. A WebSocket is not
+ * held to CORS, so without this any site open in the browser could stream
+ * the sessions, transcripts and terminals of every claude-mux it can reach.
+ * The rule is the one CORS applies to `/api/`: the page this server served,
+ * or a tailnet or loopback page. A client that sends no Origin is not a
+ * browser page, and is let through.
+ */
+export function socketOriginAllowed(origin: string | null | undefined, host: string | null | undefined): boolean {
+  if (!origin) return true;
+  if (TRUSTED_ORIGIN.test(origin)) return true;
+  try {
+    return !!host && new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
 // ============================================================================
 // URL Parsing
 // ============================================================================

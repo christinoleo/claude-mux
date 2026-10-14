@@ -4,6 +4,7 @@ import {
 	parseWsPath,
 	TRUSTED_ORIGIN,
 	resizePane,
+	socketOriginAllowed,
 	type WsClient,
 	type WsMessageHandlers
 } from '$shared/server/ws-handlers.js';
@@ -66,8 +67,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 		const url = new URL(event.request.url);
 		const parsed = parseWsPath(url.pathname);
 
-		// The browser stream takes input for a logged-in browser, and a WebSocket is not held to CORS.
-		if (parsed?.type === 'browser' && !browserOriginAllowed(origin, event.request.headers.get('host'))) {
+		// A WebSocket is not held to CORS, so the origin is checked here. The
+		// browser stream takes input for a logged-in browser, and only this
+		// server's own page may open it.
+		const host = event.request.headers.get('host');
+		const allowed = parsed?.type === 'browser' ? browserOriginAllowed(origin, host) : socketOriginAllowed(origin, host);
+		if (parsed && !allowed) {
 			return new Response('Forbidden', { status: 403 });
 		}
 
