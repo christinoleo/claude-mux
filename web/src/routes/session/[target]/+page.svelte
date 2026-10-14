@@ -350,6 +350,11 @@
 		return `${$page.url.pathname}?${panelQuery($page.url.searchParams, kind, PANE_PARAMS, own)}`;
 	}
 
+	/** A pull request or issue (`owner/name#n`) opened beside the session in the GitHub pane. */
+	function openGithub(ref: string) {
+		navigateQuery(panelQuery($page.url.searchParams, 'github', PANE_PARAMS, { ref }));
+	}
+
 	/** Where a transcript tool row opens the file it touched: the Files pane, at that line. */
 	function fileLink(path: string, line: number | null): string {
 		return paneLink('files', { file: path, line: line ? String(line) : null });
@@ -2447,6 +2452,7 @@
 						{fileLink}
 						onQuote={quoteInComposer}
 						repoSession={currentSession?.git_root ? currentSession.id : null}
+						onOpenGithub={openGithub}
 						agentLink={(id) => sessionPath({ host: remoteHost, target: target ?? '' }, `/agent/${encodeURIComponent(id)}`)}
 						turnChanges={sessionChanges}
 						{changesLink}

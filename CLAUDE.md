@@ -345,6 +345,38 @@ private repo, a number nobody filed. A null leaves the link as written, so a
 icons and colours: emerald open, grey draft, violet merged, red for a pull
 request closed unmerged; amber is not used.
 
+A chip's pull request or issue opens beside the session in the side panel's
+GitHub pane (`GithubPane.svelte`, `?panel=github&ref=owner/name#n`), drawn
+read-only from GitHub's data since github.com refuses to be framed. With
+`onOpen`, `GithubRefCards` turns a plain click or a tap into that, and its
+hover warms the pane's read; Ctrl/Cmd-click and a middle click keep the link
+to github.com. The pane's header (state, `#n` linking out, title, author,
+`base ← head`, `+a −d`, labels) folds as the body scrolls; a pull request
+then lists one verdict per reviewer (dimmed when given before the newest
+commit), who is still asked, and its checks ("7 of 16 running · 1 failed",
+failing first, passing folded); then the body and the comments, newest ten
+first, bots behind one toggle, marker-only bodies dropped, long ones capped.
+The body renders through `renderMarkdown()` with `githubBody`, which keeps a
+safe few HTML tags (`sanitizeGithubHtml()` in `web/src/lib/github-html.ts`),
+draws `> [!NOTE]`-style alerts, and sends GitHub-hosted images through
+`/api/github/media` (`src/server/github-media.ts`), which fetches them with
+`gh auth token`, sending the token only to GitHub's own hosts and following
+the redirect to signed storage without it. Chips in the pane, in the History
+pane's commit subject and Needs you's ticket titles open the pane too. With
+no `ref`, `GET /api/sessions/<id>/github` names the branch's pull request and
+the worker's issue, and the pane shows the first; a row above the header
+holds both and the last few opened (browser storage, per session).
+`src/server/github-items.ts` reads through `gh`: `ITEM_QUERY`
+(`issueOrPullRequest`, so the kind need not be known) and `COMMENTS_QUERY` in
+parallel, mapped by `toGithubItem()` (`src/github-item.ts`). Answers are
+shared, a minute while open and ten once merged or closed, concurrent asks
+merged, the last good answer served `stale` when a refresh fails. An expired
+answer is first revalidated against `repos/<slug>/issues/<n>` with its ETag
+(`gh api -i` exits 1 on a 304, so `readHead()` reads the status line), except
+for a pull request with checks still running, which the ETag would not see
+finish. All of it goes through `base`, so another machine's session is read
+by that machine's `gh`.
+
 Text selected in the transcript can be quoted into the draft.
 `QuoteSelection.svelte`, mounted by `TranscriptView` when it is given
 `onQuote`, floats an "Add to prompt" button by the selection and takes

@@ -15,6 +15,11 @@
 	import { asking, getSessionDisplayName, needsHelp, type Session } from '$lib/stores/sessions.svelte';
 	import type { InboxTicket } from '$shared/types/ws-messages.js';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { refParam } from '$shared/github-item.js';
+	import { githubPaneHref } from '$lib/side-panel/url';
+	import { PANE_PARAMS } from '$lib/side-panel/panes';
 
 	interface Props {
 		machines: Machine[];
@@ -75,6 +80,19 @@
 	const READY_SHOWN = 3;
 	let showAllReady = $state(false);
 	const readyShown = $derived(showAllReady ? ready : ready.slice(0, READY_SHOWN));
+
+	/**
+	 * A ticket's title opens it in the GitHub pane of the session on screen,
+	 * as a chip in the transcript does; with no session on screen, or with a
+	 * modifier held, it goes to github.com.
+	 */
+	function openTicket(e: MouseEvent, t: InboxTicket) {
+		if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+		const href = githubPaneHref(page.url, refParam(t.repo, t.number), PANE_PARAMS);
+		if (!href) return;
+		e.preventDefault();
+		void goto(href, { noScroll: true, keepFocus: true });
+	}
 
 	/** Each item names its machine whenever the fleet has more than one, even filtered to one. */
 	const multiHost = $derived(fleet);
@@ -152,7 +170,9 @@
 				{@const off = blockedReason(item.machine, clock.now)}
 				<div class="it ticket" class:off={!!off}>
 					<span class="ic"><iconify-icon icon={KIND_ICON[t.kind]}></iconify-icon></span>
-					<a class="name" href={t.url} target="_blank" rel="noopener" title="Open on GitHub">{t.title}</a>
+					<a class="name" href={t.url} target="_blank" rel="noopener" title="Open on GitHub" onclick={(e) => openTicket(e, t)}
+						>{t.title}</a
+					>
 					<button
 						type="button"
 						class="start"

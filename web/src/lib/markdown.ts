@@ -1,6 +1,7 @@
 import { Marked, type MarkedOptions, type Token, type Tokens } from 'marked';
 import { isRefShorthand, parseGithubRefUrl } from '$shared/github-ref.js';
 import { findFilePaths, parseFilePath, type FilePath } from './file-paths';
+import { GITHUB_ALERTS, markAlerts, sanitizeGithubHtml, type AlertKind, type MediaHref } from './github-html';
 
 function escapeHtml(text: string): string {
 	return text
@@ -40,6 +41,12 @@ export interface MarkdownOptions {
 	files?: FileHref;
 	/** Marks links to GitHub pull requests and issues as `a.gh-ref`; with `bare`, a `#123` in plain text too. */
 	github?: { bare?: boolean };
+	/**
+	 * Render as GitHub renders a pull request or issue: its HTML kept to a safe
+	 * few tags (`<details>`, `<img>`, `<br>`…) with comments dropped, `> [!NOTE]`
+	 * alerts drawn as callouts, and each image's address passed through `media`.
+	 */
+	githubBody?: { media: MediaHref };
 }
 
 /** A file path found in a message: `text` is what was written, `code` whether in backticks. */
@@ -184,7 +191,30 @@ const marked = new Marked({
 	breaks: false,
 	renderer: {
 		html({ raw }) {
-			return escapeHtml(raw);
+			const body = (this.options as MarkdownOptions).githubBody;
+			return body ? sanitizeGithubHtml(raw, body.media) : escapeHtml(raw);
+		},
+		image({ href, title, text }) {
+			const body = (this.options as MarkdownOptions).githubBody;
+			if (!body) return false;
+			const src = body.media(href);
+			if (!src) return escapeHtml(text);
+			const titled = title ? ` title="${escapeHtml(title)}"` : '';
+			return `<img src="${escapeHtml(src)}" alt="${escapeHtml(text)}"${titled} loading="lazy">`;
+		},
+		link({ href, title, tokens }) {
+			if (!(this.options as MarkdownOptions).githubBody) return false;
+			const label = this.parser.parseInline(tokens);
+			// Nothing in a body is the pane's own: every link leaves for a tab of its own.
+			if (!/^https?:\/\//i.test(href)) return label;
+			const titled = title ? ` title="${escapeHtml(title)}"` : '';
+			return `<a href="${escapeHtml(href)}"${titled} target="_blank" rel="noopener">${label}</a>`;
+		},
+		blockquote(token) {
+			const alert = (token as Tokens.Blockquote & { alert?: AlertKind }).alert;
+			if (!alert) return false;
+			const inner = this.parser.parse(token.tokens);
+			return `<div class="gh-alert gh-alert-${alert}"><p class="gh-alert-title">${GITHUB_ALERTS[alert]}</p>${inner}</div>\n`;
 		}
 	},
 	extensions: [
@@ -212,9 +242,10 @@ const marked = new Marked({
 	],
 	hooks: {
 		processAllTokens(tokens) {
-			breakParagraphs(tokens);
 			// `renderMarkdown` passes its own options along with marked's.
 			const options = this.options as MarkdownOptions;
+			if (options.githubBody) markAlerts(tokens);
+			breakParagraphs(tokens);
 			if (!options.files && !options.github) return tokens;
 			return rewriteInline(tokens, rewriteFor(options));
 		}
