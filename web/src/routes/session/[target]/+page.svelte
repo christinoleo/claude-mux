@@ -3060,6 +3060,13 @@
 		background: #000;
 		color: #fff;
 	}
+	/* The transcript grows and shrinks under a live turn; a bar coming and
+	   going must not shift it sideways. Both edges, so it stays centred. */
+	@media (hover: hover) and (pointer: fine) {
+		.output {
+			scrollbar-gutter: stable both-edges;
+		}
+	}
 
 
 

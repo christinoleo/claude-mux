@@ -375,6 +375,13 @@
 		   the drawer on a phone. */
 		overscroll-behavior: contain;
 	}
+	/* Sessions come and go; the list must not shift sideways as its bar
+	   appears. */
+	@media (hover: hover) and (pointer: fine) {
+		.sidebar-content {
+			scrollbar-gutter: stable;
+		}
+	}
 
 	.sidebar-panel {
 		flex-shrink: 0;

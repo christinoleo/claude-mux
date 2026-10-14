@@ -445,7 +445,6 @@
 		overflow-x: auto;
 		flex: none;
 		font-size: 11.5px;
-		scrollbar-width: thin;
 	}
 	.turns :global(.chip) {
 		flex: none;

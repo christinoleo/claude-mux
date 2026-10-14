@@ -634,7 +634,6 @@
 		padding: 0;
 		max-height: min(50vh, 380px);
 		overflow-y: auto;
-		scrollbar-width: thin;
 	}
 	:global(.tab-picker) button {
 		width: 100%;

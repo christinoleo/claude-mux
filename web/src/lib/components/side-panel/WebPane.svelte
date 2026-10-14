@@ -390,7 +390,6 @@
 		overflow-x: auto;
 		flex: none;
 		font-size: 11.5px;
-		scrollbar-width: thin;
 	}
 	.label {
 		color: #78716c;

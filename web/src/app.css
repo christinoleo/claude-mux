@@ -143,6 +143,55 @@
   }
 }
 
+/* Every scrollbar on a desktop: narrow, on a clear track, its thumb a muted
+   tone that brightens under the pointer and while dragged. Touch screens keep
+   their native overlay bars. Chromium and Safari are styled through
+   ::-webkit-scrollbar, which Chromium ignores on any element that sets
+   scrollbar-width or scrollbar-color, so a component must not set either
+   unless it hides its bar (`scrollbar-width: none`). Firefox has no
+   ::-webkit-scrollbar and gets the standard properties instead; it cannot
+   style the thumb's own hover, so there every bar around the pointer
+   brightens. */
+@media (hover: hover) and (pointer: fine) {
+  :root {
+    --scrollbar-thumb: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
+    --scrollbar-thumb-hover: color-mix(in oklch, var(--muted-foreground) 70%, transparent);
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    background: transparent;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border: 1px solid transparent;
+    border-radius: 9999px;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover,
+  ::-webkit-scrollbar-thumb:active {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    @layer base {
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-thumb) transparent;
+      }
+      *:hover {
+        scrollbar-color: var(--scrollbar-thumb-hover) transparent;
+      }
+    }
+  }
+}
+
 /* Behaviour only — shape and colour come from SessionStateIndicator, the one
    component that draws a session state. Stepped rather than eased, and every
    dot on the page in phase (the component sets the delay off the wall clock),
