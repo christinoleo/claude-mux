@@ -15,6 +15,7 @@ import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { isDictated } from './dictation-marks.js';
+import { homeDiskPercent } from './disk.js';
 import { findTranscriptById, JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
 import { currentRemoteControlUrl, answerRemoteControlDialog, setRemoteControl } from './remote-control.js';
 import { getAllPaneTitles, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
@@ -538,16 +539,17 @@ export function resizePane(target: string, cols: number, rows: number): void {
 }
 
 // ============================================================================
-// System Stats (CPU/RAM/Swap from /proc, cached every 10s)
+// System Stats (CPU/RAM/Swap from /proc, disk from statfs, cached every 10s)
 // ============================================================================
 
-let cachedSystemStats = { cpu: 0, ram: 0, swap: 0, ramTotal: 0, swapTotal: 0 };
+let cachedSystemStats = { cpu: 0, ram: 0, swap: 0, ramTotal: 0, swapTotal: 0, disk: 0 };
 let prevCpuIdle = 0;
 let prevCpuTotal = 0;
 let systemStatsTimer: ReturnType<typeof setInterval> | null = null;
 let systemStatsRefCount = 0;
 
 function refreshSystemStats(): void {
+	cachedSystemStats.disk = homeDiskPercent() ?? cachedSystemStats.disk;
 	try {
 		const stat = readFileSync('/proc/stat', 'utf-8');
 		const meminfo = readFileSync('/proc/meminfo', 'utf-8');
@@ -579,7 +581,8 @@ function refreshSystemStats(): void {
 			ram: Math.round(((memTotal - memAvailable) / memTotal) * 100),
 			swap: swapTotal > 0 ? Math.round(((swapTotal - swapFree) / swapTotal) * 100) : 0,
 			ramTotal: Math.round(memTotal / 1024),
-			swapTotal: Math.round(swapTotal / 1024)
+			swapTotal: Math.round(swapTotal / 1024),
+			disk: cachedSystemStats.disk
 		};
 	} catch {
 		// /proc not available (non-Linux), keep last values

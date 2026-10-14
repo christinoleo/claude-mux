@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import SidebarAccordion from './SidebarAccordion.svelte';
+	import * as Popover from '$lib/components/ui/popover';
 	import type { Screenshot } from '$lib/stores/sessions.svelte';
 
 	interface Props {
@@ -68,42 +68,49 @@
 	const swipeOffset = $derived(isSwiping ? Math.min(0, touchCurrentX - touchStartX) : 0);
 </script>
 
-<SidebarAccordion
-	icon="mdi:image-multiple"
-	title="Screenshots"
-	count={screenshots.length}
->
-	{#if screenshots.length === 0}
-		<p class="empty">No screenshots</p>
-	{:else}
-		<div class="screenshots-grid">
-			{#each screenshots as screenshot, i (screenshot.path + ':' + i)}
-				<div class="screenshot-item">
-					<button
-						class="thumbnail"
-						onclick={() => openModal(screenshot.path)}
-						title={getFilename(screenshot.path)}
-					>
-						<img
-							src="/api/files/image?path={encodeURIComponent(screenshot.path)}"
-							alt={getFilename(screenshot.path)}
-							loading="lazy"
-						/>
-					</button>
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						class="dismiss-btn"
-						onclick={() => dismissScreenshot(screenshot.path)}
-						title="Dismiss screenshot"
-					>
-						<iconify-icon icon="mdi:close"></iconify-icon>
-					</Button>
-				</div>
-			{/each}
-		</div>
-	{/if}
-</SidebarAccordion>
+<!-- A small button with its count on the foot's top line; the thumbnails open above it. -->
+<Popover.Root>
+	<Popover.Trigger
+		class="shots-trigger"
+		title="Screenshots of this session"
+		aria-label="Screenshots: {screenshots.length}"
+	>
+		<iconify-icon icon="mdi:image-multiple-outline"></iconify-icon>
+		<span class="shots-count">{screenshots.length}</span>
+	</Popover.Trigger>
+	<Popover.Content side="top" align="start" sideOffset={8} class="w-64 max-w-[85vw] border-[#333] bg-[#1a1a1a] p-2">
+		{#if screenshots.length === 0}
+			<p class="empty">No screenshots</p>
+		{:else}
+			<div class="screenshots-grid">
+				{#each screenshots as screenshot, i (screenshot.path + ':' + i)}
+					<div class="screenshot-item">
+						<button
+							class="thumbnail"
+							onclick={() => openModal(screenshot.path)}
+							title={getFilename(screenshot.path)}
+						>
+							<img
+								src="/api/files/image?path={encodeURIComponent(screenshot.path)}"
+								alt={getFilename(screenshot.path)}
+								loading="lazy"
+							/>
+						</button>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							class="dismiss-btn"
+							onclick={() => dismissScreenshot(screenshot.path)}
+							title="Dismiss screenshot"
+						>
+							<iconify-icon icon="mdi:close"></iconify-icon>
+						</Button>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</Popover.Content>
+</Popover.Root>
 
 <!-- Fullscreen Modal -->
 {#if viewingScreenshot}
@@ -159,6 +166,31 @@
 {/if}
 
 <style>
+	:global(.shots-trigger) {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		height: 24px;
+		padding: 0 6px;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		color: hsl(var(--muted-foreground));
+		font-size: 11px;
+		font-variant-numeric: tabular-nums;
+		cursor: pointer;
+	}
+
+	:global(.shots-trigger:hover),
+	:global(.shots-trigger[data-state='open']) {
+		background: rgba(255, 255, 255, 0.06);
+		color: hsl(var(--foreground));
+	}
+
+	:global(.shots-trigger iconify-icon) {
+		font-size: 15px;
+	}
+
 	.screenshots-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);

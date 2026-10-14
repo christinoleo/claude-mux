@@ -344,6 +344,8 @@ const SystemStatsMessageSchema = z.object({
 	swap: z.number(),
 	ramTotal: z.number(),
 	swapTotal: z.number(),
+	/** Percentage used of the filesystem holding the home directory. */
+	disk: z.number(),
 	timestamp: z.number()
 });
 

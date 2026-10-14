@@ -141,7 +141,7 @@ function sessionChanged(a: Session, b: Session): boolean {
 
 class SessionStore extends ReliableWebSocket {
 	sessions = $state<Session[]>([]);
-	systemStats = $state<SystemStats>({ cpu: 0, ram: 0, swap: 0, ramTotal: 0, swapTotal: 0 });
+	systemStats = $state<SystemStats>({ cpu: 0, ram: 0, swap: 0, ramTotal: 0, swapTotal: 0, disk: 0 });
 	paused = $state(false);
 	/** Tickets on GitHub waiting on a person, for this machine's repos. */
 	inbox = $state<InboxTicket[]>([]);
@@ -212,7 +212,14 @@ class SessionStore extends ReliableWebSocket {
 				this.fleetPast = msg.machines;
 				break;
 			case 'systemStats':
-				this.systemStats = { cpu: msg.cpu, ram: msg.ram, swap: msg.swap, ramTotal: msg.ramTotal, swapTotal: msg.swapTotal };
+				this.systemStats = {
+					cpu: msg.cpu,
+					ram: msg.ram,
+					swap: msg.swap,
+					ramTotal: msg.ramTotal,
+					swapTotal: msg.swapTotal,
+					disk: msg.disk
+				};
 				break;
 		}
 	}

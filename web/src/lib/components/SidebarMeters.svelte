@@ -1,10 +1,15 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
+	import * as Popover from '$lib/components/ui/popover';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
+	import { fleetStore, machineKey } from '$lib/stores/fleet.svelte';
+	import { machineMarks } from '$shared/fleet-rail.js';
+	import { spendCoverage } from '$shared/usage/coverage.js';
 	import { usageStore } from '$lib/stores/usage.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
 	import { wakeLockSupported } from '$lib/wakeLock.svelte';
 	import { hostTimeZone, makeDayFormatter, money } from '$lib/format';
-	import { SEVERITY, severityForPercent } from '$lib/severity';
+	import { SEVERITY, severityForPercent, type Severity } from '$lib/severity';
 	import {
 		hasDesktopNotifications,
 		hasNotificationSound,
@@ -21,10 +26,16 @@
 		type PushEvents
 	} from '$lib/push';
 
+	interface Props {
+		/** What belongs to the session on screen, drawn first on the top line. */
+		lead?: Snippet;
+	}
+
+	let { lead }: Props = $props();
+
 	const SPARK_DAYS = 14;
 	/** Why the plan columns are missing, for the one place there is room to say it. */
-	const PLAN_UNAVAILABLE = 'Plan limits unavailable — open Usage for the reason.';
-	const SERIES = '#3987e5';
+	const PLAN_UNAVAILABLE = 'Plan limits unavailable. Open Usage for the reason.';
 
 	// The store owns the polling, so the sidebar and the composer's key share
 	// one pair of requests rather than each running their own timer.
@@ -40,14 +51,14 @@
 
 	interface Meter {
 		key: string;
-		/** Two or three characters — the column is only as wide as its bar. */
+		/** Two or three characters, so the bars line up under their readings. */
 		tag: string;
 		percent: number;
 		color: string;
 		title: string;
 	}
 
-	/** Labels share a length so the columns can share a width. */
+	/** Labels share a length so the bars can share a width. */
 	function shortLabel(label: string): string {
 		const text = label.toLowerCase();
 		if (text.includes('session')) return '5h';
@@ -57,35 +68,55 @@
 		return text.replace(/\s*limit$/, '').split(/\s+/)[0];
 	}
 
-	const meters = $derived.by(() => {
-		const out: Meter[] = [];
-		for (const limit of quota?.available ? quota.limits : []) {
-			out.push({
+	const plan = $derived(
+		(quota?.available ? quota.limits : []).map(
+			(limit): Meter => ({
 				key: limit.kind,
 				tag: shortLabel(limit.label),
 				percent: limit.percent,
 				// The server grades plan limits itself, and the sidebar shows that
-				// grade — recomputing here is how the two start disagreeing.
+				// grade: recomputing here is how the two start disagreeing.
 				color: SEVERITY[limit.severity].color,
 				title: `${limit.label}: ${Math.round(limit.percent)}%`
-			});
-		}
-		const system: Array<[string, string, number]> = [
-			['cpu', 'cpu', stats.cpu],
-			['ram', 'ram', stats.ram]
+			})
+		)
+	);
+
+	const system = $derived.by(() => {
+		const rows: Array<[string, number, Severity]> = [
+			['cpu', stats.cpu, severityForPercent(stats.cpu)],
+			['ram', stats.ram, severityForPercent(stats.ram)],
+			['dsk', stats.disk, severityForPercent(stats.disk, 'disk')]
 		];
-		if (stats.swapTotal > 0) system.push(['swap', 'swp', stats.swap]);
-		for (const [key, tag, percent] of system) {
-			out.push({
-				key,
+		if (stats.swapTotal > 0) rows.push(['swp', stats.swap, severityForPercent(stats.swap)]);
+		return rows.map(
+			([tag, percent, severity]): Meter => ({
+				key: tag,
 				tag,
 				percent,
-				color: SEVERITY[severityForPercent(percent)].color,
-				title: `${tag.toUpperCase()}: ${Math.round(percent)}%`
-			});
-		}
-		return out;
+				color: SEVERITY[severity].color,
+				title: `${tag === 'dsk' ? 'Disk (home)' : tag.toUpperCase()}: ${Math.round(percent)}%`
+			})
+		);
 	});
+
+	/** The machine that served the page, named and coloured as its rows are in the drawer. */
+	const origin = $derived.by(() => {
+		const marks = machineMarks(
+			fleetStore.machines.map((m) => ({ id: machineKey(m), name: m.server.hostname || 'this machine' }))
+		);
+		const self = fleetStore.machines.find((m) => m.local);
+		return self ? marks.get(machineKey(self)) : undefined;
+	});
+
+	/** Whose spend the fleet total holds, so a total missing a machine says so. */
+	const coverage = $derived(summary ? spendCoverage(summary.machines) : null);
+	const missing = $derived(
+		summary?.machines
+			.filter((m) => !m.ok)
+			.map((m) => m.hostname)
+			.join(', ') ?? ''
+	);
 
 	function dayKey(offset: number): string {
 		return dayOf(Date.now() - offset * 86_400_000);
@@ -217,247 +248,330 @@
 </script>
 
 <!--
-	Every sidebar number is a share of something, so every one of them is the
-	same column: a reading on top, a bar that fills upwards, a label under it.
-	Standing them side by side costs one row of height for the whole set, where
-	a stack of horizontal meters spent a row on each.
+	The foot is flush with the drawer, three labelled rows under one hairline:
+	what the plan allows, what the machine that served the page is carrying,
+	and what the fleet has spent. Settings sit behind the gear, since they are
+	set once and read seldom.
 -->
 <div class="sidebar-meters">
-	<a class="strip" href="/usage" title={quota && !quota.available ? PLAN_UNAVAILABLE : undefined}>
-		{#if meters.length > 0}
-			<span class="group">
-				{#each meters as meter (meter.key)}
-					<span class="col" title={meter.title}>
-						<span class="val" style="color: {meter.color}">{Math.round(meter.percent)}%</span>
-						<span class="track" role="img" aria-label={meter.title}>
-							<span
-								class="fill"
-								style="height: {Math.min(100, Math.max(0, meter.percent))}%; background: {meter.color}"
-							></span>
-						</span>
-						<span class="tag">{meter.tag}</span>
-					</span>
+	<div class="top">
+		{@render lead?.()}
+		<span class="top-end">
+			<a class="icon-button" href="/usage" title="Usage" aria-label="Usage">
+				<iconify-icon icon="mdi:chart-box-outline"></iconify-icon>
+			</a>
+			<Popover.Root>
+				<Popover.Trigger class="icon-button" title="Alerts and this device" aria-label="Alerts and this device">
+					<iconify-icon icon="mdi:cog-outline"></iconify-icon>
+				</Popover.Trigger>
+				<Popover.Content
+					side="top"
+					align="end"
+					sideOffset={8}
+					class="w-72 max-w-[90vw] border-[#333] bg-[#1a1a1a] p-3"
+				>
+					{@render settings()}
+				</Popover.Content>
+			</Popover.Root>
+		</span>
+	</div>
+
+	<div class="row">
+		<span class="label">Plan</span>
+		{#if plan.length > 0}
+			<span class="bars">
+				{#each plan as meter (meter.key)}
+					{@render bar(meter)}
 				{/each}
 			</span>
+		{:else if quota && !quota.available}
+			<a class="quiet" href="/usage" title={PLAN_UNAVAILABLE}>unavailable</a>
+		{:else}
+			<span class="quiet">—</span>
 		{/if}
+	</div>
 
-		{#if spark.length > 0}
-			<span class="group spark">
-				<!-- The two figures frame the fortnight they are drawn from: today at
-				     the left, where the reading starts, the whole month's total at the
-				     right. The thirteen days between them stay a shape — fourteen
-				     numbers at this size would be a smear. -->
+	<div class="row">
+		<span class="label machine" style:color={origin?.color} title="The machine that served this page">
+			{origin?.name ?? 'this machine'}
+		</span>
+		<span class="bars">
+			{#each system as meter (meter.key)}
+				{@render bar(meter)}
+			{/each}
+		</span>
+	</div>
+
+	{#if spark.length > 0}
+		<div class="row spend-row">
+			<span class="label">Spend</span>
+			<span class="spend">
 				<span class="line">
-					<span class="val spend">{today === null ? '—' : money(today, true)}</span>
-					<span class="val spend">{summary === null ? '—' : money(summary.costUsd, true)}</span>
+					<span class="figure">{today === null ? '—' : money(today, true)} <span class="tag">today</span></span>
+					{#if coverage}
+						<span
+							class="coverage"
+							class:short={coverage.answered < coverage.total}
+							title={missing ? `No answer from ${missing}` : 'Every machine answered'}
+						>
+							{coverage.answered} of {coverage.total} {coverage.total === 1 ? 'machine' : 'machines'}
+						</span>
+					{/if}
+					<span class="figure">{summary === null ? '—' : money(summary.costUsd, true)} <span class="tag">30d</span></span>
 				</span>
+				<!-- Fourteen days as a shape: fourteen numbers at this size would be a smear. -->
 				<span class="ticks" aria-hidden="true">
 					{#each spark as day (day.date)}
-						<span class="track" title="{day.date}: {money(day.cost, true)}">
-							<span
-								class="fill"
-								style="height: {Math.max(3, (day.cost / peak) * 100)}%; background: {SERIES}"
-							></span>
+						<span class="tick" title="{day.date}: {money(day.cost, true)}">
+							<span class="tick-fill" style="height: {Math.max(8, (day.cost / peak) * 100)}%"></span>
 						</span>
 					{/each}
 				</span>
-				<span class="line">
-					<span class="tag">today</span>
-					<span class="tag">30d</span>
-				</span>
 			</span>
-		{/if}
-	</a>
-
-	<div class="alerts-row">
-		<span class="alerts-label" id="alerts-label">Alerts</span>
-		<div class="segmented" role="radiogroup" aria-labelledby="alerts-label">
-			{#each MODES as m (m.value)}
-				<button
-					type="button"
-					role="radio"
-					aria-checked={preferences.notificationMode === m.value}
-					class:on={preferences.notificationMode === m.value}
-					title={m.title}
-					disabled={requesting}
-					onclick={() => chooseMode(m.value)}
-				>
-					{m.label}
-				</button>
-			{/each}
-		</div>
-	</div>
-	{#if alertProblem}
-		<p class="alerts-problem" role="status">{alertProblem}</p>
-	{/if}
-
-	<div class="alerts-row">
-		<span
-			class="alerts-label"
-			id="push-label"
-			title="Notifications on this device with claude-mux closed, sent by the server"
-		>
-			Push
-		</span>
-		<div class="segmented" role="radiogroup" aria-labelledby="push-label">
-			{#each [false, true] as on (on)}
-				<button
-					type="button"
-					role="radio"
-					aria-checked={!!pushSub === on}
-					class:on={!!pushSub === on}
-					disabled={pushBusy || !!pushBlocked}
-					onclick={() => setPush(on)}
-				>
-					{on ? 'This device' : 'Off'}
-				</button>
-			{/each}
-		</div>
-	</div>
-	{#if pushBlocked}
-		<p class="alerts-note">{pushBlocked}</p>
-	{:else if pushSub}
-		<div class="toggles">
-			<label class="toggle-row" title="A session asks a question or wants an approval">
-				<input
-					type="checkbox"
-					checked={pushEvents.needsYou}
-					disabled={pushBusy}
-					onchange={(e) => setPushEvent('needsYou', e.currentTarget.checked)}
-				/>
-				<span>Needs you</span>
-			</label>
-			<label class="toggle-row" title="A session finished its turn">
-				<input
-					type="checkbox"
-					checked={pushEvents.done}
-					disabled={pushBusy}
-					onchange={(e) => setPushEvent('done', e.currentTarget.checked)}
-				/>
-				<span>Done</span>
-			</label>
-			<button type="button" class="link-button" disabled={pushBusy} onclick={testPush}>Send a test</button>
 		</div>
 	{/if}
-	{#if pushNote}
-		<p class={pushNote.problem ? 'alerts-problem' : 'alerts-note'} role="status">{pushNote.text}</p>
-	{/if}
-
-	<div class="toggles">
-		<label class="toggle-row" title="A toast in this page when another session needs you or finishes">
-			<input
-				type="checkbox"
-				checked={preferences.inAppToasts}
-				onchange={(e) => (preferences.inAppToasts = e.currentTarget.checked)}
-			/>
-			<span>In-page toasts</span>
-		</label>
-		{#if supported}
-			<label class="toggle-row">
-				<input
-					type="checkbox"
-					checked={preferences.keepAwake}
-					onchange={(e) => (preferences.keepAwake = e.currentTarget.checked)}
-				/>
-				<span>Keep screen on</span>
-			</label>
-		{/if}
-	</div>
 </div>
+
+{#snippet bar(meter: Meter)}
+	<span class="meter" title={meter.title}>
+		<span class="reading">
+			<span class="tag">{meter.tag}</span>
+			<span class="val" style:color={meter.color}>{Math.round(meter.percent)}%</span>
+		</span>
+		<span class="track" role="img" aria-label={meter.title}>
+			<span
+				class="fill"
+				style="width: {Math.min(100, Math.max(0, meter.percent))}%; background: {meter.color}"
+			></span>
+		</span>
+	</span>
+{/snippet}
+
+{#snippet settings()}
+	<div class="settings">
+		<div class="alerts-row">
+			<span class="alerts-label" id="alerts-label">Alerts</span>
+			<div class="segmented" role="radiogroup" aria-labelledby="alerts-label">
+				{#each MODES as m (m.value)}
+					<button
+						type="button"
+						role="radio"
+						aria-checked={preferences.notificationMode === m.value}
+						class:on={preferences.notificationMode === m.value}
+						title={m.title}
+						disabled={requesting}
+						onclick={() => chooseMode(m.value)}
+					>
+						{m.label}
+					</button>
+				{/each}
+			</div>
+		</div>
+		{#if alertProblem}
+			<p class="alerts-problem" role="status">{alertProblem}</p>
+		{/if}
+
+		<div class="alerts-row">
+			<span
+				class="alerts-label"
+				id="push-label"
+				title="Notifications on this device with claude-mux closed, sent by the server"
+			>
+				Push
+			</span>
+			<div class="segmented" role="radiogroup" aria-labelledby="push-label">
+				{#each [false, true] as on (on)}
+					<button
+						type="button"
+						role="radio"
+						aria-checked={!!pushSub === on}
+						class:on={!!pushSub === on}
+						disabled={pushBusy || !!pushBlocked}
+						onclick={() => setPush(on)}
+					>
+						{on ? 'This device' : 'Off'}
+					</button>
+				{/each}
+			</div>
+		</div>
+		{#if pushBlocked}
+			<p class="alerts-note">{pushBlocked}</p>
+		{:else if pushSub}
+			<div class="toggles">
+				<label class="toggle-row" title="A session asks a question or wants an approval">
+					<input
+						type="checkbox"
+						checked={pushEvents.needsYou}
+						disabled={pushBusy}
+						onchange={(e) => setPushEvent('needsYou', e.currentTarget.checked)}
+					/>
+					<span>Needs you</span>
+				</label>
+				<label class="toggle-row" title="A session finished its turn">
+					<input
+						type="checkbox"
+						checked={pushEvents.done}
+						disabled={pushBusy}
+						onchange={(e) => setPushEvent('done', e.currentTarget.checked)}
+					/>
+					<span>Done</span>
+				</label>
+				<button type="button" class="link-button" disabled={pushBusy} onclick={testPush}>Send a test</button>
+			</div>
+		{/if}
+		{#if pushNote}
+			<p class={pushNote.problem ? 'alerts-problem' : 'alerts-note'} role="status">{pushNote.text}</p>
+		{/if}
+
+		<div class="toggles">
+			<label class="toggle-row" title="A toast in this page when another session needs you or finishes">
+				<input
+					type="checkbox"
+					checked={preferences.inAppToasts}
+					onchange={(e) => (preferences.inAppToasts = e.currentTarget.checked)}
+				/>
+				<span>In-page toasts</span>
+			</label>
+			{#if supported}
+				<label class="toggle-row">
+					<input
+						type="checkbox"
+						checked={preferences.keepAwake}
+						onchange={(e) => (preferences.keepAwake = e.currentTarget.checked)}
+					/>
+					<span>Keep screen on</span>
+				</label>
+			{/if}
+		</div>
+	</div>
+{/snippet}
 
 <style>
 	.sidebar-meters {
-		padding: 8px 12px;
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding: 6px 12px 10px;
 		border-top: 1px solid hsl(var(--border));
 		background: hsl(var(--background));
 	}
 
-	.strip {
+	.top {
 		display: flex;
-		align-items: flex-end;
-		flex-wrap: wrap;
-		gap: 6px 10px;
-		text-decoration: none;
-		color: inherit;
-		margin: -4px -6px;
-		padding: 4px 6px;
+		align-items: center;
+		gap: 6px;
+		min-height: 24px;
+	}
+
+	.top-end {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		margin-left: auto;
+	}
+
+	.top :global(.icon-button) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		border: 0;
 		border-radius: 6px;
+		background: transparent;
+		color: hsl(var(--muted-foreground));
+		cursor: pointer;
 	}
 
-	.strip:hover {
-		background: rgba(255, 255, 255, 0.03);
+	.top :global(.icon-button:hover),
+	.top :global(.icon-button[data-state='open']) {
+		background: rgba(255, 255, 255, 0.06);
+		color: hsl(var(--foreground));
 	}
 
-	.group {
+	.top :global(.icon-button iconify-icon) {
+		font-size: 15px;
+	}
+
+	/* A row is its label, then its readings; the label column is shared so the
+	   three rows start their bars at one edge. */
+	.row {
+		display: grid;
+		grid-template-columns: 58px minmax(0, 1fr);
+		align-items: end;
+		gap: 8px;
+	}
+
+	/* The spend row's label sits with its figures, not under the sparkline. */
+	.spend-row {
+		align-items: start;
+	}
+
+	.label {
+		font-size: 11px;
+		line-height: 1.2;
+		color: hsl(var(--muted-foreground));
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		padding-bottom: 1px;
+	}
+
+	.label.machine {
+		font-weight: 600;
+	}
+
+	.quiet {
+		font-size: 11px;
+		color: hsl(var(--muted-foreground));
+		text-decoration: none;
+	}
+
+	a.quiet:hover {
+		color: hsl(var(--foreground));
+		text-decoration: underline;
+	}
+
+	.bars {
 		display: flex;
-		align-items: flex-end;
-		gap: 3px;
+		gap: 8px;
 		min-width: 0;
 	}
 
-	/* The spend history is the one group that can give up width: its bars are a
-	   shape, not a set of readings, so squeezing them loses nothing. */
-	.spark {
-		flex: 1 1 auto;
-		/* Never narrower than the two figures it carries, and no wider a floor
-		   than that — one pixel more and the strip wraps at the default width. */
-		min-width: 96px;
-		flex-direction: column;
-		align-items: stretch;
-		gap: 3px;
-	}
-
-	.ticks {
-		display: flex;
-		align-items: flex-end;
-		gap: 1px;
-		height: 26px;
-	}
-
-	/* Spend has no ceiling, so its columns get no track: a groove behind them
-	   would promise a full mark that does not exist. */
-	.ticks .track {
+	.meter {
 		flex: 1 1 0;
-		min-width: 2px;
-		background: transparent;
-	}
-
-	.col {
+		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		align-items: center;
 		gap: 3px;
-		/* Wide enough for the widest thing above it — "100%" — so neither the
-		   readings nor the tags lean into their neighbours'. */
-		min-width: 21px;
+	}
+
+	.reading {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 4px;
+		line-height: 1;
+	}
+
+	.tag {
+		font-size: 10px;
+		color: #a8a29e;
+		white-space: nowrap;
 	}
 
 	.val {
-		font-size: 9px;
-		line-height: 1;
+		font-size: 10px;
 		font-weight: 600;
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
 	}
 
-	.val.spend {
-		font-size: 11px;
-		color: hsl(var(--foreground));
-	}
-
-	/* The figure and the label at each end of the sparkline. */
-	.line {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: 8px;
-	}
-
 	.track {
 		position: relative;
 		display: block;
-		width: 7px;
-		height: 26px;
+		height: 3px;
 		border-radius: 2px;
 		background: rgba(255, 255, 255, 0.08);
 		overflow: hidden;
@@ -466,19 +580,77 @@
 	.fill {
 		position: absolute;
 		left: 0;
-		right: 0;
+		top: 0;
 		bottom: 0;
 		border-radius: 2px;
+		transition: width 600ms ease;
+	}
+
+	.spend {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		min-width: 0;
+	}
+
+	.line {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 6px;
+		line-height: 1;
+	}
+
+	.figure {
+		font-size: 11px;
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		color: hsl(var(--foreground));
+		white-space: nowrap;
+	}
+
+	.coverage {
+		font-size: 10px;
+		color: hsl(var(--muted-foreground));
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.coverage.short {
+		color: #fbbf24;
+	}
+
+	/* Spend has no ceiling, so its ticks get no track: a groove behind them
+	   would promise a full mark that does not exist. */
+	.ticks {
+		display: flex;
+		align-items: flex-end;
+		gap: 1px;
+		height: 16px;
+	}
+
+	.tick {
+		flex: 1 1 0;
+		min-width: 2px;
+		height: 100%;
+		display: flex;
+		align-items: flex-end;
+	}
+
+	.tick-fill {
+		width: 100%;
+		border-radius: 1px;
+		background: #3987e5;
 		transition: height 600ms ease;
 	}
 
-	.tag {
-		font-size: 9px;
-		line-height: 1;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: #a8a29e;
-		white-space: nowrap;
+	/* Each setting under the one before it; a note or a set of toggles hangs
+	   closer to the control it belongs to. */
+	.settings {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
 	}
 
 	.alerts-row {
@@ -486,7 +658,6 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 8px;
-		margin-top: 8px;
 		font-size: 11px;
 		color: hsl(var(--muted-foreground));
 	}
@@ -532,14 +703,14 @@
 	}
 
 	.alerts-problem {
-		margin: 6px 0 0;
+		margin: -4px 0 0;
 		font-size: 11px;
 		line-height: 1.35;
 		color: #fbbf24;
 	}
 
 	.alerts-note {
-		margin: 6px 0 0;
+		margin: -4px 0 0;
 		font-size: 11px;
 		line-height: 1.35;
 		color: hsl(var(--muted-foreground));
@@ -570,7 +741,6 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 4px 14px;
-		margin-top: 6px;
 	}
 
 	.toggle-row {
