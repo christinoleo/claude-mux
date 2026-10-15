@@ -102,6 +102,15 @@ export function recedes(state: IndicatorState): boolean {
   return state === "idle" || state === "dead" || state === "plain";
 }
 
+/** How urgent each state is, lowest first: wanting a person, then working, then done. */
+const URGENCY: Partial<Record<IndicatorState, number>> = { waiting: 0, permission: 0, busy: 1, done: 2 };
+
+/** The most urgent of several states, for a single dot that stands for them all; null for none. */
+export function mostUrgent(states: readonly IndicatorState[]): IndicatorState | null {
+  const rank = (s: IndicatorState) => URGENCY[s] ?? 3;
+  return states.reduce<IndicatorState | null>((best, s) => (best === null || rank(s) < rank(best) ? s : best), null);
+}
+
 /** What a session asking through AskUserQuestion is doing, as its row says it. */
 export const ASKING = "Asking a question";
 /** What a session waiting on an MCP elicitation is doing. */

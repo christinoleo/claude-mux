@@ -771,6 +771,23 @@ the session page's slash-command palette moved to Ctrl+/ to make room, and a
 split's pane hands Ctrl+K to the page outside (`tellPane('switch')`, the
 `quickSwitch` store), whose drawer holds the switcher.
 
+The drawer's "New" opens the folder picker (`FolderPicker.svelte`), which
+browses any machine: one tab each, in the fleet's order, opening on the
+machine the drawer is filtered to, else the origin; a tab whose machine
+`blockedReason()` refuses is disabled with why. Switching tabs keeps the
+path relative to home (`carryPath()`), or falls back to `~` when the other
+machine has no such folder, and the pick starts the session on the tab's
+machine. The drawer hands it every project root in the fleet with what runs
+there (`pickerFolders`), and `folderMarker()` (`src/folder-marks.ts`) marks
+each folder: live sessions there as the state dot and a count (amber when
+one wants a person), a project on the rail with none as its tile, the same
+project open on another machine as that machine's letter (a folder that is
+no root here is matched by its place under `~/Projects` or the project's
+name, as `guessReport()` is), and the open folders below it as a quiet
+count. An open folder's row gains "Go to": the session when it is the only
+one there, else the project on the rail. With the filter empty the list
+starts with the folders open on the tab's machine (`openOn()`).
+
 The drawer's foot (`SidebarMeters.svelte`, in the layout) sits flush under
 one hairline, no card. Its top line holds the screenshots of the session on
 screen (`ScreenshotsPanel.svelte`, a count that opens a popover), a link to
