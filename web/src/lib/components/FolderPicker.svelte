@@ -20,7 +20,7 @@
 	import { fuzzyMatch, highlightRuns } from '$shared/utils/fuzzy.js';
 	import { carryPath, folderMarker, openOn, type FolderMarks } from '$shared/folder-marks.js';
 	import type { MachineMark } from '$shared/fleet-rail.js';
-	import { apiBase, blockedReason, machineKey, machineName, seenLabel } from '$lib/stores/fleet.svelte';
+	import { apiBase, blockedReason, machineKey, machineName, offlineLabel } from '$lib/stores/fleet.svelte';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
@@ -153,11 +153,6 @@
 		return true;
 	}
 
-	/** A path as the crumbs say it: from `~` when it is under home. */
-	function shortPath(p: string): string {
-		return carryPath(p, home);
-	}
-
 	function goTo(folder: PickerFolder) {
 		open = false;
 		ongoto(folder);
@@ -200,9 +195,13 @@
 	}
 </script>
 
+{#snippet goto(folder: PickerFolder)}
+	<button class="fb-goto" title={folder.only ? 'Open its session' : 'Open the project'} onclick={() => goTo(folder)}>Go to</button>
+{/snippet}
+
 {#snippet marks(m: FolderMarks<PickerFolder>)}
 	<span class="fb-marks">
-		{#if m.here && m.here.live > 0 && m.here.state}
+		{#if m.here?.state}
 			<span class="fb-live" class:wants={m.here.wants}>
 				<SessionStateIndicator state={m.here.state} size="sm" />
 				{m.here.live} session{m.here.live === 1 ? '' : 's'}
@@ -257,8 +256,8 @@
 						{@const letter = markOf(machineKey(m))}
 						<Tabs.Trigger value={machineKey(m)} disabled={!!why} title={why ?? `Browse ${machineName(m)}`} class="fb-tab">
 							{#if letter}<span class="fb-mach" style="--m:{letter.color}">{letter.letter}</span>{/if}
-							<span class="fb-tabname">{machineName(m)}</span>
-							{#if why}<span class="fb-tabwhy">{m.lastSeen ? seenLabel(m.lastSeen, clock.now) : m.online ? 'too old' : 'offline'}</span>{/if}
+							<span>{machineName(m)}</span>
+							{#if why}<span class="fb-tabwhy">{m.online ? 'too old' : offlineLabel(m, clock.now)}</span>{/if}
 						</Tabs.Trigger>
 					{/each}
 				</Tabs.List>
@@ -308,13 +307,13 @@
 					{#each openHere as folder (folder.root)}
 						<div class="fb-item">
 							<button class="fb-main" title={folder.root} onclick={() => browseTo(folder.root)}>
-								<span class="fb-name">{shortPath(folder.root)}</span>
+								<span class="fb-name">{carryPath(folder.root, home)}</span>
 								{@render marks({ ...mark(folder.root), below: 0 })}
 							</button>
-							<button class="fb-goto" title={folder.only ? 'Open its session' : 'Open the project'} onclick={() => goTo(folder)}>Go to</button>
+							{@render goto(folder)}
 						</div>
 					{/each}
-					<h3 class="fb-head">In {shortPath(path)}</h3>
+					<h3 class="fb-head">In {carryPath(path, home)}</h3>
 				</section>
 			{/if}
 			<div bind:this={listEl}>
@@ -329,10 +328,7 @@
 							{@render marks(m)}
 							{#if match.folder.git}<span class="fb-tag">git</span>{/if}
 						</button>
-						{#if m.here}
-							{@const here = m.here}
-							<button class="fb-goto" title={here.only ? 'Open its session' : 'Open the project'} onclick={() => goTo(here)}>Go to</button>
-						{/if}
+						{#if m.here}{@render goto(m.here)}{/if}
 					</div>
 				{:else}
 					<p class="fb-empty">
@@ -517,7 +513,6 @@
 		display: flex;
 		align-items: center;
 		width: 100%;
-		background: transparent;
 		border-left: 3px solid transparent;
 		color: #c4c4c4;
 		transition:

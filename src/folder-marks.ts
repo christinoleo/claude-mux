@@ -46,35 +46,34 @@ export function folderMarker<T extends OpenFolder>(machineId: string, open: read
   const mine = folders.filter((f) => f.machineId === machineId);
   const byRoot = new Map(mine.map((f) => [f.root, f]));
 
-  // Each project's folders on the other machines, those with live sessions first.
+  // Each project's folders on the other machines.
   const others = new Map<string, T[]>();
   for (const f of folders) {
     if (f.machineId !== machineId) others.set(f.project, [...(others.get(f.project) ?? []), f]);
   }
-  for (const list of others.values()) list.sort((a, b) => Number(b.live > 0) - Number(a.live > 0));
 
-  // A folder under `~/Projects` that is no root here goes by the project
-  // whose root elsewhere sits at the same place, or whose name it is; a place
-  // or name two projects answer to says nothing, and a place outranks a name.
-  const unique = (pairs: [string, string][]) => {
-    const out = new Map<string, string | null>();
-    for (const [k, project] of pairs) {
-      const had = out.get(k);
-      out.set(k, had === undefined || had === project ? project : null);
+  // A folder under `~/Projects` goes by the project whose root on another
+  // machine sits at the same place, or whose name it is; a place or name
+  // that several projects answer to says nothing.
+  const byHome = new Map<string, Set<string>>();
+  const claim = (key: string, project: string) => byHome.set(key, (byHome.get(key) ?? new Set()).add(project));
+  for (const [, list] of others) {
+    for (const f of list) {
+      const home = guessReport(f.root).home;
+      if (home) claim(home, f.project);
+      claim(f.name, f.project);
     }
-    return out;
-  };
-  const byPlace = unique(folders.flatMap((f): [string, string][] => {
-    const home = guessReport(f.root).home;
-    return home ? [[home, f.project]] : [];
-  }));
-  const byName = unique(folders.map((f) => [f.name, f.project]));
+  }
 
   return (path) => {
     const here = byRoot.get(path) ?? null;
     const home = guessReport(path).home;
-    const project = here?.project ?? (home ? (byPlace.has(home) ? byPlace.get(home) : byName.get(home)) : null) ?? null;
-    const elsewhere = (project && others.get(project)) || [];
+    const guessed = home ? byHome.get(home) : undefined;
+    // Its own project and the one its place names, which differ when a root here was reported without its remote.
+    const projects = new Set([here?.project, guessed?.size === 1 ? [...guessed][0] : undefined]);
+    const elsewhere = [...projects]
+      .flatMap((p) => (p ? (others.get(p) ?? []) : []))
+      .sort((a, b) => Number(b.live > 0) - Number(a.live > 0));
     const prefix = path === "/" ? "/" : `${path}/`;
     const below = mine.filter((f) => f.root.startsWith(prefix)).length;
     return { here, elsewhere, below };
