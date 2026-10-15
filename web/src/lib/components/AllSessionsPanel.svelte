@@ -44,7 +44,7 @@
 	import { longPress } from '$lib/actions/longPress';
 	import MachineFilter from './MachineFilter.svelte';
 	import RenameSessionDialog from './RenameSessionDialog.svelte';
-	import FolderPicker from './FolderPicker.svelte';
+	import FolderPicker, { type PickerFolder } from './FolderPicker.svelte';
 	import NeedsYou from './NeedsYou.svelte';
 	import type { InboxTicket } from '$shared/types/ws-messages.js';
 	import { STORAGE_KEYS } from '$lib/constants';
@@ -54,9 +54,9 @@
 	import { pastByRoot, pastLabel, SETTLED_SHOWN, type PastSession } from '$shared/past-session.js';
 	import { resumePast } from '$lib/past-resume';
 	import { formatAgo } from '$lib/format';
-	import { guessReport, isHomeDir, mergeProjects, projectHue, projectInitials } from '$shared/fleet-projects.js';
+	import { guessReport, isHomeDir, mergeProjects, projectHue, projectInitials, type FleetProject } from '$shared/fleet-projects.js';
 	import { machineMarks, matchesQuery, moveTile, railOrder, type MachineMark } from '$shared/fleet-rail.js';
-	import { indicatorStateOf } from '$shared/session-state.js';
+	import { indicatorStateOf, mostUrgent } from '$shared/session-state.js';
 	import ProjectTile from './ProjectTile.svelte';
 	import ProjectRail, { type RailTile } from './ProjectRail.svelte';
 	import QuickSwitch, { type SwitchItem } from './QuickSwitch.svelte';
@@ -444,41 +444,62 @@
 		return `${apiBase(machine)}/api/projects/icon?root=${encodeURIComponent(root)}&v=${encodeURIComponent(token)}`;
 	}
 
-	/**
-	 * Every project in the fleet, matched across machines, with the sessions
-	 * the visible machines run in it, in the rail's order. Names and icons
-	 * come from the whole fleet, so filtering to one machine does not change
-	 * how a project looks.
-	 */
-	const cards = $derived.by((): Card[] => {
-		const visible = new Set(fleetStore.visible.map(machineKey));
-		const roots = new Map(fleetStore.machines.map((machine) => [machineKey(machine), rootsOf(machine)]));
-		// Rows are laid out only for the machines shown; the rest lend the merge their roots alone.
-		const byKey = new Map(
-			fleetStore.visible.map((machine) => [machineKey(machine), placesOf(machine, roots.get(machineKey(machine))!)])
-		);
-		const projects = mergeProjects(
+	/** Every machine's project roots, by machine (`rootsOf()`). */
+	const fleetRoots = $derived(new Map(fleetStore.machines.map((machine) => [machineKey(machine), rootsOf(machine)])));
+
+	/** Every machine's sessions and panes under its roots (`placesOf()`), by machine. */
+	const fleetPlaces = $derived(
+		new Map(fleetStore.machines.map((machine) => [machineKey(machine), placesOf(machine, fleetRoots.get(machineKey(machine))!)]))
+	);
+
+	/** Every project in the fleet, whichever machines the drawer shows (`mergeProjects()`). */
+	const fleetProjects = $derived(
+		mergeProjects(
 			fleetStore.machines.map((machine) => {
 				const known = new Map(machine.projectReports.map((r) => [r.root, r]));
 				const id = machineKey(machine);
-				return { id, reports: roots.get(id)!.map((root) => known.get(root) ?? guessReport(root)) };
+				return { id, reports: fleetRoots.get(id)!.map((root) => known.get(root) ?? guessReport(root)) };
 			})
-		);
+		)
+	);
+
+	/**
+	 * A project's name and tile where it sits at these roots: `~` for a home
+	 * directory alone, "no folder" for sessions that said nowhere. The icon
+	 * comes from the whole fleet, so filtering to one machine does not change
+	 * how a project looks.
+	 */
+	function projectTile(project: FleetProject, roots: string[]): { name: string; initials: string; hue: number; icon: string | null } {
+		const home = roots.length === 1 && isHomeDir(roots[0]);
+		const name = home ? '~' : roots.every((r) => r === NO_FOLDER) ? 'no folder' : project.name;
+		const icon = project.icon;
+		const iconAt = icon && fleetStore.machines.find((m) => machineKey(m) === icon.machineId);
+		return {
+			name,
+			initials: home ? '~' : projectInitials(name),
+			hue: projectHue(name),
+			icon: iconAt ? iconUrl(iconAt, icon.root, icon.token) : null
+		};
+	}
+
+	/**
+	 * Every project in the fleet, matched across machines, with the sessions
+	 * the visible machines run in it, in the rail's order.
+	 */
+	const cards = $derived.by((): Card[] => {
+		const visible = new Set(fleetStore.visible.map(machineKey));
 
 		const out: Card[] = [];
-		for (const project of projects) {
+		for (const project of fleetProjects) {
 			const shown = project.places
 				.filter((p) => visible.has(p.machineId))
-				.map((p) => byKey.get(p.machineId)!.get(p.root)!);
+				.map((p) => fleetPlaces.get(p.machineId)!.get(p.root)!);
 			if (shown.length === 0) continue;
 			// Two checkouts of one repo on one machine are told apart by their folders.
 			const places = shown.map((p) =>
 				shown.some((o) => o !== p && o.machine === p.machine) ? { ...p, label: `${p.label} · ${p.root.split('/').pop()}` } : p
 			);
-			const icon = project.icon;
-			const iconAt = icon && fleetStore.machines.find((m) => machineKey(m) === icon.machineId);
-			const home = places.length === 1 && isHomeDir(places[0].root);
-			const name = home ? '~' : places.every((p) => p.root === NO_FOLDER) ? 'no folder' : project.name;
+			const tile = projectTile(project, places.map((p) => p.root));
 			// An offline machine's dialogs may long be answered: they badge nothing.
 			// A settled session still running can come to want a person; its tile says so.
 			const seen = places
@@ -486,10 +507,7 @@
 				.flatMap((p) => [...p.rows.map((r) => attention(r.session)), ...p.settled.filter(wantsHuman).map(() => 'wants' as const)]);
 			out.push({
 				key: project.key,
-				name,
-				initials: home ? '~' : projectInitials(name),
-				hue: projectHue(name),
-				icon: icon && iconAt ? iconUrl(iconAt, icon.root, icon.token) : null,
+				...tile,
 				badge: seen.includes('wants') ? 'wants' : seen.includes('working') ? 'working' : null,
 				quiet: places.every((p) => p.rows.length === 0 && p.panes.length === 0),
 				places,
@@ -841,12 +859,52 @@
 		void newSessionInProject(machine, ticket.git_root, 'claude', `/mattpocock-skills:wayfinder ${ticket.url}`);
 	}
 
-	/** The machine the folder picker is browsing, through the relay when it is another. */
-	let pickerMachine = $state<Machine | null>(null);
-
 	function newProject() {
-		pickerMachine = actingMachine;
-		void folderPicker?.openAt('~', apiBase(actingMachine));
+		void folderPicker?.openAt('~', actingMachine);
+	}
+
+	/**
+	 * Every project root in the fleet, with what runs there, for the folder
+	 * picker's marks (`folderMarker()`). All machines, whichever the drawer
+	 * shows, since the picker browses any of them.
+	 */
+	const pickerFolders = $derived.by((): PickerFolder[] => {
+		const out: PickerFolder[] = [];
+		for (const project of fleetProjects) {
+			for (const { machineId, root } of project.places) {
+				const place = fleetPlaces.get(machineId)!.get(root)!;
+				const live = place.rows.filter((r) => !r.orchestrator).map((r) => r.session);
+				const { name, ...tile } = projectTile(project, [root]);
+				out.push({
+					machineId,
+					root,
+					project: project.key,
+					name,
+					live: live.length,
+					wants: live.some(wantsHuman),
+					machine: place.machine,
+					state: mostUrgent(live.map(indicatorStateOf)),
+					only: live.length === 1 ? live[0].tmux_target : null,
+					tile
+				});
+			}
+		}
+		return out;
+	});
+
+	/**
+	 * "Go to" on an open folder in the picker: the session itself when it is
+	 * the only one there, else the project on the rail, with the machine
+	 * filter cleared when it hides the project.
+	 */
+	function goToFolder(folder: PickerFolder) {
+		if (folder.only) {
+			openSession(folder.machine, folder.only);
+			return;
+		}
+		if (!cards.some((c) => c.key === folder.project)) fleetStore.select('all');
+		openProject(folder.project);
+		if (window.matchMedia(DRAWER_MEDIA_QUERY).matches) drawer.open = true;
 	}
 
 	async function closeChrome() {
@@ -1329,7 +1387,11 @@
 <FolderPicker
 	bind:this={folderPicker}
 	bind:open={showFolderBrowser}
-	onpick={(cwd) => void newSessionInProject(pickerMachine ?? fleetStore.machines[0], cwd)}
+	machines={fleetStore.machines}
+	folders={pickerFolders}
+	markOf={(id) => marks.get(id) ?? null}
+	onpick={(machine, cwd) => void newSessionInProject(machine, cwd)}
+	ongoto={goToFolder}
 />
 
 <Dialog.Root open={agentPicker !== null} onOpenChange={(o) => { if (!o) agentPicker = null; }}>

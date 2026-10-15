@@ -1,24 +1,61 @@
+<script lang="ts" module>
+	import type { OpenFolder } from '$shared/folder-marks.js';
+	import type { IndicatorState } from '$shared/session-state.js';
+	import type { Machine } from '$lib/stores/fleet.svelte';
+
+	/** A project root somewhere in the fleet, as the picker marks it (`folderMarker()`). */
+	export interface PickerFolder extends OpenFolder {
+		machine: Machine;
+		/** The most urgent of its live sessions' states; null with none. */
+		state: IndicatorState | null;
+		/** The session's pane when exactly one runs there, which "Go to" opens. */
+		only: string | null;
+		/** Its project's tile (`ProjectTile`). */
+		tile: { initials: string; hue: number; icon: string | null };
+	}
+</script>
+
 <script lang="ts">
 	import { tick } from 'svelte';
 	import { fuzzyMatch, highlightRuns } from '$shared/utils/fuzzy.js';
+	import { carryPath, folderMarker, openOn, type FolderMarks } from '$shared/folder-marks.js';
+	import type { MachineMark } from '$shared/fleet-rail.js';
+	import { apiBase, blockedReason, machineKey, machineName, seenLabel } from '$lib/stores/fleet.svelte';
+	import { clock } from '$lib/stores/clock.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
+	import * as Tabs from '$lib/components/ui/tabs';
+	import SessionStateIndicator from './SessionStateIndicator.svelte';
+	import ProjectTile from './ProjectTile.svelte';
 
 	interface Props {
 		open: boolean;
-		/** Called with the chosen directory when the user picks one. */
-		onpick: (cwd: string) => void;
+		/** Every machine in the fleet, in its usual order: one tab each. */
+		machines: Machine[];
+		/** Every project root in the fleet, for the marks. */
+		folders: PickerFolder[];
+		/** A machine's letter and colour, by id. */
+		markOf: (machineId: string) => MachineMark | null;
+		/** Called with the machine browsed and the chosen directory when the user picks one. */
+		onpick: (machine: Machine, cwd: string) => void;
+		/** "Go to" on an open folder. */
+		ongoto: (folder: PickerFolder) => void;
 	}
 
-	let { open = $bindable(), onpick }: Props = $props();
+	let { open = $bindable(), machines, folders: openFolders, markOf, onpick, ongoto }: Props = $props();
 
 	interface BrowseFolder {
 		name: string;
 		path: string;
 		git?: boolean;
 	}
+
+	/** The machine whose disk is browsed, by id; its API is reached through `apiBase()`. */
+	let tab = $state('');
+	const machine = $derived(machines.find((m) => machineKey(m) === tab) ?? machines[0]);
+	const base = $derived(machine ? apiBase(machine) : '');
 
 	let path = $state('');
 	let home = $state('');
@@ -64,11 +101,14 @@
 		active = 0;
 	});
 
-	/** Whose disk is browsed: '' for this machine, `/fleet/<id>` for another. */
-	let base = '';
+	/** What each folder of the machine browsed is marked with. */
+	const mark = $derived(folderMarker(tab, openFolders));
+	/** The folders open on the machine browsed, listed above its folders while nothing is typed. */
+	const openHere = $derived(openOn(tab, openFolders));
 
-	export async function openAt(start = '~', machineBase = '') {
-		base = machineBase;
+	/** Open on a machine, the one the drawer is filtered to or the origin. */
+	export async function openAt(start: string, on: Machine) {
+		tab = machineKey(on);
 		open = true;
 		await browseTo(start);
 		// On touch the keyboard would cover the list before the user has decided to
@@ -76,15 +116,32 @@
 		if (!window.matchMedia?.('(pointer: coarse)').matches) inputEl?.focus();
 	}
 
-	async function browseTo(to: string, keepQuery = false) {
+	/**
+	 * Browse another machine, at the same place relative to home when it has
+	 * that folder, else at home.
+	 */
+	async function switchTo(id: string) {
+		const next = machines.find((m) => machineKey(m) === id);
+		if (!next || id === tab || blockedReason(next, clock.now)) return;
+		const carried = carryPath(path, home);
+		tab = id;
+		if ((await browseTo(carried, true)) === false && carried !== '~') await browseTo('~', true);
+	}
+
+	/** Which browse is the latest, so a slow answer for a tab left behind is dropped. */
+	let browsing = 0;
+
+	/** Show a folder of the machine browsed: false when it cannot be read, null when a later browse took over. */
+	async function browseTo(to: string, keepQuery = false): Promise<boolean | null> {
+		const ask = ++browsing;
 		error = '';
-		const res = await fetch(
-			`${base}/api/browse?path=${encodeURIComponent(to)}&showHidden=${showHidden}`
-		);
-		const data = await res.json();
+		const data = await fetch(`${base}/api/browse?path=${encodeURIComponent(to)}&showHidden=${showHidden}`)
+			.then((res) => res.json())
+			.catch(() => ({ error: 'Could not reach the machine' }));
+		if (ask !== browsing) return null;
 		if (data.error) {
 			error = data.error;
-			return;
+			return false;
 		}
 		path = data.current;
 		home = data.home;
@@ -93,6 +150,17 @@
 		if (!keepQuery) query = '';
 		await tick();
 		listEl?.scrollTo({ top: 0 });
+		return true;
+	}
+
+	/** A path as the crumbs say it: from `~` when it is under home. */
+	function shortPath(p: string): string {
+		return carryPath(p, home);
+	}
+
+	function goTo(folder: PickerFolder) {
+		open = false;
+		ongoto(folder);
 	}
 
 	function moveActive(delta: number) {
@@ -103,8 +171,9 @@
 	}
 
 	function pickCurrent() {
+		if (!machine) return;
 		open = false;
-		onpick(path);
+		onpick(machine, path);
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -131,6 +200,35 @@
 	}
 </script>
 
+{#snippet marks(m: FolderMarks<PickerFolder>)}
+	<span class="fb-marks">
+		{#if m.here && m.here.live > 0 && m.here.state}
+			<span class="fb-live" class:wants={m.here.wants}>
+				<SessionStateIndicator state={m.here.state} size="sm" />
+				{m.here.live} session{m.here.live === 1 ? '' : 's'}
+			</span>
+		{:else if m.here}
+			<span class="fb-rail" title="{m.here.name} is on the rail">
+				<ProjectTile initials={m.here.tile.initials} hue={m.here.tile.hue} icon={m.here.tile.icon} size={14} />
+			</span>
+		{/if}
+		{#each m.elsewhere as other (other.machineId)}
+			{@const letter = markOf(other.machineId)}
+			<span
+				class="fb-mach"
+				class:quiet={other.live === 0}
+				style="--m:{letter?.color ?? '#a8a29e'}"
+				title={other.live > 0
+					? `Open on ${machineName(other.machine)}: ${other.live} session${other.live === 1 ? '' : 's'}`
+					: `On the rail on ${machineName(other.machine)}`}>{letter?.letter ?? '?'}</span
+			>
+		{/each}
+		{#if m.below > 0}
+			<span class="fb-below" title="{m.below} open folder{m.below === 1 ? '' : 's'} below">{m.below} open</span>
+		{/if}
+	</span>
+{/snippet}
+
 <Dialog.Root bind:open>
 	<Dialog.Content
 		class="w-[calc(100%-1.5rem)] max-w-lg gap-0 overflow-hidden border-[#333] bg-[#161616] p-0 sm:max-w-lg"
@@ -149,6 +247,23 @@
 		<Dialog.Description class="sr-only">
 			Browse to a folder and start a session in it. Type to filter this folder.
 		</Dialog.Description>
+
+		{#if machines.length > 1}
+			<!-- One tab per machine; one that is offline or too old says why. -->
+			<Tabs.Root value={tab} onValueChange={(id) => void switchTo(id)} class="fb-tabs">
+				<Tabs.List class="fb-tablist" aria-label="Machine">
+					{#each machines as m (machineKey(m))}
+						{@const why = blockedReason(m, clock.now)}
+						{@const letter = markOf(machineKey(m))}
+						<Tabs.Trigger value={machineKey(m)} disabled={!!why} title={why ?? `Browse ${machineName(m)}`} class="fb-tab">
+							{#if letter}<span class="fb-mach" style="--m:{letter.color}">{letter.letter}</span>{/if}
+							<span class="fb-tabname">{machineName(m)}</span>
+							{#if why}<span class="fb-tabwhy">{m.lastSeen ? seenLabel(m.lastSeen, clock.now) : m.online ? 'too old' : 'offline'}</span>{/if}
+						</Tabs.Trigger>
+					{/each}
+				</Tabs.List>
+			</Tabs.Root>
+		{/if}
 
 		<nav class="fb-crumbs" aria-label="Current path">
 			{#each crumbs as crumb, i (crumb.path)}
@@ -186,21 +301,39 @@
 			<p class="fb-error">{error}</p>
 		{/if}
 
-		<ScrollArea class="max-h-72 min-h-24 border-y border-[#333]">
+		<ScrollArea class="max-h-80 min-h-24 border-y border-[#333]">
+			{#if !query && openHere.length > 0}
+				<section class="fb-open" aria-label="Open on this machine">
+					<h3 class="fb-head">Open on this machine</h3>
+					{#each openHere as folder (folder.root)}
+						<div class="fb-item">
+							<button class="fb-main" title={folder.root} onclick={() => browseTo(folder.root)}>
+								<span class="fb-name">{shortPath(folder.root)}</span>
+								{@render marks({ ...mark(folder.root), below: 0 })}
+							</button>
+							<button class="fb-goto" title={folder.only ? 'Open its session' : 'Open the project'} onclick={() => goTo(folder)}>Go to</button>
+						</div>
+					{/each}
+					<h3 class="fb-head">In {shortPath(path)}</h3>
+				</section>
+			{/if}
 			<div bind:this={listEl}>
 				{#each matches as match, i (match.folder.path)}
-					<button
-						class="fb-item"
-						class:active={i === active}
-						onmouseenter={() => (active = i)}
-						onclick={() => browseTo(match.folder.path)}
-					>
-						<span class="fb-name"
-							>{#if match.runs}{#each match.runs as run}{#if run.hit}<mark>{run.text}</mark
-									>{:else}{run.text}{/if}{/each}{:else}{match.folder.name}{/if}</span
-						>
-						{#if match.folder.git}<span class="fb-tag">git</span>{/if}
-					</button>
+					{@const m = mark(match.folder.path)}
+					<div class="fb-item" class:active={i === active} role="presentation" onmouseenter={() => (active = i)}>
+						<button class="fb-main" onclick={() => browseTo(match.folder.path)}>
+							<span class="fb-name"
+								>{#if match.runs}{#each match.runs as run}{#if run.hit}<mark>{run.text}</mark
+										>{:else}{run.text}{/if}{/each}{:else}{match.folder.name}{/if}</span
+							>
+							{@render marks(m)}
+							{#if match.folder.git}<span class="fb-tag">git</span>{/if}
+						</button>
+						{#if m.here}
+							{@const here = m.here}
+							<button class="fb-goto" title={here.only ? 'Open its session' : 'Open the project'} onclick={() => goTo(here)}>Go to</button>
+						{/if}
+					</div>
 				{:else}
 					<p class="fb-empty">
 						{#if query}
@@ -328,20 +461,65 @@
 		color: #e07a6b;
 	}
 
+	/* The machines, as tabs over the path: the one browsed reads like the crumb it heads. */
+	:global(.fb-tabs) {
+		padding: 0 12px 10px;
+	}
+
+	:global(.fb-tablist) {
+		display: flex;
+		width: 100%;
+		max-width: 100%;
+		justify-content: flex-start;
+		gap: 2px;
+		overflow-x: auto;
+		background: #1f1f1f;
+	}
+
+	:global(.fb-tab) {
+		flex: 0 0 auto;
+		gap: 6px;
+		padding: 2px 9px;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		color: #8a8a8a;
+	}
+
+	:global(.fb-tab[data-state='active']) {
+		background: #2c2c2c;
+		color: #ededed;
+	}
+
+	.fb-tabwhy {
+		font-size: 10.5px;
+		color: #6f6f6f;
+	}
+
+	.fb-mach {
+		display: inline-grid;
+		place-items: center;
+		width: 15px;
+		height: 15px;
+		border-radius: 4px;
+		background: color-mix(in srgb, var(--m) 18%, transparent);
+		color: var(--m);
+		font-family: var(--font-mono);
+		font-size: 9.5px;
+		font-weight: 700;
+		line-height: 1;
+	}
+
+	.fb-mach.quiet {
+		opacity: 0.5;
+	}
+
 	.fb-item {
 		display: flex;
 		align-items: center;
-		gap: 10px;
 		width: 100%;
-		padding: 7px 16px 7px 13px;
 		background: transparent;
-		border: none;
 		border-left: 3px solid transparent;
-		font-family: var(--font-mono);
-		font-size: 13px;
 		color: #c4c4c4;
-		text-align: left;
-		cursor: pointer;
 		transition:
 			background 0.09s ease,
 			color 0.09s ease;
@@ -354,9 +532,87 @@
 		border-left-color: var(--fb-accent);
 	}
 
-	.fb-item:focus-visible {
+	.fb-main {
+		display: flex;
+		flex: 1;
+		min-width: 0;
+		align-items: center;
+		gap: 10px;
+		padding: 7px 16px 7px 13px;
+		background: none;
+		border: none;
+		font-family: var(--font-mono);
+		font-size: 13px;
+		color: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.fb-main:focus-visible,
+	.fb-goto:focus-visible {
 		outline: 2px solid var(--fb-accent);
 		outline-offset: -2px;
+	}
+
+	.fb-marks {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 5px;
+	}
+
+	.fb-marks:empty {
+		display: none;
+	}
+
+	.fb-live {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 11px;
+		color: #a3a3a3;
+	}
+
+	.fb-live.wants {
+		color: #fbbf24;
+	}
+
+	.fb-rail {
+		display: inline-flex;
+		opacity: 0.6;
+	}
+
+	.fb-below {
+		font-size: 10.5px;
+		color: #5c5c5c;
+	}
+
+	.fb-goto {
+		flex-shrink: 0;
+		margin-right: 10px;
+		padding: 2px 8px;
+		border: 1px solid #333;
+		border-radius: 4px;
+		background: none;
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: #a3a3a3;
+		cursor: pointer;
+	}
+
+	.fb-goto:hover {
+		border-color: var(--fb-accent);
+		color: #ededed;
+	}
+
+	.fb-head {
+		padding: 9px 16px 4px;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 500;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: #5c5c5c;
 	}
 
 	.fb-name {
@@ -433,7 +689,7 @@
 	}
 
 	@media (pointer: coarse) {
-		.fb-item {
+		.fb-main {
 			padding-block: 11px;
 		}
 	}

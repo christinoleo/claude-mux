@@ -99,10 +99,12 @@ export function projectName(reports: readonly ProjectReport[]): string {
 
 /** A home directory: `/home/<user>`, `/Users/<user>` or `/root`. */
 const HOME_DIR = String.raw`(?:/(?:home|Users)/[^/]+|/root)`;
+const HOME_DIR_RE = new RegExp(`^${HOME_DIR}$`);
+const UNDER_PROJECTS_RE = new RegExp(`^${HOME_DIR}/Projects/(.+)$`);
 
 /** Whether a root is a home directory itself, which the rail calls `~`. */
 export function isHomeDir(root: string): boolean {
-  return new RegExp(`^${HOME_DIR}$`).test(root);
+  return HOME_DIR_RE.test(root);
 }
 
 /**
@@ -113,7 +115,7 @@ export function isHomeDir(root: string): boolean {
  * same name (`mergeProjects()`).
  */
 export function guessReport(root: string): ProjectReport & { guessed: true } {
-  const home = new RegExp(`^${HOME_DIR}/Projects/(.+)$`).exec(root)?.[1] ?? null;
+  const home = UNDER_PROJECTS_RE.exec(root)?.[1] ?? null;
   return { root, remote: null, sub: "", home, icon: null, guessed: true };
 }
 
