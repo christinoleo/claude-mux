@@ -37,6 +37,11 @@ export interface FolderMarks<T extends OpenFolder> {
   below: number;
 }
 
+/** Whether a project is known by its git remote (`projectKey()`), not just by where it sits. */
+function isRepo(project: string): boolean {
+  return project.startsWith("git:");
+}
+
 /**
  * Marks for every folder the picker draws on one machine. Built once per
  * machine and list of open folders, then asked once per row.
@@ -53,23 +58,25 @@ export function folderMarker<T extends OpenFolder>(machineId: string, open: read
   }
 
   // A folder under `~/Projects` goes by the project whose root on another
-  // machine sits at the same place, or whose name it is; a place or name
-  // that several projects answer to says nothing.
+  // machine sits at the same place, or by the repo of its name, as a guessed
+  // report joins a repo in `mergeProjects()`; a place or name that several
+  // projects answer to says nothing.
   const byHome = new Map<string, Set<string>>();
   const claim = (key: string, project: string) => byHome.set(key, (byHome.get(key) ?? new Set()).add(project));
   for (const [, list] of others) {
     for (const f of list) {
       const home = guessReport(f.root).home;
       if (home) claim(home, f.project);
-      claim(f.name, f.project);
+      if (isRepo(f.project)) claim(f.name, f.project);
     }
   }
 
   return (path) => {
     const here = byRoot.get(path) ?? null;
     const home = guessReport(path).home;
-    const guessed = home ? byHome.get(home) : undefined;
-    // Its own project and the one its place names, which differ when a root here was reported without its remote.
+    // A root here known by its remote is that repo and nothing else; one
+    // reported without it may be the repo its place names.
+    const guessed = home && !(here && isRepo(here.project)) ? byHome.get(home) : undefined;
     const projects = new Set([here?.project, guessed?.size === 1 ? [...guessed][0] : undefined]);
     const elsewhere = [...projects]
       .flatMap((p) => (p ? (others.get(p) ?? []) : []))

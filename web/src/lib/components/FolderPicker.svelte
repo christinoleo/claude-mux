@@ -54,7 +54,9 @@
 
 	/** The machine whose disk is browsed, by id; its API is reached through `apiBase()`. */
 	let tab = $state('');
-	const machine = $derived(machines.find((m) => machineKey(m) === tab) ?? machines[0]);
+	/** That machine as it was chosen, so a pick never lands on another should its id change meanwhile. */
+	let chosen = $state<Machine | null>(null);
+	const machine = $derived(machines.find((m) => machineKey(m) === tab) ?? chosen);
 	const base = $derived(machine ? apiBase(machine) : '');
 
 	let path = $state('');
@@ -108,7 +110,10 @@
 
 	/** Open on a machine, the one the drawer is filtered to or the origin. */
 	export async function openAt(start: string, on: Machine) {
-		tab = machineKey(on);
+		// A machine nothing reaches cannot be browsed: open on the origin instead.
+		const usable = blockedReason(on, clock.now) ? (machines[0] ?? on) : on;
+		tab = machineKey(usable);
+		chosen = usable;
 		open = true;
 		await browseTo(start);
 		// On touch the keyboard would cover the list before the user has decided to
@@ -124,8 +129,13 @@
 		const next = machines.find((m) => machineKey(m) === id);
 		if (!next || id === tab || blockedReason(next, clock.now)) return;
 		const carried = carryPath(path, home);
+		const [was, wasChosen] = [tab, chosen];
 		tab = id;
-		if ((await browseTo(carried, true)) === false && carried !== '~') await browseTo('~', true);
+		chosen = next;
+		let shown = await browseTo(carried, true);
+		if (shown === false && carried !== '~') shown = await browseTo('~', true);
+		// Nothing of the new machine could be read: stay on the old one, whose folders are still shown.
+		if (shown === false) [tab, chosen] = [was, wasChosen];
 	}
 
 	/** Which browse is the latest, so a slow answer for a tab left behind is dropped. */
@@ -211,7 +221,7 @@
 				<ProjectTile initials={m.here.tile.initials} hue={m.here.tile.hue} icon={m.here.tile.icon} size={14} />
 			</span>
 		{/if}
-		{#each m.elsewhere as other (other.machineId)}
+		{#each m.elsewhere as other (`${other.machineId}\0${other.root}`)}
 			{@const letter = markOf(other.machineId)}
 			<span
 				class="fb-mach"

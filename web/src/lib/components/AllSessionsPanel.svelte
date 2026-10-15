@@ -869,6 +869,8 @@
 	 * shows, since the picker browses any of them.
 	 */
 	const pickerFolders = $derived.by((): PickerFolder[] => {
+		// Laid out only while the picker is open, not on every broadcast.
+		if (!showFolderBrowser) return [];
 		const out: PickerFolder[] = [];
 		for (const project of fleetProjects) {
 			for (const { machineId, root } of project.places) {
@@ -881,7 +883,8 @@
 					project: project.key,
 					name,
 					live: live.length,
-					wants: live.some(wantsHuman),
+					// A settled session can still come to want a person, as its tile says.
+					wants: [...live, ...place.settled].some(wantsHuman),
 					machine: place.machine,
 					state: mostUrgent(live.map(indicatorStateOf)),
 					only: live.length === 1 ? live[0].tmux_target : null,

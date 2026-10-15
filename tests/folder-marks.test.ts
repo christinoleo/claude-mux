@@ -121,3 +121,22 @@ describe("folderMarker, a root here that another machine reports properly", () =
     expect(marks.elsewhere).toEqual([omarchyWatch]);
   });
 });
+
+describe("folderMarker, unrelated projects that share a place or name", () => {
+  it("does not join a repo here to another repo at the same place elsewhere", () => {
+    const a = folder("omarchy", "/home/leo/Projects/api", { project: "git:x/a", name: "api" });
+    const b = folder("engage", "/home/leo/Projects/api", { project: "git:x/b", name: "api" });
+    expect(folderMarker("omarchy", [a, b])("/home/leo/Projects/api").elsewhere).toEqual([]);
+  });
+
+  it("matches by name only a repo, never a folder that happens to share it", () => {
+    const notes = folder("engage", "/srv/notes", { project: "path:engage:/srv/notes", name: "notes" });
+    expect(folderMarker("omarchy", [notes])("/home/leo/Projects/notes").elsewhere).toEqual([]);
+  });
+
+  it("keys two checkouts on one machine apart", () => {
+    const one = folder("engage", "/home/leo/Projects/claude-mux", { project: repo, name: "claude-mux" });
+    const two = folder("engage", "/srv/claude-mux", { project: repo, name: "claude-mux" });
+    expect(folderMarker("omarchy", [omarchyWatch, one, two])("/home/leo/Projects/claude-watch").elsewhere).toEqual([one, two]);
+  });
+});
