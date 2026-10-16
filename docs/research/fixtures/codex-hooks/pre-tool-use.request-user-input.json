@@ -1,0 +1,33 @@
+{
+  "session_id": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b",
+  "turn_id": "019a1b2c-4410-7c22-9d0e-1f2a3b4c5d6e",
+  "transcript_path": "/home/leo/.codex/sessions/2026/10/16/rollout-2026-10-16T14-03-11-019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b.jsonl",
+  "cwd": "/home/leo/Projects/demo",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.5-codex",
+  "permission_mode": "default",
+  "tool_name": "request_user_input",
+  "tool_input": {
+    "questions": [
+      {
+        "id": "target",
+        "header": "Target",
+        "question": "Deploy to which environment?",
+        "isOther": false,
+        "isSecret": false,
+        "options": [
+          {
+            "label": "staging",
+            "description": "Safe to break"
+          },
+          {
+            "label": "production",
+            "description": "Live traffic"
+          }
+        ]
+      }
+    ],
+    "isBlocking": true
+  },
+  "tool_use_id": "call_Rq9uI2nP5uTq0aBc"
+}

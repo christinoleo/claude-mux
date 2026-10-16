@@ -1,0 +1,11 @@
+{
+  "session_id": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b",
+  "turn_id": "019a1b2f-9d00-7e12-8c4d-5e6f708192a3",
+  "transcript_path": "/home/leo/.codex/sessions/2026/10/16/rollout-2026-10-16T14-05-40-019a1b2f-9c80-7d11-b2a3-445566778899.jsonl",
+  "cwd": "/home/leo/Projects/demo",
+  "hook_event_name": "SubagentStart",
+  "model": "gpt-5.5-codex",
+  "permission_mode": "default",
+  "agent_id": "019a1b2f-9c80-7d11-b2a3-445566778899",
+  "agent_type": "explorer"
+}

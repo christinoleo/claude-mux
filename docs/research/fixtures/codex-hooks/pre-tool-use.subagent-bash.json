@@ -1,0 +1,16 @@
+{
+  "session_id": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b",
+  "turn_id": "019a1b2c-4410-7c22-9d0e-1f2a3b4c5d6e",
+  "transcript_path": "/home/leo/.codex/sessions/2026/10/16/rollout-2026-10-16T14-05-40-019a1b2f-9c80-7d11-b2a3-445566778899.jsonl",
+  "cwd": "/home/leo/Projects/demo",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.5-codex",
+  "permission_mode": "default",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "rg -n 'deploy\\(' src"
+  },
+  "tool_use_id": "call_Ch1ldB4sh00000aa",
+  "agent_id": "019a1b2f-9c80-7d11-b2a3-445566778899",
+  "agent_type": "worker"
+}

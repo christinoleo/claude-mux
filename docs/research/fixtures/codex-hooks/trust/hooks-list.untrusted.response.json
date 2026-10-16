@@ -1,0 +1,71 @@
+{
+    "id": 2,
+    "result": {
+        "data": [
+            {
+                "cwd": "/tmp/claude-1000/-home-christinoleo-Projects-claude-watch/47dfa205-6aac-47c4-b5e7-8e00876d8365/scratchpad/codex-hooks-probe/proj",
+                "hooks": [
+                    {
+                        "key": "/tmp/claude-1000/-home-christinoleo-Projects-claude-watch/47dfa205-6aac-47c4-b5e7-8e00876d8365/scratchpad/codex-hooks-probe/home/hooks.json:pre_tool_use:0:0",
+                        "eventName": "preToolUse",
+                        "handlerType": "command",
+                        "command": "claude-mux-hook pre-tool-use",
+                        "async": false,
+                        "matcher": "*",
+                        "timeoutSec": 30,
+                        "statusMessage": null,
+                        "additionalContextLimit": null,
+                        "sourcePath": "/tmp/claude-1000/-home-christinoleo-Projects-claude-watch/47dfa205-6aac-47c4-b5e7-8e00876d8365/scratchpad/codex-hooks-probe/home/hooks.json",
+                        "source": "user",
+                        "pluginId": null,
+                        "displayOrder": 0,
+                        "enabled": true,
+                        "isManaged": false,
+                        "currentHash": "sha256:1b40117d1fc0e23990e6e664b1631c66dda06c2432ba9344ed91b77678ce964c",
+                        "trustStatus": "untrusted"
+                    },
+                    {
+                        "key": "/tmp/claude-1000/-home-christinoleo-Projects-claude-watch/47dfa205-6aac-47c4-b5e7-8e00876d8365/scratchpad/codex-hooks-probe/home/hooks.json:session_start:0:0",
+                        "eventName": "sessionStart",
+                        "handlerType": "command",
+                        "command": "claude-mux-hook session-start",
+                        "async": false,
+                        "matcher": null,
+                        "timeoutSec": 600,
+                        "statusMessage": null,
+                        "additionalContextLimit": null,
+                        "sourcePath": "/tmp/claude-1000/-home-christinoleo-Projects-claude-watch/47dfa205-6aac-47c4-b5e7-8e00876d8365/scratchpad/codex-hooks-probe/home/hooks.json",
+                        "source": "user",
+                        "pluginId": null,
+                        "displayOrder": 1,
+                        "enabled": true,
+                        "isManaged": false,
+                        "currentHash": "sha256:136e1e8f6f6a5027b52584b65c3b8734a095e8e711986628181d412de1295aa7",
+                        "trustStatus": "untrusted"
+                    },
+                    {
+                        "key": "/tmp/claude-1000/-home-christinoleo-Projects-claude-watch/47dfa205-6aac-47c4-b5e7-8e00876d8365/scratchpad/codex-hooks-probe/home/hooks.json:stop:0:0",
+                        "eventName": "stop",
+                        "handlerType": "command",
+                        "command": "claude-mux-hook stop",
+                        "async": false,
+                        "matcher": null,
+                        "timeoutSec": 600,
+                        "statusMessage": null,
+                        "additionalContextLimit": null,
+                        "sourcePath": "/tmp/claude-1000/-home-christinoleo-Projects-claude-watch/47dfa205-6aac-47c4-b5e7-8e00876d8365/scratchpad/codex-hooks-probe/home/hooks.json",
+                        "source": "user",
+                        "pluginId": null,
+                        "displayOrder": 2,
+                        "enabled": true,
+                        "isManaged": false,
+                        "currentHash": "sha256:9f8b0761e5611c72104c90fe1576ddf4605d96129c3840501de7a09ef85001f9",
+                        "trustStatus": "untrusted"
+                    }
+                ],
+                "warnings": [],
+                "errors": []
+            }
+        ]
+    }
+}

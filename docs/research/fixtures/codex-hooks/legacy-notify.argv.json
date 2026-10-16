@@ -1,0 +1,10 @@
+{
+  "type": "agent-turn-complete",
+  "thread-id": "019a1b2c-3d4e-7f60-8a9b-0c1d2e3f4a5b",
+  "turn-id": "019a1b2c-4410-7c22-9d0e-1f2a3b4c5d6e",
+  "cwd": "/home/leo/Projects/demo",
+  "input-messages": [
+    "Add a --dry-run flag to the deploy script"
+  ],
+  "last-assistant-message": "Added --dry-run; it prints the rsync command instead of running it."
+}

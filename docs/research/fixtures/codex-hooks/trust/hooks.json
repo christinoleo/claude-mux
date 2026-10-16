@@ -1,0 +1,5 @@
+{"hooks":{
+ "SessionStart":[{"hooks":[{"type":"command","command":"claude-mux-hook session-start"}]}],
+ "Stop":[{"hooks":[{"type":"command","command":"claude-mux-hook stop"}]}],
+ "PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"claude-mux-hook pre-tool-use","timeout":30}]}]
+}}
