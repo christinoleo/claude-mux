@@ -1,0 +1,30 @@
+[1;2m› [0mxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…
+[2m• [0mModel interrupted to submit steer instructions.
+
+
+[1;2m› [0mhi
+
+
+[2m• [0mModel interrupted to submit steer instructions.
+
+
+[1;2m› [0mAPPROVE please
+
+
+[1m[38;2;128;128;128m•[0m [1mRunning[0m [38;2;137;180;250mtouch[38;2;205;214;244m /etc/probe-file[39m
+
+
+  [1mWould you like to run the following command?[0m
+
+  Environment: [1mlocal[0m
+
+  Reason: [3mProbe: does the approval dialog render?[0m
+
+  $ [38;2;137;180;250mtouch[38;2;205;214;244m /etc/probe-file[39m
+
+
+[1;7m› 1. Yes, proceed (y)
+[0m  2. Yes, and don't ask again for commands that start with `touch /etc/probe-file` ([1mp[0m)
+  3. No, and tell Codex what to do differently ([1mesc[0m)
+
+  [2mPress [0;1menter[0;2m to confirm or [0;1mesc[0;2m to cancel

@@ -1,0 +1,30 @@
+[2m│ [0mSee [4m[38;2;99;168;248m]8;;https://github.com/openai/codex\https://github.com/openai/codex[0m]8;;\ for installation options.[2m │[0m
+[2m│                                                               │[0m
+[2m│ [0mSee full release notes:[2m                                       │[0m
+[2m│ [0;4m[38;2;99;168;248m]8;;https://github.com/openai/codex/releases/latest\https://github.com/openai/codex/releases/latest[0;2m]8;;\               │[0m
+[2m╰───────────────────────────────────────────────────────────────╯[0m
+
+
+  [38;2;99;168;248m>_ [1m[39mOpenAI Codex[0;2m (v0.160.0)[0m
+     [2m/tmp/claude-1000/-home-christinoleo-Projects-claude-watch/…/scratchpad/codex-screen/probe/work[0m
+
+  [38;2;99;168;248mShall we make a little something out of nothing?[39m
+
+
+[1;2m› [0mhello codex
+
+
+[1m[38;2;231;231;231m•[0m [2mWorking[0m [2m(18s • [0;1mesc[0;2m to interrupt)[0m
+
+[2m• [0mMessages to be submitted after next tool call[2m (press [0;1mesc[0;2m to interrupt and send immediately)[0m
+[2m  ↳ typed while busy[0m
+
+[2m• [0mQueued follow-up inputs
+[2m  ↳ [3mqueued with tab[0m
+    [1mshift+←[0;2m edit last queued message[0m
+
+
+[1m›[0m [2mAsk Codex to do anything[0m
+
+  [38;2;246;226;183mprobe-model default[39m · [38;2;171;223;167m/tmp/claude-1000/-home-christinoleo-Projects-claude-watch/47dfa205-6aac-47c…
+[39m  [1m←[0m for agents · [1m?[0m for shortcuts                                           ⚠ [38;2;196;167;103m1 warning[39m · [1mf2[0m to view
