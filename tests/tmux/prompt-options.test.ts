@@ -217,6 +217,15 @@ describe("readPromptOptions", () => {
     expect(readPromptOptions(MULTI)!.typing).toBeUndefined();
   });
 
+  it("reads the key hint above the rule that names the session", () => {
+    const named = `${TYPING}\n${"─".repeat(60)} quita chat ─`;
+    const choice = readPromptOptions(named, { declaredOnly: true });
+    expect(choice).not.toBeNull();
+    expect(choice!.typing).toBe(true);
+    expect(choice!.keys).toContain("ctrl+g to edit");
+    expect(choice!.options.map((o) => o.label)).toContain("Chat about this");
+  });
+
   it("reads a multi-select's Submit tab, with the line that asks as its question", () => {
     const choice = readPromptOptions(REVIEW);
     expect(choice).not.toBeNull();
