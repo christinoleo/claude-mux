@@ -914,6 +914,9 @@ const BOX_ROW = /^[┌┐└┘├┤─━│╭╮╰╯]/;
 /** A multi-select row carries its own state in a checkbox. */
 const CHECKBOX = /^\[([ xX✔✓])\]\s*/;
 
+/** A rule across the foot of the screen, bare or with a label set in it. */
+const FOOTER_RULE = /^[─━]{3,}(?:\s.*\s[─━]+)?$/;
+
 /** The free-text row of a question, as Claude Code labels it while empty. */
 const TEXT_ROW = /^Type something\.?$/i;
 
@@ -1041,6 +1044,18 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
     }
   }
   if (lastContent === -1) return null;
+
+  // Claude Code may close the screen with a rule of its own under the dialog,
+  // carrying the session's name ("──── quita chat ─"). The dialog's last line
+  // is then the one above it.
+  if (FOOTER_RULE.test(at(lastContent).text)) {
+    for (let i = lastContent - 1; i >= 0; i--) {
+      const { text } = at(i);
+      if (!text) continue;
+      if (DIALOG_HINT.test(text)) lastContent = i;
+      break;
+    }
+  }
 
   // A dialog says so on its last line. Where it does, the rows are allowed to
   // sit well above the foot — a preview panel is drawn under them, and so is
