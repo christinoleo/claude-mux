@@ -2497,6 +2497,7 @@
 						{suggestion}
 						onAcceptSuggestion={() => void acceptSuggestion()}
 						{paneChoice}
+						paneLogin={currentSession?.pane_login ?? null}
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={sendKeys}
 						onSendPaneText={sendPaneText}
