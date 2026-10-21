@@ -217,6 +217,27 @@ describe("readPromptOptions", () => {
     expect(readPromptOptions(MULTI)!.typing).toBeUndefined();
   });
 
+  it("leaves a list in a sent prompt alone under /login's code field", () => {
+    const login = [
+      "❯ Two ideas for the mapping tool:",
+      "  1. Logging in as a registered user shows only public maps.",
+      "  2. Imported regions outside NS cannot be deleted by hand.",
+      "  Thanks, as always!",
+      "● Login expired · Please run /login",
+      "❯ /login",
+      "  ⎿  Login interrupted",
+      "❯ /login",
+      "─".repeat(60),
+      "  Login",
+      "  Browser didn't open? Use the url below to sign in (c to copy)",
+      "https://claude.com/cai/oauth/authorize?code=true",
+      "  Paste code here if prompted >",
+      "  Esc to cancel",
+    ].join("\n");
+    expect(readPromptOptions(login)).toBeNull();
+    expect(readPromptOptions(login, { declaredOnly: true })).toBeNull();
+  });
+
   it("reads the key hint above the rule that names the session", () => {
     const named = `${TYPING}\n${"─".repeat(60)} quita chat ─`;
     const choice = readPromptOptions(named, { declaredOnly: true });

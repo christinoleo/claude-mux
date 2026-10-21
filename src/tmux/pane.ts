@@ -914,6 +914,9 @@ const BOX_ROW = /^[┌┐└┘├┤─━│╭╮╰╯]/;
 /** A multi-select row carries its own state in a checkbox. */
 const CHECKBOX = /^\[([ xX✔✓])\]\s*/;
 
+/** A prompt line in the transcript: the marker, then anything but a row number. */
+const SENT_PROMPT = /^❯\s+(?!\d+[.)]\s)\S/;
+
 /** A rule across the foot of the screen, bare or with a label set in it. */
 const FOOTER_RULE = /^[─━]{3,}(?:\s.*\s[─━]+)?$/;
 
@@ -1081,6 +1084,14 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
     }
   }
   if (end === -1) return null;
+
+  // A prompt the person already sent sits in the transcript, never inside a
+  // dialog, whose only `❯` marks a row. One below the run means the run is a
+  // list in the conversation, and the key hint at the foot belongs to some
+  // screen without rows: /login's "Paste code here" ends in "Esc to cancel".
+  for (let i = end + 1; i < lastContent; i++) {
+    if (SENT_PROMPT.test(at(i).text)) return null;
+  }
 
   // Walk up counting down: n, n-1, … 1. Between two rows a dialog may print
   // the option's own description, a rule, or nothing, so those are stepped
