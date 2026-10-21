@@ -198,6 +198,21 @@ const EnrichedSessionSchema = z.object({
 		})
 		.nullable()
 		.optional(),
+	/** Claude Code's sign-in screen: its link and code field, the verdict, or a sign-in gone stale — live only. */
+	pane_login: z
+		.discriminatedUnion('step', [
+			z.object({
+				step: z.literal('code'),
+				url: z.string().nullable(),
+				typed: z.string(),
+				error: z.string().nullable()
+			}),
+			z.object({ step: z.literal('failed'), error: z.string() }),
+			z.object({ step: z.literal('done') }),
+			z.object({ step: z.literal('expired') })
+		])
+		.nullable()
+		.optional(),
 	/** The upgrade the status line started: running, or why it did not restart — live only. */
 	upgrade: UpgradeStatusSchema.nullable().optional(),
 	/** The spinner line while a turn runs, split into its parts — live only. */

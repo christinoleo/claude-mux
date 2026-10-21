@@ -22,6 +22,7 @@ import type { ProjectReport } from '$shared/fleet-projects.js';
 import type { PlainPane } from '$shared/fleet-places.js';
 import type { PluginsReport } from '$shared/fleet-plugins.js';
 import type { PastSession } from '$shared/past-session.js';
+import type { LoginScreen } from '$shared/tmux/login.js';
 export { asking } from '$shared/session-notifications.js';
 export { findDeepestProject } from '$shared/fleet-projects.js';
 
@@ -72,6 +73,8 @@ export interface Session {
 	pane_choice?: PaneChoice | null;
 	/** Claude Code's footer notice about its own update. */
 	pane_update?: { kind: 'installed' | 'available' | 'failed'; text: string; command?: string } | null;
+	/** Claude Code's sign-in screen, read off the pane. */
+	pane_login?: LoginScreen;
 	/** The upgrade the status line started: running, or why it did not restart. */
 	upgrade?: UpgradeStatus | null;
 	/** The spinner line while a turn runs, split into its parts; `started_at` is in this browser's clock. */
@@ -123,6 +126,7 @@ function sessionChanged(a: Session, b: Session): boolean {
 		if (JSON.stringify(a.pane_choice) !== JSON.stringify(b.pane_choice)) return true;
 	}
 	if ((a.pane_update?.text ?? null) !== (b.pane_update?.text ?? null)) return true;
+	if (JSON.stringify(a.pane_login ?? null) !== JSON.stringify(b.pane_login ?? null)) return true;
 	if ((a.upgrade?.at ?? null) !== (b.upgrade?.at ?? null)) return true;
 	if (JSON.stringify(a.pane_activity ?? null) !== JSON.stringify(b.pane_activity ?? null)) return true;
 	// Subagents: a fresh array each tick, so compare contents.

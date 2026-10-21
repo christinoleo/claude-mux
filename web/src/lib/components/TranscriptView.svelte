@@ -8,6 +8,7 @@
 	import GithubRefCards from './GithubRefCards.svelte';
 	import { keepsCaret, sayInto } from '$lib/dictation';
 	import DialogCard from '$lib/components/DialogCard.svelte';
+	import LoginCard from '$lib/components/LoginCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { toolIcon } from '$lib/tool-icons';
 	import ToolLabel from '$lib/components/ToolLabel.svelte';
@@ -16,6 +17,7 @@
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { DeliveryInfo } from '$shared/types/ws-messages.js';
 	import type { PaneActivity, PaneChoice } from '$shared/types/ws-messages.js';
+	import type { LoginScreen } from '$shared/tmux/login.js';
 	import { formatSpinnerElapsed } from '$lib/format';
 	import { Badge } from '$lib/components/ui/badge';
 	import {
@@ -39,6 +41,7 @@
 		suggestion = null,
 		onAcceptSuggestion,
 		paneChoice = null,
+		paneLogin = null,
 		subagents = {},
 		onLoadSubagent,
 		onSendKeys,
@@ -74,6 +77,8 @@
 		onAcceptSuggestion?: () => void;
 		/** The dialog the pane is drawing, as the poll read it; drawn as a card here. */
 		paneChoice?: PaneChoice | null;
+		/** Claude Code's sign-in screen, which only the pane shows. */
+		paneLogin?: LoginScreen;
 		/** Sends a tmux key sequence (space-separated) to answer a dialog. */
 		onSendKeys?: (keys: string) => Promise<void> | void;
 		/** Types text into the pane as-is, for a dialog's free-text row or notes. */
@@ -929,6 +934,14 @@
 			onKeys={(keys) => onSendKeys?.(keys)}
 			onText={(text) => onSendPaneText?.(text)}
 			{dictateTarget}
+		/>
+	{/if}
+
+	{#if paneLogin}
+		<LoginCard
+			login={paneLogin}
+			onKeys={(keys) => onSendKeys?.(keys)}
+			onText={(text) => onSendPaneText?.(text)}
 		/>
 	{/if}
 

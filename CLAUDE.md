@@ -129,6 +129,17 @@ itself (faint, SGR 2): prompt suggestions and hints such as "Press up to edit
 queued messages". Suggestions surface as `draft_kind: 'suggestion'` and are
 accepted with Tab then Enter; hints are dropped via the `PROMPT_HINTS` patterns.
 
+`readLoginScreen()` (`src/tmux/login.ts`) reads Claude Code's sign-in, which
+never reaches the transcript: the link `/login` prints (joined back across
+the lines tmux wraps it over), the code field and what is typed in it, a
+refused code with its retry prompt, "Login successful", and an idle pane
+whose last word was "Please run /login". It rides the broadcast as
+`pane_login`, and `LoginCard.svelte` draws it at the transcript's foot: open
+the page or copy the link, paste the code (the clipboard is read on a click,
+or when the page comes back into view where the browser already allows it),
+try again, or run `/login`. The code goes in through the raw send route, text
+then Enter, since the field is no prompt box for the composer to confirm.
+
 `readQueuedMessages()` reads the other half of the same picture: messages the
 user typed into the pane while Claude was busy. Claude Code has drawn them two
 ways. Since September 2026 the queue sits above the spinner, closed by the hint
@@ -203,7 +214,7 @@ parked by Claude Code and later run together with every one that followed.
 
 The session poll captures with colour once per tick and hands the stripped copy
 to every other check, so adding a detector there costs no extra `tmux` calls.
-`draft_input`, `draft_kind`, `pane_queue`, `pane_choice` and `pane_update` (Claude
+`draft_input`, `draft_kind`, `pane_queue`, `pane_choice`, `pane_login` and `pane_update` (Claude
 Code's notice about its own update, which `readUpdateNotice()` finds in the
 footer below the box, or right-aligned just above the box in the fullscreen
 layout; an "Update available! Run: …" notice carries its `command` when it is
