@@ -9,6 +9,7 @@
 	import { keepsCaret, sayInto } from '$lib/dictation';
 	import DialogCard from '$lib/components/DialogCard.svelte';
 	import LoginCard from '$lib/components/LoginCard.svelte';
+	import RewindCard from '$lib/components/RewindCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { toolIcon } from '$lib/tool-icons';
 	import ToolLabel from '$lib/components/ToolLabel.svelte';
@@ -18,6 +19,8 @@
 	import type { DeliveryInfo } from '$shared/types/ws-messages.js';
 	import type { PaneActivity, PaneChoice } from '$shared/types/ws-messages.js';
 	import type { LoginScreen } from '$shared/tmux/login.js';
+	import type { RewindAction, RewindScreen } from '$shared/tmux/rewind.js';
+	import { foldRewound } from '$shared/transcript/forks.js';
 	import { formatSpinnerElapsed } from '$lib/format';
 	import { Badge } from '$lib/components/ui/badge';
 	import {
@@ -26,7 +29,7 @@
 		type GrillAnswer,
 		type GrillRound
 	} from '$shared/transcript/grilling.js';
-	import { groupToolRuns } from '$shared/transcript/tool-groups.js';
+	import { groupToolRuns, type TranscriptItem } from '$shared/transcript/tool-groups.js';
 	import TurnChangesCard from '$lib/components/TurnChangesCard.svelte';
 	import { placeTurnChanges, type TranscriptChanges, type Turn } from '$lib/side-panel/changes';
 
@@ -42,6 +45,8 @@
 		onAcceptSuggestion,
 		paneChoice = null,
 		paneLogin = null,
+		paneRewind = null,
+		onRewind,
 		subagents = {},
 		onLoadSubagent,
 		onSendKeys,
@@ -79,6 +84,10 @@
 		paneChoice?: PaneChoice | null;
 		/** Claude Code's sign-in screen, which only the pane shows. */
 		paneLogin?: LoginScreen;
+		/** Claude Code's rewind dialog, which only the pane shows. */
+		paneRewind?: RewindScreen;
+		/** Works the rewind dialog; without it prompts offer no rewind. Resolves false when it failed. */
+		onRewind?: (action: RewindAction) => Promise<boolean>;
 		/** Sends a tmux key sequence (space-separated) to answer a dialog. */
 		onSendKeys?: (keys: string) => Promise<void> | void;
 		/** Types text into the pane as-is, for a dialog's free-text row or notes. */
@@ -178,6 +187,35 @@
 
 	/** Entries as drawn: runs of routine tool calls fold into one summary row. */
 	const items = $derived(groupToolRuns(entries));
+	/** The same, with each run of turns a rewind went back past folded into one. */
+	const blocks = $derived(foldRewound(items));
+
+	// ── rewind ───────────────────────────────────────────────────────────
+	// A prompt offers to go back to before it, through Claude Code's own
+	// dialog. Only while the session is idle: Esc Esc would stop a turn.
+
+	/** The prompt whose rewind is being opened. */
+	let rewinding = $state<string | null>(null);
+	const canRewind = $derived(sessionState === 'idle' && !paneRewind);
+
+	/** Whether a prompt is one Claude Code's rewind list holds: a local command's (/context) is not. */
+	const rewindable = (e: TranscriptEntry) => e.kind === 'user' && !e.rewound && !e.command?.output;
+
+	/** How many rows above "(current)" the list should hold this prompt, counting it. */
+	function rowsBack(id: string): number {
+		const at = entries.findIndex((e) => e.id === id);
+		return entries.slice(at).filter(rewindable).length;
+	}
+
+	async function rewindTo(entry: Extract<TranscriptEntry, { kind: 'user' }>) {
+		if (!onRewind || rewinding || !canRewind) return;
+		rewinding = entry.id;
+		try {
+			await onRewind({ action: 'open', prompt: entry.text, back: rowsBack(entry.id) });
+		} finally {
+			rewinding = null;
+		}
+	}
 
 	/** Each turn's change summary, by the item it follows; the turn still running has none yet. */
 	const turnRunning = $derived(sessionState !== null && sessionState !== 'idle');
@@ -631,7 +669,21 @@
 				{:else}
 					<div class="user-text">{entry.text}</div>
 				{/if}
-				<span class="time">{@render via(entry.id)}{formatTime(entry.ts)}</span>
+				<span class="time">
+					{#if onRewind && rewindable(entry)}
+						<button
+							type="button"
+							class="rewind-btn"
+							disabled={!canRewind || rewinding !== null}
+							title={canRewind ? 'Rewind to before this prompt' : 'Stop the turn first'}
+							aria-label="Rewind to before this prompt"
+							onclick={() => void rewindTo(entry)}
+						>
+							<iconify-icon icon={rewinding === entry.id ? 'mdi:loading' : 'mdi:history'}></iconify-icon>
+						</button>
+					{/if}
+					{@render via(entry.id)}{formatTime(entry.ts)}
+				</span>
 			</div>
 		{:else if entry.kind === 'queued'}
 			{#if !entry.delivered}
@@ -888,7 +940,7 @@
 			</details>
 		{/if}
 	{/snippet}
-	{#each items as item (item.id)}
+	{#snippet itemView(item: TranscriptItem)}
 		{#if item.kind === 'group'}
 			<!-- A run of routine calls, folded the way the terminal folds it. Open,
 			     it is the same rows the run would have drawn on its own. -->
@@ -925,6 +977,25 @@
 				link={(file) => changesLink(changed.n, file)}
 			/>
 		{/if}
+	{/snippet}
+	{#each blocks as block (block.id)}
+		{#if block.kind === 'rewound'}
+			<!-- Turns a rewind went back past: still in the log, but the
+			     conversation no longer follows them. -->
+			<details class="rewound" open={opened[block.id] ?? false} ontoggle={(e) => (opened[block.id] = e.currentTarget.open)}>
+				<summary>
+					<iconify-icon icon="mdi:history"></iconify-icon>
+					<span>Rewound · {block.turns} {block.turns === 1 ? 'turn' : 'turns'}</span>
+				</summary>
+				<div class="rewound-rows">
+					{#each block.items as item (item.id)}
+						{@render itemView(item)}
+					{/each}
+				</div>
+			</details>
+		{:else}
+			{@render itemView(block)}
+		{/if}
 	{/each}
 
 	{#if footDialog}
@@ -943,6 +1014,10 @@
 			onKeys={(keys) => onSendKeys?.(keys)}
 			onText={(text) => onSendPaneText?.(text)}
 		/>
+	{/if}
+
+	{#if paneRewind && onRewind}
+		<RewindCard screen={paneRewind} {onRewind} />
 	{/if}
 
 	<!-- Live status: driven by hooks, which fire the instant a tool starts;
@@ -1906,6 +1981,59 @@
 	}
 
 	/* --- Compaction boundary: a fold line across the conversation --- */
+	/* A prompt's rewind: quiet until the prompt is pointed at, always there to a finger. */
+	.rewind-btn {
+		display: inline-flex;
+		align-items: center;
+		margin-right: 6px;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		cursor: pointer;
+		opacity: 0;
+		transition: opacity 0.15s;
+	}
+	.user-block:hover .rewind-btn,
+	.rewind-btn:focus-visible {
+		opacity: 1;
+	}
+	@media (hover: none) {
+		.rewind-btn:not(:disabled) {
+			opacity: 0.7;
+		}
+	}
+	.rewind-btn:disabled {
+		cursor: default;
+	}
+	.user-block:hover .rewind-btn:disabled {
+		opacity: 0.4;
+	}
+	.rewind-btn:not(:disabled):hover {
+		color: #fbbf24;
+	}
+	.rewound {
+		margin: 10px 0;
+		border: 1px dashed #3f3f46;
+		border-radius: 8px;
+		padding: 6px 10px;
+		color: #78716c;
+	}
+	.rewound summary {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		cursor: pointer;
+		font-size: 12.5px;
+		list-style: none;
+	}
+	.rewound summary::-webkit-details-marker {
+		display: none;
+	}
+	.rewound-rows {
+		opacity: 0.6;
+	}
+
 	.compact {
 		margin: 22px 0 14px;
 		border: 1px dashed #3a3a42;

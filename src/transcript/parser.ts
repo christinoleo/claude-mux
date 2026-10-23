@@ -16,10 +16,11 @@
  */
 
 import { readContextUsage, type ContextUsage } from "./context.js";
+import { ForkTracker } from "./forks.js";
 import { asRecord, readString } from "./json.js";
 import { parseMcpToolName } from "./mcp.js";
 
-export type TranscriptEntry =
+export type TranscriptEntry = (
   | {
       kind: "user";
       id: string;
@@ -86,7 +87,11 @@ export type TranscriptEntry =
       result?: { ok: boolean; output: string; images?: string[] };
       /** Git-style hunks from the Edit/Write sidecar's structuredPatch. */
       patch?: { file: string; hunks: PatchHunk[] };
-    };
+    }
+) & {
+  /** Set on everything a later rewind went back past: a branch the conversation no longer follows. */
+  rewound?: boolean;
+};
 
 export interface AskQuestion {
   header: string;
@@ -398,6 +403,10 @@ export class TranscriptBuilder {
   private lastCommandId: string | null = null;
   /** Queued prompts awaiting a possible re-delivery as a real user line. */
   private pendingQueued: { text: string; id: string }[] = [];
+  private forks = new ForkTracker();
+  /** The position of the line being fed, and of the line that first made each entry. */
+  private seq = -1;
+  private seqById = new Map<string, number>();
 
   /**
    * @param sidechain true when reading a subagent's own file, where every line
@@ -433,6 +442,8 @@ export class TranscriptBuilder {
     }
     if (!record) return [];
     if ((record.isSidechain === true) !== this.sidechain) return [];
+    const uuid = readString(record.uuid);
+    if (uuid) this.seq = this.forks.see(uuid, record.type);
 
     switch (record.type) {
       case "user":
@@ -537,10 +548,28 @@ export class TranscriptBuilder {
     if (existing !== undefined) {
       this.entries[existing] = entry;
     } else {
+      this.seqById.set(entry.id, this.seq);
       this.indexById.set(entry.id, this.entries.length);
       this.entries.push(entry);
     }
     return entry.id;
+  }
+
+  /**
+   * A prompt that went back past what came before it (see ForkTracker): mark
+   * every entry the old branch made as rewound, and answer their ids.
+   */
+  private rewindTo(record: Record<string, unknown>): string[] {
+    const after = this.forks.abandonedAfter(readString(record.parentUuid));
+    if (after === null) return [];
+    const changed: string[] = [];
+    this.entries.forEach((entry, i) => {
+      const seq = this.seqById.get(entry.id);
+      if (seq === undefined || seq <= after || entry.rewound) return;
+      this.entries[i] = { ...entry, rewound: true };
+      changed.push(entry.id);
+    });
+    return changed;
   }
 
   getEntry(id: string): TranscriptEntry | undefined {
@@ -638,6 +667,7 @@ export class TranscriptBuilder {
         ? `${command.name}${command.args ? ` ${command.args}` : ""}`
         : content;
       return [
+        ...this.rewindTo(record),
         ...this.deliverQueued(content),
         this.upsert({
           kind: "user",
@@ -703,6 +733,7 @@ export class TranscriptBuilder {
       changed.push(this.upsert({ kind: "interrupt", id: uuid, ts, text: interrupt }));
     } else if (promptTexts.length > 0) {
       changed.push(
+        ...this.rewindTo(record),
         this.upsert({
           kind: "user",
           id: uuid,

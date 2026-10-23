@@ -22,6 +22,7 @@ import { listAllPanes, type PaneInfo, capturePaneContentAsync, readActivity, rea
 import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { readLoginScreen, type LoginScreen } from '../tmux/login.js';
+import { readRewindScreen, type RewindScreen } from '../tmux/rewind.js';
 import { upgradeStatus } from './restart-claude.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
 import { peekContextPercent, peekTranscriptTitle } from '../transcript/context-peek.js';
@@ -45,6 +46,7 @@ type LivePaneFields = {
 	pane_update: UpdateNotice;
 	/** Claude Code's sign-in screen, which the transcript never sees; null when none is drawn. */
 	pane_login: LoginScreen;
+	pane_rewind: RewindScreen;
 	/** The upgrade the status line's button started, while it runs or after it ended without a restart. */
 	upgrade: UpgradeStatus | null;
 	/** The spinner line while a turn runs, split into its parts; null when none is drawn. */
@@ -511,6 +513,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 			// Claude Code says so only in its footer, which the transcript never sees.
 			pane_update: stripped ? readUpdateNotice(stripped) : null,
 			pane_login: stripped ? readLoginScreen(stripped) : null,
+			pane_rewind: stripped ? readRewindScreen(stripped) : null,
 			upgrade: upgradeStatus(s.id),
 			// The spinner says more than the hooks do: what runs, for how long,
 			// how many tokens. Busy only, so a frame left over never outlives the turn.
