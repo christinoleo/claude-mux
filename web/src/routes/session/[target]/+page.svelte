@@ -54,6 +54,7 @@
 	import RemoteControlMenu from '$lib/components/RemoteControlMenu.svelte';
 	import { copyWithToast } from '$lib/side-panel/clipboard';
 	import { toast } from 'svelte-sonner';
+	import type { RewindAction } from '$shared/tmux/rewind.js';
 	import { sidePanelStore } from '$lib/stores/sidePanel.svelte';
 	import { PANES, PANE_KINDS, PANE_PARAMS, paneDef, panelKeyAction } from '$lib/side-panel/panes';
 	import { MediaQuery } from 'svelte/reactivity';
@@ -1233,6 +1234,20 @@
 
 	/** Types text into the pane as it is, with no Enter: a dialog's own text field. */
 	const sendPaneText = (text: string) => postToPane({ text, raw: true });
+
+	/** Works Claude Code's rewind dialog in the pane; says why when it could not. */
+	async function rewind(action: RewindAction): Promise<boolean> {
+		if (!target) return false;
+		const res = await fetch(`${api(target)}/rewind`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(action)
+		}).catch(() => null);
+		if (res?.ok) return true;
+		const why = (await res?.json().catch(() => null)) as { error?: string } | null;
+		toast.error(why?.error ?? 'Could not reach the pane');
+		return false;
+	}
 
 	// Send button with empty input: single tap → Enter, double tap → Tab+Enter
 	// (accept suggestion). The single Enter is delayed briefly so a second tap
@@ -2498,6 +2513,8 @@
 						onAcceptSuggestion={() => void acceptSuggestion()}
 						{paneChoice}
 						paneLogin={currentSession?.pane_login ?? null}
+						paneRewind={currentSession?.pane_rewind ?? null}
+						onRewind={rewind}
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={sendKeys}
 						onSendPaneText={sendPaneText}

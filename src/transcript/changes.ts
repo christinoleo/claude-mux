@@ -17,6 +17,7 @@
 import { asRecord, readString } from "./json.js";
 import { peekTranscriptPath } from "./context-peek.js";
 import { JsonlTailer } from "./tailer.js";
+import { ForkTracker } from "./forks.js";
 import { interruptNote, parseSlashCommand, readStructuredPatch, type PatchHunk } from "./parser.js";
 
 export type FileChangeKind = "added" | "modified" | "deleted";
@@ -144,6 +145,8 @@ export function parseTs(value: unknown): number {
 
 interface Turn {
   id: string | null;
+  /** The prompt line's position in the log, for telling which turns a rewind left behind. */
+  seq: number;
   n: number;
   ts: number;
   prompt: string;
@@ -177,18 +180,25 @@ export class ChangesCollector {
   private turns: Turn[] = [];
   /** tool_use ids already counted, so a line written twice is counted once. */
   private seen = new Set<string>();
+  private forks = new ForkTracker();
 
   feed(line: string): void {
-    // A tool result without a patch can neither change a file nor open a turn.
+    // A tool result without a patch can neither change a file nor open a turn,
+    // but every line of the conversation (which opens with its parentUuid) has
+    // to be placed for a rewind to be told from a prompt that follows on.
     const carriesChange = line.includes('"structuredPatch"');
-    if (!carriesChange && (!line.includes('"type":"user"') || line.includes('"tool_result"'))) return;
+    const mayOpen = line.includes('"type":"user"') && !line.includes('"tool_result"');
+    if (!carriesChange && !mayOpen && !line.startsWith('{"parentUuid"')) return;
     let record: Record<string, unknown> | null;
     try {
       record = asRecord(JSON.parse(line));
     } catch {
       return;
     }
-    if (!record || record.type !== "user" || record.isSidechain === true) return;
+    if (!record || record.isSidechain === true) return;
+    const uuid = readString(record.uuid);
+    const seq = uuid ? this.forks.see(uuid, record.type) : -1;
+    if (record.type !== "user" || (!carriesChange && !mayOpen)) return;
 
     if (carriesChange) {
       const change = fileChangeFromSidecar(record.toolUseResult);
@@ -204,7 +214,7 @@ export class ChangesCollector {
       }
       let turn = this.turns[this.turns.length - 1];
       if (!turn) {
-        turn = { id: null, n: 0, ts: parseTs(record.timestamp), prompt: "", changes: new Map() };
+        turn = { id: null, seq: -1, n: 0, ts: parseTs(record.timestamp), prompt: "", changes: new Map() };
         this.turns.push(turn);
       }
       const list = turn.changes.get(change.file);
@@ -220,8 +230,13 @@ export class ChangesCollector {
     // first line, and so does this: one turn, under the first line's id.
     const last = this.turns[this.turns.length - 1];
     if (last && last.changes.size === 0 && last.prompt === prompt && isCommand(record)) return;
+    // A rewind went back past the turns after its point, and with them their
+    // changes, which Claude Code restored when it was asked to.
+    const after = this.forks.abandonedAfter(readString(record.parentUuid));
+    if (after !== null) this.turns = this.turns.filter((turn) => turn.seq <= after);
     this.turns.push({
-      id: readString(record.uuid),
+      id: uuid,
+      seq,
       n: (this.turns[this.turns.length - 1]?.n ?? 0) + 1,
       ts: parseTs(record.timestamp),
       prompt,

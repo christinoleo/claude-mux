@@ -140,6 +140,30 @@ or when the page comes back into view where the browser already allows it),
 try again, or run `/login`. The code goes in through the raw send route, text
 then Enter, since the field is no prompt box for the composer to confirm.
 
+`readRewindScreen()` (`src/tmux/rewind.ts`) reads Claude Code's rewind
+(Esc Esc, or /rewind), which never reaches the transcript either: the list
+of prompts to go back to, with the files each turn changed and how many rows
+scrolled away, and the confirmation that quotes the prompt, says what the
+highlighted choice does to the conversation and the code, and offers the
+choices by number. It rides the broadcast as `pane_rewind`, drawn by
+`RewindCard.svelte` at the transcript's foot. A prompt in the transcript
+offers "Rewind to before this prompt" while the session is idle, and
+`POST /api/sessions/<id>/rewind` works the dialog the way a person would
+(`src/server/rewind.ts`): Esc Esc on an empty box, Up as many rows as the
+transcript expects, then the selected row is read back and the search moves
+a row either way until it names the prompt (`isSamePrompt()`: the list shows
+a first line, cut with "…"), Enter, and the quote checked again before the
+card offers the choices; a choice goes in as its digit. Claude Code keeps
+the checkpoints and restores the files; nothing here touches them.
+
+A rewind writes nothing when it runs. The next prompt is logged in the same
+file with the `parentUuid` of the point it went back to, so the log becomes a
+tree. `ForkTracker` (`src/transcript/forks.ts`) tells such a prompt from one
+that follows on: an assistant line was logged between its parent and itself.
+The transcript marks the old branch's entries `rewound` (and resends them),
+`foldRewound()` draws each run of them as one "Rewound · N turns" block, and
+the session source of Changes drops the turns it went back past.
+
 `readQueuedMessages()` reads the other half of the same picture: messages the
 user typed into the pane while Claude was busy. Claude Code has drawn them two
 ways. Since September 2026 the queue sits above the spinner, closed by the hint
@@ -214,7 +238,7 @@ parked by Claude Code and later run together with every one that followed.
 
 The session poll captures with colour once per tick and hands the stripped copy
 to every other check, so adding a detector there costs no extra `tmux` calls.
-`draft_input`, `draft_kind`, `pane_queue`, `pane_choice`, `pane_login` and `pane_update` (Claude
+`draft_input`, `draft_kind`, `pane_queue`, `pane_choice`, `pane_login`, `pane_rewind` and `pane_update` (Claude
 Code's notice about its own update, which `readUpdateNotice()` finds in the
 footer below the box, or right-aligned just above the box in the fullscreen
 layout; an "Update available! Run: …" notice carries its `command` when it is

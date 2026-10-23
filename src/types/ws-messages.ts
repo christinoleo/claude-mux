@@ -213,6 +213,32 @@ const EnrichedSessionSchema = z.object({
 		])
 		.nullable()
 		.optional(),
+	/** Claude Code's rewind dialog: the list of points to go back to, or the confirmation for one — live only. */
+	pane_rewind: z
+		.discriminatedUnion('step', [
+			z.object({
+				step: z.literal('list'),
+				rows: z.array(
+					z.object({
+						text: z.string(),
+						files: z.string().nullable(),
+						selected: z.boolean(),
+						current: z.boolean()
+					})
+				),
+				above: z.number(),
+				below: z.number()
+			}),
+			z.object({
+				step: z.literal('confirm'),
+				prompt: z.string(),
+				ago: z.string().nullable(),
+				effects: z.array(z.string()),
+				options: z.array(z.object({ n: z.number(), label: z.string(), selected: z.boolean() }))
+			})
+		])
+		.nullable()
+		.optional(),
 	/** The upgrade the status line started: running, or why it did not restart — live only. */
 	upgrade: UpgradeStatusSchema.nullable().optional(),
 	/** The spinner line while a turn runs, split into its parts — live only. */
