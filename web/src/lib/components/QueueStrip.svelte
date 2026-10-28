@@ -1,10 +1,12 @@
 <script lang="ts">
 	/**
 	 * Everything waiting to reach the agent, in one place, attached to the top
-	 * edge of the composer: claude-mux's own queue first (it can be reordered,
-	 * edited, steered into the running turn, or dropped), then what sits in
-	 * Claude Code's in-pane queue, which only Claude Code can reorder and which
-	 * offers the one action it has — send now.
+	 * edge of the composer: text typed into the pane's own prompt box, which
+	 * must be sent or cleared before anything else can go in (a paste would
+	 * join the two); claude-mux's own queue (it can be reordered, edited,
+	 * steered into the running turn, or dropped); then what sits in Claude
+	 * Code's in-pane queue, which only Claude Code can reorder and which offers
+	 * the one action it has — send now.
 	 *
 	 * The layout follows t3code's QueuedRunsControl
 	 * (https://github.com/pingdotgg/t3code, apps/web/src/components/chat/QueuedRunsControl.tsx,
@@ -25,7 +27,11 @@
 		paneQueue = [],
 		busy = false,
 		editingId = null,
-		onEdit
+		paneDraft = null,
+		composerHasText = false,
+		onEdit,
+		onSendDraft,
+		onClearDraft
 	}: {
 		target: string;
 		/** The relay path to the session's machine, '' for this one. */
@@ -39,7 +45,15 @@
 		busy?: boolean;
 		/** The item the composer is editing, drawn as such. */
 		editingId?: string | null;
+		/** What is typed in the pane's prompt box, where the terminal is not on screen to show it. */
+		paneDraft?: string | null;
+		/** The composer holds a message the typed text stands in the way of. */
+		composerHasText?: boolean;
 		onEdit: (item: QueuedMessageInfo) => void;
+		/** Submit the pane's typed text as it stands. */
+		onSendDraft?: () => void;
+		/** Empty the pane's prompt box. */
+		onClearDraft?: () => void;
 	} = $props();
 
 	let open = $state(true);
@@ -50,7 +64,7 @@
 	/** The rows' vertical midpoints, measured once when a drag starts. */
 	let midpoints: number[] = [];
 
-	const total = $derived(queue.length + paneQueue.length);
+	const total = $derived(queue.length + paneQueue.length + (paneDraft ? 1 : 0));
 	const api = $derived(`${base}/api/sessions/${encodeURIComponent(target)}`);
 
 	async function call(path: string, method: string, body?: object): Promise<void> {
@@ -125,6 +139,42 @@
 		</div>
 		<Collapsible.Content>
 			<ul class="qs-list" bind:this={listEl}>
+				{#if paneDraft}
+					<!-- Outside the list's drag order: it is not in any queue, and nothing
+					     can be pasted in until it goes. -->
+					<li class="qs-row in-box">
+						<span class="qs-grip" aria-hidden="true">
+							<iconify-icon icon="mdi:console-line"></iconify-icon>
+						</span>
+						<div class="qs-body">
+							<p class="qs-text">
+								<span class="qs-tag">typed in the pane</span>
+								{#if composerHasText}<span class="qs-tag blocks">send or clear it first</span>{/if}
+								{paneDraft}
+							</p>
+						</div>
+						<div class="qs-actions">
+							<button
+								type="button"
+								class="qs-btn"
+								title="Send what is typed in the pane"
+								aria-label="Send"
+								onclick={() => onSendDraft?.()}
+							>
+								<iconify-icon icon="mdi:send"></iconify-icon>
+							</button>
+							<button
+								type="button"
+								class="qs-btn qs-remove"
+								title="Clear the pane's prompt box"
+								aria-label="Clear"
+								onclick={() => onClearDraft?.()}
+							>
+								<iconify-icon icon="mdi:close"></iconify-icon>
+							</button>
+						</div>
+					</li>
+				{/if}
 				{#each queue as item, i (item.id)}
 					{@const dropHere = drag && drag.id !== item.id && drag.to === i}
 					<li
@@ -326,6 +376,10 @@
 	.qs-row.in-pane .qs-text {
 		color: #8a8580;
 	}
+	.qs-tag.blocks {
+		background: #3a2a0c;
+		color: #fbbf24;
+	}
 
 	.qs-grip {
 		flex: none;
@@ -349,7 +403,8 @@
 		outline: 2px solid #f59e0b;
 		color: #e7e5e4;
 	}
-	.qs-row.in-pane .qs-grip {
+	.qs-row.in-pane .qs-grip,
+	.qs-row.in-box .qs-grip {
 		cursor: default;
 		font-size: 13px;
 	}

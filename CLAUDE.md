@@ -206,10 +206,18 @@ rather than read as a description.
 Delivery goes the other way through the same box. `sendTextToPane()` in
 `src/server/message-queue.ts` pastes the text and sends Enter; Claude Code
 sometimes folds an Enter that lands inside the paste burst into the text, so
-the send and steer routes then call `confirmSubmitted()`, which reads the box
-back: a taken message has left it (the turn started, or Claude Code queued it
-and shows its own hint), text still sitting there typed gets one more Enter,
-and if it stays the route answers 502 and the composer keeps the draft.
+the send and steer routes go through `submitToPane()`, which ends in
+`confirmSubmitted()` reading the box back: a taken message has left it (the
+turn started, or Claude Code queued it and shows its own hint), text still
+sitting there typed gets one more Enter, and if it stays the route answers 502
+and the composer keeps the draft. Since the draft is then in both places,
+`submitToPane()` reads the box before it pastes: a box already holding the
+same text (whitespace aside, since the box wraps) is submitted as it stands,
+so trying again never pastes a second copy behind the first, and a box holding
+anything else is left alone and the route answers 409, because a paste would
+join the two into one message. What is typed there shows as the first row of
+`QueueStrip.svelte` (in the transcript view, where no terminal shows it), with
+Send and Clear.
 
 A draft has one way out of the composer, `deliver()` in the session page, and
 four places it can go: `send` (start a turn), `queue` (wait for the running

@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { execFileSync } from 'child_process';
-import { confirmSubmitted, markDictated, sendTextToPane } from '$shared/server/message-queue.js';
+import { markDictated, sendTextToPane, submitToPane } from '$shared/server/message-queue.js';
 import { composePrompt } from '$lib/server/prompt.js';
 
 export const POST: RequestHandler = async ({ params, request }) => {
@@ -16,8 +16,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
 
 	try {
 		if (prompt.text) {
-			sendTextToPane(target, prompt.text, { appendEnter: !raw });
-			if (!raw && !(await confirmSubmitted(target))) {
+			// Raw text is put in the box on purpose, beside whatever is there.
+			if (raw) sendTextToPane(target, prompt.text, { appendEnter: false });
+			const result = raw ? 'taken' : await submitToPane(target, prompt.text);
+			if (result === 'occupied') {
+				return json(
+					{ error: "Something else is typed in the pane's prompt box: send or clear it first" },
+					{ status: 409 }
+				);
+			}
+			if (result === 'in-box') {
 				return json(
 					{ error: 'Claude Code did not take the message; it is still in its input box' },
 					{ status: 502 }

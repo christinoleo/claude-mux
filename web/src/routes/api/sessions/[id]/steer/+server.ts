@@ -5,6 +5,7 @@ import { composePrompt, paneForTarget } from '$lib/server/prompt.js';
 import { broadcastSessions } from '$lib/server/ws-managers.js';
 
 const NOT_TAKEN = 'Claude Code did not take the message; it is still in its input box';
+const OCCUPIED = "Something else is typed in the pane's prompt box: send or clear it first";
 
 /**
  * Put a message into the running turn. The body is either what `/send` takes
@@ -30,6 +31,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			if (result === 'missing') {
 				return json({ error: 'That message has already left the queue', queue }, { status: 404 });
 			}
+			if (result === 'occupied') return json({ error: OCCUPIED, queue }, { status: 409 });
 			return result === 'sent' ? json({ ok: true, queue }) : json({ error: NOT_TAKEN, queue }, { status: 502 });
 		}
 
@@ -38,9 +40,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		if (!prompt.ok) return json({ error: prompt.error }, { status: 400 });
 		if (!prompt.text) return json({ error: 'text, attachments or id is required' }, { status: 400 });
 		const opts = { mode, dictated: body.dictated === true } as const;
-		if (!(await steerIntoPane(pane, prompt.text, busy, opts))) {
-			return json({ error: NOT_TAKEN }, { status: 502 });
-		}
+		const result = await steerIntoPane(pane, prompt.text, busy, opts);
+		if (result === 'occupied') return json({ error: OCCUPIED }, { status: 409 });
+		if (result === 'in-box') return json({ error: NOT_TAKEN }, { status: 502 });
 		return json({ ok: true });
 	} catch {
 		return json({ error: 'Failed to steer' }, { status: 500 });
