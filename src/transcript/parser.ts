@@ -177,6 +177,21 @@ function parseLocalOutput(content: string): string | null {
   return chunks.join("\n");
 }
 
+/** The wrapper Claude Code logs around a long paste: `<pasted_content id="c2b8">` … `</pasted_content id="c2b8">`. */
+const PASTED_OPEN = /<pasted_content id="[^"]*">\n?/g;
+const PASTED_CLOSE = /\n?<\/pasted_content id="[^"]*">\n?/g;
+
+/**
+ * A prompt as it was pasted. Claude Code logs a long paste inside a
+ * `<pasted_content>` wrapper (with a blank line before it when nothing was
+ * typed ahead of it); the person sent the text, not the tags, and the
+ * dictation and queued-message matching compare against the text.
+ */
+export function unwrapPasted(text: string): string {
+  if (!text.includes("<pasted_content id=")) return text;
+  return text.replace(PASTED_OPEN, "").replace(PASTED_CLOSE, "\n").trim();
+}
+
 function parseAskQuestions(input: Record<string, unknown>): AskQuestion[] {
   const raw = input.questions;
   if (!Array.isArray(raw)) return [];
@@ -503,7 +518,8 @@ export class TranscriptBuilder {
     if (!attachment || attachment.type !== "queued_command") return [];
     // Only human-typed prompts; system notifications also arrive queued.
     if (asRecord(attachment.origin)?.kind !== "human") return [];
-    const prompt = readString(attachment.prompt);
+    const raw = readString(attachment.prompt);
+    const prompt = raw === null ? null : unwrapPasted(raw);
     if (!prompt || prompt.trim().length === 0) return [];
     const uuid = readString(record.uuid) ?? `queued-${this.entries.length}`;
     const ts = parseTimestamp(record.timestamp ?? attachment.timestamp);
@@ -582,7 +598,7 @@ export class TranscriptBuilder {
     if (!message) return [];
     const uuid = readString(record.uuid) ?? `user-${this.entries.length}`;
     const ts = parseTimestamp(record.timestamp);
-    const content = message.content;
+    const content = typeof message.content === "string" ? unwrapPasted(message.content) : message.content;
 
     // Cross-session (A2A) messages arrive as meta user lines with
     // origin.kind "peer"; origin.body is the clean text (message.content is
@@ -724,7 +740,8 @@ export class TranscriptBuilder {
           }),
         );
       } else if (rec.type === "text") {
-        const text = readString(rec.text);
+        const raw = readString(rec.text);
+        const text = raw === null ? null : unwrapPasted(raw);
         if (text && text.trim().length > 0) promptTexts.push(text);
       }
     }

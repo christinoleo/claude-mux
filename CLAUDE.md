@@ -237,7 +237,11 @@ its own. `/voice` only transcribes and answers with the text; `finishVoice()`
 adds it to the draft and runs the same function a typed draft goes through, so
 the recording bar offers the composer's verbs. The request says `dictated:
 true`, a queued item carries it, and `markDictated()` records the mark the
-transcript badges at the moment the pane is handed the text, as pasted. A
+transcript badges at the moment the pane is handed the text, as pasted. The
+parser reads a long paste without the `<pasted_content>` wrapper Claude Code
+logs it in (`unwrapPasted()`), and `isDictated()` also takes a prompt that is
+several dictations run together, which is how Claude Code logs messages it
+queued during a turn. A
 question's own microphone (`DictateButton.svelte`, in a grilling round and a
 dialog card's text field) starts a take under a field id, so the composer's
 controls leave it alone, and puts the words in that field.
