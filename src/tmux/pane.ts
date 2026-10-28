@@ -466,9 +466,12 @@ const QUEUED_ROW_BG = "48;5;237";
 
 /**
  * The line Claude Code draws under its queue since September 2026, naming the
- * key that sends the queue early. It is the pane saying a queue is there.
+ * key that sends the queue early. It is the pane saying a queue is there. The
+ * key is ctrl+enter where the terminal reports it apart from Enter (2.1.282),
+ * and ctrl+x ctrl+s elsewhere, which is what a pane in tmux shows; with the
+ * key unbound, 2.1.312 offers a click instead.
  */
-const QUEUE_HINT = /^\s*ctrl\+x ctrl\+s to send now\s*$/;
+const QUEUE_HINT = /^\s*(?:ctrl\+x ctrl\+s|ctrl\+enter|click) to send now\s*$/;
 
 /** How far above the foot the queue's hint may sit: under it, a spinner and a tip. */
 const QUEUE_HINT_REACH = 40;
