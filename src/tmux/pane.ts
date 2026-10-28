@@ -811,7 +811,12 @@ export type PromptOption = {
    * so it is picked with the arrows alone, never with Enter.
    */
   text?: true;
+  /** The answer this question already holds: a tab gone back to marks it "✔". */
+  chosen?: true;
 };
+
+/** One question's tab in the strip a multi-question dialog draws over itself. */
+export type PromptTab = { label: string; answered: boolean };
 
 /** A numbered question waiting in the pane. */
 export type PromptChoice = {
@@ -847,6 +852,12 @@ export type PromptChoice = {
    * "● High effort (default) ←/→ to adjust".
    */
   notes?: string[];
+  /**
+   * The questions' tabs, in order, when the dialog draws its tab strip
+   * ("←  ☒ Fruit  ☐ Color  ✔ Submit  →"); the Submit tab is left out. ←/→
+   * move between them, answered or not.
+   */
+  tabs?: PromptTab[];
 } | null;
 
 /** How the caller wants an undeclared run — one with no key hint — treated. */
@@ -896,6 +907,12 @@ const NOTES_CLOSED = /press n to add notes/i;
  * it is not part of it.
  */
 const TAB_STRIP = /^(?:←\s+)?[☐☒☑✔✓]\s/;
+
+/** One tab in that strip: its box, then its label up to the next run of spaces. */
+const TAB_ITEM = /([☐☒☑])\s(\S(?:.*?\S)??)(?=\s{2,}|\s*→|\s*$)/g;
+
+/** The mark a question puts after the option it already holds, when its tab is gone back to. */
+const CHOSEN_MARK = /\s+✔$/;
 
 /**
  * A row that carries its description on its own line, after a run of spaces:
@@ -997,6 +1014,23 @@ function joinParagraph(lines: string[]): string {
     out += (wrapped ? " " : "\n") + lines[i];
   }
   return out;
+}
+
+/**
+ * The tab strip above a question's rows, when there is one with more than a
+ * single question: the review under the Submit tab lists answers between the
+ * strip and its rows, so the search reaches past the question's paragraph,
+ * and stops at the rule the dialog opens with.
+ */
+function readTabStrip(at: (i: number) => { text: string }, firstRow: number): PromptTab[] | undefined {
+  for (let i = firstRow - 1; i >= 0 && i >= firstRow - QUESTION_LINES - 12; i--) {
+    const { text } = at(i);
+    if (/^[─━]{3,}$/.test(text)) return undefined;
+    if (!TAB_STRIP.test(text)) continue;
+    const tabs = [...text.matchAll(TAB_ITEM)].map((m) => ({ label: m[2], answered: m[1] !== "☐" }));
+    return tabs.length > 1 ? tabs : undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -1209,6 +1243,9 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
       }
     }
 
+    const chosen = !box && CHOSEN_MARK.test(label);
+    if (chosen) label = label.replace(CHOSEN_MARK, "");
+
     const option: PromptOption = {
       n: row.n,
       label: clampOption(label),
@@ -1217,6 +1254,7 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
       selected: row.selected,
     };
     if (TEXT_ROW.test(option.label)) option.text = true;
+    if (chosen) option.chosen = true;
     return option;
   });
 
@@ -1245,6 +1283,8 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
 
   const choice: NonNullable<PromptChoice> = { question, options };
   if (multi) choice.multi = true;
+  const tabs = readTabStrip(at, rows[0].i);
+  if (tabs) choice.tabs = tabs;
   if (declared) {
     choice.keys = clampOption(hintLine);
     if (TYPING_HINT.test(hintLine)) {
