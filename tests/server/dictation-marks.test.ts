@@ -43,6 +43,22 @@ describe("dictation marks", () => {
     expect(isDictated("s1", "fix the login bug now", Date.now())).toBe(false);
   });
 
+  it("matches dictations Claude Code ran together as one prompt", () => {
+    // Two things said during a turn are queued by Claude Code and logged as
+    // one prompt, joined by a line break.
+    recordDictation("s1", "Também me responde aí, ele voltou pro topo?");
+    recordDictation("s1", "Outra limitação que eu acho é a do scroll.");
+    const joined = "Também me responde aí, ele voltou pro topo?\nOutra limitação que eu acho é a do scroll.";
+    expect(isDictated("s1", joined, Date.now())).toBe(true);
+  });
+
+  it("does not match a prompt only partly made of dictations", () => {
+    recordDictation("s1", "fix the login bug");
+    recordDictation("s1", "and the logout one");
+    expect(isDictated("s1", "fix the login bug\nplus something typed", Date.now())).toBe(false);
+    expect(isDictated("s1", "fix the login bugand the logout one", Date.now())).toBe(false);
+  });
+
   it("does not match outside the time window", () => {
     recordDictation("s1", "fix the login bug");
     expect(isDictated("s1", "fix the login bug", Date.now() + 16 * 60_000)).toBe(false);

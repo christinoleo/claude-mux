@@ -79,6 +79,40 @@ describe("TranscriptBuilder", () => {
     ]);
   });
 
+  it("reads a long paste without Claude Code's pasted_content wrapper, and matches its dictation", () => {
+    // Logged as in a real session (Claude Code 2.1.30x): a blank line, the
+    // wrapper, the paste, the closing tag carrying the same id.
+    const said = "Enquanto eu penso no que você acabou de falar, uma ideia.\nSeis. Deixa quieto.";
+    const builder = new TranscriptBuilder(false, (text) => text === said);
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u1",
+        timestamp: TS,
+        message: { role: "user", content: `\n\n<pasted_content id="c2b8">\n${said}\n</pasted_content id="c2b8">\n` },
+        origin: { kind: "human" },
+      }),
+    );
+    expect(builder.entries).toEqual([{ kind: "user", id: "u1", ts: Date.parse(TS), text: said, dictated: true }]);
+  });
+
+  it("keeps the words typed ahead of a pasted block", () => {
+    const builder = new TranscriptBuilder();
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u1",
+        timestamp: TS,
+        message: {
+          role: "user",
+          content: [{ type: "text", text: 'look at this\n\n<pasted_content id="a1">\nline one\nline two\n</pasted_content id="a1">\n' }],
+        },
+        origin: { kind: "human" },
+      }),
+    );
+    expect(builder.entries[0]).toMatchObject({ kind: "user", text: "look at this\n\nline one\nline two" });
+  });
+
   it("unwraps a slash command into its name and arguments", () => {
     const builder = new TranscriptBuilder();
     builder.feed(
