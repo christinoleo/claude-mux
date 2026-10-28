@@ -55,9 +55,25 @@ function under(child: string, parent: string): boolean {
  * that machine, last, so it never takes in the folders below it. One that
  * has not said where it runs (an empty cwd) is placed under `NO_FOLDER`,
  * so nothing is left out.
+ *
+ * A session's repo is a project of its own even under a remembered root,
+ * unless that root is a repo too: a session opened in `~/Projects` makes it
+ * a root, and the repos below it must not then fold into it (and close with
+ * it). Under a root that is a repo, a worktree or nested repo stays its.
+ * `repos` are the sessions' git roots; `isRepo` says whether a root is one.
  */
-export function projectRoots(projects: readonly string[], cwds: readonly (string | null | undefined)[]): string[] {
+export function projectRoots(
+  projects: readonly string[],
+  cwds: readonly (string | null | undefined)[],
+  repos: readonly (string | null | undefined)[] = [],
+  isRepo: (root: string) => boolean = () => false,
+): string[] {
   const roots = [...projects];
+  for (const repo of new Set(repos)) {
+    if (!repo || roots.includes(repo) || looksLikeRoot(repo)) continue;
+    const holder = findDeepestProject(repo, roots);
+    if (holder && !isRepo(holder)) roots.push(repo);
+  }
   const known = cwds.filter((cwd): cwd is string => !!cwd);
   const extra = known.filter((cwd) => !looksLikeRoot(cwd)).sort((a, b) => a.length - b.length);
   for (const cwd of extra) {

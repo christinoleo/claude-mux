@@ -810,7 +810,10 @@ copying the path, and closing the project on every machine that answers;
 session or plain pane in a directory that is nobody's project (`~`, `/tmp/x`)
 makes that directory a project of its own on its machine, and those that have
 not said where they run make a "no folder" project, so there are no loose rows
-(`projectRoots()` and `panesByRoot()` in `src/fleet-places.ts`). Every machine
+(`projectRoots()` and `panesByRoot()` in `src/fleet-places.ts`). A session's repo
+(its `git_root`) is a root of its own even under a remembered root that is
+no repo: a session opened in `~/Projects` makes that a root, and without
+this every repo below it folded into it, so closing it killed them all. Every machine
 reports its plain panes (target, command, cwd, title) as `panes` on its
 sessions broadcast, read off the same `list-panes` the poll already runs, so
 another machine's shells and dev servers sit under their projects too, with
@@ -847,7 +850,11 @@ starts with the folders open on the tab's machine (`openOn()`).
 Typing a name no folder here has offers "Create folder" as the list's last
 row, with a "git init" box: `POST /api/browse` makes it one level down
 (`folderNameProblem()` in `src/folder-name.ts` refuses slashes, `.`/`..`
-and names at either end padded) and the picker browses into it.
+and names at either end padded) and the picker browses into it. The row
+sits after the folders whose names start with what is typed and before the
+looser matches. Switching to a machine that lacks the folder browsed lands
+on the nearest folder above it that it has, with the missing name typed, so
+the same folder can be made there.
 
 The drawer's foot (`SidebarMeters.svelte`, in the layout) sits flush under
 one hairline, no card. Its top line holds the screenshots of the session on

@@ -30,6 +30,26 @@ describe("projectRoots", () => {
     expect(projectRoots(["/p/app"], ["/p/app", ""])).toEqual(["/p/app", NO_FOLDER]);
     expect(projectRoots([], [null])).toEqual([NO_FOLDER]);
   });
+
+  it("keeps a session's repo its own project under a remembered folder that is no repo", () => {
+    // distilo: a session opened in ~/Projects made it the one remembered root.
+    const P = "/home/leo/Projects";
+    const roots = projectRoots(
+      [P],
+      [P, `${P}/quita`, `${P}/distilo/runner`],
+      [null, `${P}/quita`, `${P}/distilo`],
+      () => false
+    );
+    expect(roots).toEqual([P, `${P}/quita`, `${P}/distilo`]);
+    expect(rootOf(`${P}/distilo/runner`, roots)).toBe(`${P}/distilo`);
+    expect(rootOf(P, roots)).toBe(P);
+  });
+
+  it("leaves a worktree under the repo it belongs to", () => {
+    const app = "/home/leo/Projects/app";
+    const tree = `${app}/.claude/worktrees/agent-1`;
+    expect(projectRoots([app], [app, tree], [app, tree], (root) => root === app)).toEqual([app]);
+  });
 });
 
 describe("rootOf", () => {

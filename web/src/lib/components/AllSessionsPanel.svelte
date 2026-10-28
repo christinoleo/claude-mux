@@ -223,7 +223,15 @@
 
 	/** A machine's project roots (`projectRoots()`): every folder its sessions and plain panes run in has one. */
 	function rootsOf(machine: Machine): string[] {
-		return projectRoots(machine.projects, [...machine.sessions.map((s) => s.cwd), ...machine.panes.map((p) => p.cwd)]);
+		const repos = machine.sessions.map((s) => s.git_root);
+		const remotes = new Map(machine.projectReports.map((r) => [r.root, r.remote]));
+		return projectRoots(
+			machine.projects,
+			[...machine.sessions.map((s) => s.cwd), ...machine.panes.map((p) => p.cwd)],
+			repos,
+			// A remote says so; a repo without one shows itself as a session's git root.
+			(root) => remotes.get(root) != null || repos.includes(root)
+		);
 	}
 
 	/**
