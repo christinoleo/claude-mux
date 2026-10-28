@@ -50,6 +50,25 @@ describe("parseGrillRound", () => {
     expect(round.questions[0]).toMatchObject({ n: 4, title: "Naming", body: "What is it called?", recommended: "`inbox`." });
   });
 
+  it("takes a middle dot inside the bold and rules between questions", () => {
+    const round = parseGrillRound(`Rodada 1.
+
+❓ **Q1 · Modo do PostHog**: sem cookies, sem banner.
+
+➡️ Sim: sem cookies.
+
+---
+
+❓ **Q2 · Proxy**: os eventos passam por \`/ingest\`.
+
+➡️ Sim.`)!;
+    expect(round.questions.map((q) => [q.n, q.title, q.recommended])).toEqual([
+      [1, "Modo do PostHog", "Sim: sem cookies."],
+      [2, "Proxy", "Sim."],
+    ]);
+    expect(round.questions[0].body).toBe("sem cookies, sem banner.");
+  });
+
   it("allows a question with no title and one with no recommendation", () => {
     const round = parseGrillRound("❓ **Q1** Is this needed at all?\n\n❓ **Q2** - **Scope**: Which repos?\n\n➡️ All of them.")!;
     expect(round.questions[0]).toMatchObject({ title: null, body: "Is this needed at all?", recommended: null });
