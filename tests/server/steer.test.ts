@@ -8,8 +8,10 @@ process.env.CLAUDE_MUX_QUEUE_PATH = join(queueDir, 'queue.json');
 
 /** Every tmux invocation, as its argument list. */
 const tmuxCalls: string[][] = [];
-/** What the next box reads return: typed text left in the box, or null for empty. */
+/** What the box reads return: typed text left in the box, or null for empty. */
 let boxText: string | null = null;
+/** Reads to answer before falling back to `boxText`, one each, in order. */
+let boxReads: (string | null)[] = [];
 /** Make the paste itself fail, as tmux does for a pane that has gone. */
 let failPaste = false;
 
@@ -23,7 +25,10 @@ vi.mock('child_process', () => ({
 
 vi.mock('../../src/tmux/pane.js', () => ({
 	capturePaneContentAsync: vi.fn(async () => 'pane'),
-	readPromptBox: vi.fn(() => (boxText === null ? null : { kind: 'typed', text: boxText }))
+	readPromptBox: vi.fn(() => {
+		const text = boxReads.length > 0 ? boxReads.shift()! : boxText;
+		return text === null ? null : { kind: 'typed', text };
+	})
 }));
 
 const { enqueue, dequeue, getQueue, clearQueue, editQueueItem, promoteToSteer, steerIntoPane } =
@@ -49,6 +54,7 @@ beforeEach(() => {
 	vi.useFakeTimers();
 	tmuxCalls.length = 0;
 	boxText = null;
+	boxReads = [];
 	failPaste = false;
 	clearQueue(TARGET);
 });
@@ -60,14 +66,14 @@ afterEach(() => {
 
 describe('steer', () => {
 	it('hands a busy pane the message and leaves Claude Code to read it in its own time', async () => {
-		expect(await settle(steerIntoPane(TARGET, 'look at this', true))).toBe(true);
+		expect(await settle(steerIntoPane(TARGET, 'look at this', true))).toBe('taken');
 		expect(pasted()).toBe(true);
 		expect(callIndex(['send-keys', '-t', TARGET, 'Enter'])).toBeGreaterThan(-1);
 		expect(chorded()).toBe(false);
 	});
 
 	it('with now, pastes into a busy pane and then sends the send-now chord', async () => {
-		expect(await settle(steerIntoPane(TARGET, 'look at this', true, { mode: 'now' }))).toBe(true);
+		expect(await settle(steerIntoPane(TARGET, 'look at this', true, { mode: 'now' }))).toBe('taken');
 		expect(pasted()).toBe(true);
 		const enter = callIndex(['send-keys', '-t', TARGET, 'Enter']);
 		const chord = callIndex(CHORD);
@@ -76,15 +82,32 @@ describe('steer', () => {
 	});
 
 	it('is a normal send when the pane is not busy', async () => {
-		expect(await settle(steerIntoPane(TARGET, 'hello', false, { mode: 'now' }))).toBe(true);
+		expect(await settle(steerIntoPane(TARGET, 'hello', false, { mode: 'now' }))).toBe('taken');
 		expect(pasted()).toBe(true);
 		expect(chorded()).toBe(false);
 	});
 
 	it('sends no chord when Claude Code left the text in its box', async () => {
+		// Empty when pasted into, then the text stays put through the retry Enter.
+		boxReads = [null];
 		boxText = 'look at this';
-		expect(await settle(steerIntoPane(TARGET, 'look at this', true, { mode: 'now' }))).toBe(false);
+		expect(await settle(steerIntoPane(TARGET, 'look at this', true, { mode: 'now' }))).toBe('in-box');
+		expect(pasted()).toBe(true);
 		expect(chorded()).toBe(false);
+	});
+
+	it('submits the copy an earlier try left in the box rather than pasting a second one', async () => {
+		// The box wraps and indents what it holds.
+		boxReads = ['look at\n  this', null];
+		expect(await settle(steerIntoPane(TARGET, 'look at this', true))).toBe('taken');
+		expect(pasted()).toBe(false);
+		expect(callIndex(['send-keys', '-t', TARGET, 'Enter'])).toBeGreaterThan(-1);
+	});
+
+	it('leaves the pane alone when something else is typed in its box', async () => {
+		boxText = 'a draft of my own';
+		expect(await settle(steerIntoPane(TARGET, 'look at this', true, { mode: 'now' }))).toBe('occupied');
+		expect(tmuxCalls).toEqual([]);
 	});
 });
 
@@ -122,9 +145,19 @@ describe('promote to steer', () => {
 	it('does not queue text again that Claude Code left in its box', async () => {
 		enqueue(TARGET, 'first');
 		enqueue(TARGET, 'second');
+		boxReads = [null];
 		boxText = 'second';
 		expect(await settle(promoteToSteer(TARGET, idOf('second'), true))).toBe('in-box');
 		expect(texts()).toEqual(['first']);
+	});
+
+	it('puts the item back where it was when something else is typed in the box', async () => {
+		enqueue(TARGET, 'first');
+		enqueue(TARGET, 'second');
+		boxText = 'a draft of my own';
+		expect(await settle(promoteToSteer(TARGET, idOf('first'), true))).toBe('occupied');
+		expect(texts()).toEqual(['first', 'second']);
+		expect(pasted()).toBe(false);
 	});
 
 	it('puts the item back where it was when the paste fails', async () => {
