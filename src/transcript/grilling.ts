@@ -35,8 +35,12 @@ export interface GrillRound {
 
 export type GrillAnswer = { mode: "accept" } | { mode: "own"; text: string } | { mode: "skip" };
 
-/** `❓ **Q1** - **Title**: body`, or `❓ **Q1 - Title**: body`. */
-const QUESTION = /^\s*❓️?\s*\*\*Q(\d+)(?:\s*[-–—:.]\s*([^*]+?))?\*\*\s*[-–—:.]?\s*(?:\*\*([^*]+?)\*\*\s*:?)?\s*(.*)$/;
+/**
+ * `❓ **Q1** - **Title**: body`, or `❓ **Q1 - Title**: body`. The dash may be
+ * any of the separators a model reaches for, a middle dot (`**Q1 · Title**`)
+ * among them.
+ */
+const QUESTION = /^\s*❓️?\s*\*\*Q(\d+)(?:\s*[-–—:.·•|]\s*([^*]+?))?\*\*\s*[-–—:.·•|]?\s*(?:\*\*([^*]+?)\*\*\s*:?)?\s*(.*)$/;
 const RECOMMENDED = /^\s*➡️?\s*(.*)$/;
 
 /** Splits text at blank lines into its first paragraph and the rest. */
@@ -45,8 +49,17 @@ function firstParagraph(lines: string[]): [string[], string[]] {
   return blank === -1 ? [lines, []] : [lines.slice(0, blank), lines.slice(blank + 1)];
 }
 
+/** A markdown rule (`---`, `***`, `___`), which a round may set between questions. */
+const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/;
+
+/** The lines as one block, without the blank lines and rules at either end. */
 function join(lines: string[]): string {
-  return lines.join("\n").trim();
+  let start = 0;
+  let end = lines.length;
+  const empty = (l: string) => l.trim() === "" || RULE.test(l);
+  while (start < end && empty(lines[start])) start++;
+  while (end > start && empty(lines[end - 1])) end--;
+  return lines.slice(start, end).join("\n").trim();
 }
 
 /** The round in `text`, or null when it asks no numbered questions. */
