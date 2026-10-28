@@ -315,7 +315,9 @@ with a diamond and its agent type, linking to `/session/<target>/agent/<id>`.
 A worker's subagents ride inside the worker's thread.
 `NeedsYou.svelte` lists everything waiting on a person, oldest wait first:
 dialogs in panes, workers asking for help, then wayfinder tickets with a Start
-button that opens a session on the ticket. `src/transcript/grilling.ts` reads
+button that opens a session on the ticket. Its header folds the list away
+(per device, in browser storage) and keeps the count, adding "+N new" for
+whatever arrived since it was folded. `src/transcript/grilling.ts` reads
 a grilling round (`❓ **Qn**` … `➡️`) out of Claude's last reply, so the
 transcript can draw it as a form and write the reply.
 
