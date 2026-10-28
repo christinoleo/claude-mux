@@ -258,7 +258,10 @@ to every other check, so adding a detector there costs no extra `tmux` calls.
 `draft_input`, `draft_kind`, `pane_queue`, `pane_choice`, `pane_login`, `pane_rewind` and `pane_update` (Claude
 Code's notice about its own update, which `readUpdateNotice()` finds in the
 footer below the box, or right-aligned just above the box in the fullscreen
-layout; an "Update available! Run: …" notice carries its `command` when it is
+layout; an "Update installed · /restart to apply" notice has the status line's
+button type `/restart` while idle, Claude Code's own restart, which resumes
+the same session in the same process, where the older "Restart to apply"
+gets claude-mux's kill-and-resume; an "Update available! Run: …" notice carries its `command` when it is
 one of the known upgrade commands, and the status line's button then has
 `upgradeThenRestart()` type it into Claude Code as a `!` shell line, wait for
 the shell Claude Code runs it in (a child of its process whose argv carries
