@@ -85,6 +85,47 @@
 	);
 	const atSubmit = $derived(ask != null && current === ask.questions.length);
 
+	/** The pane's tab strip, when it names one tab per question of the entry. */
+	const tabs = $derived(
+		ask && choice?.tabs && choice.tabs.length === ask.questions.length ? choice.tabs : null
+	);
+
+	/** Whether a question holds an answer: the strip says so, else every question before the open one does. */
+	function isAnswered(qi: number): boolean {
+		if (closed) return true;
+		if (tabs) return tabs[qi].answered;
+		return current >= 0 && qi < current;
+	}
+	const answeredCount = $derived(ask ? ask.questions.filter((_, qi) => isAnswered(qi)).length : 0);
+
+	/**
+	 * The card can walk the pane between questions: ←/→ move between a
+	 * dialog's tabs, answered or not, which is how an answer is changed.
+	 */
+	const canTravel = $derived(hasSubmitTab && choice != null && !closed && current >= 0);
+
+	/** Answers given from this card, by question, so a question left behind still says what it holds. */
+	let answers = $state<Record<number, string>>({});
+
+	/** What a question holds, as far as the card knows: its own record, or the row the pane marks. */
+	function answerOf(qi: number): string | undefined {
+		return answers[qi] ?? (qi === current ? rows.find((r) => r.chosen)?.label : undefined);
+	}
+
+	function remember(qi: number, answer: string) {
+		if (ask && qi >= 0 && qi < ask.questions.length) answers = { ...answers, [qi]: answer };
+	}
+
+	/** Open another question's tab (or Submit's, at the questions' count) in the pane. */
+	async function goToTab(to: number) {
+		if (!canTravel || to === current) return;
+		const delta = to - current;
+		// The arrows edit an open text field rather than leave it, so it is closed first.
+		const lead = noting ? ['Escape'] : typing ? ['Up'] : [];
+		const steps = Array<string>(Math.abs(delta)).fill(delta > 0 ? 'Right' : 'Left');
+		await onKeys([...lead, ...steps].join(' '));
+	}
+
 	// ── free text ────────────────────────────────────────────────────────
 
 	let draft = $state('');
@@ -124,6 +165,7 @@
 				await onKeys(keysForOptionMove(0, n, n + 1) ?? '');
 				await onText(text);
 				await onKeys('Enter');
+				remember(sentCount, text);
 				advanceBlind();
 			} else if (choice) {
 				const opts = choice.options;
@@ -148,7 +190,10 @@
 				// a multi-select's row ticks with its text, and the answer goes in
 				// from the Submit tab, so only a single-select takes Enter.
 				if (wasNoting) await onKeys('Escape');
-				else if (!multi) await onKeys('Enter');
+				else if (!multi) {
+					await onKeys('Enter');
+					remember(current, text);
+				}
 			}
 			draft = '';
 		} finally {
@@ -192,7 +237,9 @@
 	async function pick(row: Row) {
 		// An open text field is the selected row, so the walk starts from it.
 		const keys = walkTo(row, keysForOptionPick);
-		if (keys) await onKeys(keys);
+		if (!keys) return;
+		await onKeys(keys);
+		if (!choice?.multi && !reviewing) remember(current, row.label);
 	}
 
 	/**
@@ -234,13 +281,16 @@
 		const keys = keysForAnswer([oi], q);
 		if (!keys) return;
 		void onKeys(keys);
+		remember(qi, q.options[oi].label);
 		advanceBlind();
 	}
 
 	function confirmBlind(qi: number) {
-		const keys = keysForAnswer([...picks], ask!.questions[qi]);
+		const q = ask!.questions[qi];
+		const keys = keysForAnswer([...picks], q);
 		if (!keys) return;
 		void onKeys(keys);
+		remember(qi, [...picks].sort((a, b) => a - b).map((oi) => q.options[oi].label).join(', '));
 		advanceBlind();
 	}
 
@@ -259,6 +309,8 @@
 
 	/** A multi-select's ticks are done: on to the next tab (Submit, after the last question). */
 	function done() {
+		const ticked = rows.filter((r) => r.checked).map((r) => r.label);
+		if (ticked.length > 0) remember(current, ticked.join(', '));
 		void onKeys(typing ? 'Up Right' : 'Right');
 	}
 
@@ -327,7 +379,13 @@
 					></iconify-icon>
 				{/if}
 				<span class="label">
-					<span class="name">{row.label}</span>
+					<span class="name"
+						>{row.label}{#if row.chosen}<iconify-icon
+								class="chosen"
+								icon="mdi:check"
+								title="The answer this question holds"
+							></iconify-icon>{/if}</span
+					>
 					{#if row.hint}<span class="hint">{row.hint}</span>{/if}
 					{#if preview}<pre class="preview">{preview}</pre>{/if}
 				</span>
@@ -440,13 +498,30 @@
 
 	{#if ask}
 		{#each ask.questions as q, qi (q.question)}
-			{@const sent = closed || (current >= 0 && qi < current)}
 			{@const active = !closed && qi === current}
+			{@const sent = !active && isAnswered(qi)}
+			{@const answer = answerOf(qi)}
 			<div class="ask-q" class:inactive={!active && !sent}>
-				<span class="chip" class:done={sent}>{q.header}</span>
+				<div class="q-head">
+					<span class="chip" class:done={isAnswered(qi)}>{q.header}</span>
+					{#if canTravel && !active}
+						<button
+							type="button"
+							class="travel"
+							title={sent ? 'Go back to this question and pick again' : 'Open this question'}
+							onclick={() => void goToTab(qi)}
+						>
+							<iconify-icon icon={sent ? 'mdi:pencil-outline' : 'mdi:arrow-right'}></iconify-icon>
+							{sent ? 'Change' : 'Go to'}
+						</button>
+					{/if}
+				</div>
 				<p class="question">{q.question}</p>
 				{#if sent}
-					<div class="sent">answer sent ✓</div>
+					<div class="sent">
+						<iconify-icon icon="mdi:check"></iconify-icon>
+						{#if answer}<span class="answer">{answer}</span>{:else}answered{/if}
+					</div>
 				{:else if active && choice && !reviewing}
 					{@render liveRows(qi)}
 					{@render paneFreeText(`Your own answer to: ${q.question}`)}
@@ -511,24 +586,31 @@
 		{#if hasSubmitTab && !closed}
 			<footer class="foot">
 				<span class="tally">
-					{#if atSubmit}
+					{#if atSubmit && answeredCount === ask.questions.length}
 						All answered — ready to submit
 					{:else}
-						{Math.max(0, current)} of {ask.questions.length} answered
+						{answeredCount} of {ask.questions.length} answered
 					{/if}
 				</span>
 				<Button variant="ghost" size="sm" disabled={!atSubmit} onclick={() => void finish(false)}>
 					Cancel
 				</Button>
-				<Button
-					variant="warning"
-					size="sm"
-					disabled={!atSubmit}
-					title={atSubmit ? 'Submit your answers' : 'Answer every question first'}
-					onclick={() => void finish(true)}
-				>
-					<iconify-icon icon="mdi:check-all"></iconify-icon>Submit
-				</Button>
+				{#if !atSubmit && canTravel && answeredCount === ask.questions.length}
+					<!-- Every question holds an answer, but one was gone back to: on to the review. -->
+					<Button variant="warning" size="sm" title="Review your answers" onclick={() => void goToTab(ask.questions.length)}>
+						<iconify-icon icon="mdi:arrow-right"></iconify-icon>Review
+					</Button>
+				{:else}
+					<Button
+						variant="warning"
+						size="sm"
+						disabled={!atSubmit}
+						title={atSubmit ? 'Submit your answers' : 'Answer every question first'}
+						onclick={() => void finish(true)}
+					>
+						<iconify-icon icon="mdi:check-all"></iconify-icon>Submit
+					</Button>
+				{/if}
 			</footer>
 		{/if}
 		{#if choice && !closed}{@render keysBar()}{/if}
@@ -612,8 +694,48 @@
 		font-weight: 400;
 	}
 	.sent {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
 		font-size: 12.5px;
 		color: #86b898;
+	}
+	.sent .answer {
+		color: #d6d3d1;
+		overflow-wrap: anywhere;
+	}
+	.q-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 4px;
+	}
+	.q-head .chip {
+		margin-bottom: 0;
+	}
+	/* Going back to a question is how its answer is changed. */
+	.travel {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		margin-left: auto;
+		padding: 2px 8px;
+		border: 1px solid #3a2f17;
+		border-radius: 4px;
+		background: none;
+		color: #d6b46a;
+		font-size: 11.5px;
+		cursor: pointer;
+	}
+	.travel:hover,
+	.travel:focus-visible {
+		border-color: #fbbf24;
+		color: #fde68a;
+	}
+	.name .chosen {
+		margin-left: 6px;
+		color: #86b898;
+		vertical-align: -2px;
 	}
 	.rows {
 		display: flex;

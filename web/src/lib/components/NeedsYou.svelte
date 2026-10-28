@@ -20,6 +20,7 @@
 	import { refParam } from '$shared/github-item.js';
 	import { githubPaneHref } from '$lib/side-panel/url';
 	import { PANE_PARAMS } from '$lib/side-panel/panes';
+	import * as Collapsible from '$lib/components/ui/collapsible';
 
 	interface Props {
 		machines: Machine[];
@@ -76,6 +77,39 @@
 		return out.sort((a, b) => a.ticket.since - b.ticket.since);
 	});
 
+	// ── folding the card away ────────────────────────────────────────────
+	// A person can put the list aside to work on something else; the header
+	// stays, with its count. What arrives meanwhile is counted as new, so a
+	// folded card still says when there is more than when it was folded.
+
+	/** Kept per device: present while folded, holding the keys listed when it was. */
+	const FOLD_KEY = 'claude-mux:needs-you-collapsed';
+
+	function readFold(): Set<string> | null {
+		try {
+			const raw = localStorage.getItem(FOLD_KEY);
+			return raw === null ? null : new Set(JSON.parse(raw) as string[]);
+		} catch {
+			return null;
+		}
+	}
+
+	/** The keys listed when the card was folded; null while it is open. */
+	let foldedWith = $state<Set<string> | null>(readFold());
+	const allKeys = $derived([...waiting.map((w) => w.key), ...ready.map((r) => r.key)]);
+	/** How many items arrived since the card was folded. */
+	const arrived = $derived(foldedWith ? allKeys.filter((k) => !foldedWith!.has(k)).length : 0);
+
+	function setOpen(open: boolean) {
+		foldedWith = open ? null : new Set(allKeys);
+		try {
+			if (open) localStorage.removeItem(FOLD_KEY);
+			else localStorage.setItem(FOLD_KEY, JSON.stringify(allKeys));
+		} catch {
+			// Storage refused (a private window): the fold lasts until the page reloads.
+		}
+	}
+
 	/** Tickets past this many fold behind a count; the waiting list never folds. */
 	const READY_SHOWN = 3;
 	let showAllReady = $state(false);
@@ -114,12 +148,23 @@
 </script>
 
 {#if waiting.length > 0 || ready.length > 0}
-	<section class="needs" class:urgent={waiting.length > 0} aria-label="Needs you">
-		<header class="h">
+	<Collapsible.Root
+		open={foldedWith === null}
+		onOpenChange={setOpen}
+		class="needs {waiting.length > 0 ? 'urgent' : ''} {foldedWith ? 'folded' : ''}"
+		role="region"
+		aria-label="Needs you"
+	>
+		<Collapsible.Trigger class="h" title={foldedWith ? 'Show the list' : 'Fold the list away for now'}>
+			<iconify-icon class="chev" icon="mdi:chevron-down" aria-hidden="true"></iconify-icon>
 			<span class="t">Needs you</span>
 			<span class="line"></span>
-			{#if waiting.length > 0}<span class="n">{waiting.length}</span>{/if}
-		</header>
+			{#if arrived > 0}<span class="new">+{arrived} new</span>{/if}
+			{#if waiting.length > 0}<span class="n">{waiting.length}</span>
+			{:else if foldedWith}<span class="n quiet">{ready.length}</span>{/if}
+		</Collapsible.Trigger>
+
+		<Collapsible.Content>
 
 		{#each waiting as item (item.key)}
 			{#if item.kind === 'session'}
@@ -190,13 +235,14 @@
 				</div>
 			{/each}
 		{/if}
-	</section>
+		</Collapsible.Content>
+	</Collapsible.Root>
 {/if}
 
 <style>
 	/* The sidebar's own surface and ink, so the card sits among the project
 	   cards as one of them. Amber marks only what holds an agent up. */
-	.needs {
+	:global(.needs) {
 		--surface: #151516;
 		--surface-2: #1b1b1d;
 		--surface-3: #212124;
@@ -215,22 +261,59 @@
 		font-size: 13px;
 		color: var(--text);
 	}
-	.needs.urgent {
+	:global(.needs.urgent) {
 		border-color: #5a4310;
 		box-shadow: inset 0 0 0 1px var(--amber-soft);
 	}
 
-	.h {
+	/* The header folds the card: the whole line is the button. */
+	:global(.needs .h) {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		padding: 4px 6px 4px 7px;
+		width: 100%;
+		padding: 4px 6px 4px 3px;
+		border: 0;
+		border-radius: 9px;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	:global(.needs .h:focus-visible) {
+		outline: 2px solid var(--amber);
+		outline-offset: 1px;
+	}
+	.chev {
+		font-size: 15px;
+		color: var(--dim);
+		transition: transform 0.15s ease;
+	}
+	:global(.needs.folded) .chev {
+		transform: rotate(-90deg);
+	}
+	.new {
+		padding: 0 5px;
+		border-radius: 4px;
+		background: var(--amber-soft);
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		color: var(--amber);
+	}
+	.n.quiet {
+		color: var(--dim);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.chev {
+			transition: none;
+		}
 	}
 	.t {
 		font-weight: 600;
 		letter-spacing: 0.01em;
 	}
-	.urgent .t {
+	:global(.needs.urgent) .t {
 		color: var(--amber);
 	}
 	.line {

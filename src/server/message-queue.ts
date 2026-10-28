@@ -136,6 +136,36 @@ export async function confirmSubmitted(target: string): Promise<boolean> {
 	return false;
 }
 
+/** How a message handed to the pane fared (`submitToPane`). */
+export type SubmitResult = 'taken' | 'in-box' | 'occupied';
+
+/** Two texts alike but for how the box wrapped and indented them. */
+function sameTyped(a: string, b: string): boolean {
+	return a.replace(/\s+/g, '') === b.replace(/\s+/g, '');
+}
+
+/**
+ * Paste `text` into the pane and submit it, never on top of text already
+ * typed there. The paste would join the two into one message, and the usual
+ * way text comes to be there is an earlier send of this same message whose
+ * Enter Claude Code lost: pasting again on a retry sent it twice. So a box
+ * already holding the text is submitted as it stands, and one holding
+ * anything else is left alone (`occupied`) for the person to send or clear.
+ * `in-box` means the text was handed over but still sits typed after the
+ * retry Enter (`confirmSubmitted`).
+ */
+export async function submitToPane(target: string, text: string): Promise<SubmitResult> {
+	const raw = await capturePaneContentAsync(target, true);
+	const box = raw === null ? null : readPromptBox(raw);
+	if (box?.kind === 'typed' && box.text.trim()) {
+		if (!sameTyped(box.text, text)) return 'occupied';
+		pressEnter(target);
+	} else {
+		sendTextToPane(target, text);
+	}
+	return (await confirmSubmitted(target)) ? 'taken' : 'in-box';
+}
+
 /**
  * Claude Code's "send now" chord. While a turn runs, it hands every message
  * waiting in Claude Code's own queue to the model at once, moving a running
@@ -164,21 +194,21 @@ export function markDictated(target: string, text: string): void {
  * Deliver text into the running turn. A busy pane takes the pasted line into
  * Claude Code's own queue, where Claude reads it when it next stops for input;
  * in `now` mode the chord then pushes that queue into the turn at once. Any
- * other pane just takes it as a normal send. Resolves false when Claude Code
- * left the text in its box, as `confirmSubmitted` does.
+ * other pane just takes it as a normal send. Answers how the handover went,
+ * as `submitToPane` does.
  */
 export async function steerIntoPane(
 	target: string,
 	text: string,
 	busy: boolean,
 	opts: { mode?: SteerMode; dictated?: boolean } = {}
-): Promise<boolean> {
-	sendTextToPane(target, text);
-	if (!(await confirmSubmitted(target))) return false;
+): Promise<SubmitResult> {
+	const result = await submitToPane(target, text);
+	if (result !== 'taken') return result;
 	if (busy && opts.mode === 'now') sendNowInPane(target);
 	recordDelivery(target, text, 'steer');
 	if (opts.dictated) markDictated(target, text);
-	return true;
+	return 'taken';
 }
 
 // ============================================================================
@@ -402,10 +432,11 @@ export function editQueueItem(target: string, id: string, text: string): boolean
 
 /**
  * How promoting a queued item went: `sent` into the turn, `missing` because it
- * had already left the queue, or `in-box` when Claude Code left the pasted
- * text sitting in its input box.
+ * had already left the queue, `in-box` when Claude Code left the pasted
+ * text sitting in its input box, or `occupied` when other text was typed there
+ * and the item went back to its place in the queue.
  */
-export type PromoteResult = 'sent' | 'missing' | 'in-box';
+export type PromoteResult = 'sent' | 'missing' | 'in-box' | 'occupied';
 
 /**
  * Take one item out of the queue and steer it into the pane. Taken out first,
@@ -425,14 +456,19 @@ export async function promoteToSteer(
 	const [message] = queue.splice(index, 1);
 	if (queue.length === 0) queues.delete(target);
 	persistQueues();
-	try {
-		const opts = { mode, dictated: message.dictated };
-		return (await steerIntoPane(target, promptOf(message), busy, opts)) ? 'sent' : 'in-box';
-	} catch (err) {
+	const putBack = () => {
 		const restored = queueFor(target);
 		restored.splice(Math.min(index, restored.length), 0, message);
 		persistQueues();
 		ensureDrainLoop();
+	};
+	try {
+		const opts = { mode, dictated: message.dictated };
+		const result = await steerIntoPane(target, promptOf(message), busy, opts);
+		if (result === 'occupied') putBack();
+		return result === 'taken' ? 'sent' : result;
+	} catch (err) {
+		putBack();
 		throw err;
 	}
 }

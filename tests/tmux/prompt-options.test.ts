@@ -174,10 +174,11 @@ describe("readPromptOptions", () => {
       "Opus (1M context)",
       "Fable",
       "Sonnet",
-      "Haiku ✔",
+      "Haiku",
     ]);
     expect(choice!.options[3].hint).toBe("Sonnet 5 · Efficient for routine tasks");
     expect(choice!.options.map((o) => o.selected)).toEqual([false, false, true, false, false]);
+    expect(choice!.options.map((o) => o.chosen === true)).toEqual([false, false, false, false, true]);
     expect(choice!.multi).toBeUndefined();
     expect(choice!.typing).toBeUndefined();
   });
@@ -520,5 +521,63 @@ describe("a preview taller than the old scan window", () => {
     const choice = readPromptOptions(TALL_PREVIEW)!;
     expect(choice.options.every((o) => o.hint === undefined)).toBe(true);
     expect(choice.notes).toEqual(["Notes: press n to add notes"]);
+  });
+});
+
+/**
+ * A three-question dialog with the first answered and gone back to with ←:
+ * the strip marks it answered, and the option it holds carries "✔".
+ * Captured from a pane (Claude Code 2.1.309).
+ */
+const BACK_TO_ANSWERED = [
+  "─".repeat(120),
+  "←  ☒ Fruit  ☐ Color  ☐ Size  ✔ Submit  →",
+  "Fruit?",
+  "❯ 1. Apple ✔",
+  "     Apple",
+  "  2. Pear",
+  "     Pear",
+  "  3. Type something.",
+  "─".repeat(120),
+  "  4. Chat about this",
+  "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+  "",
+].join("\n");
+
+/** The Submit tab of the same dialog after a skip: the review lists the one answer. */
+const REVIEW_SKIPPED = [
+  "─".repeat(120),
+  "←  ☒ Fruit  ☐ Color  ☐ Size  ✔ Submit  →",
+  "Review your answers",
+  "⚠ You have not answered all questions",
+  " ● Fruit?",
+  "   → Pear",
+  "Ready to submit your answers?",
+  "❯ 1. Submit answers",
+  "  2. Cancel",
+  "",
+].join("\n");
+
+describe("readPromptOptions on a multi-question dialog", () => {
+  it("reads the tabs and the answer a question gone back to already holds", () => {
+    const choice = readPromptOptions(BACK_TO_ANSWERED)!;
+    expect(choice.question).toBe("Fruit?");
+    expect(choice.tabs).toEqual([
+      { label: "Fruit", answered: true },
+      { label: "Color", answered: false },
+      { label: "Size", answered: false },
+    ]);
+    expect(choice.options[0]).toMatchObject({ label: "Apple", chosen: true, selected: true });
+    expect(choice.options[1].chosen).toBeUndefined();
+  });
+
+  it("reads the tabs over the review, past the answers it lists", () => {
+    const choice = readPromptOptions(REVIEW_SKIPPED)!;
+    expect(choice.options.map((o) => o.label)).toEqual(["Submit answers", "Cancel"]);
+    expect(choice.tabs?.map((t) => t.answered)).toEqual([true, false, false]);
+  });
+
+  it("draws no tabs for a single question's strip", () => {
+    expect(readPromptOptions(REVIEW)!.tabs).toBeUndefined();
   });
 });

@@ -38,6 +38,8 @@ const PaneChoiceSchema = z.object({
 			selected: z.boolean(),
 			/** The question's free-text row: opened by highlighting it, declined by an empty Enter. */
 			text: z.literal(true).optional(),
+			/** The answer the question already holds, marked when its tab is gone back to. */
+			chosen: z.literal(true).optional(),
 		})
 	),
 	/** The rows are checkboxes: picking one ticks it, and leaves the dialog open. */
@@ -49,7 +51,9 @@ const PaneChoiceSchema = z.object({
 	/** The dialog's own key hint, as drawn under it. */
 	keys: z.string().optional(),
 	/** Lines the dialog prints under its rows for itself — a setting, a warning. */
-	notes: z.array(z.string()).optional()
+	notes: z.array(z.string()).optional(),
+	/** A multi-question dialog's tabs, Submit left out: ←/→ move between them. */
+	tabs: z.array(z.object({ label: z.string(), answered: z.boolean() })).optional()
 });
 
 /** The numbered options a pane dialog is offering, as they reach the browser. */

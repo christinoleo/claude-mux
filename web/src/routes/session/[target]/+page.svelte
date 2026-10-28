@@ -19,7 +19,6 @@
 	import ContextGauge from '$lib/components/ContextGauge.svelte';
 	import RailStats from '$lib/components/RailStats.svelte';
 	import VoiceMeter, { type VoiceAction } from '$lib/components/VoiceMeter.svelte';
-	import PaneDraftBar from '$lib/components/PaneDraftBar.svelte';
 	import QueueStrip from '$lib/components/QueueStrip.svelte';
 	import type { QueuedMessageInfo } from '$shared/types/ws-messages.js';
 	import VoiceButton from '$lib/components/VoiceButton.svelte';
@@ -2553,17 +2552,14 @@
 			paneQueue={currentSession?.pane_queue ?? []}
 			busy={isBusy}
 			editingId={editing?.ref === ref ? editing.id : null}
+			paneDraft={viewMode === 'transcript' && currentSession?.draft_kind === 'typed'
+				? (currentSession?.draft_input ?? null)
+				: null}
+			composerHasText={textInput.trim().length > 0 || readyPaths.length > 0}
 			onEdit={startEdit}
+			onSendDraft={() => void sendKeys('Enter')}
+			onClearDraft={() => void sendKeys(CLEAR_PROMPT_KEYS)}
 		/>
-		{/if}
-
-		{#if viewMode === 'transcript'}
-			<PaneDraftBar
-				text={currentSession?.draft_kind === 'typed' ? (currentSession?.draft_input ?? null) : null}
-				composerHasText={textInput.trim().length > 0 || readyPaths.length > 0}
-				onClear={() => void sendKeys(CLEAR_PROMPT_KEYS)}
-				onSend={() => void sendKeys('Enter')}
-			/>
 		{/if}
 
 			<div

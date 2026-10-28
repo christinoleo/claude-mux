@@ -203,13 +203,30 @@ the panel starts, and because that leaves the left column too narrow for a
 long label, the indented line under a preview row is joined to the label
 rather than read as a description.
 
+A dialog of several questions draws a tab strip over them (`←  ☒ Fruit  ☐
+Color  ✔ Submit  →`), read as `tabs` with each question's `answered`, and
+←/→ move between the tabs, answered or not. A tab gone back to marks the
+option it holds with a trailing `✔`, read as `chosen` (the model picker
+marks the current model the same way). `DialogCard.svelte` uses both: each
+question shows the answer it holds and a "Change" that walks the pane back
+to its tab, and once every question is answered from somewhere other than
+the Submit tab its button reads "Review" and walks there.
+
 Delivery goes the other way through the same box. `sendTextToPane()` in
 `src/server/message-queue.ts` pastes the text and sends Enter; Claude Code
 sometimes folds an Enter that lands inside the paste burst into the text, so
-the send and steer routes then call `confirmSubmitted()`, which reads the box
-back: a taken message has left it (the turn started, or Claude Code queued it
-and shows its own hint), text still sitting there typed gets one more Enter,
-and if it stays the route answers 502 and the composer keeps the draft.
+the send and steer routes go through `submitToPane()`, which ends in
+`confirmSubmitted()` reading the box back: a taken message has left it (the
+turn started, or Claude Code queued it and shows its own hint), text still
+sitting there typed gets one more Enter, and if it stays the route answers 502
+and the composer keeps the draft. Since the draft is then in both places,
+`submitToPane()` reads the box before it pastes: a box already holding the
+same text (whitespace aside, since the box wraps) is submitted as it stands,
+so trying again never pastes a second copy behind the first, and a box holding
+anything else is left alone and the route answers 409, because a paste would
+join the two into one message. What is typed there shows as the first row of
+`QueueStrip.svelte` (in the transcript view, where no terminal shows it), with
+Send and Clear.
 
 A draft has one way out of the composer, `deliver()` in the session page, and
 four places it can go: `send` (start a turn), `queue` (wait for the running
@@ -315,7 +332,9 @@ with a diamond and its agent type, linking to `/session/<target>/agent/<id>`.
 A worker's subagents ride inside the worker's thread.
 `NeedsYou.svelte` lists everything waiting on a person, oldest wait first:
 dialogs in panes, workers asking for help, then wayfinder tickets with a Start
-button that opens a session on the ticket. `src/transcript/grilling.ts` reads
+button that opens a session on the ticket. Its header folds the list away
+(per device, in browser storage) and keeps the count, adding "+N new" for
+whatever arrived since it was folded. `src/transcript/grilling.ts` reads
 a grilling round (`❓ **Qn**` … `➡️`) out of Claude's last reply, so the
 transcript can draw it as a form and write the reply.
 
@@ -822,6 +841,10 @@ name, as `guessReport()` is), and the open folders below it as a quiet
 count. An open folder's row gains "Go to": the session when it is the only
 one there, else the project on the rail. With the filter empty the list
 starts with the folders open on the tab's machine (`openOn()`).
+Typing a name no folder here has offers "Create folder" as the list's last
+row, with a "git init" box: `POST /api/browse` makes it one level down
+(`folderNameProblem()` in `src/folder-name.ts` refuses slashes, `.`/`..`
+and names at either end padded) and the picker browses into it.
 
 The drawer's foot (`SidebarMeters.svelte`, in the layout) sits flush under
 one hairline, no card. Its top line holds the screenshots of the session on
