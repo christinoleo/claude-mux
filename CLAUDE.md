@@ -216,10 +216,13 @@ Delivery goes the other way through the same box. `sendTextToPane()` in
 `src/server/message-queue.ts` pastes the text and sends Enter; Claude Code
 sometimes folds an Enter that lands inside the paste burst into the text, so
 the send and steer routes go through `submitToPane()`, which ends in
-`confirmSubmitted()` reading the box back: a taken message has left it (the
-turn started, or Claude Code queued it and shows its own hint), text still
-sitting there typed gets one more Enter, and if it stays the route answers 502
-and the composer keeps the draft. Since the draft is then in both places,
+`confirmSubmitted()` reading the box back every quarter second for up to
+five: a taken message has left it (the turn started, or Claude Code queued
+it), the box holds something else, or the transcript logged it as a prompt
+or queue entry, which a busy pane in a long session does before it redraws
+its box. Text still sitting there after a second and a half gets one more
+Enter, and if it stays the route answers 502 and the composer keeps the
+draft. Since the draft is then in both places,
 `submitToPane()` reads the box before it pastes: a box already holding the
 same text (whitespace aside, since the box wraps) is submitted as it stands,
 so trying again never pastes a second copy behind the first, and a box holding
