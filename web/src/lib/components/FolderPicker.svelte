@@ -19,6 +19,7 @@
 	import { tick } from 'svelte';
 	import { fuzzyMatch, highlightRuns } from '$shared/utils/fuzzy.js';
 	import { carryPath, folderMarker, openOn, type FolderMarks } from '$shared/folder-marks.js';
+	import { folderNameProblem } from '$shared/folder-name.js';
 	import type { MachineMark } from '$shared/fleet-rail.js';
 	import { apiBase, blockedReason, machineKey, machineName, offlineLabel } from '$lib/stores/fleet.svelte';
 	import { clock } from '$lib/stores/clock.svelte';
@@ -69,6 +70,16 @@
 	let active = $state(0);
 	let inputEl = $state<HTMLInputElement | null>(null);
 	let listEl = $state<HTMLDivElement | null>(null);
+	/** Whether a folder made here gets `git init`. */
+	let gitInit = $state(false);
+	let creating = $state(false);
+
+	/** What is typed, when it names a folder this one could have and does not: the last row offers to make it. */
+	const newName = $derived.by(() => {
+		const name = query.trim();
+		if (folderNameProblem(name) || folders.some((f) => f.name === name)) return null;
+		return name;
+	});
 
 	/** Folders of the current dir, fuzzy-filtered and ranked, with matched chars marked. */
 	const matches = $derived.by(() => {
@@ -168,8 +179,29 @@
 		ongoto(folder);
 	}
 
+	/** Make the folder typed, then browse into it. */
+	async function createFolder() {
+		if (!newName || creating) return;
+		creating = true;
+		error = '';
+		const data = await fetch(`${base}/api/browse`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ parent: path, name: newName, git: gitInit })
+		})
+			.then((res) => res.json())
+			.catch(() => ({ error: 'Could not reach the machine' }));
+		creating = false;
+		if (data.error) {
+			error = data.error;
+			return;
+		}
+		await browseTo(data.path);
+		if (data.warning) error = data.warning;
+	}
+
 	function moveActive(delta: number) {
-		const n = matches.length;
+		const n = matches.length + (newName ? 1 : 0);
 		if (n === 0) return;
 		active = (active + delta + n) % n;
 		(listEl?.children[active] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
@@ -197,6 +229,7 @@
 			}
 			const match = matches[active];
 			if (match) void browseTo(match.folder.path);
+			else if (newName) void createFolder();
 			else pickCurrent();
 		} else if (e.key === 'Backspace' && query === '' && parent) {
 			e.preventDefault();
@@ -240,7 +273,7 @@
 
 <Dialog.Root bind:open>
 	<Dialog.Content
-		class="w-[calc(100%-1.5rem)] max-w-lg gap-0 overflow-hidden border-[#333] bg-[#161616] p-0 sm:max-w-lg"
+		class="w-[calc(100%-1.5rem)] max-w-lg grid-cols-[minmax(0,1fr)] gap-0 overflow-hidden border-[#333] bg-[#161616] p-0 sm:max-w-lg"
 		style="--fb-accent: #e8b35c;"
 		showCloseButton={false}
 		onOpenAutoFocus={(e) => {
@@ -340,15 +373,29 @@
 						</button>
 						{#if m.here}{@render goto(m.here)}{/if}
 					</div>
-				{:else}
+				{/each}
+				{#if newName}
+					<div
+						class="fb-item fb-create"
+						class:active={active === matches.length}
+						role="presentation"
+						onmouseenter={() => (active = matches.length)}
+					>
+						<button class="fb-main" disabled={creating} onclick={() => void createFolder()}>
+							<iconify-icon icon="mdi:folder-plus-outline" aria-hidden="true"></iconify-icon>
+							<span class="fb-name">{creating ? 'Creating' : 'Create folder'} <q>{newName}</q></span>
+							{#if gitInit}<span class="fb-tag">git</span>{/if}
+						</button>
+					</div>
+				{:else if matches.length === 0}
 					<p class="fb-empty">
 						{#if query}
 							No folder here matches <span class="fb-empty-q">{query}</span>. Backspace to clear.
 						{:else}
-							No folders here. Open this one, or go up a level.
+							No folders here. Open this one, go up a level, or type a name to make one.
 						{/if}
 					</p>
-				{/each}
+				{/if}
 			</div>
 		</ScrollArea>
 
@@ -365,6 +412,12 @@
 				/>
 				<label for="fb-show-hidden">hidden</label>
 			</div>
+			{#if newName}
+				<div class="fb-hidden">
+					<Checkbox id="fb-git-init" checked={gitInit} onCheckedChange={(v) => (gitInit = !!v)} />
+					<label for="fb-git-init">git init</label>
+				</div>
+			{/if}
 		</div>
 
 		<div class="fb-footer">
@@ -641,6 +694,19 @@
 		color: #5a6978;
 	}
 
+	.fb-create {
+		color: var(--fb-accent);
+	}
+
+	.fb-create q {
+		color: #ededed;
+	}
+
+	.fb-create q::before,
+	.fb-create q::after {
+		color: #6f6f6f;
+	}
+
 	.fb-empty {
 		padding: 20px 16px;
 		font-size: 12.5px;
@@ -702,6 +768,11 @@
 	/* Touch-sized dialog: the key hints are for keyboards, so they go first. */
 	@media (max-width: 480px) {
 		.fb-hints {
+			display: none;
+		}
+
+		/* A refused machine's tab is already dimmed; why stays in its title. */
+		.fb-tabwhy {
 			display: none;
 		}
 	}

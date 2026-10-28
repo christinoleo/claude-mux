@@ -203,6 +203,15 @@ the panel starts, and because that leaves the left column too narrow for a
 long label, the indented line under a preview row is joined to the label
 rather than read as a description.
 
+A dialog of several questions draws a tab strip over them (`←  ☒ Fruit  ☐
+Color  ✔ Submit  →`), read as `tabs` with each question's `answered`, and
+←/→ move between the tabs, answered or not. A tab gone back to marks the
+option it holds with a trailing `✔`, read as `chosen` (the model picker
+marks the current model the same way). `DialogCard.svelte` uses both: each
+question shows the answer it holds and a "Change" that walks the pane back
+to its tab, and once every question is answered from somewhere other than
+the Submit tab its button reads "Review" and walks there.
+
 Delivery goes the other way through the same box. `sendTextToPane()` in
 `src/server/message-queue.ts` pastes the text and sends Enter; Claude Code
 sometimes folds an Enter that lands inside the paste burst into the text, so
@@ -822,6 +831,10 @@ name, as `guessReport()` is), and the open folders below it as a quiet
 count. An open folder's row gains "Go to": the session when it is the only
 one there, else the project on the rail. With the filter empty the list
 starts with the folders open on the tab's machine (`openOn()`).
+Typing a name no folder here has offers "Create folder" as the list's last
+row, with a "git init" box: `POST /api/browse` makes it one level down
+(`folderNameProblem()` in `src/folder-name.ts` refuses slashes, `.`/`..`
+and names at either end padded) and the picker browses into it.
 
 The drawer's foot (`SidebarMeters.svelte`, in the layout) sits flush under
 one hairline, no card. Its top line holds the screenshots of the session on
