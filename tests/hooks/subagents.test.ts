@@ -251,6 +251,25 @@ describe("hook: subagents", () => {
     expect(session().subagents[0].current_tool).toBeNull();
   });
 
+  it("counts an agent running again when it calls a tool after a stop that did not end it", () => {
+    // Claude Code 2.1.309/2.1.310 sent SubagentStop about twice a minute for a running agent.
+    writeFileSync(agentPath("a1", "jsonl"), "");
+    runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });
+    runHook({ hook_event_name: "SubagentStop", agent_id: "a1", agent_type: "Explore" });
+    expect(session().subagents[0].state).toBe("done");
+    runHook({ hook_event_name: "PreToolUse", agent_id: "a1", tool_name: "Grep", tool_input: { pattern: "x" } });
+    expect(session().subagents[0]).toMatchObject({ state: "running", ended_at: null, current_tool: "Grep" });
+  });
+
+  it("leaves a failed agent failed when a tool call of its arrives late", () => {
+    writeFileSync(agentPath("a1", "jsonl"), "");
+    spawnAgent("toolu_1", "Find the hook");
+    runHook({ hook_event_name: "SubagentStart", agent_id: "a1", agent_type: "Explore" });
+    runHook({ hook_event_name: "PostToolUseFailure", tool_name: "Agent", tool_use_id: "toolu_1" });
+    runHook({ hook_event_name: "PreToolUse", agent_id: "a1", tool_name: "Grep" });
+    expect(session().subagents[0].state).toBe("failed");
+  });
+
   it("keeps finished agents for an hour, failed ones for a day, so the sidebar can fold them", () => {
     const s = session();
     const at = (min: number) => Date.now() - min * 60 * 1000;

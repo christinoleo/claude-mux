@@ -94,6 +94,11 @@ describe("readQueuedMessages, queue above the spinner", () => {
     ]);
   });
 
+  it("reads the queue where the hint names ctrl+enter, as a terminal reporting it draws it", () => {
+    const content = SPINNER_QUEUE.replace("ctrl+x ctrl+s to send now", "ctrl+enter to send now");
+    expect(readQueuedMessages(content)).toHaveLength(2);
+  });
+
   it("leaves out a message already sent, which is drawn in full white", () => {
     const sent = "\x1b[38;5;239m\x1b[48;5;237m❯ \x1b[38;5;231malready sent\x1b[39m";
     const content = SPINNER_QUEUE.replace(/^.*Bash\(python3.*$/m, (line) => `${sent}\n\x1b[49m\n${line}`);

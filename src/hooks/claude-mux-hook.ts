@@ -739,6 +739,13 @@ function handlePreToolUse(input: HookInput): void {
       if (agent && input.tool_name) {
         agent.current_tool = parseMcpToolName(input.tool_name)?.tool ?? input.tool_name;
       }
+      // An agent calling a tool is running, whatever its last SubagentStop said:
+      // Claude Code 2.1.309 and 2.1.310 sent that event about twice a minute for
+      // every running subagent, not once at its end.
+      if (agent?.state === "done") {
+        agent.state = "running";
+        agent.ended_at = null;
+      }
     } else if (input.tool_name === "AskUserQuestion") {
       // The tool's whole job is to wait for the user, so the session is waiting
       // from the moment it is called. The permission notification says the
