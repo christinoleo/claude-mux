@@ -12,7 +12,7 @@
 
 import { execFileSync, execSync } from 'child_process';
 import { randomUUID } from 'crypto';
-import { existsSync, readFileSync } from 'fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from 'fs';
 import { join } from 'path';
 import { getAllSessions } from '../db/index.js';
 import { CLAUDE_MUX_DIR } from '../utils/paths.js';
@@ -21,6 +21,7 @@ import { isPidAlive } from '../utils/pid.js';
 import { capturePaneContentAsync, readPaneHold, readPromptBox } from '../tmux/pane.js';
 import { composePromptWithAttachments } from './attachments.js';
 import { recordDictation } from './dictation-marks.js';
+import { resolveTranscriptPath } from '../transcript/tailer.js';
 import type { DeliveryInfo, QueuedMessageInfo } from '../types/ws-messages.js';
 
 // ============================================================================
@@ -114,26 +115,91 @@ function pressEnter(target: string): void {
 	}
 }
 
-/** How long Claude Code gets to take a pasted line before the box is read. */
-const SUBMIT_SETTLE_MS = 600;
+/** How often the box is read while waiting for Claude Code to take a line. */
+const SUBMIT_POLL_MS = 250;
+/** How long the text may sit in the box before one more Enter is sent. */
+const SUBMIT_RETRY_MS = 1500;
+/** How long Claude Code gets in all before the line counts as not taken. */
+const SUBMIT_GIVE_UP_MS = 5000;
+/** How much of the transcript's tail is searched for the line being logged. */
+const TRANSCRIPT_TAIL_BYTES = 512 * 1024;
+
+/** Claude Code's stand-in for a long paste in its box: "[Pasted text #1 +12 lines]". */
+const PASTE_PLACEHOLDER = /^\[Pasted text #\d+/;
+
+/**
+ * Whether the session in `target` logged `text` as a prompt or a queued
+ * message at or after `since`: the transcript's word that Claude Code took
+ * it, which holds even while the pane has not yet redrawn its box.
+ */
+function loggedSince(target: string, text: string, since: number): boolean {
+	const session = getAllSessions().find((s) => s.tmux_target === target || s.id === target);
+	const path = session ? resolveTranscriptPath(session, session.id) : null;
+	if (!path) return false;
+	const want = text.replace(/\s+/g, '');
+	try {
+		const size = statSync(path).size;
+		const fd = openSync(path, 'r');
+		try {
+			const length = Math.min(size, TRANSCRIPT_TAIL_BYTES);
+			const buf = Buffer.alloc(length);
+			readSync(fd, buf, 0, length, size - length);
+			const lines = buf.toString('utf8').split('\n').reverse();
+			for (const line of lines) {
+				if (!line.includes('"queue-operation"') && !line.includes('"type":"user"')) continue;
+				let record: { timestamp?: string; content?: unknown; message?: { content?: unknown } };
+				try {
+					record = JSON.parse(line);
+				} catch {
+					continue;
+				}
+				const at = record.timestamp ? Date.parse(record.timestamp) : NaN;
+				if (!(at >= since)) continue;
+				const content = record.content ?? record.message?.content;
+				const logged = typeof content === 'string' ? content : JSON.stringify(content ?? '');
+				if (logged.replace(/\s+/g, '').includes(want)) return true;
+			}
+		} finally {
+			closeSync(fd);
+		}
+	} catch {
+		/* no transcript to read: the box decides */
+	}
+	return false;
+}
 
 /**
  * Whether Claude Code took the line just sent. A message it accepted has left
  * the box: either the turn started, or, while busy, it went to Claude Code's
- * own queue and the box shows the hint for that. Text still sitting there
- * typed means the Enter was lost, which happens when the paste and the key
- * land inside the same input burst; one more Enter is sent, and the box read
- * again. Resolves false when the text is still there after that.
+ * own queue. A busy pane in a long session can take seconds to redraw, so the
+ * box is read until then, and two other signs count as taken meanwhile: the
+ * box holding something else, and the transcript logging the line (a prompt,
+ * or a queue entry). Text still sitting there after a while means the Enter
+ * was lost, which happens when the paste and the key land inside the same
+ * input burst; one more Enter is sent. Resolves false when the text is still
+ * there, unlogged, at the end.
  */
-export async function confirmSubmitted(target: string): Promise<boolean> {
-	for (let attempt = 0; attempt < 2; attempt++) {
-		await new Promise((r) => setTimeout(r, SUBMIT_SETTLE_MS));
+export async function confirmSubmitted(target: string, text?: string): Promise<boolean> {
+	const since = Date.now() - 2000;
+	const started = Date.now();
+	let retried = false;
+	for (;;) {
+		await new Promise((r) => setTimeout(r, SUBMIT_POLL_MS));
 		const raw = await capturePaneContentAsync(target, true);
 		const box = raw === null ? null : readPromptBox(raw);
 		if (!box || box.kind !== 'typed' || !box.text.trim()) return true;
-		if (attempt === 0) execFileSync('tmux', ['send-keys', '-t', target, 'Enter'], { stdio: 'ignore' });
+		if (text !== undefined) {
+			const typed = box.text.trim();
+			if (!PASTE_PLACEHOLDER.test(typed) && !sameTyped(typed, text)) return true;
+			if (loggedSince(target, text, since)) return true;
+		}
+		const waited = Date.now() - started;
+		if (!retried && waited >= SUBMIT_RETRY_MS) {
+			pressEnter(target);
+			retried = true;
+		}
+		if (waited >= SUBMIT_GIVE_UP_MS) return false;
 	}
-	return false;
 }
 
 /** How a message handed to the pane fared (`submitToPane`). */
@@ -163,7 +229,7 @@ export async function submitToPane(target: string, text: string): Promise<Submit
 	} else {
 		sendTextToPane(target, text);
 	}
-	return (await confirmSubmitted(target)) ? 'taken' : 'in-box';
+	return (await confirmSubmitted(target, text)) ? 'taken' : 'in-box';
 }
 
 /**

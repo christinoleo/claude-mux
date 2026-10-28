@@ -42,7 +42,7 @@ const CHORD = ['send-keys', '-t', TARGET, 'C-x', 'C-s'];
  * than run-all: the queue's drain loop is an interval and would never end.
  */
 async function settle<T>(promise: Promise<T>): Promise<T> {
-	await vi.advanceTimersByTimeAsync(2000);
+	await vi.advanceTimersByTimeAsync(6000);
 	return promise;
 }
 
@@ -102,6 +102,19 @@ describe('steer', () => {
 		expect(await settle(steerIntoPane(TARGET, 'look at this', true))).toBe('taken');
 		expect(pasted()).toBe(false);
 		expect(callIndex(['send-keys', '-t', TARGET, 'Enter'])).toBeGreaterThan(-1);
+	});
+
+	it('waits out a slow redraw rather than calling the text stuck', async () => {
+		// Pasted into an empty box; the box still shows the text for four reads, then clears.
+		boxReads = [null, 'look at this', 'look at this', 'look at this', 'look at this', null];
+		expect(await settle(steerIntoPane(TARGET, 'look at this', true))).toBe('taken');
+		// Taken before the retry was due: no second Enter.
+		expect(tmuxCalls.filter((c) => c.join(' ') === `send-keys -t ${TARGET} Enter`)).toHaveLength(1);
+	});
+
+	it('counts the line taken once the box holds something else', async () => {
+		boxReads = [null, 'a new draft'];
+		expect(await settle(steerIntoPane(TARGET, 'look at this', true))).toBe('taken');
 	});
 
 	it('leaves the pane alone when something else is typed in its box', async () => {
