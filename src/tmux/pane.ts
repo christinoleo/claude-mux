@@ -692,7 +692,8 @@ export function isBangRunning(content: string): boolean {
 const RIGHT_EDGE_SLACK = 4;
 
 const UPDATE_NOTICES: [Exclude<UpdateNotice, null>["kind"], RegExp][] = [
-  ["installed", /Update installed.*Restart to (?:apply|update)/],
+  // "Restart to apply" until Claude Code gained /restart, "/restart to apply" since.
+  ["installed", /Update installed.*?\/?[Rr]estart to (?:apply|update)/],
   ["available", /Update available! Run:.*/],
   ["failed", /Auto-update failed.*/],
 ];

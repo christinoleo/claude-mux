@@ -23,6 +23,12 @@ describe("readUpdateNotice", () => {
     ).toEqual({ kind: "installed", text: "Update installed · Restart to apply" });
   });
 
+  it("reads the installed notice that names /restart, as a pane drew it", () => {
+    // Captured from a pane (Claude Code 2.1.309), status line beside the notice.
+    const footer = `  distilo (main) Opus 5.5 [███░░░░░] 43%${" ".repeat(120)}✔ Update installed · /restart to apply`;
+    expect(readUpdateNotice(foot(footer))).toEqual({ kind: "installed", text: "Update installed · /restart to apply" });
+  });
+
   it("reads an update to install by hand, with its command", () => {
     expect(readUpdateNotice(foot("  ? for shortcuts        Update available! Run: npm i -g @anthropic-ai/claude-code"))).toEqual({
       kind: "available",
