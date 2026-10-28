@@ -2115,6 +2115,26 @@
 	}
 
 	/**
+	 * Restart with Claude Code's own `/restart`, which a notice naming it says
+	 * the running version has: it replaces the process in place with
+	 * `--resume` of the same session, so the pane, the pid and the transcript
+	 * all stay. The text and its Enter go in as two sends with no read-back,
+	 * which would catch the box mid-restart and report the command as stuck.
+	 */
+	async function slashRestart() {
+		if (!target) return;
+		if (currentSession?.draft_input && currentSession.draft_kind !== 'suggestion') {
+			alert('Something is typed in the pane\'s prompt box: send or clear it first.');
+			return;
+		}
+		await sendPaneText('/restart');
+		await sendKeys('Enter');
+	}
+
+	/** The update notice says the running Claude Code restarts itself with `/restart`. */
+	const hasSlashRestart = $derived(paneUpdate?.kind === 'installed' && paneUpdate.text.includes('/restart'));
+
+	/**
 	 * The session an upgrade was started in from here, until the server's own
 	 * word on it arrives. The server answers once the command is typed and
 	 * restarts when it has run; while it waits, and when it gives up without
@@ -2336,7 +2356,10 @@
 					type="button"
 					class="say upd installed"
 					title="{paneUpdate.text} — click to restart Claude Code now"
-					onclick={() => (isBusy ? (showConfirmRestart = true) : void restartSession())}
+					onclick={() =>
+						isBusy
+							? (showConfirmRestart = true)
+							: void (hasSlashRestart ? slashRestart() : restartSession())}
 				>
 					<iconify-icon icon="mdi:restart"></iconify-icon>
 					{UPDATE_LABEL.installed}
