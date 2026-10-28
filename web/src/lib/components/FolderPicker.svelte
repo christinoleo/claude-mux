@@ -94,6 +94,25 @@
 			.sort((a, b) => b.score - a.score);
 	});
 
+	type MatchRow = (typeof matches)[number];
+
+	/**
+	 * Where the "Create folder" row sits among the matches: after the names
+	 * that start with what is typed, before the looser ones, so a new name is
+	 * offered high up rather than under every folder that merely contains its
+	 * letters, and Enter on a name that begins a folder's still enters it.
+	 */
+	const createAt = $derived.by(() => {
+		const q = query.trim().toLowerCase();
+		const i = matches.findIndex((m) => !m.folder.name.toLowerCase().startsWith(q));
+		return i === -1 ? matches.length : i;
+	});
+
+	/** The list's rows in order, the create row (when offered) among the matches. */
+	const rows = $derived<(MatchRow | 'create')[]>(
+		newName ? [...matches.slice(0, createAt), 'create', ...matches.slice(createAt)] : matches
+	);
+
 	/** The current path as clickable segments — the path is the navigation. */
 	const crumbs = $derived.by(() => {
 		if (!path) return [];
@@ -110,7 +129,7 @@
 
 	$effect(() => {
 		// A new result set always starts at the top.
-		matches;
+		rows;
 		active = 0;
 	});
 
@@ -134,7 +153,9 @@
 
 	/**
 	 * Browse another machine, at the same place relative to home when it has
-	 * that folder, else at home.
+	 * that folder. When it does not, the nearest folder above it that it has,
+	 * with the first missing folder's name typed in, so "Create folder" makes
+	 * the same folder there; with nothing of it there, home.
 	 */
 	async function switchTo(id: string) {
 		const next = machines.find((m) => machineKey(m) === id);
@@ -144,6 +165,11 @@
 		tab = id;
 		chosen = next;
 		let shown = await browseTo(carried, true);
+		const parts = carried.split('/');
+		for (let n = parts.length - 1; shown === false && n > 0 && parts[n - 1] !== ''; n--) {
+			shown = await browseTo(parts.slice(0, n).join('/'), true);
+			if (shown) query = parts[n];
+		}
 		if (shown === false && carried !== '~') shown = await browseTo('~', true);
 		// Nothing of the new machine could be read: stay on the old one, whose folders are still shown.
 		if (shown === false) [tab, chosen] = [was, wasChosen];
@@ -201,7 +227,7 @@
 	}
 
 	function moveActive(delta: number) {
-		const n = matches.length + (newName ? 1 : 0);
+		const n = rows.length;
 		if (n === 0) return;
 		active = (active + delta + n) % n;
 		(listEl?.children[active] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
@@ -227,9 +253,9 @@
 				pickCurrent();
 				return;
 			}
-			const match = matches[active];
-			if (match) void browseTo(match.folder.path);
-			else if (newName) void createFolder();
+			const row = rows[active];
+			if (row === 'create') void createFolder();
+			else if (row) void browseTo(row.folder.path);
 			else pickCurrent();
 		} else if (e.key === 'Backspace' && query === '' && parent) {
 			e.preventDefault();
@@ -360,7 +386,21 @@
 				</section>
 			{/if}
 			<div bind:this={listEl}>
-				{#each matches as match, i (match.folder.path)}
+				{#each rows as match, i (match === 'create' ? '\0create' : match.folder.path)}
+					{#if match === 'create'}
+						<div
+							class="fb-item fb-create"
+							class:active={i === active}
+							role="presentation"
+							onmouseenter={() => (active = i)}
+						>
+							<button class="fb-main" disabled={creating} onclick={() => void createFolder()}>
+								<iconify-icon icon="mdi:folder-plus-outline" aria-hidden="true"></iconify-icon>
+								<span class="fb-name">{creating ? 'Creating' : 'Create folder'} <q>{newName}</q></span>
+								{#if gitInit}<span class="fb-tag">git</span>{/if}
+							</button>
+						</div>
+					{:else}
 					{@const m = mark(match.folder.path)}
 					<div class="fb-item" class:active={i === active} role="presentation" onmouseenter={() => (active = i)}>
 						<button class="fb-main" onclick={() => browseTo(match.folder.path)}>
@@ -373,21 +413,9 @@
 						</button>
 						{#if m.here}{@render goto(m.here)}{/if}
 					</div>
+					{/if}
 				{/each}
-				{#if newName}
-					<div
-						class="fb-item fb-create"
-						class:active={active === matches.length}
-						role="presentation"
-						onmouseenter={() => (active = matches.length)}
-					>
-						<button class="fb-main" disabled={creating} onclick={() => void createFolder()}>
-							<iconify-icon icon="mdi:folder-plus-outline" aria-hidden="true"></iconify-icon>
-							<span class="fb-name">{creating ? 'Creating' : 'Create folder'} <q>{newName}</q></span>
-							{#if gitInit}<span class="fb-tag">git</span>{/if}
-						</button>
-					</div>
-				{:else if matches.length === 0}
+				{#if rows.length === 0}
 					<p class="fb-empty">
 						{#if query}
 							No folder here matches <span class="fb-empty-q">{query}</span>. Backspace to clear.

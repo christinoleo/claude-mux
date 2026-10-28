@@ -46,6 +46,11 @@ function write(dir: string, id: string, entries: unknown[], mtime?: Date): strin
 }
 
 describe("promptText", () => {
+  it("reads a long paste out of Claude Code's pasted_content wrapper", () => {
+    const logged = '\n\n<pasted_content id="c2b8">\nlong dictated text\n</pasted_content id="c2b8">\n';
+    expect(promptText(user(logged))).toBe("long dictated text");
+  });
+
   it("reads typed text, and a slash command as typed", () => {
     expect(promptText(user("fix the build"))).toBe("fix the build");
     expect(promptText(user([{ type: "text", text: "from a block" }]))).toBe("from a block");

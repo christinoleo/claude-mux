@@ -106,7 +106,30 @@ export function isDictated(sessionId: string, text: string, ts: number): boolean
   if (!list || list.length === 0) return false;
   const normalized = normalize(text);
   if (!normalized) return false;
-  return list.some((m) => m.text === normalized && Math.abs(ts - m.at) <= MATCH_WINDOW_MS);
+  const near = list.filter((m) => Math.abs(ts - m.at) <= MATCH_WINDOW_MS);
+  if (near.some((m) => m.text === normalized)) return true;
+  return isMadeOf(normalized, near.map((m) => m.text));
+}
+
+/**
+ * Whether `text` is nothing but dictations one after another. Claude Code
+ * runs the messages it queued while busy as one prompt, joined by line
+ * breaks, so two things said during a turn come back as a single entry.
+ */
+function isMadeOf(text: string, parts: string[]): boolean {
+  if (parts.length < 2) return false;
+  // Longest first, so a dictation that starts with a shorter one is tried whole.
+  const sorted = [...new Set(parts)].sort((a, b) => b.length - a.length);
+  const reach = (rest: string): boolean => {
+    if (rest === "") return true;
+    return sorted.some(
+      (part) =>
+        rest.startsWith(part) &&
+        (rest.length === part.length || rest[part.length] === " ") &&
+        reach(rest.slice(part.length).trimStart()),
+    );
+  };
+  return reach(text);
 }
 
 /** Test hook: drop all in-memory state so the next call re-reads the file. */

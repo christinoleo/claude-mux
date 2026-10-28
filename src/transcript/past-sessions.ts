@@ -18,7 +18,7 @@
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { type PastSession } from "../past-session.js";
-import { parseSlashCommand } from "./parser.js";
+import { parseSlashCommand, unwrapPasted } from "./parser.js";
 import { projectsRoot } from "./tailer.js";
 
 
@@ -76,6 +76,8 @@ export function promptText(entry: Entry): string | null {
     if (!block || message.content.some((b) => b?.type === "tool_result")) return null;
     text = block.text;
   }
+  // A long paste is logged inside Claude Code's <pasted_content> wrapper.
+  if (text) text = unwrapPasted(text);
   if (!text?.trim()) return null;
   const command = parseSlashCommand(text);
   if (command) return clip(command.args ? `${command.name} ${command.args}` : command.name);
