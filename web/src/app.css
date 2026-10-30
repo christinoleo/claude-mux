@@ -447,3 +447,8 @@ a.gh-ref[data-state='draft'] .gh-title {
 .gh-card-open:hover {
 	text-decoration: underline;
 }
+
+/* A session's alert toast opens the session wherever it is clicked (NotificationCoordinator). */
+[data-sonner-toast].session-alert {
+	cursor: pointer;
+}

@@ -34,6 +34,9 @@
 
 	const mode = $derived(preferences.notificationMode);
 
+	/** What a click on a session's toast opens, by toast id: the whole toast is the link, not only its button. */
+	const toastOpens = new Map<string, () => void>();
+
 	/** Open notifications by session id, so focus can close them and a newer one replaces the older. */
 	const open = new Map<string, Notification>();
 
@@ -66,10 +69,15 @@
 		if (inFront) {
 			if (!preferences.inAppToasts) return;
 			const show = kind === 'completion' ? toast.success : toast.warning;
+			const id = `session-${s.id}`;
+			toastOpens.set(id, openSession);
 			show(title, {
-				id: `session-${s.id}`,
+				id,
+				class: `session-alert ${id}`,
 				description: body.replace('\n', ' · '),
-				action: { label: 'Open', onClick: openSession }
+				action: { label: 'Open', onClick: openSession },
+				onDismiss: () => toastOpens.delete(id),
+				onAutoClose: () => toastOpens.delete(id)
 			});
 			return;
 		}
@@ -115,6 +123,22 @@
 		untrack(() => {
 			for (const event of out.events) alert(event, machineOf.get(event.session.id)!);
 		});
+	});
+
+	// A click anywhere on a session's toast opens the session; its own buttons
+	// (Open, and the close cross) keep doing what they do.
+	$effect(() => {
+		const onClick = (event: MouseEvent) => {
+			const target = event.target as Element | null;
+			if (!target || target.closest('button')) return;
+			const el = target.closest('[data-sonner-toast].session-alert');
+			const id = el && [...el.classList].find((c) => toastOpens.has(c));
+			if (!id) return;
+			toastOpens.get(id)!();
+			toast.dismiss(id);
+		};
+		document.addEventListener('click', onClick);
+		return () => document.removeEventListener('click', onClick);
 	});
 
 	// Coming back to the window is reading what the notifications said.

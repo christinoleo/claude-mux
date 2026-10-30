@@ -13,7 +13,7 @@
 <Sonner
 	theme="dark"
 	class="toaster group"
-	style="--normal-bg: #151516; --normal-text: hsl(var(--foreground)); --normal-border: #2a2a2c; --border-radius: 14px;"
+	style="--normal-bg: #151516; --normal-text: var(--foreground); --normal-border: #2a2a2c; --border-radius: 14px;"
 	{...restProps}
 >
 	{#snippet loadingIcon()}
