@@ -5,7 +5,8 @@ import { FileAccessError, filesRoot, listDir } from '$shared/server/files.js';
 
 /**
  * One directory of the session's project (`dir`, relative to the root; empty
- * for the root). Ignored entries are left out unless `ignored=1`.
+ * for the root), or any folder by its absolute path. Ignored entries are left
+ * out unless `ignored=1`.
  */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const id = decodeURIComponent(params.id);
@@ -15,7 +16,8 @@ export const GET: RequestHandler = async ({ params, url }) => {
 	try {
 		const listing = await listDir(root, url.searchParams.get('dir') ?? '', {
 			repo,
-			showIgnored: url.searchParams.get('ignored') === '1'
+			showIgnored: url.searchParams.get('ignored') === '1',
+			anywhere: true
 		});
 		return json(listing);
 	} catch (err) {

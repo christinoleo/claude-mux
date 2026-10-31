@@ -4,10 +4,13 @@
  * the repo's file list for quick-open.
  *
  * The root is the session's repo (`git_root`, else the work tree its cwd sits
- * in), or the cwd itself outside a repo. Every path a caller names is resolved
- * with `realpath` and refused unless it lands inside the root's own realpath,
- * so neither `..` nor a symlink that points out of the project can reach
- * anything else. `.git` is never listed or read.
+ * in), or the cwd itself outside a repo. A relative path is resolved with
+ * `realpath` and refused unless it lands inside the root's own realpath, so
+ * neither `..` nor a symlink that points out of the project reaches anything
+ * else. An absolute path may name any file the server can read when the
+ * caller asks with `anywhere` (the Files pane does: whoever reaches this API
+ * can already type into a shell, and a message often names a file in a
+ * scratchpad or `/tmp`). `.git` is never listed or read.
  */
 
 import { execFile } from 'child_process';
@@ -89,21 +92,41 @@ function isGitPath(rel: string): boolean {
 	return rel.split('/').includes('.git');
 }
 
+/** Where the read routes may reach: the root only, or any absolute path as well. */
+export interface Reach {
+	anywhere?: boolean;
+}
+
 /**
  * Resolve `path` (relative to `root`, or absolute) to a real path inside the
  * root. An absolute path is taken as given, so one that names the root through
  * another spelling (a symlink to it) still resolves. Throws a 403 for a path
  * that lands outside the root or in `.git`, and a 404 for one that is not there.
+ * With `anywhere`, an absolute path outside the root resolves too, and its
+ * `rel` is its absolute real path.
  */
 export async function resolveInRoot(
 	root: string,
-	path: string
+	path: string,
+	reach: Reach = {}
 ): Promise<{ abs: string; rel: string; realRoot: string }> {
 	if (path.includes('\0')) throw new FileAccessError('Invalid path', 400);
 	const realRoot = await realpath(root).catch(() => {
 		throw new FileAccessError('Project directory not found', 404);
 	});
 	const wanted = isAbsolute(path) ? resolve(path) : resolve(realRoot, path);
+	if (reach.anywhere && isAbsolute(path) && !isInside(realRoot, wanted) && !isInside(resolve(root), wanted)) {
+		let abs: string;
+		try {
+			abs = await realpath(wanted);
+		} catch {
+			throw new FileAccessError('No such file or directory', 404);
+		}
+		if (!isInside(realRoot, abs)) {
+			if (isGitPath(abs.split(sep).join('/'))) throw new FileAccessError('Path is inside .git', 403);
+			return { abs, rel: abs.split(sep).join('/'), realRoot };
+		}
+	}
 	// Refuse a path that climbs out before touching the disk, so its existence is not told.
 	if (!isInside(realRoot, wanted) && !(isAbsolute(path) && isInside(resolve(root), wanted))) {
 		throw new FileAccessError('Path is outside the project', 403);
@@ -152,23 +175,25 @@ function byTypeThenName(a: FileEntry, b: FileEntry): number {
 export async function listDir(
 	root: string,
 	dir: string,
-	opts: { repo: boolean; showIgnored?: boolean }
+	opts: { repo: boolean; showIgnored?: boolean } & Reach
 ): Promise<DirListing> {
-	const { abs, rel, realRoot } = await resolveInRoot(root, dir || '.');
+	const { abs, rel, realRoot } = await resolveInRoot(root, dir || '.', opts);
+	// A folder outside the project, reached by its absolute path: links go wherever they point, and git has no say.
+	const outside = isAbsolute(rel);
 	const dirents = await readdir(abs, { withFileTypes: true }).catch((err: NodeJS.ErrnoException) => {
 		throw new FileAccessError(err.code === 'ENOTDIR' ? 'Not a directory' : 'Cannot read directory', 400);
 	});
 	const entries: FileEntry[] = [];
 	await Promise.all(
 		dirents.map(async (d) => {
-			const path = rel ? `${rel}/${d.name}` : d.name;
+			const path = rel ? `${rel.replace(/\/$/, '')}/${d.name}` : d.name;
 			if (isGitPath(path)) return;
 			if (d.isDirectory()) return void entries.push({ name: d.name, path, type: 'dir' });
 			if (d.isFile()) return void entries.push({ name: d.name, path, type: 'file' });
 			if (!d.isSymbolicLink()) return;
 			try {
 				const target = await realpath(join(abs, d.name));
-				if (!isInside(realRoot, target)) return;
+				if (!outside && !isInside(realRoot, target)) return;
 				const s = await stat(target);
 				entries.push({ name: d.name, path, type: s.isDirectory() ? 'dir' : 'file', link: true });
 			} catch {
@@ -178,7 +203,7 @@ export async function listDir(
 	);
 	let hidden = 0;
 	let shown = entries;
-	if (opts.repo && entries.length > 0) {
+	if (opts.repo && !outside && entries.length > 0) {
 		// git wants a directory spelled with its slash to match a `dir/` pattern, and answers in the same
 		// spelling; a link to one goes without, since git refuses a path that runs through a symlink.
 		const spelled = (e: FileEntry) => (e.type === 'dir' && !e.link ? `${e.path}/` : e.path);
@@ -209,8 +234,8 @@ async function readHead(abs: string, limit: number): Promise<Buffer> {
  * near), an image's type for the raw route, or `binary` for anything with a
  * NUL in its first bytes.
  */
-export async function readProjectFile(root: string, path: string): Promise<FileRead> {
-	const { abs, rel } = await resolveInRoot(root, path);
+export async function readProjectFile(root: string, path: string, reach: Reach = {}): Promise<FileRead> {
+	const { abs, rel } = await resolveInRoot(root, path, reach);
 	const s = await stat(abs);
 	if (!s.isFile()) throw new FileAccessError('Not a file', 400);
 	const mime = imageMimeFor(abs);
@@ -230,8 +255,12 @@ export async function readProjectFile(root: string, path: string): Promise<FileR
 }
 
 /** An image's bytes, through the same guard as any read. */
-export async function readProjectImage(root: string, path: string): Promise<{ bytes: Buffer; mime: string }> {
-	const { abs } = await resolveInRoot(root, path);
+export async function readProjectImage(
+	root: string,
+	path: string,
+	reach: Reach = {}
+): Promise<{ bytes: Buffer; mime: string }> {
+	const { abs } = await resolveInRoot(root, path, reach);
 	const mime = imageMimeFor(abs);
 	if (!mime) throw new FileAccessError('Not an image', 415);
 	const s = await stat(abs);

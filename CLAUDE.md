@@ -402,7 +402,10 @@ afresh. A message seldom spells a path from the root, so the Files pane reads
 with `locate=1`, which sends the read route through `locateProjectFile()`
 (`src/server/files.ts`): as given, then against
 the session's `cwd`, then as the tail of the one repo file that ends with it.
-A path that is nowhere gets the pane's ordinary error.
+A path that is nowhere gets the pane's ordinary error. An absolute path
+outside the project (a scratchpad, `/tmp`) is read and listed too, since the
+read and tree routes pass `anywhere`; its breadcrumb starts at `/`. A relative
+path stays inside the root, and `.git` is never read.
 
 A link to a GitHub pull request or issue is drawn as a chip. `renderMarkdown()`
 with `github` only marks it: `https://github.com/<owner>/<repo>/(pull|issues)/<n>`

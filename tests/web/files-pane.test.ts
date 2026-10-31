@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   ancestors,
+  baseName,
+  parentOf,
   fuzzyFilter,
   fuzzyScore,
   shikiLanguage,
@@ -22,6 +24,10 @@ describe("paths", () => {
   it("lists the directories that hold a path", () => {
     expect(ancestors("a/b/c.ts")).toEqual(["a", "a/b"]);
     expect(ancestors("c.ts")).toEqual([]);
+    expect(ancestors("/tmp/a/x.png")).toEqual(["/", "/tmp", "/tmp/a"]);
+    expect(parentOf("/tmp")).toBe("/");
+    expect(parentOf("a")).toBe("");
+    expect(baseName("/")).toBe("/");
   });
 });
 

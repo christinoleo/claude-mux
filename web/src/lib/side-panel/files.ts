@@ -65,20 +65,29 @@ export function isMarkdown(path: string): boolean {
 	return /\.(md|markdown)$/i.test(path);
 }
 
-/** The directories that hold `path`, outermost first: `a/b/c.ts` → `a`, `a/b`. */
-/** The last part of a path: the file's or folder's own name. */
+/** The last part of a path: the file's or folder's own name (`/` for the filesystem's root). */
 export function baseName(path: string): string {
+	if (path === '/') return '/';
 	return path.split('/').pop() ?? path;
 }
 
-/** The folder a path sits in, '' for one at the root. */
+/**
+ * The folder a path sits in, '' for one at the project's root. An absolute
+ * path (a file outside the project) climbs to `/` instead.
+ */
 export function parentOf(path: string): string {
-	return path.split('/').slice(0, -1).join('/');
+	const parent = path.split('/').slice(0, -1).join('/');
+	return parent === '' && path.startsWith('/') && path !== '/' ? '/' : parent;
 }
 
+/**
+ * The directories that hold `path`, outermost first: `a/b/c.ts` → `a`, `a/b`.
+ * An absolute path starts at `/`: `/tmp/x.png` → `/`, `/tmp`.
+ */
 export function ancestors(path: string): string[] {
 	const parts = path.split('/').slice(0, -1);
-	return parts.map((_, i) => parts.slice(0, i + 1).join('/'));
+	const dirs = parts.map((_, i) => parts.slice(0, i + 1).join('/'));
+	return path.startsWith('/') ? ['/', ...dirs.slice(1)] : dirs;
 }
 
 /**

@@ -64,6 +64,17 @@ describe("resolveInRoot", () => {
     expect(await refused(resolveInRoot(root, "/etc/passwd"))).toBe(403);
   });
 
+  it("with `anywhere`, resolves an absolute path outside the root but not a relative one", async () => {
+    const any = { anywhere: true };
+    expect((await resolveInRoot(root, join(outside, "key.txt"), any)).rel).toBe(join(outside, "key.txt"));
+    expect((await resolveInRoot(root, join(root, "src/a.ts"), any)).rel).toBe("src/a.ts");
+    expect(await refused(resolveInRoot(root, "../secret/key.txt", any))).toBe(403);
+    expect(await refused(resolveInRoot(root, join(outside, "nope.txt"), any))).toBe(404);
+    mkdirSync(join(outside, ".git"));
+    writeFileSync(join(outside, ".git", "config"), "");
+    expect(await refused(resolveInRoot(root, join(outside, ".git/config"), any))).toBe(403);
+  });
+
   it("refuses a symlink that points out of the root", async () => {
     symlinkSync(join(outside, "key.txt"), join(root, "leak.txt"));
     symlinkSync(outside, join(root, "leakdir"));
@@ -133,6 +144,13 @@ describe("listDir", () => {
 
   it("refuses a directory outside the root", async () => {
     expect(await refused(listDir(root, "..", { repo: false }))).toBe(403);
+  });
+
+  it("with `anywhere`, lists a folder outside the root by its absolute path", async () => {
+    const listing = await listDir(root, outside, { repo: true, anywhere: true });
+    expect(listing.dir).toBe(outside);
+    expect(listing.entries).toEqual([{ name: "key.txt", path: join(outside, "key.txt"), type: "file" }]);
+    expect((await readProjectFile(root, join(outside, "key.txt"), { anywhere: true })).kind).toBe("text");
   });
 });
 

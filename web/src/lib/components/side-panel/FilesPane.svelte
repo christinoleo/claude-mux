@@ -202,6 +202,8 @@
 
 	/** Open the directories that hold `path` (inside the root), so the tree shows where it is. */
 	function revealInTree(path: string) {
+		// A file outside the project has no place in its tree.
+		if (path.startsWith('/')) return;
 		const missing = ancestors(path).filter((d) => !expanded.has(d));
 		if (missing.length === 0) return;
 		filesPaneStore.update(sessionId, { expanded: [...expanded, ...missing] });
@@ -277,6 +279,7 @@
 	 */
 	function mentionOf(path: string): string | null {
 		if (!root) return null;
+		if (path.startsWith('/')) return `@${path}`;
 		const cwd = session?.cwd ?? root;
 		return `@${cwd === root ? path : displayPath(`${root}/${path}`, cwd)}`;
 	}
@@ -633,9 +636,9 @@
 					<iconify-icon icon="mdi:arrow-left"></iconify-icon>
 				</button>
 				<div class="crumbs" bind:this={crumbsEl} title={openPath}>
-					{@render crumb('', rootName)}
-					{#each crumbs as dir (dir)}
-						<iconify-icon class="sep" icon="mdi:chevron-right"></iconify-icon>
+					{#if !openPath?.startsWith('/')}{@render crumb('', rootName)}{/if}
+					{#each crumbs as dir, i (dir)}
+						{#if i > 0 || !openPath?.startsWith('/')}<iconify-icon class="sep" icon="mdi:chevron-right"></iconify-icon>{/if}
 						{@render crumb(dir, baseName(dir))}
 					{/each}
 					<iconify-icon class="sep" icon="mdi:chevron-right"></iconify-icon>
