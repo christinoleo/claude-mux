@@ -1,0 +1,4 @@
+{"_expect": []}
+{"type": "queue-operation", "operation": "enqueue", "timestamp": "2026-01-01T00:00:01.000Z", "sessionId": "00000000-0000-4000-8000-000000000000", "content": "<task-notification>\n<task-id>synthetic</task-id>\n</task-notification>"}
+{"type": "queue-operation", "operation": "enqueue", "timestamp": "2026-01-01T00:00:02.000Z", "sessionId": "00000000-0000-4000-8000-000000000000", "content": "typed later"}
+{"type": "queue-operation", "operation": "dequeue", "timestamp": "2026-01-01T00:00:03.000Z", "sessionId": "00000000-0000-4000-8000-000000000000"}
