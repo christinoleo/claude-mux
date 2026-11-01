@@ -35,6 +35,8 @@ export type TranscriptEntry = (
       command?: { name: string; args?: string; output?: string };
       /** Set when the prompt was dictated by voice (see dictation-marks). */
       dictated?: boolean;
+      /** Set when the line is a local command's output with no command left to ride under. */
+      localOutput?: boolean;
     }
   /** A prompt typed mid-turn. By the time its queued_command line reaches the
    * file it has already been seen by the agent — most never get a user line
@@ -662,7 +664,7 @@ export class TranscriptBuilder {
             }),
           ];
         }
-        return [this.upsert({ kind: "user", id: uuid, ts, text: truncate(output, TEXT_CHAR_LIMIT) })];
+        return [this.upsert({ kind: "user", id: uuid, ts, text: truncate(output, TEXT_CHAR_LIMIT), localOutput: true })];
       }
       // `text` stays the human-readable form of the turn either way, so search,
       // truncation and the queued-prompt matching below need no special case.

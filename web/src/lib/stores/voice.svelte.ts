@@ -71,6 +71,11 @@ class VoiceStore {
 		return target != null && this.ownerTarget === target && this.ownerField === field;
 	}
 
+	/** Whether this target's recording panel (`VoiceMeter`) is up. */
+	showsMeter(target: string | null): boolean {
+		return this.isOwnedBy(target) && this.isActive;
+	}
+
 	get language(): VoiceLanguage {
 		return this.prefs.language;
 	}

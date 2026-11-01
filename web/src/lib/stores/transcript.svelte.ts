@@ -41,6 +41,8 @@ type TranscriptMsg = SnapshotMsg | HistoryMsg | EntriesMsg | SubagentsMsg | Cont
 
 /** Entries per "load earlier" request. */
 const HISTORY_PAGE = 200;
+/** How long a history request may go unanswered before its callers stop waiting. */
+const EARLIER_TIMEOUT_MS = 15_000;
 
 /**
  * Transcript view model: an ordered list of entries upserted by id.
@@ -74,10 +76,12 @@ export class TranscriptStore extends ReliableWebSocket {
 	 * the reader has pulled the whole thing back.
 	 */
 	firstIndex = $state(0);
+	/** The history request in flight, and how to end its callers' wait. */
+	private earlier = $state.raw<{ promise: Promise<boolean>; settle: (landed: boolean) => void } | null>(null);
 	/** A history request is in flight (the button waits rather than stacking). */
-	loadingEarlier = $state(false);
-	/** Resolved when the slice a `loadEarlier()` caller asked for has landed. */
-	private pendingEarlier: (() => void) | null = null;
+	get loadingEarlier(): boolean {
+		return this.earlier !== null;
+	}
 
 	private indexById = new Map<string, number>();
 	private sessionId: string | null = null;
@@ -153,14 +157,18 @@ export class TranscriptStore extends ReliableWebSocket {
 			this.firstIndex = msg.firstIndex;
 			this.reindex();
 		}
-		this.settleEarlier();
+		this.settleEarlier(older.length > 0);
 	}
 
 	/** Ends the wait a `loadEarlier()` caller is in, whatever answered it. */
-	private settleEarlier(): void {
-		this.loadingEarlier = false;
-		this.pendingEarlier?.();
-		this.pendingEarlier = null;
+	private settleEarlier(landed = false): void {
+		this.earlier?.settle(landed);
+		this.earlier = null;
+	}
+
+	/** A slice the socket went away before answering will not come. */
+	protected onDisconnected(): void {
+		this.settleEarlier();
 	}
 
 	private reindex(): void {
@@ -168,13 +176,16 @@ export class TranscriptStore extends ReliableWebSocket {
 	}
 
 	/**
-	 * Ask the server for the slice before the oldest entry held. Resolves once
-	 * those entries are in `entries`, so a caller holding the reader's scroll
-	 * position knows when to restore it. Resolves immediately when there is
-	 * nothing older or a request is already out.
+	 * Ask the server for the slice before the oldest entry held. Resolves true
+	 * once those entries are in `entries`, so a caller holding the reader's
+	 * scroll position knows when to restore it. A second caller waits on the
+	 * request already out. Resolves false when nothing landed: nothing older, no
+	 * socket, or no answer in `EARLIER_TIMEOUT_MS` (the server does not answer a
+	 * request it cannot serve).
 	 */
-	loadEarlier(): Promise<void> {
-		if (this.firstIndex <= 0 || this.loadingEarlier) return Promise.resolve();
+	loadEarlier(): Promise<boolean> {
+		if (this.earlier) return this.earlier.promise;
+		if (this.firstIndex <= 0) return Promise.resolve(false);
 		const sent = this.send(
 			JSON.stringify({
 				type: 'history_request',
@@ -182,11 +193,18 @@ export class TranscriptStore extends ReliableWebSocket {
 				count: HISTORY_PAGE
 			})
 		);
-		if (!sent) return Promise.resolve();
-		this.loadingEarlier = true;
-		return new Promise((resolve) => {
-			this.pendingEarlier = resolve;
-		});
+		if (!sent) return Promise.resolve(false);
+		let resolve!: (landed: boolean) => void;
+		const promise = new Promise<boolean>((r) => (resolve = r));
+		const timer = setTimeout(() => this.settleEarlier(), EARLIER_TIMEOUT_MS);
+		this.earlier = {
+			promise,
+			settle: (landed) => {
+				clearTimeout(timer);
+				resolve(landed);
+			}
+		};
+		return promise;
 	}
 
 	/**
