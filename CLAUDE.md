@@ -423,6 +423,20 @@ outside the project (a scratchpad, `/tmp`) is read and listed too, since the
 read and tree routes pass `anywhere`; its breadcrumb starts at `/`. A relative
 path stays inside the root, and `.git` is never read.
 
+A table from Markdown is drawn twice over by one piece of HTML: `renderMarkdown()`
+wraps it in `.md-table` with a button and gives each cell its column's title as
+`data-title`, and CSS (the `table-cards` variant in `app.css`) lays it out as a
+table or as cards. So a table re-rendered while text arrives has no state to
+lose. The choice is one per device (`web/src/lib/tableMode.ts`, an attribute on
+the root); until it is made, a container query on the table's own width decides,
+so a narrow side panel behaves like a phone. Raw HTML tables from GitHub, and
+text inside a button of its own (`plainTables`), get neither. A cell has a floor
+of `8em`, because the transcript's prose may break anywhere and columns would
+otherwise shrink until there is nothing to scroll. A table scrolls where its
+parents' `touch-action: pan-y` would forbid it, so a drag it cannot use reaches
+the browser: `overscroll-behavior: none` on the root is what stops that being a
+swipe back.
+
 A link to a GitHub pull request or issue is drawn as a chip. `renderMarkdown()`
 with `github` only marks it: `https://github.com/<owner>/<repo>/(pull|issues)/<n>`
 becomes an `a.gh-ref` carrying `data-repo` and `data-number`, plus `data-words`

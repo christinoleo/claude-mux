@@ -508,9 +508,9 @@
 								<iconify-icon
 									icon={a.mode === 'accept' ? 'mdi:check-circle' : 'mdi:circle-outline'}
 								></iconify-icon>
-								<!-- No file links here: the whole row is the button. -->
+								<!-- No file links or table button here: the whole row is the button. -->
 								<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
-								<span class="markdown">{@html renderMarkdown(q.recommended)}</span>
+								<span class="markdown">{@html renderMarkdown(q.recommended, { plainTables: true })}</span>
 							</button>
 						{:else}
 							<div class="gq-rec past">
@@ -1715,6 +1715,7 @@
 		color: #a8a29e;
 	}
 	.gq-rec .markdown {
+		flex: 1;
 		min-width: 0;
 	}
 	.gq-own {

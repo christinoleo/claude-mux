@@ -38,6 +38,12 @@ const CLICK_WINDOW = 500;
 
 export type Axis = 'x' | 'y';
 
+type ScrollOffset = Record<Axis, number>;
+
+function scrollAt(el: Element, axis: Axis): number {
+	return axis === 'x' ? el.scrollLeft : el.scrollTop;
+}
+
 /**
  * Can this element scroll under the finger, along the axis and the way it is
  * being dragged? `forward` is a drag toward the start (right, or down), which
@@ -54,7 +60,7 @@ function scrollsAlong(el: Element, axis: Axis, forward: boolean): boolean {
 	if (overflow !== 'auto' && overflow !== 'scroll') return false;
 	const touch = style.touchAction;
 	if (touch === 'none' || touch === (axis === 'x' ? 'pan-y' : 'pan-x')) return false;
-	const at = axis === 'x' ? el.scrollLeft : el.scrollTop;
+	const at = scrollAt(el, axis);
 	const max = axis === 'x' ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
 	return forward ? at > 2 : at < max - 2;
 }
@@ -65,8 +71,25 @@ export function scrollTakesIt(path: Element[], axis: Axis, forward: boolean): bo
 		(el) =>
 			// A textarea scrolls its own text without saying so in `overflow`.
 			(axis === 'y' && el instanceof HTMLTextAreaElement && el.scrollHeight > el.clientHeight + 2) ||
+			// A wide table is being read sideways: another flick at its end is more
+			// reading, not a request to throw the view aside.
+			(axis === 'x' && el.tagName === 'TABLE' && el.scrollWidth > el.clientWidth + 2) ||
 			scrollsAlong(el, axis, forward)
 	);
+}
+
+/** How far each element stood scrolled along each axis, to compare against later. */
+export function scrollOffsets(path: Element[]): ScrollOffset[] {
+	return path.map((el) => ({ x: el.scrollLeft, y: el.scrollTop }));
+}
+
+/**
+ * Did the drag itself scroll something? Then it was a scroll, however it ended.
+ * A flick that carries a code block to its end leaves no room by the time the
+ * finger lifts, which `scrollTakesIt` alone reads as a swipe with nothing in its way.
+ */
+export function scrolledSince(path: Element[], offsets: ScrollOffset[], axis: Axis): boolean {
+	return path.some((el, i) => scrollAt(el, axis) !== offsets[i][axis]);
 }
 
 /** The finger's element and everything above it, up to and including the node. */
@@ -93,6 +116,7 @@ export function swipe(node: HTMLElement, options: SwipeOptions): SwipeAction {
 	 */
 	let from: EventTarget | null = null;
 	let path: Element[] = [];
+	let offsets: ScrollOffset[] = [];
 	let tracking = false;
 	/** When a gesture was last read, so the tap ending it is not a tap. */
 	let swipedAt = 0;
@@ -109,6 +133,7 @@ export function swipe(node: HTMLElement, options: SwipeOptions): SwipeAction {
 		release();
 		from = e.target;
 		path = pathTo(from, node);
+		offsets = scrollOffsets(path);
 		from?.addEventListener('touchend', onTouchEnd as EventListener, { passive: true });
 		from?.addEventListener('touchcancel', onTouchCancel, { passive: true });
 		tracking = true;
@@ -141,7 +166,7 @@ export function swipe(node: HTMLElement, options: SwipeOptions): SwipeAction {
 		const run =
 			axis === 'x' ? (dx > 0 ? opts.onRight : opts.onLeft) : dy > 0 ? opts.onDown : opts.onUp;
 		if (!run) return;
-		if (scrollTakesIt(path, axis, (axis === 'x' ? dx : dy) > 0)) return;
+		if (scrolledSince(path, offsets, axis) || scrollTakesIt(path, axis, (axis === 'x' ? dx : dy) > 0)) return;
 
 		swipedAt = Date.now();
 		run();

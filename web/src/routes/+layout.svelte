@@ -6,6 +6,7 @@
 	import { updated } from '$app/state';
 	import { reportClient, watchClientErrors, watchViewport } from '$lib/client-log';
 	import { onMount, onDestroy } from 'svelte';
+	import { watchTableMode } from '$lib/tableMode';
 	import { drawer, DRAWER_MEDIA_QUERY } from '$lib/stores/drawer.svelte';
 	import { sessionStore } from '$lib/stores/sessions.svelte';
 	import { preferences } from '$lib/stores/preferences.svelte';
@@ -104,6 +105,7 @@
 
 	// Connect session store at layout level so sidebar always has data
 	onMount(() => watchClientErrors());
+	onMount(() => watchTableMode());
 	onMount(() => (embed ? undefined : watchViewport()));
 
 	// The server was updated under this tab. Its next move to another session

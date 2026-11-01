@@ -263,6 +263,8 @@
 		const check = () => node.classList.toggle('long', node.scrollHeight > node.clientHeight + 24);
 		const seen = new ResizeObserver(check);
 		seen.observe(node);
+		// The cap holds the body's own height still; a table changing mode moves only what is inside.
+		for (const child of node.children) seen.observe(child);
 		check();
 		return { destroy: () => seen.disconnect() };
 	}
