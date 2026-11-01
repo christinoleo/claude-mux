@@ -11,6 +11,30 @@ function escapeHtml(text: string): string {
 		.replaceAll('"', '&quot;');
 }
 
+/**
+ * A cell's rendered HTML as an attribute's value: what it reads as in table mode,
+ * with the tags gone and its entities left as they are. Text in the HTML is
+ * escaped already, so every `<` opens a tag.
+ */
+function columnTitle(html: string): string {
+	return html
+		.replace(/<br\s*\/?>/g, ' ')
+		.replace(/<[^>]*>/g, '')
+		.replaceAll('"', '&quot;')
+		.trim();
+}
+
+/**
+ * The button on every table. Both labels are written and CSS shows the one that
+ * applies, because whether a table starts as cards depends on the width it has;
+ * `$lib/tableMode` reads which is showing when it is pressed.
+ */
+const TABLE_TOGGLE =
+	'<button type="button" class="md-table-toggle">' +
+	'<span class="to-cards" title="Show every table as cards, one card per row">Show as cards</span>' +
+	'<span class="to-table" title="Show every table as a table, with rows and columns">Show as table</span>' +
+	'</button>';
+
 /** Split every soft newline in a run of inline tokens into a hard break. */
 function hardBreak(tokens: Token[]): Token[] {
 	return tokens.flatMap((t): Token[] => {
@@ -47,6 +71,8 @@ export interface MarkdownOptions {
 	 * alerts drawn as callouts, and each image's address passed through `media`.
 	 */
 	githubBody?: { media: MediaHref };
+	/** Draw tables with no button or cards, for text that sits inside a button of its own. */
+	plainTables?: boolean;
 }
 
 /** A file path found in a message: `text` is what was written, `code` whether in backticks. */
@@ -209,6 +235,24 @@ const marked = new Marked({
 			if (!/^https?:\/\//i.test(href)) return label;
 			const titled = title ? ` title="${escapeHtml(title)}"` : '';
 			return `<a href="${escapeHtml(href)}"${titled} target="_blank" rel="noopener">${label}</a>`;
+		},
+		// One table, drawn as cards by CSS (`.md-table` in app.css). Each cell
+		// carries its column's title for that; a table re-rendered while text
+		// arrives then has no state of its own to lose.
+		table(token) {
+			if ((this.options as MarkdownOptions).plainTables) return false;
+			const titled = token.header.map((c) => {
+				const title = columnTitle(this.parser.parseInline(c.tokens));
+				return title && ` data-title="${title}"`;
+			});
+			const cell = (c: Tokens.TableCell, tag: 'th' | 'td', attrs = '') => {
+				const align = c.align ? ` align="${c.align}"` : '';
+				return `<${tag}${align}${attrs}>${this.parser.parseInline(c.tokens)}</${tag}>`;
+			};
+			const head = token.header.map((c) => cell(c, 'th')).join('');
+			const rows = token.rows.map((r) => `<tr>${r.map((c, i) => cell(c, 'td', titled[i])).join('')}</tr>`).join('');
+			const body = rows && `<tbody>${rows}</tbody>`;
+			return `<div class="md-table">${TABLE_TOGGLE}<table><thead><tr>${head}</tr></thead>${body}</table></div>\n`;
 		},
 		blockquote(token) {
 			const alert = (token as Tokens.Blockquote & { alert?: AlertKind }).alert;

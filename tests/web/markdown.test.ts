@@ -185,3 +185,100 @@ describe("renderMarkdown with githubBody", () => {
     expect(gh("see #12")).toContain('<a class="gh-ref" data-number="12">#12</a>');
   });
 });
+
+describe("renderMarkdown tables", () => {
+  /** Each row's cells as [column title, cell HTML]. */
+  function cards(html: string): [string | null, string][][] {
+    return [...html.matchAll(/<tr>(.*?)<\/tr>/gs)].slice(1).map((row) =>
+      [...row[1].matchAll(/<td(?: align="\w+")?( data-title="([^"]*)")?>(.*?)<\/td>/gs)].map(
+        (m): [string | null, string] => [m[2] ?? null, m[3]]
+      )
+    );
+  }
+
+  it("gives every table a button", () => {
+    const html = renderMarkdown("| a | b |\n|---|---|\n| 1 | 2 |");
+    expect(html).toContain('<div class="md-table"><button type="button" class="md-table-toggle">');
+    expect(html).toContain("Show as cards");
+    expect(html).toContain("Show as table");
+    expect(html).toContain("<thead><tr><th>a</th><th>b</th></tr></thead>");
+  });
+
+  it("titles each cell with its column", () => {
+    expect(cards(renderMarkdown("| Name | Age |\n|---|---|\n| Ana | 30 |\n| Bo | 40 |"))).toEqual([
+      [["Name", "Ana"], ["Age", "30"]],
+      [["Name", "Bo"], ["Age", "40"]],
+    ]);
+  });
+
+  it("keeps links and code in the cells", () => {
+    const [[link, code]] = cards(
+      renderMarkdown("| Link | Code |\n|---|---|\n| [docs](https://example.com/a) | `x = 1` |")
+    );
+    expect(link).toEqual(["Link", '<a href="https://example.com/a">docs</a>']);
+    expect(code).toEqual(["Code", "<code>x = 1</code>"]);
+  });
+
+  it("titles a column by its header's words when the header holds markup", () => {
+    const html = renderMarkdown(
+      "| **Bold** `code` | [a link](https://example.com) | A \"quote\" & <b> |\n|---|---|---|\n| 1 | 2 | 3 |"
+    );
+    expect(cards(html)[0].map(([title]) => title)).toEqual([
+      "Bold code",
+      "a link",
+      "A &quot;quote&quot; &amp; &lt;b&gt;",
+    ]);
+  });
+
+  it("titles a column whose header is a file path or an issue by what was written", () => {
+    const html = renderMarkdown("| `src/cli.ts` | #12 |\n|---|---|\n| 1 | 2 |", {
+      files: (path) => `/open/${path}`,
+      github: { bare: true },
+    });
+    expect(cards(html)[0].map(([title]) => title)).toEqual(["src/cli.ts", "#12"]);
+  });
+
+  it("keeps an empty cell under its own column, and a short row padded", () => {
+    expect(cards(renderMarkdown("| a | b | c |\n|---|---|---|\n| 1 |  | 3 |\n| 4 |"))).toEqual([
+      [["a", "1"], ["b", ""], ["c", "3"]],
+      [["a", "4"], ["b", ""], ["c", ""]],
+    ]);
+  });
+
+  it("carries no title for a column with an empty header", () => {
+    expect(cards(renderMarkdown("|  | b |\n|---|---|\n| 1 | 2 |"))).toEqual([[[null, "1"], ["b", "2"]]]);
+  });
+
+  it("titles a column as table mode reads it, entities and all", () => {
+    const titles = (header: string, options = {}) =>
+      cards(renderMarkdown(`| ${header} |\n|---|\n| 1 |`, options))[0][0][0];
+    expect(titles("R&amp;D")).toBe("R&amp;D");
+    expect(titles("a &lt; b")).toBe("a &lt; b");
+    expect(titles("Name<br>(full)", { githubBody: { media: (href: string) => href } })).toBe("Name (full)");
+  });
+
+  it("keeps the header of a table with no rows, the one thing it has to show", () => {
+    expect(renderMarkdown("| a | b |\n|---|---|")).toContain(
+      "<table><thead><tr><th>a</th><th>b</th></tr></thead></table>"
+    );
+  });
+
+  it("draws a table with no button where the text sits inside a button", () => {
+    const html = renderMarkdown("| a |\n|---|\n| 1 |", { plainTables: true });
+    expect(html).toContain("<table>");
+    expect(html).not.toContain("md-table");
+    expect(html).not.toContain("<button");
+  });
+
+  it("keeps a column's alignment", () => {
+    expect(renderMarkdown("| a |\n|--:|\n| 1 |")).toContain('<td align="right" data-title="a">1</td>');
+  });
+
+  it("leaves a raw HTML table from GitHub without a button", () => {
+    const html = renderMarkdown("<table><tr><td>x</td></tr></table>", {
+      githubBody: { media: (href) => href },
+    });
+    expect(html).toContain("<table>");
+    expect(html).not.toContain("md-table");
+  });
+});

@@ -4,6 +4,19 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* A table drawn as cards: when the person chose that, or until they have chosen
+   one way or the other, when the table itself has little room. See `.md-table`. */
+@custom-variant table-cards {
+	@container md-table (max-width: 30rem) {
+		:root:not([data-table-mode]) & {
+			@slot;
+		}
+	}
+	:root[data-table-mode='cards'] & {
+		@slot;
+	}
+}
+
 :root {
   /*
    * The page's one stacking order, lowest first. Anything that sits above the
@@ -133,10 +146,12 @@
   }
   html {
     height: 100%;
+    /* The viewport reads this from the root, not the body. A sideways drag on a
+       table already at its end would otherwise be the browser's swipe back. */
+    overscroll-behavior: none;
   }
   body {
     min-height: 100%;
-    overscroll-behavior: none;
   }
   body {
     @apply bg-background text-foreground;
@@ -293,17 +308,106 @@
 	padding-left: 10px;
 	color: #a8a29e;
 }
-.markdown table {
+:is(.markdown, .md-table) table {
 	border-collapse: collapse;
 	margin: 6px 0 10px;
 	display: block;
 	overflow-x: auto;
+	/* Sideways at its end stops at the table, and does not move what holds it. */
+	overscroll-behavior-x: contain;
 }
-.markdown th,
-.markdown td {
+/* Prose around a table may break anywhere (the transcript's does), which leaves a
+   cell no width of its own: columns shrink until nothing overflows and there is
+   nothing to scroll. The floor is what makes a wide table wide. */
+:is(.markdown, .md-table) :is(th, td) {
 	border: 1px solid #3a342c;
 	padding: 4px 8px;
 	font-size: 13px;
+	min-width: 8em;
+}
+.md-table-toggle {
+	display: block;
+	margin: 0 0 4px auto;
+	min-height: 28px;
+	padding: 2px 10px;
+	border: 1px solid #44403c;
+	border-radius: 6px;
+	background: #292524;
+	color: #d6d3d1;
+	font-size: 12px;
+	cursor: pointer;
+	user-select: none;
+	-webkit-user-select: none;
+	touch-action: manipulation;
+}
+.md-table-toggle:hover {
+	background: #35302b;
+}
+@media (pointer: coarse) {
+	.md-table-toggle {
+		min-height: 44px;
+		padding: 2px 14px;
+		font-size: 13px;
+	}
+}
+.to-table {
+	display: none;
+}
+/* A table from a Markdown source, with its button. A GitHub body's raw HTML table
+   has neither this wrapper nor cards, and keeps the sideways scroll above. */
+.md-table {
+	container: md-table / inline-size;
+	margin: 6px 0 10px;
+	table {
+		margin: 0;
+	}
+	@variant table-cards {
+		table:has(tbody) {
+			overflow-x: visible;
+		}
+		.to-table {
+			display: inline;
+		}
+		/* With no rows there are no cards, and the header is all the table has to say. */
+		.to-cards,
+		thead:has(+ tbody) {
+			display: none;
+		}
+		tbody {
+			display: block;
+		}
+		tr {
+			display: block;
+			border: 1px solid #3a342c;
+			border-radius: 8px;
+			padding: 4px 0;
+			margin-bottom: 8px;
+		}
+		/* `&::` under the variant: it wraps the selector in `:is()`, where a pseudo-element is invalid. */
+		td {
+			display: block;
+			border: none;
+			min-width: 0;
+			padding: 4px 10px;
+			text-align: left;
+			&::before {
+				content: attr(data-title);
+				display: block;
+				font-size: 11px;
+				font-weight: 600;
+				color: #a8a29e;
+			}
+			&:empty::after {
+				content: '\2014';
+				color: #78716c;
+			}
+		}
+		/* A long link or path folds inside its card instead of pushing the page wide. */
+		td,
+		td code {
+			overflow-wrap: anywhere;
+		}
+	}
 }
 .markdown a {
 	color: #93c5fd;
