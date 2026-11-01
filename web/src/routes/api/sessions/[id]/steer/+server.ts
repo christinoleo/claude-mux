@@ -1,24 +1,18 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getQueue, promoteToSteer, steerIntoPane } from '$shared/server/message-queue.js';
-import { composePrompt, paneForTarget } from '$lib/server/prompt.js';
+import { composePrompt, paneForTarget, REFUSALS } from '$lib/server/prompt.js';
 import { broadcastSessions } from '$lib/server/ws-managers.js';
-
-const NOT_TAKEN = 'Claude Code did not take the message; it is still in its input box';
-const OCCUPIED = "Something else is typed in the pane's prompt box: send or clear it first";
 
 /**
  * Put a message into the running turn. The body is either what `/send` takes
  * (`text`, `attachments`), or `{ id }` to steer that item out of the server
  * queue. Claude Code reads it when it next stops for input; `mode: 'now'` makes
  * it read at once. A session that is not busy takes it as a normal send; one
- * showing a dialog refuses it, since pasted text would answer the dialog.
+ * showing a dialog refuses it (`submitToPane`), since pasted text would answer it.
  */
 export const POST: RequestHandler = async ({ params, request }) => {
 	const { pane, state } = paneForTarget(decodeURIComponent(params.id));
-	if (state === 'waiting' || state === 'permission') {
-		return json({ error: 'Answer the open dialog first' }, { status: 409 });
-	}
 	const busy = state === 'busy';
 
 	try {
@@ -31,8 +25,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			if (result === 'missing') {
 				return json({ error: 'That message has already left the queue', queue }, { status: 404 });
 			}
-			if (result === 'occupied') return json({ error: OCCUPIED, queue }, { status: 409 });
-			return result === 'sent' ? json({ ok: true, queue }) : json({ error: NOT_TAKEN, queue }, { status: 502 });
+			if (result === 'sent') return json({ ok: true, queue });
+			const { error, status } = REFUSALS[result];
+			return json({ error, queue }, { status });
 		}
 
 		const text = typeof body.text === 'string' ? body.text.trim() : '';
@@ -41,9 +36,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		if (!prompt.text) return json({ error: 'text, attachments or id is required' }, { status: 400 });
 		const opts = { mode, dictated: body.dictated === true } as const;
 		const result = await steerIntoPane(pane, prompt.text, busy, opts);
-		if (result === 'occupied') return json({ error: OCCUPIED }, { status: 409 });
-		if (result === 'in-box') return json({ error: NOT_TAKEN }, { status: 502 });
-		return json({ ok: true });
+		if (result === 'taken') return json({ ok: true });
+		const { error, status } = REFUSALS[result];
+		return json({ error }, { status });
 	} catch {
 		return json({ error: 'Failed to steer' }, { status: 500 });
 	}

@@ -25,6 +25,8 @@ vi.mock('child_process', () => ({
 
 vi.mock('../../src/tmux/pane.js', () => ({
 	capturePaneContentAsync: vi.fn(async () => 'pane'),
+	isDialogOpen: vi.fn(() => false),
+	isDialogState: vi.fn(() => false),
 	readPromptBox: vi.fn(() => {
 		const text = boxReads.length > 0 ? boxReads.shift()! : boxText;
 		return text === null ? null : { kind: 'typed', text };

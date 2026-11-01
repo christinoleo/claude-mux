@@ -1327,7 +1327,7 @@
 	const sendKeys = (keys: string) => postToPane({ keys });
 
 	/** Types text into the pane as it is, with no Enter: a dialog's own text field. */
-	const sendPaneText = (text: string) => postToPane({ text, raw: true });
+	const sendPaneText = (text: string) => postToPane({ text, raw: true, answering: true });
 
 	/** Works Claude Code's rewind dialog in the pane; says why when it could not. */
 	async function rewind(action: RewindAction): Promise<boolean> {
@@ -2222,8 +2222,11 @@
 			alert('Something is typed in the pane\'s prompt box: send or clear it first.');
 			return;
 		}
-		await sendPaneText('/restart');
-		await sendKeys('Enter');
+		// A dialog that opened since would take the Enter as its answer: stop if refused.
+		// Both are refused while a dialog is open, which would take the Enter as its answer.
+		if (await post(api(target), 'send', { text: '/restart', raw: true })) {
+			await post(api(target), 'send', { keys: 'Enter', unlessDialog: true });
+		}
 	}
 
 	/** The update notice says the running Claude Code restarts itself with `/restart`. */

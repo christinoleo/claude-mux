@@ -1,8 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { execFileSync } from 'child_process';
-import { markDictated, sendTextToPane, submitToPane } from '$shared/server/message-queue.js';
-import { composePrompt } from '$lib/server/prompt.js';
+import { markDictated, paneHasDialog, submitToPane, typeIntoPane } from '$shared/server/message-queue.js';
+import { composePrompt, REFUSALS } from '$lib/server/prompt.js';
 
 export const POST: RequestHandler = async ({ params, request }) => {
 	const target = decodeURIComponent(params.id);
@@ -10,29 +10,28 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const keys = body.keys || 'Escape';
 	const rawText: string = typeof body.text === 'string' ? body.text : '';
 	const raw = body.raw === true;
+	// A dialog's own text field and the sign-in's code field are typed into on purpose.
+	const answering = body.answering === true;
 
 	const prompt = composePrompt(target, rawText, body.attachments);
 	if (!prompt.ok) return json({ error: prompt.error }, { status: 400 });
 
 	try {
 		if (prompt.text) {
-			// Raw text is put in the box on purpose, beside whatever is there.
-			if (raw) sendTextToPane(target, prompt.text, { appendEnter: false });
-			const result = raw ? 'taken' : await submitToPane(target, prompt.text);
-			if (result === 'occupied') {
-				return json(
-					{ error: "Something else is typed in the pane's prompt box: send or clear it first" },
-					{ status: 409 }
-				);
-			}
-			if (result === 'in-box') {
-				return json(
-					{ error: 'Claude Code did not take the message; it is still in its input box' },
-					{ status: 502 }
-				);
+			const result = raw
+				? await typeIntoPane(target, prompt.text, { answering })
+				: await submitToPane(target, prompt.text);
+			if (result !== 'taken') {
+				const { error, status } = REFUSALS[result];
+				return json({ error }, { status });
 			}
 			if (body.dictated === true) markDictated(target, prompt.text);
 		} else {
+			// The Enter that follows a raw send, which a dialog opened since would take.
+			if (body.unlessDialog === true && (await paneHasDialog(target))) {
+				const { error, status } = REFUSALS.dialog;
+				return json({ error }, { status });
+			}
 			// Send each key separately so repeated keys (e.g. C-b C-b) work correctly
 			for (const key of keys.split(' ')) {
 				execFileSync('tmux', ['send-keys', '-t', target, key], { stdio: 'ignore' });

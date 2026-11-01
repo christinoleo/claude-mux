@@ -18,7 +18,13 @@ import { getAllSessions } from '../db/index.js';
 import { CLAUDE_MUX_DIR } from '../utils/paths.js';
 import { writeFileAtomic } from '../utils/atomic-write.js';
 import { isPidAlive } from '../utils/pid.js';
-import { capturePaneContentAsync, readPaneHold, readPromptBox } from '../tmux/pane.js';
+import {
+	capturePaneContentAsync,
+	isDialogOpen,
+	isDialogState,
+	readPaneHold,
+	readPromptBox
+} from '../tmux/pane.js';
 import { composePromptWithAttachments } from './attachments.js';
 import { recordDictation } from './dictation-marks.js';
 import { resolveTranscriptPath } from '../transcript/tailer.js';
@@ -107,6 +113,32 @@ function paneHold(target: string): ReturnType<typeof readPaneHold> {
 	}
 }
 
+/**
+ * The session a target names: its tmux pane, or its id. A pane can have an older
+ * file left beside its live session, whose state says nothing; the newest speaks.
+ */
+function sessionOf(target: string) {
+	const named = getAllSessions().filter((s) => s.tmux_target === target || s.id === target);
+	return named.reduce<(typeof named)[number] | undefined>(
+		(newest, s) => (newest && newest.last_update >= s.last_update ? newest : s),
+		undefined
+	);
+}
+
+/** Whether the hooks report a dialog open in this pane, read afresh from the session JSON. */
+function hooksReportDialog(target: string): boolean {
+	return isDialogState(sessionOf(target)?.state);
+}
+
+/**
+ * Whether text sent to this pane now would answer a dialog. The state is read
+ * after the capture, to leave as little time as possible before the paste.
+ */
+export async function paneHasDialog(target: string): Promise<boolean> {
+	const raw = await capturePaneContentAsync(target, true);
+	return isDialogOpen(sessionOf(target)?.state, raw);
+}
+
 function pressEnter(target: string): void {
 	try {
 		execFileSync('tmux', ['send-keys', '-t', target, 'Enter'], { stdio: 'ignore' });
@@ -133,7 +165,7 @@ const PASTE_PLACEHOLDER = /^\[Pasted text #\d+/;
  * it, which holds even while the pane has not yet redrawn its box.
  */
 function loggedSince(target: string, text: string, since: number): boolean {
-	const session = getAllSessions().find((s) => s.tmux_target === target || s.id === target);
+	const session = sessionOf(target);
 	const path = session ? resolveTranscriptPath(session, session.id) : null;
 	if (!path) return false;
 	const want = text.replace(/\s+/g, '');
@@ -194,7 +226,8 @@ export async function confirmSubmitted(target: string, text?: string): Promise<b
 			if (loggedSince(target, text, since)) return true;
 		}
 		const waited = Date.now() - started;
-		if (!retried && waited >= SUBMIT_RETRY_MS) {
+		// A dialog that opened meanwhile would take this Enter as its answer.
+		if (!retried && waited >= SUBMIT_RETRY_MS && !hooksReportDialog(target)) {
 			pressEnter(target);
 			retried = true;
 		}
@@ -203,7 +236,7 @@ export async function confirmSubmitted(target: string, text?: string): Promise<b
 }
 
 /** How a message handed to the pane fared (`submitToPane`). */
-export type SubmitResult = 'taken' | 'in-box' | 'occupied';
+export type SubmitResult = 'taken' | 'in-box' | 'occupied' | 'dialog';
 
 /** Two texts alike but for how the box wrapped and indented them. */
 function sameTyped(a: string, b: string): boolean {
@@ -217,11 +250,15 @@ function sameTyped(a: string, b: string): boolean {
  * Enter Claude Code lost: pasting again on a retry sent it twice. So a box
  * already holding the text is submitted as it stands, and one holding
  * anything else is left alone (`occupied`) for the person to send or clear.
+ * With a dialog open nothing is sent at all (`dialog`), since it would take the
+ * text as keys and the Enter as its answer. The state is read after the capture,
+ * to leave as little time as possible between the check and the paste.
  * `in-box` means the text was handed over but still sits typed after the
  * retry Enter (`confirmSubmitted`).
  */
 export async function submitToPane(target: string, text: string): Promise<SubmitResult> {
 	const raw = await capturePaneContentAsync(target, true);
+	if (isDialogOpen(sessionOf(target)?.state, raw)) return 'dialog';
 	const box = raw === null ? null : readPromptBox(raw);
 	if (box?.kind === 'typed' && box.text.trim()) {
 		if (!sameTyped(box.text, text)) return 'occupied';
@@ -230,6 +267,20 @@ export async function submitToPane(target: string, text: string): Promise<Submit
 		sendTextToPane(target, text);
 	}
 	return (await confirmSubmitted(target, text)) ? 'taken' : 'in-box';
+}
+
+/**
+ * Put text in the pane with no Enter, beside whatever is there. An open dialog
+ * refuses it unless the text is `answering` that dialog's own field.
+ */
+export async function typeIntoPane(
+	target: string,
+	text: string,
+	{ answering }: { answering: boolean }
+): Promise<'taken' | 'dialog'> {
+	if (!answering && (await paneHasDialog(target))) return 'dialog';
+	sendTextToPane(target, text, { appendEnter: false });
+	return 'taken';
 }
 
 /**
@@ -252,7 +303,7 @@ export type SteerMode = 'steer' | 'now';
  * it, and a message can sit in the queue far longer than that.
  */
 export function markDictated(target: string, text: string): void {
-	const session = getAllSessions().find((s) => s.tmux_target === target || s.id === target);
+	const session = sessionOf(target);
 	if (session) recordDictation(session.id, text);
 }
 
@@ -500,9 +551,10 @@ export function editQueueItem(target: string, id: string, text: string): boolean
  * How promoting a queued item went: `sent` into the turn, `missing` because it
  * had already left the queue, `in-box` when Claude Code left the pasted
  * text sitting in its input box, or `occupied` when other text was typed there
- * and the item went back to its place in the queue.
+ * or `dialog` when a dialog was open, and the item went back to its place in
+ * the queue.
  */
-export type PromoteResult = 'sent' | 'missing' | 'in-box' | 'occupied';
+export type PromoteResult = 'sent' | 'missing' | 'in-box' | 'occupied' | 'dialog';
 
 /**
  * Take one item out of the queue and steer it into the pane. Taken out first,
@@ -519,6 +571,8 @@ export async function promoteToSteer(
 	const queue = queues.get(target);
 	const index = queue?.findIndex((m) => m.id === id) ?? -1;
 	if (!queue || index === -1) return 'missing';
+	// Before the item leaves: while it is out, an edit cannot find it and a clear cannot reach it.
+	if (hooksReportDialog(target)) return 'dialog';
 	const [message] = queue.splice(index, 1);
 	if (queue.length === 0) queues.delete(target);
 	persistQueues();
@@ -531,7 +585,7 @@ export async function promoteToSteer(
 	try {
 		const opts = { mode, dictated: message.dictated };
 		const result = await steerIntoPane(target, promptOf(message), busy, opts);
-		if (result === 'occupied') putBack();
+		if (result === 'occupied' || result === 'dialog') putBack();
 		return result === 'taken' ? 'sent' : result;
 	} catch (err) {
 		putBack();
@@ -672,12 +726,15 @@ export function drainQueues(sessions: SessionLike[]): void {
 		// reads idle: Claude Code parked each message sent into it, no prompt hook
 		// answered, the fallback above let the next one through ten seconds
 		// later, and the whole queue then ran as one prompt.
+		// The state above was read before that capture, so the hooks are asked
+		// again: a dialog that opened since would take the message as its answer.
 		const hold = paneHold(target);
-		if (hold) {
+		const dialog = hooksReportDialog(target);
+		if (hold || dialog) {
 			// Our own last message, still in the box: its Enter was folded into
 			// the paste. One more submits it; anything else typed there is a
 			// person's draft, and waits for them.
-			if (hold === 'typed' && sentAt !== undefined) pressEnter(target);
+			if (hold === 'typed' && sentAt !== undefined && !dialog) pressEnter(target);
 			pendingDrain.set(target, now);
 			if (sentAt !== undefined) recentlySent.set(target, now);
 			continue;
