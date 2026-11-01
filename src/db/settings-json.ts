@@ -18,11 +18,27 @@ export interface Settings {
    * straight into tmux are not claude-mux's to touch and are left alone.
    */
   autoRemoteControl: boolean;
+  /**
+   * Install Claude Code updates on this machine and restart the sessions that
+   * can safely take one (`src/server/claude-update.ts`).
+   */
+  autoUpdateClaude: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   autoRemoteControl: false,
+  autoUpdateClaude: true,
 };
+
+/** `base` with whatever `source` holds for a known setting, all of which are booleans. */
+function withKnown(base: Settings, source: Partial<Settings>): Settings {
+  const next = { ...base };
+  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
+    const value = source[key];
+    if (typeof value === "boolean") next[key] = value;
+  }
+  return next;
+}
 
 let settingsPath: string | null = null;
 
@@ -39,13 +55,7 @@ export function getSettings(): Settings {
   const path = resolveSettingsPath();
   if (!existsSync(path)) return { ...DEFAULT_SETTINGS };
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf-8")) as Partial<Settings>;
-    return {
-      autoRemoteControl:
-        typeof parsed.autoRemoteControl === "boolean"
-          ? parsed.autoRemoteControl
-          : DEFAULT_SETTINGS.autoRemoteControl,
-    };
+    return withKnown(DEFAULT_SETTINGS, JSON.parse(readFileSync(path, "utf-8")) as Partial<Settings>);
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -53,8 +63,7 @@ export function getSettings(): Settings {
 
 /** Change some settings; returns the whole set as it now stands. */
 export function updateSettings(patch: Partial<Settings>): Settings {
-  const next: Settings = { ...getSettings() };
-  if (typeof patch.autoRemoteControl === "boolean") next.autoRemoteControl = patch.autoRemoteControl;
+  const next = withKnown(getSettings(), patch);
   const path = resolveSettingsPath();
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;

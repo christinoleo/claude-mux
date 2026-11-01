@@ -175,6 +175,8 @@ export async function restartClaude(session: Session): Promise<RestartOutcome> {
       "env",
       "-u",
       "CLAUDECODE",
+      // Its own PATH, not the tmux server's, which may not reach `claude` at all.
+      `PATH=${sessionPath(session)}`,
       ...argv,
     ]);
     if (ok === null) return { ok: false, error: "tmux could not respawn the pane" };
@@ -243,6 +245,17 @@ export async function bangFinished(
   return false;
 }
 
+/** The PATH the session's process runs with, or the server's own where `/proc` cannot say. */
+export function sessionPath(session: Pick<Session, "pid">): string {
+  const own = process.env.PATH ?? "";
+  try {
+    const env = readFileSync(`/proc/${session.pid}/environ`, "utf-8").split("\0");
+    return env.find((v) => v.startsWith("PATH="))?.slice(5) ?? own;
+  } catch {
+    return own;
+  }
+}
+
 /**
  * The version `claude` reports on the session's own PATH: the binary a
  * restart would start, which is the one an upgrade has to change. Read off
@@ -250,17 +263,10 @@ export async function bangFinished(
  * not answer.
  */
 export async function claudeVersion(session: Pick<Session, "pid" | "cwd">): Promise<string | null> {
-  let path = process.env.PATH;
-  try {
-    const env = readFileSync(`/proc/${session.pid}/environ`, "utf-8").split("\0");
-    path = env.find((v) => v.startsWith("PATH="))?.slice(5) ?? path;
-  } catch {
-    /* no /proc: the server's own PATH is the best guess */
-  }
   try {
     const { stdout } = await execFileAsync("claude", ["--version"], {
       cwd: session.cwd,
-      env: { ...process.env, PATH: path },
+      env: { ...process.env, PATH: sessionPath(session) },
       timeout: 5_000,
     });
     return /\d+\.\d+\.\d+\S*/.exec(stdout)?.[0] ?? null;
@@ -315,14 +321,20 @@ export function lastBangOutput(lines: string[], command: string): string | null 
   return null;
 }
 
-function readBangOutput(session: Session, command: string): string | null {
+/** The last lines of the session's transcript, or null when it has none to read. */
+function readSessionTail(session: Session, bytes: number): string[] | null {
   const path = resolveTranscriptPath(session, session.id);
   if (!path) return null;
   try {
-    return lastBangOutput(readTailLines(path, statSync(path).size, OUTPUT_TAIL_BYTES), command);
+    return readTailLines(path, statSync(path).size, bytes);
   } catch {
     return null;
   }
+}
+
+function readBangOutput(session: Session, command: string): string | null {
+  const lines = readSessionTail(session, OUTPUT_TAIL_BYTES);
+  return lines && lastBangOutput(lines, command);
 }
 
 /**

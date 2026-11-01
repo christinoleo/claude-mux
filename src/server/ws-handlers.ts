@@ -24,6 +24,7 @@ import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { readLoginScreen, type LoginScreen } from '../tmux/login.js';
 import { readRewindScreen, type RewindScreen } from '../tmux/rewind.js';
+import { readClaudeUpdateStatus } from './claude-update.js';
 import { upgradeStatus } from './restart-claude.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
 import { peekContextPercent, peekTranscriptTitle } from '../transcript/context-peek.js';
@@ -48,6 +49,8 @@ type LivePaneFields = {
 	/** Claude Code's sign-in screen, which the transcript never sees; null when none is drawn. */
 	pane_login: LoginScreen;
 	pane_rewind: RewindScreen;
+	/** claude-mux gave up installing the version this machine is due (`src/server/claude-update.ts`). */
+	auto_update_failed: boolean;
 	/** The upgrade the status line's button started, while it runs or after it ended without a restart. */
 	upgrade: UpgradeStatus | null;
 	/** The spinner line while a turn runs, split into its parts; null when none is drawn. */
@@ -450,7 +453,8 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 	// A session is "new" when this process first sees it; everything alive at
 	// startup is left as it is. Workers other tools start straight in tmux do
 	// not carry a claude-mux name and are not touched.
-	const auto = getSettings().autoRemoteControl;
+	const settings = getSettings();
+	const auto = settings.autoRemoteControl;
 	for (const s of sessions) {
 		if (rcSeen.has(s.id)) continue;
 		rcSeen.add(s.id);
@@ -483,6 +487,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 	}
 
 	const visits = getVisits();
+	const autoUpdateFailed = settings.autoUpdateClaude && readClaudeUpdateStatus()?.state === 'failed';
 	const enrichedSessions = sessions.map((s) => {
 		const paneTitle = s.tmux_target ? (allPanes.get(s.tmux_target)?.title ?? null) : null;
 		const raw = s.tmux_target ? rawCaptures.get(s.tmux_target) : undefined;
@@ -515,6 +520,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 			pane_update: stripped ? readUpdateNotice(stripped) : null,
 			pane_login: stripped ? readLoginScreen(stripped) : null,
 			pane_rewind: stripped ? readRewindScreen(stripped) : null,
+			auto_update_failed: autoUpdateFailed,
 			upgrade: upgradeStatus(s.id),
 			// The spinner says more than the hooks do: what runs, for how long,
 			// how many tokens. Busy only, so a frame left over never outlives the turn.

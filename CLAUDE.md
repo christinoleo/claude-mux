@@ -990,6 +990,34 @@ folder is gone the route answers 409 with the project's root
 Resuming clears the session's settled mark. Ctrl+K lists past sessions after
 everything live.
 
+### 12. Keeping Claude Code up to date
+
+`src/server/claude-update.ts` runs in the built server only (never a dev server,
+since it restarts live sessions) and in one server per machine. It is on by
+default, per machine, with a switch on the Machines view (`autoUpdateClaude`).
+
+Installing happens once per machine, outside any pane. The binary's location
+says who owns it: mise, npm and brew get a command from claude-mux, a native
+installation updates itself, and anything else is left alone. The target is the
+newest release at least 24 hours old (a date from the installer, or when this
+machine first saw it), so that daily releases cannot starve it. Success means
+`claude --version` reports the target. Two attempts per target, an hour apart,
+counted in `~/.claude-mux/claude-update.json` before each one runs, so restarting
+the server cannot restart the loop. After that the status is `failed` until a newer
+target comes up. The session's manual button still types the upgrade into its pane and installs at
+once.
+
+A restart is the dangerous half, so `restartRefusal()` refuses on any doubt: the
+session must be idle for 10 minutes, with no draft, dialog, queued message or
+background task or shell, not on Remote Control (the bridge would not come back),
+showing Claude Code's notice, on an older version than the installed one (from
+`~/.claude/sessions/<pid>.json`), and with no prompt in its launch argv, which a
+replay would send again. That last one rules out maestro workers. Each session gets one restart per version, written before it
+happens.
+
+To test it, run the built server under a `HOME` of its own with a `tmux` on `PATH`
+that adds `-L <name>`; never against the real installation.
+
 ## Key Data Flow
 
 ```

@@ -243,6 +243,8 @@ const EnrichedSessionSchema = z.object({
 		])
 		.nullable()
 		.optional(),
+	/** claude-mux gave up installing the version this machine is due — live only. */
+	auto_update_failed: z.boolean().optional(),
 	/** The upgrade the status line started: running, or why it did not restart — live only. */
 	upgrade: UpgradeStatusSchema.nullable().optional(),
 	/** The spinner line while a turn runs, split into its parts — live only. */

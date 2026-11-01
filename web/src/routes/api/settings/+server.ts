@@ -1,23 +1,22 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getSettings, updateSettings } from '$shared/db/settings-json.js';
+import { getSettings, updateSettings, type Settings } from '$shared/db/settings-json.js';
+import { readClaudeUpdateStatus } from '$shared/server/claude-update.js';
 import { broadcastSessions } from '$lib/server/ws-managers.js';
 
 /** This machine's settings. They also ride on every sessions broadcast. */
 export const GET: RequestHandler = async () => {
-	return json({ settings: getSettings() });
+	return json({ settings: getSettings(), claudeUpdate: readClaudeUpdateStatus() });
 };
 
 export const POST: RequestHandler = async ({ request }) => {
-	let body: { autoRemoteControl?: unknown };
+	let body: Partial<Settings>;
 	try {
 		body = await request.json();
 	} catch {
 		return json({ error: 'Invalid JSON' }, { status: 400 });
 	}
-	const patch: { autoRemoteControl?: boolean } = {};
-	if (typeof body.autoRemoteControl === 'boolean') patch.autoRemoteControl = body.autoRemoteControl;
-	const settings = updateSettings(patch);
+	const settings = updateSettings(body);
 	broadcastSessions();
 	return json({ ok: true, settings });
 };
