@@ -55,29 +55,30 @@ idle runs so none reached the model.
 Counts of a bracketed or long paste include those that arrived inside Claude Code's
 `<pasted_content>` wrapper with the full text intact. In a separate idle run of 4 sends
 each, unbracketed messages of 3, 4, 5, 6, 8, 10, 14, 20 and 30 lines all lost the first
-Enter, which is where the five-line idle figure comes from. Messages long enough for
-Claude Code to detect the paste by themselves, such as 800 or more characters on one
-line, are fine.
+Enter, which is where the five-line idle figure comes from. Single lines were fine at
+every length tried, from 200 to 6,000 characters. Long multi-line messages were fine too
+(40 lines busy, 200 lines idle), so the failure sits in a band of short multi-line text,
+and its upper edge was not pinned down.
 
 Four bugs follow, the first two measured directly:
 
 1. **A two-line message becomes two messages.** The first line starts a turn and the
-   second arrives on its own. This is not retried or reported: `confirmSubmitted` sees
-   an empty box and answers `taken`.
+   second arrives on its own. From the code, nothing would report this:
+   `confirmSubmitted` sees an empty box and answers `taken`.
 2. **A short multi-line message loses its Enter every time, and the retry does not
    always save it.** This is the "Enter folded into the paste" that #149 worked around.
    The Enter sent at 1.5s by `confirmSubmitted` recovers it, so such a message always
-   arrives late. While busy, a five-line message was still in the box after the retry in
-   3 of 8 sends. In the product that would surface as "Claude Code did not take the
+   arrives late. While busy, a five-line message was still in the box a second after the
+   retry in 3 of 8 sends. In the product that would surface as "Claude Code did not take the
    message". Linking the earlier reports to this is an inference, because the original
    messages are gone. The one report that names its cause, #152, is a different bug: a
    slow redraw in a long session, which I did not reproduce and which #152 addressed.
 3. **A message sent to an open permission dialog answers it.** With a dialog open, I
    pasted "please stop, do not run that" and pressed Enter. The dialog took the Enter on
    its default, "Yes", and the command ran ([results/t12.txt](fixtures/send-without-keys/results/t12.txt)).
-   In code, `drainQueues` reads the pane first with `paneHold`, but `submitToPane`, used
-   by the send and steer routes, returns from `readPromptBox` and pastes when there is
-   no box to read. No server check stops it. Sessions launched with the default
+   In the code, `drainQueues` reads the pane first with `paneHold`, but `submitToPane`,
+   used by the send and steer routes, only checks for text typed in the box, and I found
+   no server check for a dialog. Sessions launched with the default
    `--dangerously-skip-permissions` rarely show this dialog; the same Enter applies to
    any other dialog that accepts one. I did not test whether the web UI hides the
    composer while a dialog is up.
@@ -237,8 +238,7 @@ refused a `/rename` for the same reason. Not usable for a person's messages.
 
 - **`UserPromptSubmit`** runs when a prompt is submitted and
   [can block it or add context](https://code.claude.com/docs/en/hooks.md#userpromptsubmit-decision-control).
-  It cannot start anything. It did fire for every delivered prompt, including socket and
-  mod ones, which makes it useful as evidence of delivery.
+  It cannot start anything. It did fire for delivered socket, channel and mod prompts, which makes it useful as evidence of delivery.
 - **`PostToolUse` `additionalContext`** is documented. A hook reading a mailbox file got
   text to the model mid-turn, and the model acted on it
   ([results/t5.txt](fixtures/send-without-keys/results/t5.txt)). It only fires when a tool
@@ -275,14 +275,15 @@ refused a `/rename` for the same reason. Not usable for a person's messages.
 - **Blocked prompts return to the box.** In the idle runs the hook blocks each prompt and
   Claude Code restores it, so the script clears the box between sends. That is why the
   two-line row in `t7.txt` shows a third prompt after the retry; it is an artifact.
-- **Results I threw out.** Three busy runs were invalid. The harness blocks a long
-  standalone `sleep`, so a `sleep 70` turn ended early and the "busy" sends went to an
-  idle session. That covers the second half of `t7.txt` (kept only for its threshold
-  section) and two runs whose results are not in the fixtures. The valid busy data is in
-  `t10.txt`, whose script checks that the tool is still running.
-- **The first send in `t10.txt`.** The "7 of 7" in the table excludes the first send: the
-  probe had no allow rule in force for that command, so a permission dialog was open and
-  the send answered it. That is how bug 3 was found, and `t12.txt` then tested it directly.
+- **Results I threw out.** Claude Code blocks or backgrounds a long standalone `sleep`, so
+  in several early runs the turn ended and the "busy" sends went to an idle session. That
+  covers the second half of `t7.txt`, which is kept only for its threshold section, plus
+  runs not kept in the fixtures. Another discarded run kept sending into a permission
+  dialog (bug 3). The valid busy data is in `t9.txt` and `t10.txt`; the `t10` script checks
+  that the tool is still running.
+- **The first send in `t10.txt`.** The "7 of 7" in the table excludes the first send: its text vanished
+  with an empty box and no queue record. A permission dialog was most likely open for that
+  command, and the send answered it. That is how bug 3 was found, and `t12.txt` then tested it directly.
 - **An accident in one probe session.** In `t5.txt`, my keystrokes picked "Yes, and switch
   to auto mode" on a dialog, so the rest of that probe session ran in auto mode. It
   affected only the mod's large-text and queue-order checks, neither of which depends on
