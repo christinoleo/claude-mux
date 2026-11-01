@@ -1,0 +1,14 @@
+START b117be69-917c-4670-8b7b-9c11bfc5bbaa
+busy ['❯ Run exactly this Bash command in the foreground, never in the background, with', '● Bash(python3 -c "import time; time.sleep(240)")', 'python3 -c "import time; time.sleep(240)"']
+short now busy [{"lost_first_enter": true, "after_retry": null, "box": ["\u276f\u00a0"]}, 0.18, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]
+short p busy [0.16, 0.15, 0.15, 0.15, 0.15, 0.15, 0.16, 0.16]
+two now busy [[0.15, [30], 54], [0.19, [30], 54], [0.19, [30], 54], [0.19, [30], 54], [0.19, [30], 54], [0.19, [30], 54], [0.19, [30], 54], [0.22, [30], 54]]
+two p busy [[0.15, [54], 54], [0.15, [54], 54], [0.19, [54], 54], [0.15, [54], 54], [0.16, [54], 54], [0.16, [54], 54], [0.16, [54], 54], [0.16, [54], 54]]
+five now busy [{"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": null, "box": ["\u276f\u00a0Q0038x line 0 alpha beta gamma"]}, {"lost_first_enter": true, "after_retry": null, "box": ["\u276f\u00a0Q0039x line 0 alpha beta gamma"]}, {"lost_first_enter": true, "after_retry": null, "box": ["\u276f\u00a0Q0040x line 0 alpha beta gamma"]}]
+five p busy [0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16]
+ten now busy [{"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.2}, {"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.16}, {"lost_first_enter": true, "after_retry": 0.16}]
+ten p busy [0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16]
+forty now busy [0.16, 0.16, 0.16, 0.16, 0.17, 0.16, 0.16, 0.16]
+forty p busy [0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.16]
+turn still open True tool ended False
+enqueues 84 bare second lines 8

@@ -1,0 +1,36 @@
+START c08d993f-5523-48d6-8a92-da83b708db9e
+--- threshold, unbracketed, then Enter again at 1.5s as confirmSubmitted does
+2 lines {"before_retry": [29, 23], "after_retry": [29, 23, 53], "sent": 53, "exact": true, "wrapped": false} all same
+3 lines {"before_retry": [], "after_retry": [77], "sent": 77, "exact": true, "wrapped": false} all same
+4 lines {"before_retry": [], "after_retry": [101], "sent": 101, "exact": true, "wrapped": false} all same
+5 lines {"before_retry": [], "after_retry": [125], "sent": 125, "exact": true, "wrapped": false} all same
+6 lines {"before_retry": [], "after_retry": [149], "sent": 149, "exact": true, "wrapped": false} all same
+8 lines {"before_retry": [], "after_retry": [197], "sent": 197, "exact": true, "wrapped": false} all same
+10 lines {"before_retry": [], "after_retry": [245], "sent": 245, "exact": true, "wrapped": false} all same
+14 lines {"before_retry": [], "after_retry": [345], "sent": 345, "exact": true, "wrapped": false} all same
+20 lines {"before_retry": [], "after_retry": [495], "sent": 495, "exact": true, "wrapped": false} all same
+30 lines {"before_retry": [], "after_retry": [745], "sent": 745, "exact": true, "wrapped": false} all same
+--- single long line, unbracketed
+200 [206]
+500 [506]
+800 [864]
+1200 [1264]
+2000 [2064]
+--- busy: enqueue record against box
+short now {"enq_s": null, "boxline": ["\u276f\u00a0T0046 short line"]} [None, 0.19, 0.19, 0.19]
+short p {"enq_s": 0.19, "boxline": ["\u276f\u00a0T0050 short line"]} [0.19, 0.2, 0.21, 0.16]
+two now {"enq_s": 0.17, "boxline": ["\u276f\u00a0T0054 line 0 alpha beta gamma"]} [0.17, 0.16, 0.16, 0.16]
+two p {"enq_s": 0.19, "boxline": ["\u276f\u00a0T0058 line 0 alpha beta gamma"]} [0.19, 0.2, 0.21, 0.21]
+ten now {"enq_s": null, "boxline": ["\u276f\u00a0T0062 line 0 alpha beta gamma"]} [None, None, None, None]
+ten p {"enq_s": 0.2, "boxline": ["\u276f\u00a0[Pasted text #4 +9 lines]"]} [0.2, 0.17, 0.21, 0.2]
+enqueue sample {"operation": "enqueue"}
+amma
+  </pasted_content id="41ed">
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  paste again to expand                                                                         Update available! Run: mise upgrade claude
+                                                                                                              Ctrl+Y to paste deleted text
+
+

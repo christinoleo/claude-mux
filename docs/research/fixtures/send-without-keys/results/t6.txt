@@ -1,0 +1,16 @@
+START 1749a6f6-ef71-4891-a958-f0447bc78912
+short now {"whole_first_enter": 12, "split": 0, "stuck_in_box": 0, "other": 0, "median_s": 0.05}
+short p {"whole_first_enter": 12, "split": 0, "stuck_in_box": 0, "other": 0, "median_s": 0.04}
+two now {"whole_first_enter": 0, "split": 12, "stuck_in_box": 0, "other": 0, "split_ex": [[20, 26], 47], "median_s": null}
+two p {"whole_first_enter": 12, "split": 0, "stuck_in_box": 0, "other": 0, "median_s": 0.04}
+ten now {"whole_first_enter": 0, "split": 0, "stuck_in_box": 12, "other": 0, "stuck_ex": ["\u276f\u00a0TRIAL0060 line 0 alpha beta gamma"], "median_s": null}
+ten p {"whole_first_enter": 0, "split": 0, "stuck_in_box": 0, "other": 12, "other_ex": [[307], 249, "\n\n<pasted_content id=\"63fa\">\nTRIAL0072 line 0 alpha beta gamma\nline 1 alpha beta"], "median_s": null}
+long now {"whole_first_enter": 0, "split": 0, "stuck_in_box": 0, "other": 12, "other_ex": [[6068], 6010, "\n\n<pasted_content id=\"63fa\">\nTRIAL0084 x x x x x x x x x x x x x x x x x x x x x"], "median_s": null}
+long p {"whole_first_enter": 0, "split": 0, "stuck_in_box": 0, "other": 12, "other_ex": [[6068], 6010, "\n\n<pasted_content id=\"63fa\">\nTRIAL0096 x x x x x x x x x x x x x x x x x x x x x"], "median_s": null}
+lines200 now {"whole_first_enter": 0, "split": 0, "stuck_in_box": 0, "other": 12, "other_ex": [[5157], 5099, "\n\n<pasted_content id=\"63fa\">\nTRIAL0108 line 0 alpha beta gamma\nline 1 alpha beta"], "median_s": null}
+lines200 p {"whole_first_enter": 0, "split": 0, "stuck_in_box": 0, "other": 12, "other_ex": [[5157], 5099, "\n\n<pasted_content id=\"63fa\">\nTRIAL0120 line 0 alpha beta gamma\nline 1 alpha beta"], "median_s": null}
+────────────────────
+  paste again to expand                                                                         Update available! Run: mise upgrade claude
+                                                                                                              Ctrl+Y to paste deleted text
+
+

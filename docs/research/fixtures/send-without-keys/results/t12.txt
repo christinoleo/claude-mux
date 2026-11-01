@@ -1,0 +1,15 @@
+dialog open True file before False
+file after True dialog False
+ ▐▛███▛█   Claude Code v2.1.309
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE/
+❯ Run exactly this Bash command: touch dialog_probe.txt  Then reply DONE.
+● Bash(touch dialog_probe.txt)
+  ⎿  Done
+● DONE
+✻ Cogitated for 3s · done 9:47 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents                                             Update available! Run: m
+                                                                                                                        
