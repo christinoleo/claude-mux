@@ -4,7 +4,7 @@ Research for [#180](https://github.com/christinoleo/claude-mux/issues/180), part
 
 ## Answer
 
-Polling can do the whole job within quota at all three scopes. Two reads, once a minute, cover all 118 owned repos for about 2 GraphQL points a minute, or under 3% of the hourly budget. The cost of polling is delay, about a minute at worst at that rate, and it does not grow with the number of repos.
+Polling can do the whole job within quota at all three scopes. One GraphQL sweep and one search, once a minute, cover all 118 owned repos for about 3 points a minute, or under 5% of the hourly budget. The cost of polling is delay, about a minute at worst at that rate, and it does not grow with the number of repos.
 
 The account events feed cannot be the trigger on its own. Issue and PR events arrived within one poll, but pushes were at least 23 hours late, and 9 of 25 label events named the wrong label.
 
@@ -36,7 +36,7 @@ The account events feed cannot be the trigger on its own. Issue and PR events ar
 **`GET /users/christinoleo/events`.** I polled it every 45 seconds for 25 minutes. That is faster than the `X-Poll-Interval: 60` it returns, and a real poller should obey the header.
 
 - **Scope.** It includes private repos and only shows Leo's own actions. A release published by `github-actions[bot]` appeared in `repos/.../events` but not here.
-- **Issues, comments and PRs.** All 13 new events appeared on the first poll after they happened, so the delay was under 45 seconds. One label event showed up 7 seconds after its timestamp. This is well below the documented [30 seconds to 6 hours](https://docs.github.com/en/rest/activity/events), but it is one evening.
+- **Issues, comments and PRs.** All 12 new events appeared on the first poll after they happened, so the delay was under 45 seconds. One label event showed up 7 seconds after its timestamp. This is well below the documented [30 seconds to 6 hours](https://docs.github.com/en/rest/activity/events), but it is one evening.
 - **Labels are complete but not trustworthy.** All 25 label events from `repos/.../issues/events` were in the feed. In 9 of them the feed's `payload.label` said `ready-for-agent` where the issue's own events said `in-progress`, which is the daemon claiming the issue. A rule reading that field would fire on the daemon's own claim. Used only as a doorbell, followed by a read of the real state, it is safe.
 - **Pushes are very late.**
   - The newest `PushEvent` in the feed at 23:03 was from 10-31 14:22, almost 33 hours old.
@@ -131,7 +131,7 @@ So the question is whether a wait of 10 to 60 seconds matters for a push that up
 
 ## How far to trust this
 
-- One Sunday evening, 28 minutes, mostly one busy repo. Small samples: 13 feed events, 25 label events, 6 search changes.
+- One Sunday evening, 28 minutes, mostly one busy repo. Small samples: 12 feed events, 25 label events, 6 search changes.
 - The push lag could be a backlog rather than the norm. Reading the feed on another day would settle it.
 - Delay is measured to the resolution of the poll, so "first poll after" means under 45 or 60 seconds, not a precise figure.
 - "Busy" comes from claude-mux with one daemon and two workers. Other projects may differ.
