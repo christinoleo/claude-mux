@@ -1278,6 +1278,8 @@
 		terminalStore.history.length;
 		terminalStore.historyStart;
 		transcriptStore.entries.length;
+		// Follows the text as it grows, for the reader already at the bottom.
+		transcriptStore.live.at(-1)?.text.length;
 		// A boolean, not the action text: the latter changes on every 500ms
 		// broadcast and would force a layout read/write twice a second.
 		liveRowVisible;
@@ -2614,7 +2616,7 @@
 				<!-- Keyed by session: what a card saw of one pane's dialog says nothing about the next. -->
 				{#key ref}
 					<TranscriptView
-						entries={transcriptStore.entries}
+						entries={transcriptStore.drawn}
 						onLoadSubagent={(id) => transcriptStore.loadSubagent(id)}
 						{fileLink}
 						onQuote={quoteInComposer}

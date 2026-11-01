@@ -10,10 +10,11 @@
 
 import { execFileSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
-import { getAllSessions, getSession, updateSession, readLinks, cleanupStaleSessions, sanitizeDisplayName, getVisits, type Session } from '../db/index.js';
+import { getAllSessions, getSession, isSessionDead, updateSession, readLinks, cleanupStaleSessions, sanitizeDisplayName, getVisits, type Session } from '../db/index.js';
 import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
+import { LiveTextStore, type LiveBatch, type LiveText } from '../transcript/live-text.js';
 import { isDictated } from './dictation-marks.js';
 import { homeDiskPercent } from './disk.js';
 import { findTranscriptById, JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
@@ -1446,6 +1447,8 @@ export type TranscriptWsMessage =
 			/** The model on the latest assistant line, as the API names it. */
 			model: string | null;
 			available: boolean;
+			/** The reply being written, as far as it has got. A subagent's reader has none. */
+			live?: LiveText[];
 			timestamp: number;
 		}
 	/** An older slice, sent to one client that asked for it. */
@@ -1455,7 +1458,21 @@ export type TranscriptWsMessage =
 	 * holding only the tail uses it to tell a new entry from an update to one
 	 * it never received.
 	 */
-	| { type: 'entries'; entries: TranscriptEntry[]; indices: number[]; timestamp: number }
+	| {
+			type: 'entries';
+			entries: TranscriptEntry[];
+			indices: number[];
+			/**
+			 * Set while live text is held: what is left of it after these entries, in
+			 * the same message so that a reader never draws the words twice or not at all.
+			 */
+			live?: LiveText[];
+			timestamp: number;
+		}
+	/** One `MessageDisplay` batch: message `id`'s text is now what it was up to `start`, then `text`. */
+	| { type: 'live_batch'; id: string; start: number; text: string; timestamp: number }
+	/** Live text went away with no entry to replace it. */
+	| { type: 'live'; live: LiveText[]; timestamp: number }
 	| { type: 'subagents'; subagents: SubagentPayload[]; timestamp: number }
 	/**
 	 * Context-window usage, which only this channel carries: it is read off
@@ -1556,6 +1573,14 @@ const SWEEP_MS = 60 * 1000;
 const ATTACH_SLICE_BYTES = 4 * 1024 * 1024;
 /** Ceiling on one history request, so a client cannot ask for the world. */
 const MAX_HISTORY_ENTRIES = 500;
+/** How often held live text is checked against its session: prompts, death and age. */
+const LIVE_SWEEP_MS = 5_000;
+/**
+ * An entry's timestamp can precede its message's last batch by this much, and
+ * anything older cannot be the entry of live text this new. It is what keeps a
+ * reader's first read of a whole transcript from matching old replies.
+ */
+const LIVE_ENTRY_SLACK_MS = 5_000;
 
 /** The tail a snapshot carries of a builder: its last entries, where they start, and its context and model. */
 function tailOf(builder: TranscriptBuilder) {
@@ -1574,7 +1599,7 @@ function entriesDelta(
 	builder: TranscriptBuilder,
 	ids: Iterable<string>,
 	timestamp: number
-): TranscriptWsMessage {
+): Extract<TranscriptWsMessage, { type: 'entries' }> {
 	const entries: TranscriptEntry[] = [];
 	const indices: number[] = [];
 	for (const id of new Set(ids)) {
@@ -1593,9 +1618,59 @@ export class TranscriptWsManager {
 	private follows = new Map<WsClient, AgentFollow>();
 	private config: Required<WsConfig>;
 	private unwatch: (() => void) | null = null;
+	private live = new LiveTextStore();
+	private liveSweeper: ReturnType<typeof setInterval> | null = null;
 
 	constructor(config?: WsConfig) {
 		this.config = { ...DEFAULT_CONFIG, ...config };
+	}
+
+	/**
+	 * A batch from the `MessageDisplay` hook. The call holds the session's
+	 * screen, so this only stores and forwards. False for a session this
+	 * machine does not know. Live text is held whether or not anyone is
+	 * reading, for the reader who opens the session mid-reply.
+	 */
+	acceptLiveText(batch: LiveBatch): boolean {
+		const sessionId = batch.session_id;
+		if (!this.live.holds(sessionId) && !getSession(sessionId)) return false;
+		const piece = this.live.accept(batch, Date.now());
+		this.liveSweeper ??= setInterval(() => this.sweepLive(), LIVE_SWEEP_MS);
+		// A reader still waiting on a cold attach gets all of it in the snapshot, its first message.
+		if (piece && !this.sessions.get(sessionId)?.attaching) {
+			this.broadcast(sessionId, { type: 'live_batch', id: batch.message_id, ...piece, timestamp: Date.now() });
+		}
+		return true;
+	}
+
+	private sweepLive(): void {
+		const now = Date.now();
+		for (const id of this.live.sessionIds()) {
+			const session = getSession(id);
+			let changed: boolean;
+			if (!session || isSessionDead(session)) {
+				changed = this.live.drop(id);
+			} else {
+				if (session.turn_started_at) this.live.promptSubmitted(id, session.turn_started_at);
+				changed = this.live.expire(id, now);
+			}
+			if (changed) this.broadcast(id, { type: 'live', live: this.live.view(id), timestamp: now });
+		}
+		if (this.live.sessionIds().length === 0 && this.liveSweeper) {
+			clearInterval(this.liveSweeper);
+			this.liveSweeper = null;
+		}
+	}
+
+	/** Entries just read off the file take the place of the live text they recorded. */
+	private landLive(state: TranscriptSessionState, ids: string[]): void {
+		const now = Date.now();
+		const since = this.live.view(state.sessionId)[0]?.ts ?? now;
+		for (const id of new Set(ids)) {
+			const entry = state.builder.getEntry(id);
+			if (entry?.kind !== 'text' || entry.ts < since - LIVE_ENTRY_SLACK_MS) continue;
+			this.live.land(state.sessionId, entry.text, now);
+		}
 	}
 
 	/**
@@ -1920,6 +1995,7 @@ export class TranscriptWsManager {
 				state.available = true;
 				const changed: string[] = [];
 				for (const line of result.lines) changed.push(...state.builder.feed(line));
+				this.landLive(state, changed);
 				return changed;
 			}
 			case 'reset':
@@ -1964,7 +2040,9 @@ export class TranscriptWsManager {
 
 		const changedIds = this.consume(state, result);
 		if (changedIds.length > 0) {
-			this.broadcast(sessionId, entriesDelta(state.builder, changedIds, Date.now()));
+			const delta = entriesDelta(state.builder, changedIds, Date.now());
+			if (this.live.holds(sessionId)) delta.live = this.live.view(sessionId);
+			this.broadcast(sessionId, delta);
 		}
 
 		const subagents = this.syncSubagents(state);
@@ -2100,6 +2178,7 @@ export class TranscriptWsManager {
 					subagentPayload(id, sub, state.builder.finishedAgents.has(id), state.expanded.has(id))
 			),
 			available: state.available,
+			live: this.live.view(state.sessionId),
 			timestamp: Date.now()
 		};
 	}

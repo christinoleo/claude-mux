@@ -334,6 +334,24 @@ context instead of the session's. An agent whose file is not on disk is
 button returns to the parent with `?compose`, which focuses the composer with
 the caret at the end of its draft.
 
+Live text fills the wait for an entry. The JSONL receives a message's text only
+when the message ends, so `POST /api/hooks/message-display` takes Claude Code's
+`MessageDisplay` hook (`type: "http"`, `timeout: 1`) and hands each batch to
+`LiveTextStore` (`src/transcript/live-text.ts`), which holds it in memory per
+session and `message_id` whether or not anyone is reading. The call holds the
+terminal's screen, so the route only stores and answers. It refuses any request
+with an `Origin` and any unknown `session_id`. `setup` does not install the hook
+yet, and without it the Transcript behaves as it always did.
+
+No id ties a batch to an entry. An entry takes the oldest live text that is a
+prefix of it, or a share of a message that begins with it (a message's text
+blocks arrive joined and land apart), and failing both, live text with a lost
+batch by order alone. A message that lands and its live text leave in one
+`entries` message, and the store draws live text as a plain text entry after the
+real ones, so the swap moves nothing. Live text never gets written down: it is
+cut off by a newer message or prompt and gone 60 seconds later, or when the
+session dies.
+
 ### 6. What GitHub says a session is waiting on
 
 The maestro and wayfinder skills keep their state in GitHub issues, not in any

@@ -26,6 +26,10 @@ _Avoid_: Repo, folder, workspace
 A Claude Code process running in a tmux pane on a machine.
 _Avoid_: Agent, pane, chat
 
+**Live text**:
+The words of a reply while Claude writes them, before they enter the session's record.
+_Avoid_: Preview, streaming, draft
+
 **Past session**:
 A Claude Code conversation whose transcript is on a machine's disk but which has no live pane.
 _Avoid_: Dead session, history, closed session

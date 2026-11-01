@@ -2,7 +2,8 @@ import { browser } from '$app/environment';
 import { ReliableWebSocket } from './websocket-base.svelte';
 import type { ContextUsage } from '../../../../src/transcript/context.js';
 import type { TranscriptEntry } from '../../../../src/transcript/parser.js';
-import type { SubagentPayload } from '../../../../src/server/ws-handlers.js';
+import type { SubagentPayload, TranscriptWsMessage } from '../../../../src/server/ws-handlers.js';
+import type { LiveText } from '../../../../src/transcript/live-text.js';
 
 export type { SubagentPayload };
 
@@ -14,6 +15,7 @@ interface SnapshotMsg {
 	context: ContextUsage | null;
 	model?: string | null;
 	available: boolean;
+	live?: LiveText[];
 }
 interface HistoryMsg {
 	type: 'history';
@@ -24,7 +26,10 @@ interface EntriesMsg {
 	type: 'entries';
 	entries: TranscriptEntry[];
 	indices: number[];
+	live?: LiveText[];
 }
+type LiveBatchMsg = Extract<TranscriptWsMessage, { type: 'live_batch' }>;
+type LiveMsg = Extract<TranscriptWsMessage, { type: 'live' }>;
 interface SubagentsMsg {
 	type: 'subagents';
 	subagents: SubagentPayload[];
@@ -37,7 +42,18 @@ interface ModelMsg {
 	type: 'model';
 	model: string;
 }
-type TranscriptMsg = SnapshotMsg | HistoryMsg | EntriesMsg | SubagentsMsg | ContextMsg | ModelMsg;
+type TranscriptMsg =
+	| SnapshotMsg
+	| HistoryMsg
+	| EntriesMsg
+	| LiveBatchMsg
+	| LiveMsg
+	| SubagentsMsg
+	| ContextMsg
+	| ModelMsg;
+
+/** Marks a drawn entry as live text, which is still only part of what it will say. */
+export const LIVE_ENTRY_PREFIX = 'live:';
 
 /** Entries per "load earlier" request. */
 const HISTORY_PAGE = 200;
@@ -52,6 +68,28 @@ const EARLIER_TIMEOUT_MS = 15_000;
  */
 export class TranscriptStore extends ReliableWebSocket {
 	entries = $state<TranscriptEntry[]>([]);
+	/** The reply being written, which the record has not taken yet. */
+	live = $state<LiveText[]>([]);
+	/**
+	 * Entries as drawn: live text goes last, as the text entry it will become,
+	 * so it renders the same and the swap to the real one moves nothing. `text`
+	 * is a getter so that a batch re-renders that entry, not the whole list.
+	 */
+	drawn: TranscriptEntry[] = $derived(
+		this.live.length === 0
+			? this.entries
+			: [
+					...this.entries,
+					...this.live.map((m) => ({
+						kind: 'text' as const,
+						id: `${LIVE_ENTRY_PREFIX}${m.id}`,
+						ts: m.ts,
+						get text() {
+							return m.text;
+						}
+					}))
+				]
+	);
 	/** All subagents, keyed by their own id — some have no parent Task id. */
 	subagents = $state<Record<string, SubagentPayload>>({});
 	/** The subset that can be attached to a Task card, keyed by that card's id. */
@@ -124,6 +162,12 @@ export class TranscriptStore extends ReliableWebSocket {
 			case 'entries':
 				this.applyEntries(data);
 				break;
+			case 'live_batch':
+				this.applyLiveBatch(data);
+				break;
+			case 'live':
+				this.live = data.live;
+				break;
 			case 'subagents':
 				this.applySubagents(data.subagents);
 				break;
@@ -138,6 +182,7 @@ export class TranscriptStore extends ReliableWebSocket {
 
 	private applySnapshot(msg: SnapshotMsg): void {
 		this.entries = msg.entries;
+		this.live = msg.live ?? [];
 		this.available = msg.available;
 		this.firstIndex = msg.firstIndex;
 		this.settleEarlier();
@@ -243,6 +288,7 @@ export class TranscriptStore extends ReliableWebSocket {
 
 	private applyEntries(msg: EntriesMsg): void {
 		this.available = true;
+		const drawnBefore = this.entries.length + this.live.length;
 		for (const [i, entry] of msg.entries.entries()) {
 			const index = this.indexById.get(entry.id);
 			if (index !== undefined) {
@@ -254,6 +300,19 @@ export class TranscriptStore extends ReliableWebSocket {
 			if (msg.indices[i] < this.firstIndex) continue;
 			this.indexById.set(entry.id, this.entries.length);
 			this.entries.push(entry);
+		}
+		if (msg.live) this.live = msg.live;
+		// Counted on what is drawn, since an entry replacing live text adds nothing new.
+		this.appended += Math.max(0, this.entries.length + this.live.length - drawnBefore);
+	}
+
+	private applyLiveBatch(msg: LiveBatchMsg): void {
+		const held = this.live.find((m) => m.id === msg.id);
+		if (held) {
+			held.text = held.text.slice(0, msg.start) + msg.text;
+			if (held.text === '') this.live = this.live.filter((m) => m !== held);
+		} else if (msg.start === 0) {
+			this.live.push({ id: msg.id, ts: Date.now(), text: msg.text });
 			this.appended++;
 		}
 	}
@@ -285,6 +344,7 @@ export class TranscriptStore extends ReliableWebSocket {
 			this.doDisconnect();
 		}
 		this.entries = [];
+		this.live = [];
 		this.subagents = {};
 		this.context = null;
 		this.available = false;

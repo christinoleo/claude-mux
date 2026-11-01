@@ -11,6 +11,7 @@ export {
   getSessionPids,
   deleteSessionsByPids,
   cleanupStaleSessions,
+  isSessionDead,
   getSessionsDir,
   setSessionsDir,
   ATTACHMENTS_DIR,
