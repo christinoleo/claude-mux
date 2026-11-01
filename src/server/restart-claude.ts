@@ -29,7 +29,7 @@ import { setTimeout as delay } from "timers/promises";
 import { promisify } from "util";
 
 import { getSession, updateSession, type Session } from "../db/sessions-json.js";
-import { capturePaneContentAsync, isBangRunning, readUpdateNotice, runTmux, stripAnsi } from "../tmux/pane.js";
+import { capturePaneContentAsync, isBangRunning, isDialogOpen, readUpdateNotice, runTmux, stripAnsi } from "../tmux/pane.js";
 import { readTailLines } from "../transcript/context-peek.js";
 import { resolveTranscriptPath } from "../transcript/tailer.js";
 import type { UpgradeStatus } from "../types/ws-messages.js";
@@ -378,6 +378,11 @@ export async function upgradeThenRestart(session: Session): Promise<RestartOutco
   if (!command) return { ok: false, error: "the pane shows no upgrade command claude-mux can run" };
   // Bounded well inside the ten seconds the server gives this request.
   const before = await claudeVersion(session);
+  // Last, so the seconds that takes are covered: the Enter below would answer a dialog.
+  const screen = await capturePaneContentAsync(target);
+  if (isDialogOpen(getSession(session.id)?.state, screen)) {
+    return { ok: false, error: "Answer the open dialog first" };
+  }
   // C-u clears a draft or a suggestion first: `!` only means "shell" at the start of the box.
   if ((await runTmux(["send-keys", "-t", target, "C-u", `!${command}`, "Enter"])) === null) {
     return { ok: false, error: "could not type into the pane" };

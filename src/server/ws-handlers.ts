@@ -18,7 +18,7 @@ import { isDictated } from './dictation-marks.js';
 import { homeDiskPercent } from './disk.js';
 import { findTranscriptById, JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
 import { currentRemoteControlUrl, answerRemoteControlDialog, setRemoteControl } from './remote-control.js';
-import { listAllPanes, type PaneInfo, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi } from '../tmux/pane.js';
+import { listAllPanes, type PaneInfo, capturePaneContentAsync, readActivity, readActivityLine, isPaneShowingIdlePrompt, detectRecentInterruption, readPromptBox, readQueuedMessages, readPromptOptions, readUpdateNotice, stripAnsi, isDialogState } from '../tmux/pane.js';
 import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { readLoginScreen, type LoginScreen } from '../tmux/login.js';
@@ -507,7 +507,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 			// by a tick — only a dialog that names its own keys is believed.
 			pane_choice: stripped
 				? readPromptOptions(stripped, {
-						declaredOnly: s.state !== 'waiting' && s.state !== 'permission'
+						declaredOnly: !isDialogState(s.state)
 					})
 				: null,
 			// Claude Code says so only in its footer, which the transcript never sees.

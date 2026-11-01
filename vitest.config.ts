@@ -4,7 +4,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     // The web app's alias for the shared code, so tests can load its modules.
-    alias: { $shared: fileURLToPath(new URL("./src", import.meta.url)) },
+    alias: {
+      $shared: fileURLToPath(new URL("./src", import.meta.url)),
+      $lib: fileURLToPath(new URL("./web/src/lib", import.meta.url)),
+    },
   },
   test: {
     globals: true,

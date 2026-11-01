@@ -255,20 +255,53 @@ export function isPaneShowingSpinner(content: string): boolean {
 }
 
 /** Why a pane cannot take a new message, though the hooks call its session idle. */
-export type PaneHold = "working" | "queued" | "typed";
+export type PaneHold = "working" | "queued" | "typed" | "dialog";
+
+/**
+ * Whether a dialog is open in a pane, where text sent to it would answer it:
+ * the Enter takes the highlighted row, which on a permission dialog is "Yes".
+ * The hooks are authoritative. A local command's dialog such as `/model` leaves
+ * the session idle, so the screen is believed too, but only for one that names
+ * its own keys on its last line, since prose can look like a list.
+ */
+export function isDialogOpen(state: string | undefined, raw: string | null): boolean {
+  return isDialogState(state) || (!!raw && isDialogDrawn(stripAnsi(raw)));
+}
+
+/** Whether the hooks' state for a session means a dialog is open in its pane. */
+export function isDialogState(state: string | undefined): boolean {
+  return state === "waiting" || state === "permission";
+}
+
+/** The way out `/config` and its like name, which draw no rows to read but take keys all the same. */
+const LOCAL_SCREEN_HINT = /Esc to (?:clear|close|exit)/;
+
+/**
+ * Whether the pane's foot names the keys of a screen that takes them: a list of
+ * any shape (a picker has no numbers to read), the sign-in, a rewind. The rows
+ * do not matter here, only that Enter would act on something other than a prompt.
+ */
+function isDialogDrawn(clean: string): boolean {
+  const lines = clean.split("\n").map((line) => bodyOf(line).text).filter(Boolean);
+  const last = lines.at(FOOTER_RULE.test(lines.at(-1) ?? "") ? -2 : -1) ?? "";
+  // A `❯` line is the box itself, with the words typed into it.
+  return (DIALOG_HINT.test(last) || LOCAL_SCREEN_HINT.test(last)) && !last.startsWith("❯");
+}
 
 /**
  * Whether a pane the hooks call idle would really start a turn on a message
  * pasted now. It would not while a spinner turns (compaction fires no hook)
  * or a `!` shell line runs (an upgrade, which the message would interrupt),
  * while Claude Code holds messages of its own (it is busy, and would add this
- * one to them and run the lot as a single prompt), or while text sits typed
- * in the box (the paste would be appended to it). Needs a capture with colour.
+ * one to them and run the lot as a single prompt), while text sits typed in
+ * the box (the paste would be appended to it), or while a local command's
+ * dialog is drawn (it would answer it). Needs a capture with colour.
  */
 export function readPaneHold(raw: string): PaneHold | null {
   if (readQueuedMessages(raw).length > 0) return "queued";
   const clean = stripAnsi(raw);
   if (isPaneShowingSpinner(clean) || isBangRunning(clean)) return "working";
+  if (isDialogDrawn(clean)) return "dialog";
   const box = readPromptBox(raw);
   return box?.kind === "typed" && box.text.trim() ? "typed" : null;
 }

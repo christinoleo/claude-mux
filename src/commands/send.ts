@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { execFileSync } from "child_process";
 import { resolveSessionOrExit } from "./resolve-session.js";
+import { capturePaneContentAsync, isDialogOpen } from "../tmux/pane.js";
 
 export function createSendCommand(): Command {
   return new Command("send")
@@ -36,6 +37,16 @@ export function createSendCommand(): Command {
           if (prompt === undefined || prompt === "") {
             process.stderr.write(
               JSON.stringify({ error: "No text provided and stdin is not piped" }) + "\n"
+            );
+            process.exit(2);
+          }
+
+          // The dialog would take the text as keys and the Enter as its answer.
+          // Read afresh, after the capture: the stdin above can take minutes.
+          const screen = await capturePaneContentAsync(tmuxTarget, true);
+          if (isDialogOpen(resolveSessionOrExit(target).state, screen)) {
+            process.stderr.write(
+              JSON.stringify({ error: "Answer the open dialog first", id: session.id }) + "\n"
             );
             process.exit(2);
           }

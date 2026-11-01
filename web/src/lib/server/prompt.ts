@@ -39,6 +39,13 @@ export function attachmentPaths(
 	return validateAttachmentPaths(session.id, attachments as string[]);
 }
 
+/** What a route answers for a message that did not get through to the pane. */
+export const REFUSALS = {
+	dialog: { error: 'Answer the open dialog first', status: 409 },
+	occupied: { error: "Something else is typed in the pane's prompt box: send or clear it first", status: 409 },
+	'in-box': { error: 'Claude Code did not take the message; it is still in its input box', status: 502 }
+} as const;
+
 /** The text to deliver, with any attachments folded in. */
 export function composePrompt(
 	target: string,

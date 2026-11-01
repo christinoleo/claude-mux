@@ -231,6 +231,22 @@ join the two into one message. What is typed there shows as the first row of
 `QueueStrip.svelte` (in the transcript view, where no terminal shows it), with
 Send and Clear.
 
+Nothing is delivered into an open dialog, which would take the text as keys and
+the Enter as its answer (a permission dialog's default is "Yes"). `isDialogOpen()`
+(`src/tmux/pane.ts`) decides: the hooks' `waiting` or `permission`, and otherwise
+a screen whose last line names its own keys, since a local command's dialog such
+as `/model` leaves the session idle. `submitToPane()` answers `dialog` and the
+send and steer routes turn that into a 409, the queue's drain holds
+(`readPaneHold()`, plus a fresh read of the hooks' state), a promoted item goes
+back to its place, and `claude-mux send` exits 2. Raw text is refused the same
+way unless the request says `answering: true`, which only the cards that type
+into a dialog's or the sign-in's own field send; keys go through, since they are
+how a dialog gets answered, unless the request says `unlessDialog: true`, which
+is the Enter behind a raw `/restart`. A window remains: a permission dialog draws
+no key hint, so the screen cannot vouch for it, and its hook lands 9-26 ms after
+it is drawn (a question's lands 17-34 ms before); the check to the Enter takes
+13 ms typically and 46 ms at worst (Claude Code 2.1.309).
+
 A draft has one way out of the composer, `deliver()` in the session page, and
 four places it can go: `send` (start a turn), `queue` (wait for the running
 turn to end, in claude-mux's own queue), `steer` (hand it to Claude Code, which
