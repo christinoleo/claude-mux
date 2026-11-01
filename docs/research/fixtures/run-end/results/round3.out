@@ -1,0 +1,19 @@
+== trust-no: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'enter_tries': 1, 'prompt_ran': True}
+   ev: SessionStart@2.95 UserPromptSubmit@3.25 Stop[allow]@5.0 SessionEnd[other]@7.18
+   json: 0.02:GONE 3.11:idle 3.43:busy 5.12:idle/done
+== cap: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'stops': 7}
+   ev: SessionStart@1.3 UserPromptSubmit@1.54 Stop[block]@3.89 Stop[block]@5.81 PreToolUse[Bash]@7.53 Stop[block]@8.37 Stop[block]@9.85 Stop[block]@12.9 Stop[block]@15.11 Stop[block]@18.87 PreToolUse[Bash]@20.62 PreToolUse[Read]@21.19 PermissionRequest[Read]@21.38 Notification[permission_prompt]@27.47 SessionEnd[other]@44.35
+   json: 0.02:GONE 1.4:idle 1.72:busy 4.06:idle/done 7.65:busy/done 8.44:idle/done 20.81:busy/done 21.29:busy/done 21.61:waiting/done 27.63:permission/done
+== maestro-dontask: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'stops': 4, 'gh_calls': ['issue view 165 --json state,labels --jq "\\(.state)\\n\\(.labels[].name)"', 'issue view 165 --json state,labels --jq "\\(.state)\\n\\(.labels[].name)"', 'issue view 165 --json state,labels --jq "\\(.state)\\n\\(.labels[].name)"', 'issue view 165 --json state,labels --jq "\\(.state)\\n\\(.labels[].name)"', 'issue edit 165 --add-label needs-help', 'issue comment 165 --body maestro stop gate: worker stopped 3 times without closi'], 'count_file': False}
+   ev: SessionStart@2.63 UserPromptSubmit@3.05 Stop[allow]@5.91 PreToolUse[Bash]@9.13 Stop[allow]@14.93 PreToolUse[ToolSearch]@18.05 PostToolUse[ToolSearch]@18.23 Stop[allow]@22.11 Stop[allow]@25.34 SessionEnd[other]@33.73
+   json: 0.03:GONE 3.0:idle 3.16:busy 6.04:idle/done 9.17:busy/done 15.02:idle/done 18.18:busy/done 18.33:busy/done 22.25:idle/done
+== limit-timeout: trust=None alive_at_end=False pane_gone=61.34 rc=124 json_left=0 extra={'mid': {'at': 12.25, 'sleeps': {'7304': 1, '7305': 1}, 'job_shells': '9'}, 'sleeps_left': {'7304': 0, '7305': 0}}
+   ev: SessionStart@2.68 UserPromptSubmit@3.29 PreToolUse[Bash]@6.16 PostToolUse[Bash]@6.54 PreToolUse[Bash]@9.98 SessionEnd[other]@60.42
+   json: 0.04:GONE 2.93:idle 3.24:busy 6.32:busy 6.64:busy 10.17:busy 60.51:GONE
+== limit-tmux: trust=None alive_at_end=False pane_gone=60.21 rc=None json_left=0 extra={'mid': {'at': 13.35, 'sleeps': {'7302': 1, '7303': 1}, 'job_shells': '8'}, 'sleeps_left': {'7302': 0, '7303': 0}}
+   ev: SessionStart@3.16 UserPromptSubmit@4.3 PreToolUse[Bash]@7.0 PostToolUse[Bash]@7.58 PreToolUse[Bash]@10.53 SessionEnd[other]@60.32
+   json: 0.04:GONE 3.56:idle 4.33:busy 7.17:busy 7.66:busy 10.8:busy 60.36:GONE
+== dialog-escape: trust=None alive_at_end=False pane_gone=9.45 rc=0 json_left=0 extra={'file_made': False, 'stops': 0}
+   ev: SessionStart@1.25 UserPromptSubmit@1.47 PreToolUse[Bash]@3.66 PermissionRequest[Bash]@3.75 SessionEnd[prompt_input_exit]@8.7
+   json: 0.03:GONE 1.41:idle 1.57:busy 3.72:busy 3.88:waiting 8.83:GONE
+rc=0

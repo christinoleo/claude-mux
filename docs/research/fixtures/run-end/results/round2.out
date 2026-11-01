@@ -1,0 +1,73 @@
+== trust-no: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'prompt_ran': False}
+   ev: SessionEnd[other]@42.84
+   json: 0.02:GONE
+== e-sendkeys: trust=None alive_at_end=False pane_gone=6.8 rc=0 json_left=0 extra={'stop_at': 7.11, 'stop_seen': True, 'gone_within_bound': True}
+   ev: SessionStart@2.11 UserPromptSubmit@2.37 Stop[allow]@4.28 SessionEnd[prompt_input_exit]@5.9
+   json: 0.01:GONE 2.17:idle 2.49:busy 4.33:idle/done 6.03:GONE
+== e-sigterm: trust=None alive_at_end=False pane_gone=4.94 rc=143 json_left=0 extra={'stop_at': 7.25, 'stop_seen': True, 'gone_within_bound': True}
+   ev: SessionStart@1.24 UserPromptSubmit@1.48 Stop[allow]@3.0 SessionEnd[other]@4.04
+   json: 0.02:GONE 1.4:idle 1.56:busy 3.1:idle/done 4.17:GONE
+== e-sigint: trust=None alive_at_end=False pane_gone=5.27 rc=0 json_left=0 extra={'stop_at': 7.11, 'stop_seen': True, 'gone_within_bound': True}
+   ev: SessionStart@1.39 UserPromptSubmit@1.64 Stop[allow]@3.45 SessionEnd[other]@4.49
+   json: 0.03:GONE 1.57:idle 1.72:busy 3.57:idle/done 4.65:GONE
+== e-continue-false: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'stop_at': 7.1, 'stop_seen': True, 'gone_within_bound': False}
+   ev: SessionStart@1.34 UserPromptSubmit@1.64 Stop[continue_false]@3.66 SessionEnd[other]@24.71
+   json: 0.02:GONE 1.41:idle 1.72:busy 3.72:idle/done
+== e-delay: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'stop_at': 7.1, 'stop_seen': True, 'gone_within_bound': False}
+   ev: SessionStart@1.24 UserPromptSubmit@1.47 Stop[allow]@3.39 SessionEnd[other]@24.83
+   json: 0.02:GONE 1.41:idle 1.57:busy 3.42:idle/done
+== e-killsession: trust=None alive_at_end=False pane_gone=9.11 rc=None json_left=0 extra={'stop_at': 7.1, 'stop_seen': True, 'gone_within_bound': True}
+   ev: SessionStart@1.28 UserPromptSubmit@1.49 Stop[allow]@3.33 SessionEnd[other]@9.16
+   json: 0.02:GONE 1.4:idle 1.56:busy 3.42:idle/done 9.26:GONE
+== e-sigkill: trust=None alive_at_end=False pane_gone=9.26 rc=137 json_left=1 extra={'stop_at': 7.11, 'stop_seen': True, 'gone_within_bound': True}
+   ev: SessionStart@1.42 UserPromptSubmit@1.68 Stop[allow]@3.67
+   json: 0.02:GONE 1.56:idle 1.87:busy 3.72:idle/done
+== gate: trust=None alive_at_end=False pane_gone=9.6 rc=0 json_left=0 extra={'marker': True}
+   ev: SessionStart@1.38 UserPromptSubmit@1.62 Stop[block]@3.43 PreToolUse[Bash]@5.33 PostToolUse[Bash]@5.54 Stop[allow]@7.32 SessionEnd[prompt_input_exit]@8.91
+   json: 0.02:GONE 1.59:idle 1.74:busy 3.59:idle/done 5.44:busy/done 5.59:busy/done 7.44:idle/done 8.98:GONE
+== cap: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'stops': 9}
+   ev: SessionStart@1.56 UserPromptSubmit@1.77 Stop[block]@3.88 Stop[block]@5.37 Stop[block]@7.46 Stop[block]@8.86 Stop[block]@12.57 Stop[block]@14.19 Stop[block]@15.88 Stop[block]@17.93 Stop[block]@20.94 PreToolUse[Bash]@22.9 SessionEnd[other]@46.21
+   json: 0.03:GONE 1.72:idle 1.87:busy 4.04:idle/done 22.96:busy/done
+== maestro: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'stops': 1, 'gh_calls': ['issue view 165 --json state,labels --jq "\\(.state)\\n\\(.labels[].name)"']}
+   ev: SessionStart@3.63 UserPromptSubmit@4.0 Stop[allow]@6.37 PreToolUse[Bash]@9.2 PermissionRequest[Bash]@9.3 Notification[permission_prompt]@15.32 SessionEnd[other]@129.16
+   json: 0.02:GONE 3.88:idle 4.04:busy 6.52:idle/done 9.29:busy/done 9.44:waiting/done 15.44:permission/done
+== limit-timeout: trust=None alive_at_end=False pane_gone=60.66 rc=124 json_left=0 extra={'sleeps_left': {'7304': 0, '7305': 0}}
+   ev: SessionStart@1.25 UserPromptSubmit@1.49 PreToolUse[Bash]@3.49 PostToolUse[Bash]@3.6 Stop[allow]@8.31 SessionEnd[other]@60.21
+   json: 0.02:GONE 1.41:idle 1.57:busy 3.57:busy 3.72:busy 8.48:idle/done 60.34:GONE
+== limit-plain: trust=None alive_at_end=False pane_gone=25.08 rc=124 json_left=0 extra={}
+   ev: 
+   json: 0.02:GONE
+== limit-tmux: trust=None alive_at_end=False pane_gone=64.18 rc=None json_left=0 extra={'sleeps_left': {'7302': 0, '7303': 0}}
+   ev: SessionStart@1.17 UserPromptSubmit@1.46 PreToolUse[Bash]@4.32 PostToolUse[Bash]@4.88 Stop[allow]@9.31 SessionEnd[other]@64.21
+   json: 0.01:GONE 1.25:idle 1.56:busy 4.48:busy 4.94:busy 9.42:idle/done 64.33:GONE
+== soft-continue: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'post_tool': 4}
+   ev: SessionStart@1.35 UserPromptSubmit@1.59 PreToolUse[Bash]@3.62 PostToolUse[Bash]@11.82 PreToolUse[Bash]@13.77 PostToolUse[Bash]@21.88 PreToolUse[Bash]@23.44 PostToolUse[Bash]@31.55 PreToolUse[Bash]@33.15 PostToolUse[Bash]@41.29 SessionEnd[other]@93.79
+   json: 0.02:GONE 1.41:idle 1.72:busy 3.72:busy 11.88:busy 13.88:busy 22.03:busy 23.57:busy 31.72:busy 33.25:busy 41.41:busy
+== soft-deny: trust=None alive_at_end=False pane_gone=37.36 rc=0 json_left=0 extra={'post_tool': 3}
+   ev: SessionStart@0.92 UserPromptSubmit@1.21 PreToolUse[Bash]@3.0 PostToolUse[Bash]@11.17 PreToolUse[Bash]@13.28 PostToolUse[Bash]@21.39 PreToolUse[Bash]@22.87 PostToolUse[Bash]@30.97 PreToolUse[Bash]@32.56 Stop[allow]@35.34 SessionEnd[prompt_input_exit]@36.95
+   json: 0.02:GONE 1.09:idle 1.25:busy 3.09:busy 11.24:busy 13.39:busy 21.54:busy 22.92:busy 31.06:busy 32.6:busy 35.52:idle/done 37.05:GONE
+== dialog-perm: trust=None alive_at_end=False pane_gone=79.62 rc=143 json_left=0 extra={'stops_during': 0, 'file_made': False}
+   ev: SessionStart@1.27 UserPromptSubmit@1.48 PreToolUse[Bash]@3.5 PermissionRequest[Bash]@3.6 Notification[permission_prompt]@9.64 SessionEnd[other]@79.08
+   json: 0.01:GONE 1.41:idle 1.56:busy 3.57:busy 3.72:waiting 9.72:permission 79.15:GONE
+== dialog-keys: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'file_made': True}
+   ev: SessionStart@1.14 UserPromptSubmit@1.4 PreToolUse[Bash]@3.48 PermissionRequest[Bash]@3.58 PostToolUse[Bash]@6.66 Stop[allow]@8.41 SessionEnd[other]@16.67
+   json: 0.01:GONE 1.25:idle 1.57:busy 3.56:busy 3.72:waiting 6.78:busy 8.47:idle/done
+== dialog-ask: trust=None alive_at_end=False pane_gone=14.16 rc=None json_left=0 extra={}
+   ev: SessionStart@1.2 UserPromptSubmit@1.44 PreToolUse[AskUserQuestion]@3.63 PermissionRequest[AskUserQuestion]@3.73 Notification[permission_prompt]@9.75 SessionEnd[other]@14.09
+   json: 0.01:GONE 1.4:idle 1.55:busy 3.7:waiting 14.16:GONE
+== dontask-bash: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'file_made': False}
+   ev: SessionStart@1.43 UserPromptSubmit@1.67 PreToolUse[Bash]@3.97 Stop[allow]@5.99 SessionEnd[other]@7.38
+   json: 0.03:GONE 1.57:idle 1.72:busy 4.03:busy 6.03:idle/done
+== dontask-ask: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'file_made': False}
+   ev: SessionStart@2.01 UserPromptSubmit@2.69 PreToolUse[AskUserQuestion]@5.5 Stop[allow]@7.91 SessionEnd[other]@9.06
+   json: 0.04:GONE 2.1:idle 2.91:busy 5.61:waiting 8.08:idle/done
+== hookdeny-bash: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'file_made': False}
+   ev: SessionStart@1.28 UserPromptSubmit@1.57 PreToolUse[Bash]@3.57 PermissionRequest[Bash]@3.67 PreToolUse[Bash]@6.84 PermissionRequest[Bash]@6.93 Stop[allow]@10.05 SessionEnd[other]@11.46
+   json: 0.02:GONE 1.41:idle 1.72:busy 3.72:waiting 6.96:busy 7.11:waiting 10.19:idle/done
+== hookdeny-ask: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={'file_made': False}
+   ev: SessionStart@2.28 UserPromptSubmit@2.87 PreToolUse[AskUserQuestion]@5.57 PermissionRequest[AskUserQuestion]@5.7 Stop[allow]@9.51 SessionEnd[other]@10.75
+   json: 0.05:GONE 2.42:idle 2.92:busy 5.66:waiting 9.61:idle/done
+== badmodel: trust=None alive_at_end=True pane_gone=None rc=None json_left=0 extra={}
+   ev: SessionStart@1.44 UserPromptSubmit@1.74 StopFailure@3.02 SessionEnd[other]@29.11
+   json: 0.02:GONE 1.56:idle 1.87:busy
+rc=0

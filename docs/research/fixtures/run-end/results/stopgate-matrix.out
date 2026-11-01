@@ -1,0 +1,18 @@
+no MAESTRO_ROLE                              rc=0 
+role=worker, no MAESTRO_ISSUE                rc=0 
+role=scout, issue set                        rc=0 
+open+labelled, stop 1                        rc=0 {"decision":"block","reason":"maestro stop gate (1/3): issue #7 is sti
+open+labelled, stop 2                        rc=0 {"decision":"block","reason":"maestro stop gate (2/3): issue #7 is sti
+open+labelled, stop 3                        rc=0 {"decision":"block","reason":"maestro stop gate (3/3): issue #7 is sti
+open+labelled, stop 4                        rc=0 
+gh writes after the 4th stop:
+issue edit 7 --add-label needs-help
+issue comment 7 --body maestro stop gate: worker stopped 3 times without closing the issue
+closed issue                                 rc=0 
+open, needs-help                             rc=0 
+open, no labels: jq prints nothing           rc=0 
+gh fails                                     rc=0 
+block count after one block                  rc=0 {"decision":"block","reason":"maestro stop gate (1/3): issue #7 is sti
+count file: 1
+second session, same issue: count carries    rc=0 {"decision":"block","reason":"maestro stop gate (2/3): issue #7 is sti
+count file: 2

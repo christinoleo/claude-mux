@@ -1,0 +1,50 @@
+ ▐▛███▛█   Claude Code v2.1.309
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   <probe>
+
+
+❯ Call the AskUserQuestion tool once: header "Shape", question "Pick a shape", multiSelect false, options Square (four sides), Circle
+  (round). After it returns, reply with only: GOT <answer>. If it is refused, reply with only: REFUSED
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Shape
+
+Pick a shape
+
+❯ 1. Square
+     Four sides
+  2. Circle
+     Round
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

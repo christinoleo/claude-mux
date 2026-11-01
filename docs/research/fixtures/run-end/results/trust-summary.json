@@ -1,0 +1,22 @@
+{
+ "name": "trust",
+ "cmd": "--setting-sources project --model haiku --permission-mode default 'Reply with only the word: OK'; echo $? > <probe>",
+ "pane_gone_s": null,
+ "alive_at_end": true,
+ "rc": null,
+ "json_left": 0,
+ "events": [
+  {
+   "ev": "SessionEnd",
+   "reason": "other",
+   "at": 20.24
+  }
+ ],
+ "json_timeline": [
+  [
+   0.03,
+   []
+  ]
+ ],
+ "dialog_visible": true
+}
