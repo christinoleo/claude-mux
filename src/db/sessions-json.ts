@@ -366,6 +366,11 @@ export function deleteSessionsByPids(pids: number[]): void {
   }
 }
 
+/** Its process has ended. PID 0 means unknown, and only session-end can clean those. */
+export function isSessionDead(session: Session): boolean {
+  return session.pid > 0 && !isPidAlive(session.pid);
+}
+
 /**
  * Clean up stale sessions (PIDs that no longer exist).
  */
@@ -384,8 +389,7 @@ export function cleanupStaleSessions(): number {
         const data = readFileSync(path, "utf-8");
         const session = JSON.parse(data) as Session;
 
-        // Skip PID 0 (unknown) - only session-end can clean those
-        if (session.pid > 0 && !isPidAlive(session.pid)) {
+        if (isSessionDead(session)) {
           withSessionLock(path, () => unlinkSync(path));
           removed++;
         }

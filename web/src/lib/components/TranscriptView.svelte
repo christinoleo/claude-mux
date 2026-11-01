@@ -11,6 +11,7 @@
 	import LoginCard from '$lib/components/LoginCard.svelte';
 	import RewindCard from '$lib/components/RewindCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
+	import { LIVE_ENTRY_PREFIX } from '$lib/stores/transcript.svelte';
 	import { toolIcon } from '$lib/tool-icons';
 	import ToolLabel from '$lib/components/ToolLabel.svelte';
 	import { toolFileTarget } from '$lib/side-panel/files';
@@ -242,6 +243,9 @@
 	// recommendation, is drawn as a form: take the recommendation, write your
 	// own answer, or leave the question open — and the reply is composed.
 
+	/** A round still being written is not a form yet: it would be answered half-read, and lost on the swap. */
+	const isLive = (entry: TranscriptEntry): boolean => entry.id.startsWith(LIVE_ENTRY_PREFIX);
+
 	/** Parsed rounds by entry text; a reply's text never changes once written. */
 	const roundCache = new Map<string, GrillRound | null>();
 	function grillRound(text: string): GrillRound | null {
@@ -266,7 +270,7 @@
 			const e = entries[i];
 			if (e.kind === 'user' || e.kind === 'queued' || e.kind === 'ask' || e.kind === 'interrupt')
 				return null;
-			if (e.kind === 'text' && grillRound(e.text)) return e.id;
+			if (e.kind === 'text' && !isLive(e) && grillRound(e.text)) return e.id;
 		}
 		return null;
 	});
@@ -789,7 +793,7 @@
 					<span class="time">{formatTime(entry.ts)}</span>
 				</div>
 			{/if}
-		{:else if entry.kind === 'text' && grillRound(entry.text)}
+		{:else if entry.kind === 'text' && !isLive(entry) && grillRound(entry.text)}
 			{@render grill(entry.id, grillRound(entry.text)!)}
 		{:else if entry.kind === 'text'}
 			<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
