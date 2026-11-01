@@ -267,6 +267,19 @@ describe("TranscriptBuilder", () => {
     });
   });
 
+  it("marks a local command's output that has no command to ride under", () => {
+    const builder = new TranscriptBuilder();
+    builder.feed(
+      line({
+        type: "user",
+        uuid: "u1",
+        timestamp: TS,
+        message: { role: "user", content: "<local-command-stdout>ok</local-command-stdout>" },
+      }),
+    );
+    expect(builder.entries[0]).toMatchObject({ kind: "user", text: "ok", localOutput: true });
+  });
+
   it("drops a local command's empty output, and the caveat even without isMeta", () => {
     const builder = new TranscriptBuilder();
     expect(

@@ -53,6 +53,13 @@
 	import RemoteControlMenu from '$lib/components/RemoteControlMenu.svelte';
 	import { copyWithToast } from '$lib/side-panel/clipboard';
 	import { toast } from 'svelte-sonner';
+	import {
+		hasWrittenAbove,
+		loadOlderWritten,
+		nextWritten,
+		writtenIds,
+		type WalkPosition
+	} from '$lib/transcript-walk';
 	import type { RewindAction } from '$shared/tmux/rewind.js';
 	import { sidePanelStore } from '$lib/stores/sidePanel.svelte';
 	import { PANES, PANE_KINDS, PANE_PARAMS, paneDef, panelKeyAction } from '$lib/side-panel/panes';
@@ -791,6 +798,7 @@
 		}
 		if (!el) return;
 		if (el instanceof HTMLDetailsElement) el.open = true;
+		walked = null;
 		userScrolledUp = true;
 		el.scrollIntoView({ block: 'center', behavior: 'smooth' });
 	}
@@ -975,6 +983,8 @@
 		ref;
 		viewMode;
 		untrack(() => {
+			walked = null;
+			walkRun++;
 			userScrolledUp = false;
 			seenAppended = 0;
 			terminalStore.atBottom = true;
@@ -1073,20 +1083,33 @@
 		draftsStore.set(ref, textInput);
 	});
 
+	function setScrolledUp(next: boolean) {
+		if (next === userScrolledUp) return;
+		userScrolledUp = next;
+		terminalStore.atBottom = !next;
+		// Count "new" lines from the moment the user left the bottom
+		seenAppended = appendedNow;
+		if (!next) terminalStore.trimToBottom();
+	}
+
 	function handleScroll() {
 		if (!outputElement) return;
 		const { scrollTop, scrollHeight, clientHeight } = outputElement;
-		const nextScrolledUp = scrollHeight - scrollTop - clientHeight > 50;
-		if (nextScrolledUp !== userScrolledUp) {
-			userScrolledUp = nextScrolledUp;
-			terminalStore.atBottom = !nextScrolledUp;
-			// Count "new" lines from the moment the user left the bottom
-			seenAppended = appendedNow;
-			if (!nextScrolledUp) terminalStore.trimToBottom();
+		if (walked) {
+			// Output shrinking under a landing near the end clamps the scroll, and
+			// only that moves it up while still at the very end: the reader did not.
+			const clamped = scrollTop < walked.scrollTop && scrollHeight - scrollTop - clientHeight < 1;
+			if (clamped) walked.scrollTop = scrollTop;
+			else if (Math.abs(scrollTop - walked.scrollTop) >= 1) walked = null;
 		}
+		// A jump back that landed near the end still holds the reader there, or
+		// the next line of output would pin them away from what they asked for.
+		const nextScrolledUp = walked !== null || scrollHeight - scrollTop - clientHeight > 50;
+		setScrolledUp(nextScrolledUp);
 		// Whatever the reader stopped on is what we hold them to if the content
 		// above them grows while they read.
 		if (nextScrolledUp) captureAnchor();
+		refreshWalkBack();
 
 		// Near the top: fetch an older chunk and keep the viewport anchored on the
 		// same content (history only ever grows at the ends, so the distance from
@@ -1154,15 +1177,87 @@
 		const el = outputElement;
 		if (!el) return;
 		const fromBottom = el.scrollHeight - el.scrollTop;
-		pending.then(() =>
+		pending.then((landed) => {
+			if (landed === false) return;
 			requestAnimationFrame(() => {
 				if (outputElement) outputElement.scrollTop = outputElement.scrollHeight - fromBottom;
-			})
-		);
+			});
+		});
+	}
+
+	// ── walking back through what the reader wrote ───────────────────────
+	const written = $derived(viewMode === 'transcript' ? writtenIds(transcriptStore.entries) : []);
+	/** Room left above a message that landed at the top of the view. */
+	const WALK_GAP = 8;
+	/** Where the last press landed, until the reader scrolls away from it. */
+	let walked: { id: string; scrollTop: number } | null = null;
+	let walking = $state(false);
+	let canWalkBack = $state(false);
+	/** Bumped when the reader goes elsewhere, so a press still loading does not pull them back. */
+	let walkRun = 0;
+
+	function walkPosition(el: HTMLElement): WalkPosition {
+		return {
+			atBottom: !userScrolledUp,
+			held: walked?.id ?? null,
+			viewTop: el.getBoundingClientRect().top,
+			topOf: (id) => findEntry(id)?.getBoundingClientRect().top ?? null
+		};
+	}
+
+	function refreshWalkBack() {
+		const el = outputElement;
+		canWalkBack =
+			transcriptStore.firstIndex > 0 ||
+			(!!el && written.length > 0 && hasWrittenAbove(written, walkPosition(el)));
+	}
+
+	// `written` is a new array on every streamed update; this changes only when
+	// the answer can, so a reader scrolled up pays no layout read per delta.
+	const writtenKey = $derived(`${written.length}:${written[0]}`);
+	$effect(() => {
+		writtenKey;
+		transcriptStore.firstIndex;
+		userScrolledUp;
+		void tick().then(refreshWalkBack);
+	});
+
+	function landOn(id: string) {
+		const el = outputElement;
+		const row = findEntry(id);
+		if (!el || !row) return;
+		setScrolledUp(true);
+		el.scrollTop += row.getBoundingClientRect().top - el.getBoundingClientRect().top - WALK_GAP;
+		walked = { id, scrollTop: el.scrollTop };
+		captureAnchor();
+		refreshWalkBack();
+	}
+
+	async function walkBack() {
+		if (walking) return;
+		const id = outputElement && nextWritten(written, walkPosition(outputElement));
+		if (id) return landOn(id);
+
+		const run = ++walkRun;
+		const session = currentSession?.id;
+		walking = true;
+		const older = await loadOlderWritten({
+			written: () => written,
+			firstIndex: () => transcriptStore.firstIndex,
+			loadEarlier: () => transcriptStore.loadEarlier()
+		});
+		walking = false;
+		if (run !== walkRun || currentSession?.id !== session) return;
+		await tick();
+		if (older.status === 'found') landOn(older.id);
+		else if (older.status === 'failed') toast.error('Could not load earlier messages');
+		else toast.info('No earlier message');
 	}
 
 	function scrollToBottom() {
 		if (!outputElement) return;
+		walked = null;
+		walkRun++;
 		userScrolledUp = false;
 		terminalStore.atBottom = true;
 		seenAppended = appendedNow;
@@ -2558,12 +2653,30 @@
 					/>
 				{/if}
 			</div>
-			{#if userScrolledUp}
-				<button class="jump-bottom" onclick={scrollToBottom} title="Jump to bottom">
-					<iconify-icon icon="mdi:arrow-down"></iconify-icon>
-					{#if unseenLines > 0}<span>{unseenLines} new</span>{/if}
-				</button>
-			{/if}
+			<div class="jump-stack" class:above-meter={voiceStore.showsMeter(ref)}>
+				{#if userScrolledUp}
+					<button class="jump-bottom" onclick={scrollToBottom} title="Jump to bottom">
+						<iconify-icon icon="mdi:arrow-down"></iconify-icon>
+						{#if unseenLines > 0}<span>{unseenLines} new</span>{/if}
+					</button>
+				{/if}
+				<!-- Disabled rather than hidden, and last in the stack, so it never
+				     moves under a thumb pressing it again and again. -->
+				{#if written.length > 0 || (viewMode === 'transcript' && transcriptStore.firstIndex > 0)}
+					<button
+						class="jump-back"
+						disabled={!canWalkBack}
+						aria-busy={walking}
+						aria-label={canWalkBack ? 'Jump back to the previous message you wrote' : 'No earlier message you wrote'}
+						title={canWalkBack ? 'Jump back to what you wrote' : 'No earlier message'}
+						onmousedown={(e) => e.preventDefault()}
+						onclick={() => void walkBack()}
+					>
+						<iconify-icon class:spin={walking} icon={walking ? 'mdi:loading' : 'mdi:arrow-up'}></iconify-icon>
+						<span class="jump-back-glyph" aria-hidden="true">❯</span>
+					</button>
+				{/if}
+			</div>
 		</div>
 
 		{#if target}
@@ -3174,10 +3287,23 @@
 		flex-direction: column;
 	}
 
-	.jump-bottom {
+	.jump-stack {
 		position: absolute;
 		right: 18px;
 		bottom: 12px;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 8px;
+		z-index: 5;
+		pointer-events: none;
+	}
+	/* VoiceMeter hangs over the composer's right corner, its top 72px above this box's foot. */
+	.jump-stack.above-meter {
+		bottom: 80px;
+	}
+	.jump-bottom,
+	.jump-back {
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
@@ -3189,13 +3315,36 @@
 		font-size: 12px;
 		cursor: pointer;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-		z-index: 5;
+		pointer-events: auto;
 	}
-	.jump-bottom:hover {
+	.jump-bottom:hover,
+	.jump-back:hover:not(:disabled) {
 		background: #2a2a2a;
 	}
-	.jump-bottom iconify-icon {
+	.jump-bottom iconify-icon,
+	.jump-back iconify-icon {
 		font-size: 16px;
+	}
+	.jump-back {
+		justify-content: center;
+		gap: 2px;
+		min-width: 44px;
+		height: 36px;
+		touch-action: manipulation;
+		user-select: none;
+	}
+	.jump-back:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
+	.jump-back-glyph {
+		font-family: var(--font-mono);
+	}
+	@media (pointer: coarse) {
+		.jump-back {
+			height: 44px;
+			min-width: 52px;
+		}
 	}
 
 	.output {

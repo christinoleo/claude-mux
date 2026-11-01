@@ -54,9 +54,9 @@
 	async function loadEarlier() {
 		if (!scroller) return void store.loadEarlier();
 		const fromBottom = scroller.scrollHeight - scroller.scrollTop;
-		await store.loadEarlier();
+		const landed = await store.loadEarlier();
 		await tick();
-		if (scroller) scroller.scrollTop = scroller.scrollHeight - fromBottom;
+		if (landed && scroller) scroller.scrollTop = scroller.scrollHeight - fromBottom;
 	}
 
 	let busy = $state(false);

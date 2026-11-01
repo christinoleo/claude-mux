@@ -33,7 +33,7 @@
 	 * pushes it off screen.
 	 */
 	const owned = $derived(voiceStore.isOwnedBy(target));
-	const showing = $derived(owned && voiceStore.isActive);
+	const showing = $derived(voiceStore.showsMeter(target));
 	const status = $derived(owned ? voiceStore.status : 'idle');
 	const lit = $derived(Math.min(BARS, Math.round(voiceStore.level.rms * 26)));
 	const clipping = $derived(voiceStore.level.peak >= 0.98);
