@@ -1,0 +1,24 @@
+▐▛███▛█   Claude Code v2.1.309
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/probe157-proj
+
+
+❯ Call the AskUserQuestion tool exactly once with this exact JSON input: {"questions": [{"question": "Pick a shape", "header": "Shape",
+  "multiSelect": false, "options": [{"label": "Square", "description": "square option"}, {"label": "Circle", "description": "circle
+  option"}]}, {"question": "Pick colors", "header": "Colors", "multiSelect": true, "options": [{"label": "Red", "description": "red
+  option"}, {"label": "Green", "description": "green option"}, {"label": "Blue", "description": "blue option"}]}, {"question": "Pick a
+  size", "header": "Size", "multiSelect": false, "options": [{"label": "Small", "description": "small option"}, {"label": "Large",
+  "description": "large option"}]}]} After it returns, reply with one line starting with GOT: and the tool result verbatim. Use no other
+  tool.
+
+● User answered Claude's questions:
+  ⎿  · Pick a shape → Circle
+     · Pick colors → Green,Blue
+     · Pick a size → free text size
+
+✶ Enchanting… (2s · ↓ 294 tokens)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · esc to interrupt · ← for agents                                                                    ◐ medium · /effort

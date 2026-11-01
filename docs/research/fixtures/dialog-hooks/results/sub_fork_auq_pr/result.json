@@ -1,0 +1,128 @@
+{
+ "case": "sub_fork_auq_pr",
+ "flags": {
+  "at_during_s": 3.3,
+  "at_final_s": 18.8
+ },
+ "foreground_requested": false,
+ "hold_fired": true,
+ "dialog_visible": false,
+ "subagent_stop_type": "fork",
+ "hold_pids_after": {
+  "2634657": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 1.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest"
+  }
+ ],
+ "fired": [
+  [
+   "SubagentStart",
+   null,
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PreToolUse",
+   "AskUserQuestion",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "AskUserQuestion",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PostToolUse",
+   "AskUserQuestion",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "fork",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": true,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "A square shape"
+        },
+        {
+         "label": "Circle",
+         "description": "A circle shape"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The background subtask finished. Its `AskUserQuestion` call returned this, verbatim:\n\n`\"Pick a shape\"=\"Circle\"`"
+   },
+   {
+    "sidechain": true,
+    "text": "AskUserQuestion returned: `\"Pick a shape\"=\"Circle\"`."
+   }
+  ],
+  "subagent_files": [
+   "agent-acall-the-askuserquestion-0e95d2e3ed129a30.jsonl"
+  ]
+ }
+}

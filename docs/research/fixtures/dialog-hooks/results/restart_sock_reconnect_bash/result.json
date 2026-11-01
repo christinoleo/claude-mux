@@ -1,0 +1,267 @@
+{
+ "case": "restart_sock_reconnect_bash",
+ "flags": {
+  "at_holding_s": 3.8,
+  "at_holder_dead_s": 9.8,
+  "at_before_answer_s": 9.8,
+  "at_final_s": 14.1
+ },
+ "holder_down_s": 6,
+ "dialog_with_holder_down": true,
+ "recovered_after_s": 8.7,
+ "created": true,
+ "hold_pids_after": {
+  "2348893": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "sock_connected",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "sock_eof",
+   "ev": "PermissionRequest",
+   "reconnect": true
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connect_failed",
+   "ev": "PermissionRequest",
+   "err": "ConnectionRefusedError"
+  },
+  {
+   "kind": "sock_connected",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "sock_reply",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 7.74
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Notification",
+   null,
+   null,
+   false,
+   "permission_prompt"
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_restart_sock_reconnect_bash.txt",
+     "description": "Create probe_restart_sock_reconnect_bash.txt in the working directory"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ],
+  "subagent_files": []
+ }
+}

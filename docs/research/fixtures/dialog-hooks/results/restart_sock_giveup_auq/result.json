@@ -1,0 +1,116 @@
+{
+ "case": "restart_sock_giveup_auq",
+ "flags": {
+  "at_holding_s": 3.6,
+  "at_holder_dead_s": 9.6,
+  "at_before_answer_s": 9.6,
+  "at_final_s": 13.0
+ },
+ "holder_down_s": 6,
+ "dialog_with_holder_down": true,
+ "recovered_after_s": 7.9,
+ "hold_pids_after": {
+  "2345557": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "sock_connected",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "sock_eof",
+   "ev": "PreToolUse",
+   "reconnect": false
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": false,
+   "held_s": 1.59
+  },
+  {
+   "kind": "pass_no_output",
+   "ev": "PreToolUse"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": false,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "square option"
+        },
+        {
+         "label": "Circle",
+         "description": "circle option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "GOT: Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "subagent_files": []
+ }
+}

@@ -1,0 +1,25 @@
+▐▛███▛█   Claude Code v2.1.309
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/probe157-proj
+
+
+❯ Call the Agent tool exactly once with subagent_type "general-purpose" and description "probe". Give it this prompt word for word: <<Call
+  the AskUserQuestion tool exactly once with question "Pick a shape", header "Shape", multiSelect false, options Square and Circle. Report
+  what it returned verbatim. If you do not have that tool, say NO_TOOL and list the tools you do have.>> Do not call any other tool
+  yourself. When the subagent has finished, reply with one line starting with SUB: and what it reported.
+
+● Agent(probe)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● SUB: The subagent has been launched and is still running, so I don't have its report yet. I'll report what it returned once the completion
+  notification arrives.
+
+✻ Waiting for 1 background agent to finish
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ what did the subagent report
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents · ↓ to manage                                                       ◐ medium · /effort
+
+  ● main
+  ◯ general-purpose  probe                                                                                             4s · ↓ 22.9k tokens

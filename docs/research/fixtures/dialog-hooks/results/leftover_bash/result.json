@@ -1,0 +1,129 @@
+{
+ "case": "leftover_bash",
+ "flags": {
+  "at_final_s": 5.5
+ },
+ "created": true,
+ "states": {
+  "at_stop": [
+   1.1,
+   "S"
+  ],
+  "plus_5s": [
+   5.1,
+   "S"
+  ],
+  "plus_15s": [
+   15.1,
+   "S"
+  ],
+  "plus_25s": [
+   25.1,
+   "S"
+  ],
+  "after_next_turn": [
+   27.1,
+   "S"
+  ],
+  "after_exit": [
+   31.5,
+   null
+  ]
+ },
+ "post_tool_use_fired": true,
+ "alive_at_post": true,
+ "timeout": null,
+ "hold_pids_after": {
+  "2117590": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "signal",
+   "ev": "PermissionRequest",
+   "sig": "SIGTERM"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_leftover_bash.txt",
+     "description": "Create empty file probe_leftover_bash.txt"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   },
+   {
+    "sidechain": false,
+    "text": "NEXT"
+   }
+  ],
+  "subagent_files": []
+ }
+}

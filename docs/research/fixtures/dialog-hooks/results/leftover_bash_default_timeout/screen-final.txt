@@ -1,0 +1,18 @@
+▐▛███▛█   Claude Code v2.1.309
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/probe157-proj
+
+
+❯ Run this exact command with the Bash tool, then reply DONE: touch probe_leftover_bash_default_timeout.txt
+
+● Bash(touch probe_leftover_bash_default_timeout.txt)
+  ⎿  Done
+
+● DONE
+
+✻ Sautéed for 3s · done 9:12 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts                                                            Update available! Run: mise upgrade claude

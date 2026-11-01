@@ -1,0 +1,107 @@
+{
+ "case": "multi_array",
+ "flags": {
+  "at_during_s": 2.6,
+  "at_final_s": 4.7
+ },
+ "dialog_during": false,
+ "hold_pids_after": {
+  "2045611": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": true,
+   "held_s": 0.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PreToolUse"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": false,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick colors",
+       "header": "Colors",
+       "multiSelect": true,
+       "options": [
+        {
+         "label": "Red",
+         "description": "red option"
+        },
+        {
+         "label": "Green",
+         "description": "green option"
+        },
+        {
+         "label": "Blue",
+         "description": "blue option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick colors\"=\"Red, Blue\". You can now continue with these answers in mind."
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick colors\"=\"Red, Blue\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "GOT: Your questions have been answered: \"Pick colors\"=\"Red, Blue\". You can now continue with these answers in mind."
+   }
+  ],
+  "subagent_files": []
+ }
+}

@@ -1,0 +1,96 @@
+{
+ "case": "multi_keys",
+ "flags": {
+  "at_open_s": 2.2,
+  "at_first_toggled_s": 2.6,
+  "at_third_toggled_s": 3.6,
+  "at_on_submit_s": 4.3,
+  "at_after_submit_s": 5.7,
+  "at_final_s": 8.9
+ },
+ "tool_input_answers": {
+  "Pick colors": "Red, Blue"
+ },
+ "hold_pids_after": {},
+ "hook_lifecycle": [],
+ "fired": [
+  [
+   "PreToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": false,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick colors",
+       "header": "Colors",
+       "multiSelect": true,
+       "options": [
+        {
+         "label": "Red",
+         "description": "red option"
+        },
+        {
+         "label": "Green",
+         "description": "green option"
+        },
+        {
+         "label": "Blue",
+         "description": "blue option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick colors\"=\"Red, Blue\". You can now continue with these answers in mind."
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick colors\"=\"Red, Blue\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "GOT: Your questions have been answered: \"Pick colors\"=\"Red, Blue\". You can now continue with these answers in mind."
+   }
+  ],
+  "subagent_files": []
+ }
+}

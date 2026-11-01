@@ -1,0 +1,109 @@
+{
+ "case": "sub_bg_custom_auq_pr",
+ "flags": {
+  "at_during_s": 61.0,
+  "at_final_s": 66.5
+ },
+ "foreground_requested": false,
+ "hold_fired": false,
+ "dialog_visible": false,
+ "subagent_stop_type": "asker",
+ "agent_status": "async_launched",
+ "hold_pids_after": {},
+ "hook_lifecycle": [],
+ "fired": [
+  [
+   "PreToolUse",
+   "Agent",
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStart",
+   null,
+   "asker",
+   true,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Agent",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "asker",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Agent",
+    "sidechain": false,
+    "input": {
+     "description": "probe",
+     "subagent_type": "asker",
+     "prompt": "Call the AskUserQuestion tool exactly once with question \"Pick a shape\", header \"Shape\", multiSelect false, options Square and Circle. Report what it returned verbatim. If you do not have that tool, say NO_TOOL and list the tools you do have."
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Async agent launched successfully. (This tool result is internal metadata \u2014 never quote or paste any part of it, including the agentId below, into a user-facing reply.)\nagentId: afcef6392571ec7bb (internal ID - do not mention to user. Use SendMessage with to: 'afcef6392571ec7bb', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes. You know nothing about its results until that notification arrives \u2014 do not report, assume, or predict them; continue other work or respond to the user in the meantime.\nDo not duplicate this agent's work \u2014 avoid working with the same files or topics it is using.\noutput_file: $PROBE_DIR"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "SUB: The asker agent is still running in the background, so I don't have its result yet; I'll report what it returned when the completion notification arrives."
+   },
+   {
+    "sidechain": false,
+    "text": "SUB: NO_TOOL. The asker agent said AskUserQuestion is not available to it and that its only tool is Bash, so it never asked the question."
+   },
+   {
+    "sidechain": true,
+    "text": "NO_TOOL\n\nThe AskUserQuestion tool is not available to me. I have only one tool: Bash."
+   }
+  ],
+  "subagent_files": [
+   "agent-afcef6392571ec7bb.jsonl"
+  ]
+ }
+}

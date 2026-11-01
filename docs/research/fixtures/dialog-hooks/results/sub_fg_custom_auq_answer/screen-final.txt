@@ -1,0 +1,23 @@
+▐▛███▛█   Claude Code v2.1.309
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/probe157-proj
+
+
+❯ Call the Agent tool exactly once with subagent_type "asker" and description "probe". Wait for it to finish before you do anything else.
+  Do not run it in the background. Give it this prompt word for word: <<Call the AskUserQuestion tool exactly once with question "Pick a
+  shape", header "Shape", multiSelect false, options Square and Circle. Report what it returned verbatim. If you do not have that tool, say
+  NO_TOOL and list the tools you do have.>> Do not call any other tool yourself. When the subagent has finished, reply with one line
+  starting with SUB: and what it reported.
+
+● asker(probe)
+  ⎿  Done (0 tool uses · 3.4k tokens · 2s)
+  (ctrl+o to expand)
+
+● SUB: NO_TOOL. The asker subagent said it does not have AskUserQuestion, that its only tool is Bash, and it made no calls.
+
+✻ Churned for 6s · done 9:05 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts                                                            Update available! Run: mise upgrade claude

@@ -1,0 +1,105 @@
+{
+ "case": "timeout_pre_auq",
+ "flags": {
+  "at_stalled_s": 3.9,
+  "at_after_timeout_s": 11.4,
+  "at_final_s": 14.7
+ },
+ "hook_state_after": null,
+ "dialog_after": true,
+ "stall_elapsed_s": 11.3,
+ "keys_sent": [
+  "Down",
+  "Enter"
+ ],
+ "hold_pids_after": {
+  "2146740": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "signal",
+   "ev": "PreToolUse",
+   "sig": "SIGTERM"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": false,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "square option"
+        },
+        {
+         "label": "Circle",
+         "description": "circle option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "GOT: Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "subagent_files": []
+ }
+}

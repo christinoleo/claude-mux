@@ -1,0 +1,109 @@
+{
+ "case": "restart_sock_giveup_bash",
+ "flags": {
+  "at_holding_s": 4.1,
+  "at_holder_dead_s": 10.1,
+  "at_before_answer_s": 10.1,
+  "at_final_s": 13.2
+ },
+ "holder_down_s": 6,
+ "dialog_with_holder_down": true,
+ "recovered_after_s": 7.6,
+ "created": true,
+ "hold_pids_after": {
+  "2353694": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "sock_connected",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "sock_eof",
+   "ev": "PermissionRequest",
+   "reconnect": false
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": false,
+   "held_s": 1.6
+  },
+  {
+   "kind": "pass_no_output",
+   "ev": "PermissionRequest"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Notification",
+   null,
+   null,
+   false,
+   "permission_prompt"
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_restart_sock_giveup_bash.txt",
+     "description": "Create the probe_restart_sock_giveup_bash.txt file"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ],
+  "subagent_files": []
+ }
+}

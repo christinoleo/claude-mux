@@ -1,0 +1,147 @@
+{
+ "case": "sub_bg_bash_esc",
+ "flags": {
+  "at_dialog_s": 6.5,
+  "at_after_keys_s": 9.6,
+  "at_final_s": 15.3
+ },
+ "foreground_requested": false,
+ "trigger_fired": true,
+ "dialog_visible": true,
+ "trigger_agent_id": true,
+ "subagent_stop_type": "asker",
+ "created": false,
+ "agent_status": "async_launched",
+ "hold_pids_after": {},
+ "hook_lifecycle": [],
+ "fired": [
+  [
+   "PreToolUse",
+   "Agent",
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStart",
+   null,
+   "asker",
+   true,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Agent",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "PreToolUse",
+   "Bash",
+   "asker",
+   true,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   "asker",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "asker",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Agent",
+    "sidechain": false,
+    "input": {
+     "subagent_type": "asker",
+     "description": "probe",
+     "prompt": "Run this exact command with the Bash tool: touch probe_sub_bg_bash_esc.txt . Report exactly what happened, including any permission error."
+    }
+   },
+   {
+    "name": "Bash",
+    "sidechain": true,
+    "input": {
+     "command": "touch probe_sub_bg_bash_esc.txt",
+     "description": "Create probe_sub_bg_bash_esc.txt via touch"
+    }
+   },
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_sub_bg_bash_esc.txt",
+     "description": "Create probe_sub_bg_bash_esc.txt via touch"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Async agent launched successfully. (This tool result is internal metadata \u2014 never quote or paste any part of it, including the agentId below, into a user-facing reply.)\nagentId: ad096202a26b101d6 (internal ID - do not mention to user. Use SendMessage with to: 'ad096202a26b101d6', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes. You know nothing about its results until that notification arrives \u2014 do not report, assume, or predict them; continue other work or respond to the user in the meantime.\nDo not duplicate this agent's work \u2014 avoid working with the same files or topics it is using.\noutput_file: $PROBE_DIR"
+   },
+   {
+    "sidechain": true,
+    "is_error": true,
+    "content": "Permission for this tool use was denied. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). Try a different approach or report the limitation to complete your task."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The subagent is still running in the background, so I don't have its result yet. I'll report it as `SUB:` once the completion notification arrives."
+   },
+   {
+    "sidechain": false,
+    "text": "SUB: The subagent did not run `touch probe_sub_bg_bash_esc.txt`. Its Bash call was rejected with \"Permission for this tool use was denied. The tool use was rejected.\" so the file was not created."
+   },
+   {
+    "sidechain": true,
+    "text": "The command was not run. The Bash tool returned a permission error: \"Permission for this tool use was denied. The tool use was rejected.\" So `probe_sub_bg_bash_esc.txt` was not created, and I did not check whether the file exists.\n\nI did not try another way to create the file, because the denial came from the permission system. The working directory is `$PROBE_DIR"
+   }
+  ],
+  "subagent_files": [
+   "agent-ad096202a26b101d6.jsonl"
+  ]
+ }
+}

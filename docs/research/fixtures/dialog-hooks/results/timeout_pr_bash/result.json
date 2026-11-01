@@ -1,0 +1,97 @@
+{
+ "case": "timeout_pr_bash",
+ "flags": {
+  "at_stalled_s": 4.0,
+  "at_after_timeout_s": 11.5,
+  "at_final_s": 14.5
+ },
+ "hook_state_after": null,
+ "dialog_after": true,
+ "stall_elapsed_s": 11.0,
+ "keys_sent": [
+  "Enter"
+ ],
+ "created": true,
+ "hold_pids_after": {
+  "2164729": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "signal",
+   "ev": "PermissionRequest",
+   "sig": "SIGTERM"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Notification",
+   null,
+   null,
+   false,
+   "permission_prompt"
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_timeout_pr_bash.txt",
+     "description": "Create probe_timeout_pr_bash.txt in the working directory"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ],
+  "subagent_files": []
+ }
+}

@@ -1,0 +1,26 @@
+▐▛███▛█   Claude Code v2.1.309
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/probe157-proj
+
+
+❯ Call the AskUserQuestion tool exactly once with this exact JSON input: {"questions": [{"question": "Pick colors", "header": "Colors",
+  "multiSelect": true, "options": [{"label": "Red", "description": "red option"}, {"label": "Green", "description": "green option"},
+  {"label": "Blue", "description": "blue option"}]}]} After it returns, reply with one line starting with GOT: and the tool result
+  verbatim. Use no other tool.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Colors  ✔ Submit  →
+
+Pick colors
+
+❯ 1. [✔] Red
+         red option
+  2. [ ] Green
+         green option
+  3. [ ] Blue
+         blue option
+  4. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

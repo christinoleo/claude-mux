@@ -1,0 +1,19 @@
+▐▛███▛█   Claude Code v2.1.309
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/probe157-proj
+
+
+❯ Call the AskUserQuestion tool exactly once with this exact JSON input: {"questions": [{"question": "Pick colors", "header": "Colors",
+  "multiSelect": true, "options": [{"label": "Red", "description": "red option"}, {"label": "Green", "description": "green option"},
+  {"label": "Blue", "description": "blue option"}]}]} After it returns, reply with one line starting with GOT: and the tool result
+  verbatim. Use no other tool.
+
+● User answered Claude's questions:
+  ⎿  · Pick colors → Red, Blue
+
+✽ Booping… (2s · ↓ 125 tokens)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · esc to interrupt · ← for agents                                                                    ◐ medium · /effort

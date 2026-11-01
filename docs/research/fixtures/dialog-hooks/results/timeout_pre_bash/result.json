@@ -1,0 +1,97 @@
+{
+ "case": "timeout_pre_bash",
+ "flags": {
+  "at_stalled_s": 12.7,
+  "at_after_timeout_s": 20.2,
+  "at_final_s": 23.1
+ },
+ "hook_state_after": null,
+ "dialog_after": true,
+ "stall_elapsed_s": 10.9,
+ "keys_sent": [
+  "Enter"
+ ],
+ "created": true,
+ "hold_pids_after": {
+  "2159060": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "signal",
+   "ev": "PreToolUse",
+   "sig": "SIGTERM"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_timeout_pre_bash.txt",
+     "description": "Create empty file probe_timeout_pre_bash.txt"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ],
+  "subagent_files": []
+ }
+}

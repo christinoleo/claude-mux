@@ -1,0 +1,103 @@
+{
+ "case": "pr_answer",
+ "flags": {
+  "at_during_s": 3.2,
+  "at_final_s": 7.4
+ },
+ "dialog_during": true,
+ "hold_pids_after": {
+  "2053568": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": false,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "square option"
+        },
+        {
+         "label": "Circle",
+         "description": "circle option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "GOT: Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "subagent_files": []
+ }
+}

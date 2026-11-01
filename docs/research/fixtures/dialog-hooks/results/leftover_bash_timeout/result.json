@@ -1,0 +1,129 @@
+{
+ "case": "leftover_bash_timeout",
+ "flags": {
+  "at_final_s": 5.5
+ },
+ "created": true,
+ "states": {
+  "at_stop": [
+   1.1,
+   "S"
+  ],
+  "plus_5s": [
+   5.1,
+   "S"
+  ],
+  "plus_15s": [
+   15.1,
+   null
+  ],
+  "plus_25s": [
+   25.1,
+   null
+  ],
+  "after_next_turn": [
+   27.1,
+   null
+  ],
+  "after_exit": [
+   31.5,
+   null
+  ]
+ },
+ "post_tool_use_fired": true,
+ "alive_at_post": true,
+ "timeout": 12,
+ "hold_pids_after": {
+  "2136060": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "signal",
+   "ev": "PermissionRequest",
+   "sig": "SIGTERM"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_leftover_bash_timeout.txt",
+     "description": "Create probe_leftover_bash_timeout.txt file"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   },
+   {
+    "sidechain": false,
+    "text": "NEXT"
+   }
+  ],
+  "subagent_files": []
+ }
+}

@@ -1,0 +1,63 @@
+{
+ "case": "hold_pr_bash_no_select",
+ "flags": {
+  "at_holding_s": 3.5,
+  "at_after_person_s": 7.4,
+  "at_final_s": 39.0
+ },
+ "created": false,
+ "hook_tried": "allow",
+ "dialog_during_hold": true,
+ "hook_state_after_person": null,
+ "hold_pids_after": {
+  "2099772": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "signal",
+   "ev": "PermissionRequest",
+   "sig": "SIGTERM"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_hold_pr_bash_no_select.txt",
+     "description": "Create empty file probe_hold_pr_bash_no_select.txt"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": true,
+    "content": "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.\n\nNote: The user's next message may contain a correction or preference. Pay close attention \u2014 if they explain what went wrong or how they'd prefer you to work, consider saving that to memory for future sessions."
+   }
+  ],
+  "assistant_text": [],
+  "subagent_files": []
+ }
+}

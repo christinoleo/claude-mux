@@ -1,0 +1,112 @@
+{
+ "case": "sub_fork_auq_answer",
+ "flags": {
+  "at_during_s": 3.5,
+  "at_final_s": 17.0
+ },
+ "foreground_requested": false,
+ "subagent_stop_type": "fork",
+ "hold_pids_after": {
+  "2631940": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": true,
+   "held_s": 0.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PreToolUse"
+  }
+ ],
+ "fired": [
+  [
+   "SubagentStart",
+   null,
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PreToolUse",
+   "AskUserQuestion",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PostToolUse",
+   "AskUserQuestion",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "fork",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": true,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "Square shape"
+        },
+        {
+         "label": "Circle",
+         "description": "Circle shape"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The background subtask finished. Its AskUserQuestion call returned:\n\n**Circle**"
+   },
+   {
+    "sidechain": true,
+    "text": "Circle"
+   }
+  ],
+  "subagent_files": [
+   "agent-acall-the-askuserquestion-7552a640c43a17e7.jsonl"
+  ]
+ }
+}

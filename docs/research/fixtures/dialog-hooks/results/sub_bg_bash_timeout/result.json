@@ -1,0 +1,165 @@
+{
+ "case": "sub_bg_bash_timeout",
+ "flags": {
+  "at_stalled_s": 5.5,
+  "at_after_timeout_s": 13.0,
+  "at_final_s": 20.3
+ },
+ "foreground_requested": false,
+ "dialog_during_hold": false,
+ "hook_state_after": null,
+ "dialog_after": true,
+ "created": true,
+ "agent_status": "async_launched",
+ "hold_pids_after": {
+  "2616998": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "signal",
+   "ev": "PermissionRequest",
+   "sig": "SIGTERM"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Agent",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Agent",
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStart",
+   null,
+   "asker",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "PreToolUse",
+   "Bash",
+   "asker",
+   true,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   "asker",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   "asker",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "asker",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Agent",
+    "sidechain": false,
+    "input": {
+     "subagent_type": "asker",
+     "description": "probe",
+     "prompt": "Run this exact command with the Bash tool: touch probe_sub_bg_bash_timeout.txt . Report exactly what happened, including any permission error."
+    }
+   },
+   {
+    "name": "Bash",
+    "sidechain": true,
+    "input": {
+     "command": "touch probe_sub_bg_bash_timeout.txt",
+     "description": "Create empty file probe_sub_bg_bash_timeout.txt"
+    }
+   },
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_sub_bg_bash_timeout.txt",
+     "description": "Create empty file probe_sub_bg_bash_timeout.txt"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Async agent launched successfully. (This tool result is internal metadata \u2014 never quote or paste any part of it, including the agentId below, into a user-facing reply.)\nagentId: a5272ceaf6d982055 (internal ID - do not mention to user. Use SendMessage with to: 'a5272ceaf6d982055', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes. You know nothing about its results until that notification arrives \u2014 do not report, assume, or predict them; continue other work or respond to the user in the meantime.\nDo not duplicate this agent's work \u2014 avoid working with the same files or topics it is using.\noutput_file: $PROBE_DIR"
+   },
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The subagent is still running in the background, so I don't have its result yet. I'll send the `SUB:` line once the completion notification arrives."
+   },
+   {
+    "sidechain": false,
+    "text": "SUB: The agent ran `touch probe_sub_bg_bash_timeout.txt` with no output and no permission error; it did not verify that the file exists."
+   },
+   {
+    "sidechain": true,
+    "text": "The command `touch probe_sub_bg_bash_timeout.txt` ran and completed with no output. There was no permission error. I did not verify that the file exists, since I only ran the one command you specified."
+   }
+  ],
+  "subagent_files": [
+   "agent-a5272ceaf6d982055.jsonl"
+  ]
+ }
+}

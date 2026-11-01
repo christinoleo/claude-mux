@@ -1,0 +1,134 @@
+{
+ "case": "sub_bg_gp_auq_pass",
+ "flags": {
+  "at_final_s": 65.5
+ },
+ "foreground_requested": false,
+ "trigger_fired": false,
+ "subagent_stop_type": "general-purpose",
+ "agent_status": "async_launched",
+ "hold_pids_after": {},
+ "hook_lifecycle": [],
+ "fired": [
+  [
+   "PreToolUse",
+   "Agent",
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStart",
+   null,
+   "general-purpose",
+   true,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Agent",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "PreToolUse",
+   "ToolSearch",
+   "general-purpose",
+   true,
+   null
+  ],
+  [
+   "PostToolUse",
+   "ToolSearch",
+   "general-purpose",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "general-purpose",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Agent",
+    "sidechain": false,
+    "input": {
+     "description": "probe",
+     "subagent_type": "general-purpose",
+     "prompt": "Call the AskUserQuestion tool exactly once with question \"Pick a shape\", header \"Shape\", multiSelect false, options Square and Circle. Report what it returned verbatim. If you do not have that tool, say NO_TOOL and list the tools you do have."
+    }
+   },
+   {
+    "name": "ToolSearch",
+    "sidechain": true,
+    "input": {
+     "query": "select:AskUserQuestion",
+     "max_results": 5
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Async agent launched successfully. (This tool result is internal metadata \u2014 never quote or paste any part of it, including the agentId below, into a user-facing reply.)\nagentId: aa8b7d0d690e4da0b (internal ID - do not mention to user. Use SendMessage with to: 'aa8b7d0d690e4da0b', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes. You know nothing about its results until that notification arrives \u2014 do not report, assume, or predict them; continue other work or respond to the user in the meantime.\nDo not duplicate this agent's work \u2014 avoid working with the same files or topics it is using.\noutput_file: $PROBE_DIR"
+   },
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "No matching deferred tools found"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The subagent is still running, so I don't have its result yet. I'll reply with the SUB: line once its completion notification arrives."
+   },
+   {
+    "sidechain": false,
+    "text": "SUB: NO_TOOL. The subagent reported it had no AskUserQuestion tool, so it didn't call it. It listed Agent, Artifact, Bash, Edit, Read, Skill, ToolSearch and Write as direct tools, and ArtifactComments, ArtifactData, EnterWorktree, ExitWorktree, Monitor, NotebookEdit, SendMessage, TaskStop, WebFetch and WebSearch as deferred."
+   },
+   {
+    "sidechain": true,
+    "text": "NO_TOOL\n\nI do not have an AskUserQuestion tool. A ToolSearch for \"select:AskUserQuestion\" returned no matching deferred tools, so I did not call it and nothing was returned.\n\nTools I do have:\n- **Direct:** Agent, Artifact, Bash, Edit, Read, Skill, ToolSearch, Write\n- **Deferred (load with ToolSearch before use):** ArtifactComments, ArtifactData, EnterWorktree, ExitWorktree, Monitor, NotebookEdit, "
+   }
+  ],
+  "subagent_files": [
+   "agent-aa8b7d0d690e4da0b.jsonl"
+  ]
+ }
+}

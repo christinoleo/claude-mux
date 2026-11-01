@@ -1,0 +1,99 @@
+{
+ "case": "hold_pr_bash_yes",
+ "flags": {
+  "at_holding_s": 3.2,
+  "at_after_person_s": 6.1,
+  "at_final_s": 7.6
+ },
+ "created": true,
+ "hook_tried": "deny",
+ "dialog_during_hold": true,
+ "hook_state_after_person": "S",
+ "hold_pids_after": {
+  "2074284": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 4.46
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "",
+   true,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_hold_pr_bash_yes.txt",
+     "description": "Create probe_hold_pr_bash_yes.txt file"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ],
+  "subagent_files": []
+ }
+}

@@ -1,0 +1,106 @@
+{
+ "case": "sub_fork_auq_pass",
+ "flags": {
+  "at_dialog_s": 3.6,
+  "at_after_keys_s": 6.8,
+  "at_final_s": 20.3
+ },
+ "foreground_requested": false,
+ "trigger_fired": true,
+ "dialog_visible": true,
+ "trigger_agent_id": true,
+ "subagent_stop_type": "fork",
+ "hold_pids_after": {},
+ "hook_lifecycle": [],
+ "fired": [
+  [
+   "SubagentStart",
+   null,
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PreToolUse",
+   "AskUserQuestion",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "AskUserQuestion",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PostToolUse",
+   "AskUserQuestion",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "fork",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": true,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "A square shape"
+        },
+        {
+         "label": "Circle",
+         "description": "A circle shape"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The background task finished. The AskUserQuestion call returned this, verbatim:\n\n\"Pick a shape\"=\"Circle\""
+   },
+   {
+    "sidechain": true,
+    "text": "Tool returned: \"Pick a shape\"=\"Circle\"."
+   }
+  ],
+  "subagent_files": [
+   "agent-acall-the-askuserquestion-61d99cf1ecce87ee.jsonl"
+  ]
+ }
+}

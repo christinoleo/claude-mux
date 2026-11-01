@@ -1,0 +1,85 @@
+{
+ "case": "kill_pre_bash",
+ "flags": {
+  "at_stalled_s": 3.9,
+  "at_after_kill_s": 6.4,
+  "at_final_s": 9.4
+ },
+ "hook_state_after": null,
+ "dialog_after": true,
+ "stall_elapsed_s": 6.0,
+ "keys_sent": [
+  "Enter"
+ ],
+ "created": true,
+ "hold_pids_after": {
+  "2177164": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "touch probe_kill_pre_bash.txt",
+     "description": "Create probe_kill_pre_bash.txt file in working directory"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ],
+  "subagent_files": []
+ }
+}

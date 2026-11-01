@@ -1,0 +1,107 @@
+{
+ "case": "sub_fork_bash_pr_allow",
+ "flags": {
+  "at_during_s": 3.3,
+  "at_final_s": 20.0
+ },
+ "foreground_requested": false,
+ "hold_fired": true,
+ "dialog_visible": false,
+ "subagent_stop_type": "fork",
+ "created": true,
+ "hold_pids_after": {
+  "2638706": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest"
+  }
+ ],
+ "fired": [
+  [
+   "SubagentStart",
+   null,
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PreToolUse",
+   "Bash",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PermissionRequest",
+   "Bash",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "PostToolUse",
+   "Bash",
+   "fork",
+   true,
+   null
+  ],
+  [
+   "SubagentStop",
+   null,
+   "fork",
+   true,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": true,
+    "input": {
+     "command": "touch probe_sub_fork_bash_pr_allow.txt",
+     "description": "Create empty file probe_sub_fork_bash_pr_allow.txt in working directory"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The forked subtask ran `touch probe_sub_fork_bash_pr_allow.txt` with the Bash tool. It finished with no output and no permission error. I haven't checked that the file exists in the working directory, so I can confirm that next if you want."
+   },
+   {
+    "sidechain": true,
+    "text": "Ran `touch probe_sub_fork_bash_pr_allow.txt`. It completed with no output and no permission error."
+   }
+  ],
+  "subagent_files": [
+   "agent-arun-this-exact-a3046f478aae85e1.jsonl"
+  ]
+ }
+}

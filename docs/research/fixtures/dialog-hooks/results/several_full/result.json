@@ -1,0 +1,134 @@
+{
+ "case": "several_full",
+ "flags": {
+  "at_during_s": 3.0,
+  "at_final_s": 5.2
+ },
+ "dialog_during": false,
+ "hold_pids_after": {
+  "2047342": null
+ },
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": true,
+   "held_s": 0.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PreToolUse"
+  }
+ ],
+ "fired": [
+  [
+   "PreToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "PostToolUse",
+   "AskUserQuestion",
+   null,
+   false,
+   null
+  ],
+  [
+   "Stop",
+   null,
+   null,
+   false,
+   null
+  ]
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": false,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "square option"
+        },
+        {
+         "label": "Circle",
+         "description": "circle option"
+        }
+       ]
+      },
+      {
+       "question": "Pick colors",
+       "header": "Colors",
+       "multiSelect": true,
+       "options": [
+        {
+         "label": "Red",
+         "description": "red option"
+        },
+        {
+         "label": "Green",
+         "description": "green option"
+        },
+        {
+         "label": "Blue",
+         "description": "blue option"
+        }
+       ]
+      },
+      {
+       "question": "Pick a size",
+       "header": "Size",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Small",
+         "description": "small option"
+        },
+        {
+         "label": "Large",
+         "description": "large option"
+        }
+       ]
+      }
+     ],
+     "annotations": {},
+     "metadata": {
+      "source": "probe157"
+     }
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "The user answered: \"Pick a shape\"=\"Circle\", \"Pick colors\"=\"Green,Blue\", \"Pick a size\"=\"free text size\". Read the answers carefully \u2014 they may request clarification, changes, or that you not proceed \u2014 and follow what they actually say."
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "The user answered: \"Pick a shape\"=\"Circle\", \"Pick colors\"=\"Green,Blue\", \"Pick a size\"=\"free text size\". Read the answers carefully \u2014 they may request clarification, changes, or that you not proceed \u2014 and follow what they actually say."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "GOT: The user answered: \"Pick a shape\"=\"Circle\", \"Pick colors\"=\"Green,Blue\", \"Pick a size\"=\"free text size\". Read the answers carefully \u2014 they may request clarification, changes, or that you not proceed \u2014 and follow what they actually say."
+   }
+  ],
+  "subagent_files": []
+ }
+}
