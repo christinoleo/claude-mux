@@ -1,0 +1,293 @@
+{
+ "case": "by_fork_auq_pass",
+ "trial": "2",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_dialog_s": 1.4,
+  "at_after_keys_s": 2.9,
+  "at_final_s": 7.4
+ },
+ "mode": "by",
+ "dialog_seen": true,
+ "keys_sent": true,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [],
+ "fired": [
+  {
+   "ev": "SubagentStart",
+   "agent_type": "fork",
+   "agent_id": "acall-the-askuserquestion-021867f43b146d1f",
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "hook_event_name",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "fork",
+   "agent_id": "acall-the-askuserquestion-021867f43b146d1f",
+   "tool_use_id": "toolu_01F7ED1w4vsWVHELvNFTddQD",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ]
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "fork",
+   "agent_id": "acall-the-askuserquestion-021867f43b146d1f",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ]
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "fork",
+   "agent_id": "acall-the-askuserquestion-021867f43b146d1f",
+   "tool_use_id": "toolu_01F7ED1w4vsWVHELvNFTddQD",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ],
+    "answers": {
+     "Pick a shape": "Circle"
+    },
+    "annotations": {}
+   },
+   "tool_response": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ],
+    "answers": {
+     "Pick a shape": "Circle"
+    },
+    "annotations": {}
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "fork",
+   "agent_id": "acall-the-askuserquestion-021867f43b146d1f",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "",
+   "agent_id": "a6977c7b0c4abf2b2",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": true,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "square option"
+        },
+        {
+         "label": "Circle",
+         "description": "circle option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The background subtask finished. Its AskUserQuestion call returned: `GOT: User has answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind.`\n\nI haven't acted on that answer. It came back from a background agent, not from you, so there's no pending decision on my side."
+   },
+   {
+    "sidechain": true,
+    "text": "GOT: User has answered: \"Pick a shape\"=\"Circle\". You can now continue with these answers in mind."
+   }
+  ]
+ }
+}

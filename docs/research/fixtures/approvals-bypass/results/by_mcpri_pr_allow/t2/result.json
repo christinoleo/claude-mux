@@ -1,0 +1,186 @@
+{
+ "case": "by_mcpri_pr_allow",
+ "trial": "2",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 4.6,
+  "at_dialog_s": 5.8,
+  "at_stuck_s": 14.9,
+  "at_final_s": 16.1
+ },
+ "mode": "by",
+ "held": true,
+ "dialog_during_hold": true,
+ "hook_ended_after_s": 2.0,
+ "dialog_seen": true,
+ "dialog_stuck": true,
+ "stop_fired": false,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PermissionRequest",
+     "decision": {
+      "behavior": "allow"
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01FDQuQHMte9gHmmt6RT4vNg",
+   "tool_input": {
+    "query": "select:mcp__probe__confirm_probe",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01FDQuQHMte9gHmmt6RT4vNg",
+   "tool_input": {
+    "query": "select:mcp__probe__confirm_probe",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "mcp__probe__confirm_probe"
+    ],
+    "query": "select:mcp__probe__confirm_probe",
+    "total_deferred_tools": 23
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "mcp__probe__confirm_probe",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_019pdM74tCKsUtuSKMnWWdG4",
+   "tool_input": {},
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "mcp_server",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "mcp__probe__confirm_probe",
+   "permission_mode": "bypassPermissions",
+   "tool_input": {},
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "mcp_server",
+    "permission_mode",
+    "permission_suggestions",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Notification",
+   "notification_type": "permission_prompt",
+   "payload_keys": [
+    "cwd",
+    "hook_event_name",
+    "message",
+    "notification_type",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:mcp__probe__confirm_probe",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "mcp__probe__confirm_probe",
+    "sidechain": false,
+    "input": {}
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   }
+  ],
+  "assistant_text": []
+ },
+ "mcp": []
+}

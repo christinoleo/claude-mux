@@ -1,0 +1,9 @@
+[
+ {
+  "ev": "PreToolUse",
+  "tool": "Bash",
+  "hold": 2,
+  "behavior": "deny",
+  "message": "no from probe"
+ }
+]

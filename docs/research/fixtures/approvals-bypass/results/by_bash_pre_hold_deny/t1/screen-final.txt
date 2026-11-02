@@ -1,0 +1,22 @@
+▐▛███▛█   Claude Code v2.1.316
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   ~/proj1
+
+
+❯ Run this exact command with the Bash tool, then reply DONE whatever its result. Use no other tool: echo probe >>
+  probe_by_bash_pre_hold_deny_t1.txt
+
+● Bash(echo probe >> probe_by_bash_pre_hold_deny_t1.txt)
+  ⎿  Error: PreToolUse:Bash hook error: no from probe
+
+● DONE
+
+  The Bash call did not run. A PreToolUse hook errored with "no from probe", so the append to probe_by_bash_pre_hold_deny_t1.txt never
+  happened.
+
+✻ Baked for 5s · done 10:31 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents                                                          ◐ medium · /effort

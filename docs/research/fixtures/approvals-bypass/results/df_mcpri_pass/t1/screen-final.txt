@@ -1,0 +1,18 @@
+▐▛███▛█   Claude Code v2.1.316
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/proj3
+
+
+❯ Call the MCP tool confirm_probe from the server named probe exactly once, using ToolSearch to load it if needed. Then reply with GOT: and
+  its result.
+
+  Called probe (ctrl+o to expand)
+
+● GOT: confirmed
+
+✻ Brewed for 5s · done 10:08 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents                                                                     ◐ medium · /effort

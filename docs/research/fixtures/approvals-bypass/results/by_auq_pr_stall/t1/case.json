@@ -1,0 +1,7 @@
+[
+ {
+  "ev": "PermissionRequest",
+  "tool": "AskUserQuestion",
+  "hold": "forever"
+ }
+]

@@ -1,0 +1,16 @@
+▐▛███▛█   Claude Code v2.1.316
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/proj1
+
+
+❯ Run this exact command with the Bash tool, then reply DONE whatever its result. Use no other tool: rmdir /probe161-not-there
+
+  Bash(rmdir /probe161-not-there)
+  ⎿  Running…
+
+* Doodling… (1s · ↓ 58 tokens)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · esc to interrupt · ← for agents                                                                    ◐ medium · /effort

@@ -1,0 +1,140 @@
+{
+ "case": "df_protected_claude_write",
+ "trial": "3",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_dialog_s": 3.1,
+  "at_after_keys_s": 4.2,
+  "at_final_s": 7.2
+ },
+ "mode": "df",
+ "dialog_seen": true,
+ "keys_sent": true,
+ "stop_fired": true,
+ "file_exists": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01KVKycNtY6NS2Pj3Fawq2FH",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj1/.claude/probe_df_protected_claude_write_t3.txt",
+    "content": "probe"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "Write",
+   "permission_mode": "default",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj1/.claude/probe_df_protected_claude_write_t3.txt",
+    "content": "probe"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "permission_suggestions",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01KVKycNtY6NS2Pj3Fawq2FH",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj1/.claude/probe_df_protected_claude_write_t3.txt",
+    "content": "probe"
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$PROBE_DIR/proj1/.claude/probe_df_protected_claude_write_t3.txt",
+    "content": "probe",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "default",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj1/.claude/probe_df_protected_claude_write_t3.txt",
+     "content": "probe"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj1/.claude/probe_df_protected_claude_write_t3.txt (file state is current in your context \u2014 no need to Read it back)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ]
+ }
+}

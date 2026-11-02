@@ -1,0 +1,290 @@
+{
+ "case": "df_sub_bg_bash",
+ "trial": "2",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_dialog_s": 5.1,
+  "at_after_keys_s": 6.2,
+  "at_final_s": 10.1
+ },
+ "mode": "df",
+ "dialog_seen": true,
+ "keys_sent": true,
+ "stop_fired": true,
+ "file_exists": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Agent",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01FexVQcZEpuWnLens5FGFT7",
+   "tool_input": {
+    "description": "Run probe append command",
+    "prompt": "Run this exact Bash command once, from the working directory $HOME/proj3, and nothing else. Do not modify the command, do not run any other commands, and do not inspect or edit the target file:\n\necho probe >> probe_df_sub_bg_bash_t2.txt\n\nThen report back: whether the command exited successfully (exit code), and any stdout/stderr output. Keep the report to a few lines.",
+    "subagent_type": "general-purpose"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Agent",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01FexVQcZEpuWnLens5FGFT7",
+   "tool_input": {
+    "description": "Run probe append command",
+    "prompt": "Run this exact Bash command once, from the working directory $HOME/proj3, and nothing else. Do not modify the command, do not run any other commands, and do not inspect or edit the target file:\n\necho probe >> probe_df_sub_bg_bash_t2.txt\n\nThen report back: whether the command exited successfully (exit code), and any stdout/stderr output. Keep the report to a few lines.",
+    "subagent_type": "general-purpose"
+   },
+   "tool_response": {
+    "isAsync": true,
+    "status": "async_launched",
+    "agentId": "a862e26ca0ee3bcf1",
+    "description": "Run probe append command",
+    "resolvedModel": "claude-haiku-5-5",
+    "prompt": "Run this exact Bash command once, from the working directory $HOME/proj3, and nothing else. Do not modify the command, do not run any other commands, and do not inspect or edit the target file:\n\necho probe >> probe_df_sub_bg_bash_t2.txt\n\nThen report back: whether the command exited successfully (exit code), and any stdout/stderr output. Keep the report to a few lines.",
+    "outputFile": "$PROBE_DIR/…",
+    "canReadOutputFile": true,
+    "canContinueAgent": true
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStart",
+   "agent_type": "general-purpose",
+   "agent_id": "a862e26ca0ee3bcf1",
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "hook_event_name",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "default",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "default",
+   "agent_type": "general-purpose",
+   "agent_id": "a862e26ca0ee3bcf1",
+   "tool_use_id": "toolu_01VzsRHjygTXi9jBLrVSzkLu",
+   "tool_input": {
+    "command": "echo probe >> probe_df_sub_bg_bash_t2.txt",
+    "description": "Append probe line to probe_df_sub_bg_bash_t2.txt"
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "Bash",
+   "permission_mode": "default",
+   "agent_type": "general-purpose",
+   "agent_id": "a862e26ca0ee3bcf1",
+   "tool_input": {
+    "command": "echo probe >> probe_df_sub_bg_bash_t2.txt",
+    "description": "Append probe line to probe_df_sub_bg_bash_t2.txt"
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "permission_suggestions",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "default",
+   "agent_type": "general-purpose",
+   "agent_id": "a862e26ca0ee3bcf1",
+   "tool_use_id": "toolu_01VzsRHjygTXi9jBLrVSzkLu",
+   "tool_input": {
+    "command": "echo probe >> probe_df_sub_bg_bash_t2.txt",
+    "description": "Append probe line to probe_df_sub_bg_bash_t2.txt"
+   },
+   "tool_response": {
+    "stdout": "",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "default",
+   "agent_type": "",
+   "agent_id": "a2ab958a0c18f2c47",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "default",
+   "agent_type": "general-purpose",
+   "agent_id": "a862e26ca0ee3bcf1",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Agent",
+    "sidechain": false,
+    "input": {
+     "description": "Run probe append command",
+     "subagent_type": "general-purpose",
+     "prompt": "Run this exact Bash command once, from the working directory $HOME/proj3, and nothing else. Do not modify the command, do not run any other commands, and do not inspect or edit the target file:\n\necho probe >> probe_df_sub_bg_bash_t2.txt\n\nThen report back: whether the command exited successfully (exit code), and any stdout/stderr output. Keep the report to a few lines."
+    }
+   },
+   {
+    "name": "Bash",
+    "sidechain": true,
+    "input": {
+     "command": "echo probe >> probe_df_sub_bg_bash_t2.txt",
+     "description": "Append probe line to probe_df_sub_bg_bash_t2.txt"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Async agent launched successfully. (This tool result is internal metadata \u2014 never quote or paste any part of it, including the agentId below, into a user-facing reply.)\nagentId: a862e26ca0ee3bcf1 (internal ID - do not mention to user. Use SendMessage with to: 'a862e26ca0ee3bcf1', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes. You know nothing about its results until that notification arrives \u2014 do not report, assume, or predict them; continue other work or respond to the user in the meantime.\nDo"
+   },
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "I've started a general-purpose agent to run `echo probe >> probe_df_sub_bg_bash_t2.txt` from `$HOME/proj3`. It's running in the background, so I don't have its result yet. I'll report the exit code and output when it finishes."
+   },
+   {
+    "sidechain": true,
+    "text": "The command `echo probe >> probe_df_sub_bg_bash_t2.txt` ran once and produced no stdout or stderr. The tool reported only \"completed with no output\" and did not show an exit code, so I can't confirm the code directly. A silent completion normally means exit 0. I ran it without changing the directory"
+   }
+  ]
+ }
+}

@@ -1,0 +1,7 @@
+[
+ {
+  "ev": "PreToolUse",
+  "tool": "Bash",
+  "hold": "forever"
+ }
+]

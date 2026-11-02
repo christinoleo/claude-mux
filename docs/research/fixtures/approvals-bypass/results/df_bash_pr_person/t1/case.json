@@ -1,0 +1,8 @@
+[
+ {
+  "ev": "PermissionRequest",
+  "tool": "Bash",
+  "hold": "release",
+  "behavior": "deny"
+ }
+]

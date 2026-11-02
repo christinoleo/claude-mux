@@ -1,0 +1,356 @@
+{
+ "case": "df_plan_pr_echo",
+ "trial": "1",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 8.4,
+  "at_dialog_s": 11.9,
+  "at_stuck_s": 21.0,
+  "at_final_s": 22.2
+ },
+ "mode": "df",
+ "held": true,
+ "dialog_during_hold": true,
+ "hook_ended_after_s": 2.0,
+ "dialog_seen": true,
+ "dialog_stuck": true,
+ "stop_fired": false,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PermissionRequest",
+     "decision": {
+      "behavior": "allow",
+      "updatedInput": {
+       "plan": "Create an empty file named `notes_1.txt` in $HOME/proj2.\n",
+       "planFilePath": "$HOME/proj2/.plans/sprightly-painting-newell.md"
+      }
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01JRF7ZCHUSaT79rGb5ow7jU",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01JRF7ZCHUSaT79rGb5ow7jU",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "ExitPlanMode"
+    ],
+    "query": "select:ExitPlanMode",
+    "total_deferred_tools": 21
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01BTwqqUxom1wwLvhZSkv8TZ",
+   "tool_input": {
+    "file_path": "$HOME/proj2/.plans/sprightly-painting-newell.md",
+    "content": "Create an empty file named `notes_1.txt` in $HOME/proj2.\n"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01BTwqqUxom1wwLvhZSkv8TZ",
+   "tool_input": {
+    "file_path": "$HOME/proj2/.plans/sprightly-painting-newell.md",
+    "content": "Create an empty file named `notes_1.txt` in $HOME/proj2.\n"
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$HOME/proj2/.plans/sprightly-painting-newell.md",
+    "content": "Create an empty file named `notes_1.txt` in $HOME/proj2.\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01PGhSm7sCxGt2WuR87EStXU",
+   "tool_input": {
+    "plan": "Create an empty file named `notes_1.txt` in $HOME/proj2.\n",
+    "planFilePath": "$HOME/proj2/.plans/sprightly-painting-newell.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_input": {
+    "plan": "Create an empty file named `notes_1.txt` in $HOME/proj2.\n",
+    "planFilePath": "$HOME/proj2/.plans/sprightly-painting-newell.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01PGhSm7sCxGt2WuR87EStXU",
+   "tool_input": {},
+   "tool_response": {
+    "plan": "Create an empty file named `notes_1.txt` in $HOME/proj2.\n",
+    "isAgent": false,
+    "filePath": "$HOME/proj2/.plans/sprightly-painting-newell.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01AjzSDSaFj5hGaZrqDHwMVA",
+   "tool_input": {
+    "file_path": "$HOME/proj2/notes_1.txt",
+    "content": ""
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "Write",
+   "permission_mode": "default",
+   "tool_input": {
+    "file_path": "$HOME/proj2/notes_1.txt",
+    "content": ""
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "permission_suggestions",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Notification",
+   "notification_type": "permission_prompt",
+   "payload_keys": [
+    "cwd",
+    "hook_event_name",
+    "message",
+    "notification_type",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:ExitPlanMode",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$HOME/proj2/.plans/sprightly-painting-newell.md",
+     "content": "Create an empty file named `notes_1.txt` in $HOME/proj2.\n"
+    }
+   },
+   {
+    "name": "ExitPlanMode",
+    "sidechain": false,
+    "input": {}
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$HOME/proj2/notes_1.txt",
+     "content": ""
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $HOME/proj2/.plans/sprightly-painting-newell.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $HOME/proj2/.plans/sprightly-painting-newell.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named `notes_1.txt` in $HOME/proj2.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $HOME/proj2/.plans/sprightly-painting-newell.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $HOME/proj2/.plans/sprightly-painting-newell.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named `notes_1.txt` in $HOME/proj2.\n"
+   }
+  ],
+  "assistant_text": []
+ }
+}

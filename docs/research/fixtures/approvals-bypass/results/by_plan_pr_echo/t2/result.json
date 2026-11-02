@@ -1,0 +1,378 @@
+{
+ "case": "by_plan_pr_echo",
+ "trial": "2",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 5.7,
+  "at_final_s": 11.7
+ },
+ "mode": "by",
+ "held": true,
+ "dialog_during_hold": true,
+ "hook_ended_after_s": 2.0,
+ "dialog_seen": false,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PermissionRequest",
+     "decision": {
+      "behavior": "allow",
+      "updatedInput": {
+       "plan": "Create an empty file named notes_2.txt in $HOME/proj2.\n",
+       "planFilePath": "$HOME/proj2/.plans/valiant-noodling-island.md"
+      }
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01XWji42dhyGYho47iEykNB2",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01XWji42dhyGYho47iEykNB2",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "ExitPlanMode"
+    ],
+    "query": "select:ExitPlanMode",
+    "total_deferred_tools": 21
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01VCCSznnZQ75zvBQkArXdeS",
+   "tool_input": {
+    "file_path": "$HOME/proj2/.plans/valiant-noodling-island.md",
+    "content": "Create an empty file named notes_2.txt in $HOME/proj2.\n"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01VCCSznnZQ75zvBQkArXdeS",
+   "tool_input": {
+    "file_path": "$HOME/proj2/.plans/valiant-noodling-island.md",
+    "content": "Create an empty file named notes_2.txt in $HOME/proj2.\n"
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$HOME/proj2/.plans/valiant-noodling-island.md",
+    "content": "Create an empty file named notes_2.txt in $HOME/proj2.\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01Pkq1gJTp39sqm61pxVEpM2",
+   "tool_input": {
+    "plan": "Create an empty file named notes_2.txt in $HOME/proj2.\n",
+    "planFilePath": "$HOME/proj2/.plans/valiant-noodling-island.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_input": {
+    "plan": "Create an empty file named notes_2.txt in $HOME/proj2.\n",
+    "planFilePath": "$HOME/proj2/.plans/valiant-noodling-island.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01Pkq1gJTp39sqm61pxVEpM2",
+   "tool_input": {},
+   "tool_response": {
+    "plan": "Create an empty file named notes_2.txt in $HOME/proj2.\n",
+    "isAgent": false,
+    "filePath": "$HOME/proj2/.plans/valiant-noodling-island.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01LTiSDGPonkPf3dRdaSJ42k",
+   "tool_input": {
+    "file_path": "$HOME/proj2/notes_2.txt",
+    "content": ""
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01LTiSDGPonkPf3dRdaSJ42k",
+   "tool_input": {
+    "file_path": "$HOME/proj2/notes_2.txt",
+    "content": ""
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$HOME/proj2/notes_2.txt",
+    "content": "",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:ExitPlanMode",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$HOME/proj2/.plans/valiant-noodling-island.md",
+     "content": "Create an empty file named notes_2.txt in $HOME/proj2.\n"
+    }
+   },
+   {
+    "name": "ExitPlanMode",
+    "sidechain": false,
+    "input": {}
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$HOME/proj2/notes_2.txt",
+     "content": ""
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $HOME/proj2/.plans/valiant-noodling-island.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $HOME/proj2/.plans/valiant-noodling-island.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named notes_2.txt in $HOME/proj2.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $HOME/proj2/.plans/valiant-noodling-island.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $HOME/proj2/.plans/valiant-noodling-island.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named notes_2.txt in $HOME/proj2.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $HOME/proj2/notes_2.txt (file state is current in your context \u2014 no need to Read it back)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "I created the empty file `$HOME/proj2/notes_2.txt`. I didn't commit it."
+   }
+  ]
+ }
+}

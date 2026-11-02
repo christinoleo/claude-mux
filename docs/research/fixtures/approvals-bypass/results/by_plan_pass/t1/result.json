@@ -1,0 +1,393 @@
+{
+ "case": "by_plan_pass",
+ "trial": "1",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_dialog_s": 6.2,
+  "at_after_keys_s": 7.3,
+  "at_final_s": 11.5
+ },
+ "mode": "by",
+ "dialog_seen": true,
+ "keys_sent": true,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01RZ7d28j4e3ib38ELcaDpKV",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01RZ7d28j4e3ib38ELcaDpKV",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "ExitPlanMode"
+    ],
+    "query": "select:ExitPlanMode",
+    "total_deferred_tools": 21
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_017cvYcsA6oQmLYxcVA9JTG4",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md",
+    "content": "Create `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_017cvYcsA6oQmLYxcVA9JTG4",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md",
+    "content": "Create `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n"
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md",
+    "content": "Create `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_019UZBYNfKty9JSn155QPkU6",
+   "tool_input": {
+    "plan": "Create `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n",
+    "planFilePath": "$PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_input": {
+    "plan": "Create `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n",
+    "planFilePath": "$PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_019UZBYNfKty9JSn155QPkU6",
+   "tool_input": {},
+   "tool_response": {
+    "plan": "Create `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n",
+    "isAgent": false,
+    "filePath": "$PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01CZVbTzw7f7vfbGDhDfsvdV",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj4/notes_1.txt",
+    "content": ""
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01CZVbTzw7f7vfbGDhDfsvdV",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj4/notes_1.txt",
+    "content": ""
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$PROBE_DIR/proj4/notes_1.txt",
+    "content": "",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "",
+   "agent_id": "af2df485882f7797f",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:ExitPlanMode",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:ExitPlanMode",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md",
+     "content": "Create `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n"
+    }
+   },
+   {
+    "name": "ExitPlanMode",
+    "sidechain": false,
+    "input": {}
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md",
+     "content": "Create `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n"
+    }
+   },
+   {
+    "name": "ExitPlanMode",
+    "sidechain": false,
+    "input": {}
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj4/notes_1.txt",
+     "content": ""
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $PROBE_DIR/proj4/.plans/iterative-hatching-puddle.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate `notes_1.txt` in the project root directory (empty file, or with a short placeholder line).\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj4/notes_1.txt (file state is current in your context \u2014 no need to Read it back)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "I created `notes_1.txt` in the project directory (`$PROBE_DIR/proj4/notes_1.txt`). It's empty, since the plan didn't specify content. I didn't commit anything."
+   }
+  ]
+ }
+}

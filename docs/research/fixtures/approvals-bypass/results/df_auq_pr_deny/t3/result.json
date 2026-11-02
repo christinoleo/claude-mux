@@ -1,0 +1,180 @@
+{
+ "case": "df_auq_pr_deny",
+ "trial": "3",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 2.6,
+  "at_final_s": 6.4
+ },
+ "mode": "df",
+ "held": true,
+ "dialog_during_hold": true,
+ "hook_ended_after_s": 2.0,
+ "dialog_seen": false,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PermissionRequest",
+     "decision": {
+      "behavior": "deny",
+      "message": "no from probe"
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_018jGQx8y2AvtK9kgZQjcXwe",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ]
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "default",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ]
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "default",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": false,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "square option"
+        },
+        {
+         "label": "Circle",
+         "description": "circle option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": true,
+    "content": "no from probe"
+   },
+   {
+    "sidechain": false,
+    "is_error": true,
+    "content": "no from probe"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "GOT: no from probe"
+   }
+  ]
+ }
+}

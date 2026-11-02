@@ -1,0 +1,23 @@
+▐▛███▛█   Claude Code v2.1.316
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   ~/proj4
+
+
+❯ Call the MCP tool elicit_probe from the server named probe exactly once, using ToolSearch to load it if needed. Then reply with GOT: and
+  its result.
+
+● Calling probe… (ctrl+o to expand)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Tool use
+ probe — Elicit Probe Tool: (MCP)
+
+ About the probe — Elicit Probe Tool:
+ │ Asks the user for a colour and returns it.
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for probe — Elicit Probe commands in $HOME/proj4
+   3. No
+
+ Esc to cancel · Tab to amend

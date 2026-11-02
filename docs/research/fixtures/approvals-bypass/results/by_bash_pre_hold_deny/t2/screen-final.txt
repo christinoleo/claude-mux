@@ -1,0 +1,19 @@
+▐▛███▛█   Claude Code v2.1.316
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/proj3
+
+
+❯ Run this exact command with the Bash tool, then reply DONE whatever its result. Use no other tool: echo probe >>
+  probe_by_bash_pre_hold_deny_t2.txt
+
+● Bash(echo probe >> probe_by_bash_pre_hold_deny_t2.txt)
+  ⎿  Error: PreToolUse:Bash hook error: no from probe
+
+● DONE
+
+✻ Sautéed for 5s · done 10:08 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents                                                          ◐ medium · /effort

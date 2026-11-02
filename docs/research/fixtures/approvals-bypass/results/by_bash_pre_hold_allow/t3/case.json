@@ -1,0 +1,8 @@
+[
+ {
+  "ev": "PreToolUse",
+  "tool": "Bash",
+  "hold": 2,
+  "behavior": "allow"
+ }
+]

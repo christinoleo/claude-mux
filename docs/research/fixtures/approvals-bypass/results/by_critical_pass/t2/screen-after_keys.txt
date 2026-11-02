@@ -1,0 +1,17 @@
+▐▛███▛█   Claude Code v2.1.316
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/proj1
+
+
+❯ Run this exact command with the Bash tool, then reply DONE whatever its result. Use no other tool: rmdir /probe161-not-there
+
+● Bash(rmdir /probe161-not-there)
+  ⎿  Error: Exit code 1
+     rmdir: failed to remove '/probe161-not-there': No such file or directory
+
+✽ Caramelizing… (1s · ↓ 92 tokens)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for agents                                       ◐ medium · /effort

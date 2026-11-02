@@ -1,0 +1,263 @@
+{
+ "case": "by_sub_bg_bash",
+ "trial": "1",
+ "flags": {
+  "launches": 1,
+  "at_start_s": -0.0,
+  "at_final_s": 7.9
+ },
+ "mode": "by",
+ "dialog_seen": false,
+ "stop_fired": true,
+ "file_exists": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Agent",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01RPPXhnCV6SX4rgR7scZVWb",
+   "tool_input": {
+    "description": "Run exact echo append command",
+    "prompt": "Run this exact Bash command and nothing else, then report its outcome (success or the error output):\n\necho probe >> probe_by_sub_bg_bash_t1.txt\n\nRun it in the working directory $PROBE_DIR/proj1. Do not modify the command, do not create or read any other files.",
+    "subagent_type": "general-purpose"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStart",
+   "agent_type": "general-purpose",
+   "agent_id": "a061eb8278d460229",
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "hook_event_name",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Agent",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01RPPXhnCV6SX4rgR7scZVWb",
+   "tool_input": {
+    "description": "Run exact echo append command",
+    "prompt": "Run this exact Bash command and nothing else, then report its outcome (success or the error output):\n\necho probe >> probe_by_sub_bg_bash_t1.txt\n\nRun it in the working directory $PROBE_DIR/proj1. Do not modify the command, do not create or read any other files.",
+    "subagent_type": "general-purpose"
+   },
+   "tool_response": {
+    "isAsync": true,
+    "status": "async_launched",
+    "agentId": "a061eb8278d460229",
+    "description": "Run exact echo append command",
+    "resolvedModel": "claude-haiku-5-5",
+    "prompt": "Run this exact Bash command and nothing else, then report its outcome (success or the error output):\n\necho probe >> probe_by_sub_bg_bash_t1.txt\n\nRun it in the working directory $PROBE_DIR/proj1. Do not modify the command, do not create or read any other files.",
+    "outputFile": "$PROBE_DIR/…",
+    "canReadOutputFile": true,
+    "canContinueAgent": true
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "general-purpose",
+   "agent_id": "a061eb8278d460229",
+   "tool_use_id": "toolu_01QcrzwqLANYVsLH3oMXUaU3",
+   "tool_input": {
+    "command": "echo probe >> probe_by_sub_bg_bash_t1.txt",
+    "description": "Append probe line to probe file in working directory"
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "general-purpose",
+   "agent_id": "a061eb8278d460229",
+   "tool_use_id": "toolu_01QcrzwqLANYVsLH3oMXUaU3",
+   "tool_input": {
+    "command": "echo probe >> probe_by_sub_bg_bash_t1.txt",
+    "description": "Append probe line to probe file in working directory"
+   },
+   "tool_response": {
+    "stdout": "",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "",
+   "agent_id": "a4c1066261c4f2fc5",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "general-purpose",
+   "agent_id": "a061eb8278d460229",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Agent",
+    "sidechain": false,
+    "input": {
+     "subagent_type": "general-purpose",
+     "description": "Run exact echo append command",
+     "prompt": "Run this exact Bash command and nothing else, then report its outcome (success or the error output):\n\necho probe >> probe_by_sub_bg_bash_t1.txt\n\nRun it in the working directory $PROBE_DIR/proj1. Do not modify the command, do not create or read any other files."
+    }
+   },
+   {
+    "name": "Bash",
+    "sidechain": true,
+    "input": {
+     "command": "echo probe >> probe_by_sub_bg_bash_t1.txt",
+     "description": "Append probe line to probe file in working directory"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Async agent launched successfully. (This tool result is internal metadata \u2014 never quote or paste any part of it, including the agentId below, into a user-facing reply.)\nagentId: a061eb8278d460229 (internal ID - do not mention to user. Use SendMessage with to: 'a061eb8278d460229', summary: '<5-10 word recap>' to continue this agent.)\nThe agent is working in the background. You will be notified automatically when it completes. You know nothing about its results until that notification arrives \u2014 do not report, assume, or predict them; continue other work or respond to the user in the meantime.\nDo"
+   },
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "I've launched a general-purpose agent to run `echo probe >> probe_by_sub_bg_bash_t1.txt`. It's running in the background, so I don't have its result yet. I'll report what it did once it finishes."
+   },
+   {
+    "sidechain": true,
+    "text": "The command ran and succeeded with no output. It appended `probe` to `probe_by_sub_bg_bash_t1.txt` in `$PROBE_DIR/proj1`."
+   }
+  ]
+ }
+}

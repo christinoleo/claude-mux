@@ -1,0 +1,8 @@
+[
+ {
+  "ev": "PreToolUse",
+  "tool": "AskUserQuestion",
+  "behavior": "allow",
+  "hold": 0
+ }
+]

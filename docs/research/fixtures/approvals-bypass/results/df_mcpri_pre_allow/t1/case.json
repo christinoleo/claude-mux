@@ -1,0 +1,8 @@
+[
+ {
+  "ev": "PreToolUse",
+  "tool": "mcp__probe__confirm_probe",
+  "behavior": "allow",
+  "hold": 0
+ }
+]

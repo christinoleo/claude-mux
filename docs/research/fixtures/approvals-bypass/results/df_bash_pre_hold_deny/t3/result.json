@@ -1,0 +1,113 @@
+{
+ "case": "df_bash_pre_hold_deny",
+ "trial": "3",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 2.9,
+  "at_final_s": 6.7
+ },
+ "mode": "df",
+ "held": true,
+ "dialog_during_hold": false,
+ "hook_ended_after_s": 2.0,
+ "dialog_seen": false,
+ "stop_fired": true,
+ "file_exists": false,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PreToolUse",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PreToolUse",
+     "permissionDecision": "deny",
+     "permissionDecisionReason": "no from probe"
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_0115jvwV8QdB6sAoSycaBHjM",
+   "tool_input": {
+    "command": "echo probe >> probe_df_bash_pre_hold_deny_t3.txt",
+    "description": "Append probe line to probe_df_bash_pre_hold_deny_t3.txt"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "default",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "echo probe >> probe_df_bash_pre_hold_deny_t3.txt",
+     "description": "Append probe line to probe_df_bash_pre_hold_deny_t3.txt"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": true,
+    "content": "PreToolUse:Bash hook error: no from probe"
+   },
+   {
+    "sidechain": false,
+    "is_error": true,
+    "content": "PreToolUse:Bash hook error: no from probe"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ]
+ }
+}

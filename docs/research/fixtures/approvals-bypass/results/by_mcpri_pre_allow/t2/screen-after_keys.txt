@@ -1,0 +1,16 @@
+▐▛███▛█   Claude Code v2.1.316
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/proj2
+
+
+❯ Call the MCP tool confirm_probe from the server named probe exactly once, using ToolSearch to load it if needed. Then reply with GOT: and
+  its result.
+
+● Calling probe… (ctrl+o to expand)
+
+* Percolating… (4s · ↓ 123 tokens)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for agents                                       ◐ medium · /effort

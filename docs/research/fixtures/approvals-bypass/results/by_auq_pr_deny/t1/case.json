@@ -1,0 +1,9 @@
+[
+ {
+  "ev": "PermissionRequest",
+  "tool": "AskUserQuestion",
+  "hold": 2,
+  "behavior": "deny",
+  "message": "no from probe"
+ }
+]

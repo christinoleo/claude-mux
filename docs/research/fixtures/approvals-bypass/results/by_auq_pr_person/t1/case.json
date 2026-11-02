@@ -1,0 +1,10 @@
+[
+ {
+  "ev": "PermissionRequest",
+  "tool": "AskUserQuestion",
+  "hold": "release",
+  "answers": {
+   "Pick a shape": "Square"
+  }
+ }
+]

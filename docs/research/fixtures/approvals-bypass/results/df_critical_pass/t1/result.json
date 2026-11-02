@@ -1,0 +1,137 @@
+{
+ "case": "df_critical_pass",
+ "trial": "1",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_dialog_s": 2.6,
+  "at_after_keys_s": 3.8,
+  "at_final_s": 6.1
+ },
+ "mode": "df",
+ "dialog_seen": true,
+ "keys_sent": true,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_015n4KT9YCAUdR7ok3AZ1cQk",
+   "tool_input": {
+    "command": "rmdir /probe161-not-there",
+    "description": "Remove an absent directory with rmdir"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "Bash",
+   "permission_mode": "default",
+   "tool_input": {
+    "command": "rmdir /probe161-not-there",
+    "description": "Remove an absent directory with rmdir"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "permission_suggestions",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUseFailure",
+   "tool_name": "Bash",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_015n4KT9YCAUdR7ok3AZ1cQk",
+   "tool_input": {
+    "command": "rmdir /probe161-not-there",
+    "description": "Remove an absent directory with rmdir"
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "error",
+    "hook_event_name",
+    "is_interrupt",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "default",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "rmdir /probe161-not-there",
+     "description": "Remove an absent directory with rmdir"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": true,
+    "content": "Exit code 1\nrmdir: failed to remove '/probe161-not-there': No such file or directory"
+   },
+   {
+    "sidechain": false,
+    "is_error": true,
+    "content": "Exit code 1\nrmdir: failed to remove '/probe161-not-there': No such file or directory"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ]
+ }
+}

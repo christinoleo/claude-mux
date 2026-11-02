@@ -1,0 +1,8 @@
+[
+ {
+  "ev": "PermissionRequest",
+  "tool": "mcp__probe__confirm_probe",
+  "hold": 2,
+  "behavior": "allow"
+ }
+]

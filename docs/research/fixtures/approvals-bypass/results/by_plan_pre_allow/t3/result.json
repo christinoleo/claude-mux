@@ -1,0 +1,351 @@
+{
+ "case": "by_plan_pre_allow",
+ "trial": "3",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_final_s": 12.4
+ },
+ "mode": "by",
+ "dialog_seen": false,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": true,
+   "held_s": 0.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PreToolUse",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PreToolUse",
+     "permissionDecision": "allow",
+     "updatedInput": {
+      "plan": "Create an empty file named notes_3.txt in the project root directory.\n",
+      "planFilePath": "$PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md"
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_012xY8V3ktBQLUBvtHhemMvV",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_012xY8V3ktBQLUBvtHhemMvV",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "ExitPlanMode"
+    ],
+    "query": "select:ExitPlanMode",
+    "total_deferred_tools": 21
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01GrfdQXtkugQom6yyHPN3u9",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md",
+    "content": "Create an empty file named notes_3.txt in the project root directory.\n"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01GrfdQXtkugQom6yyHPN3u9",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md",
+    "content": "Create an empty file named notes_3.txt in the project root directory.\n"
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md",
+    "content": "Create an empty file named notes_3.txt in the project root directory.\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01KMY74Za6xpipeMTe6UGC4u",
+   "tool_input": {
+    "plan": "Create an empty file named notes_3.txt in the project root directory.\n",
+    "planFilePath": "$PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01KMY74Za6xpipeMTe6UGC4u",
+   "tool_input": {},
+   "tool_response": {
+    "plan": "Create an empty file named notes_3.txt in the project root directory.\n",
+    "isAgent": false,
+    "filePath": "$PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01XZYtfX7BDkLEz2cxwVvg97",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj1/notes_3.txt",
+    "content": ""
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01XZYtfX7BDkLEz2cxwVvg97",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj1/notes_3.txt",
+    "content": ""
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$PROBE_DIR/proj1/notes_3.txt",
+    "content": "",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:ExitPlanMode",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md",
+     "content": "Create an empty file named notes_3.txt in the project root directory.\n"
+    }
+   },
+   {
+    "name": "ExitPlanMode",
+    "sidechain": false,
+    "input": {}
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj1/notes_3.txt",
+     "content": ""
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named notes_3.txt in the project root directory.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $PROBE_DIR/proj1/.plans/immutable-napping-rabbit.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named notes_3.txt in the project root directory.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj1/notes_3.txt (file state is current in your context \u2014 no need to Read it back)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "I created an empty `notes_3.txt` in the project directory, at `$PROBE_DIR/proj1/notes_3.txt`. I didn't commit it."
+   }
+  ]
+ }
+}

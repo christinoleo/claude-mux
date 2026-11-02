@@ -1,0 +1,9 @@
+[
+ {
+  "ev": "PreToolUse",
+  "tool": "ExitPlanMode",
+  "behavior": "allow",
+  "echo_input": true,
+  "hold": 0
+ }
+]

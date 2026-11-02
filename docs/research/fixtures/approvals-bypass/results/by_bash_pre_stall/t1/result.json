@@ -1,0 +1,135 @@
+{
+ "case": "by_bash_pre_stall",
+ "trial": "1",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 3.0,
+  "at_after_hook_end_s": 9.6,
+  "at_final_s": 11.1
+ },
+ "mode": "by",
+ "held": true,
+ "dialog_during_hold": false,
+ "hook_ended_after_s": 5.9,
+ "dialog_after_hook_end": false,
+ "dialog_seen": false,
+ "stop_fired": true,
+ "file_exists": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "signal",
+   "ev": "PreToolUse",
+   "sig": "SIGTERM"
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01M8ykk4AWF8MfaHcLyLCSSF",
+   "tool_input": {
+    "command": "echo probe >> probe_by_bash_pre_stall_t1.txt",
+    "description": "Append probe line to probe file"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01M8ykk4AWF8MfaHcLyLCSSF",
+   "tool_input": {
+    "command": "echo probe >> probe_by_bash_pre_stall_t1.txt",
+    "description": "Append probe line to probe file"
+   },
+   "tool_response": {
+    "stdout": "",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "echo probe >> probe_by_bash_pre_stall_t1.txt",
+     "description": "Append probe line to probe file"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ]
+ }
+}

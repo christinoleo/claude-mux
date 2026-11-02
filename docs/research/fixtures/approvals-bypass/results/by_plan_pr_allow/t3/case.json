@@ -1,0 +1,8 @@
+[
+ {
+  "ev": "PermissionRequest",
+  "tool": "ExitPlanMode",
+  "hold": 2,
+  "behavior": "allow"
+ }
+]

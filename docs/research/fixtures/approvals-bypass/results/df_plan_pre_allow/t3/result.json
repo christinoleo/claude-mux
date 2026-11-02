@@ -1,0 +1,376 @@
+{
+ "case": "df_plan_pre_allow",
+ "trial": "3",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_dialog_s": 10.5,
+  "at_after_keys_s": 11.7,
+  "at_final_s": 14.5
+ },
+ "mode": "df",
+ "dialog_seen": true,
+ "keys_sent": true,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": true,
+   "held_s": 0.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PreToolUse",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PreToolUse",
+     "permissionDecision": "allow",
+     "updatedInput": {
+      "plan": "Create an empty notes_3.txt in the project root directory.\n",
+      "planFilePath": "$PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md"
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01VKALewmJHqmjTUS7dKm2sH",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01VKALewmJHqmjTUS7dKm2sH",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "ExitPlanMode"
+    ],
+    "query": "select:ExitPlanMode",
+    "total_deferred_tools": 21
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01CuE6cV2CKTPzv8T8m7UfeT",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md",
+    "content": "Create an empty notes_3.txt in the project root directory.\n"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01CuE6cV2CKTPzv8T8m7UfeT",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md",
+    "content": "Create an empty notes_3.txt in the project root directory.\n"
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md",
+    "content": "Create an empty notes_3.txt in the project root directory.\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_017LAdnxu96GEaenS2xkjQay",
+   "tool_input": {
+    "plan": "Create an empty notes_3.txt in the project root directory.\n",
+    "planFilePath": "$PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_017LAdnxu96GEaenS2xkjQay",
+   "tool_input": {},
+   "tool_response": {
+    "plan": "Create an empty notes_3.txt in the project root directory.\n",
+    "isAgent": false,
+    "filePath": "$PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01VXFYsZ4qB2tkyJFixNKTKR",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj3/notes_3.txt",
+    "content": ""
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "Write",
+   "permission_mode": "default",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj3/notes_3.txt",
+    "content": ""
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "permission_suggestions",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01VXFYsZ4qB2tkyJFixNKTKR",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj3/notes_3.txt",
+    "content": ""
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$PROBE_DIR/proj3/notes_3.txt",
+    "content": "",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "default",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:ExitPlanMode",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md",
+     "content": "Create an empty notes_3.txt in the project root directory.\n"
+    }
+   },
+   {
+    "name": "ExitPlanMode",
+    "sidechain": false,
+    "input": {}
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj3/notes_3.txt",
+     "content": ""
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty notes_3.txt in the project root directory.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $PROBE_DIR/proj3/.plans/quirky-bouncing-cloud.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty notes_3.txt in the project root directory.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj3/notes_3.txt (file state is current in your context \u2014 no need to Read it back)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "I created an empty `notes_3.txt` in the project directory, at `$PROBE_DIR/proj3/notes_3.txt`. I did not commit it."
+   }
+  ]
+ }
+}

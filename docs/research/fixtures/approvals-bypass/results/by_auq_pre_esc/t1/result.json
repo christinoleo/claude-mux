@@ -1,0 +1,103 @@
+{
+ "case": "by_auq_pre_esc",
+ "trial": "1",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 3.0,
+  "at_after_person_s": 3.4,
+  "at_final_s": 17.6
+ },
+ "mode": "by",
+ "held": true,
+ "dialog_during_hold": false,
+ "hook_alive_after_person": false,
+ "dialog_seen": false,
+ "stop_fired": false,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "signal",
+   "ev": "PreToolUse",
+   "sig": "SIGTERM"
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_017CB1QbwEvdPumVnpMPjBAY",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ]
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": false,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "square option"
+        },
+        {
+         "label": "Circle",
+         "description": "circle option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": true,
+    "content": "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.\n\nNote: The user's next message may contain a correction or preference. Pay close attention \u2014 if they explain what went wrong or how they'd prefer you to work, consider saving that to memory for future sessions."
+   }
+  ],
+  "assistant_text": []
+ }
+}

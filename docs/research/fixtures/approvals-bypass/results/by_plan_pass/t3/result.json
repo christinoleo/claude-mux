@@ -1,0 +1,354 @@
+{
+ "case": "by_plan_pass",
+ "trial": "3",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_dialog_s": 10.3,
+  "at_after_keys_s": 11.5,
+  "at_final_s": 18.1
+ },
+ "mode": "by",
+ "dialog_seen": true,
+ "keys_sent": true,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01S48ndSofRHMD34karJFHZr",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01S48ndSofRHMD34karJFHZr",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "ExitPlanMode"
+    ],
+    "query": "select:ExitPlanMode",
+    "total_deferred_tools": 21
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_019x8TpLcK4BvHVCukRWFrAn",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md",
+    "content": "Create an empty file named notes_3.txt in the project root directory.\n"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_019x8TpLcK4BvHVCukRWFrAn",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md",
+    "content": "Create an empty file named notes_3.txt in the project root directory.\n"
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md",
+    "content": "Create an empty file named notes_3.txt in the project root directory.\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01VU5Z1yv1VXWtcwPBwNXUN9",
+   "tool_input": {
+    "plan": "Create an empty file named notes_3.txt in the project root directory.\n",
+    "planFilePath": "$PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_input": {
+    "plan": "Create an empty file named notes_3.txt in the project root directory.\n",
+    "planFilePath": "$PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01VU5Z1yv1VXWtcwPBwNXUN9",
+   "tool_input": {},
+   "tool_response": {
+    "plan": "Create an empty file named notes_3.txt in the project root directory.\n",
+    "isAgent": false,
+    "filePath": "$PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_012LAChvPDUZRe8fUK4aS4Bt",
+   "tool_input": {
+    "command": "pwd && ls -la notes_1.txt notes_2.txt 2>&1; test -e notes_3.txt && echo \"notes_3.txt already exists\" || touch notes_3.txt && ls -la notes_3.txt",
+    "description": "Check existing notes files and create notes_3.txt"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_012LAChvPDUZRe8fUK4aS4Bt",
+   "tool_input": {
+    "command": "pwd && ls -la notes_1.txt notes_2.txt 2>&1; test -e notes_3.txt && echo \"notes_3.txt already exists\" || touch notes_3.txt && ls -la notes_3.txt",
+    "description": "Check existing notes files and create notes_3.txt"
+   },
+   "tool_response": {
+    "stdout": "$PROBE_DIR/proj4\n-rw-r--r-- 1 user user 0 Nov  2 21:58 notes_1.txt\n-rw-r--r-- 1 user user 0 Nov  2 22:02 notes_2.txt\n-rw-r--r-- 1 user user 0 Nov  2 22:08 notes_3.txt",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:ExitPlanMode",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md",
+     "content": "Create an empty file named notes_3.txt in the project root directory.\n"
+    }
+   },
+   {
+    "name": "ExitPlanMode",
+    "sidechain": false,
+    "input": {}
+   },
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "pwd && ls -la notes_1.txt notes_2.txt 2>&1; test -e notes_3.txt && echo \"notes_3.txt already exists\" || touch notes_3.txt && ls -la notes_3.txt",
+     "description": "Check existing notes files and create notes_3.txt"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named notes_3.txt in the project root directory.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $PROBE_DIR/proj4/.plans/whimsical-bouncing-matsumoto.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named notes_3.txt in the project root directory.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "$PROBE_DIR/proj4\n-rw-r--r-- 1 user user 0 Nov  2 21:58 notes_1.txt\n-rw-r--r-- 1 user user 0 Nov  2 22:02 notes_2.txt\n-rw-r--r-- 1 user user 0 Nov  2 22:08 notes_3.txt"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "$PROBE_DIR/proj4\n-rw-r--r-- 1 user user 0 Nov  2 21:58 notes_1.txt\n-rw-r--r-- 1 user user 0 Nov  2 22:02 notes_2.txt\n-rw-r--r-- 1 user user 0 Nov  2 22:08 notes_3.txt"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "I created `notes_3.txt` as an empty file in the working directory, next to `notes_1.txt` and `notes_2.txt`:\n\n`$PROBE_DIR/proj4/notes_3.txt`\n\nI did not commit it."
+   }
+  ]
+ }
+}

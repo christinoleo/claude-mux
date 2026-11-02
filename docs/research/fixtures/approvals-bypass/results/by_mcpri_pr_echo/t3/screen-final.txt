@@ -1,0 +1,22 @@
+▐▛███▛█   Claude Code v2.1.316
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   ~/proj2
+
+
+❯ Call the MCP tool confirm_probe from the server named probe exactly once, using ToolSearch to load it if needed. Then reply with GOT: and
+  its result.
+
+● Calling probe… (ctrl+o to expand)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Tool use
+ probe — Confirm Probe Tool: (MCP)
+
+ About the probe — Confirm Probe Tool:
+ │ Returns the word confirmed.
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend

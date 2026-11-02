@@ -1,0 +1,257 @@
+{
+ "case": "df_plan_pr_allow",
+ "trial": "2",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 11.5,
+  "at_dialog_s": 12.7,
+  "at_stuck_s": 21.8,
+  "at_final_s": 23.0
+ },
+ "mode": "df",
+ "held": true,
+ "dialog_during_hold": true,
+ "hook_ended_after_s": 2.0,
+ "dialog_seen": true,
+ "dialog_stuck": true,
+ "stop_fired": false,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PermissionRequest",
+     "decision": {
+      "behavior": "allow"
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_0133KqWdMCph8HAhwr1E2ghQ",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_0133KqWdMCph8HAhwr1E2ghQ",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "ExitPlanMode"
+    ],
+    "query": "select:ExitPlanMode",
+    "total_deferred_tools": 21
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01MNiPW7VFsHYbcPdvP8eqEc",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj4/.plans/sunny-discovering-newt.md",
+    "content": "Create an empty file named notes_2.txt in the project root directory.\n"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01MNiPW7VFsHYbcPdvP8eqEc",
+   "tool_input": {
+    "file_path": "$PROBE_DIR/proj4/.plans/sunny-discovering-newt.md",
+    "content": "Create an empty file named notes_2.txt in the project root directory.\n"
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$PROBE_DIR/proj4/.plans/sunny-discovering-newt.md",
+    "content": "Create an empty file named notes_2.txt in the project root directory.\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01GHsMXTcsXzBtQU2HjQBkL9",
+   "tool_input": {
+    "plan": "Create an empty file named notes_2.txt in the project root directory.\n",
+    "planFilePath": "$PROBE_DIR/proj4/.plans/sunny-discovering-newt.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_input": {
+    "plan": "Create an empty file named notes_2.txt in the project root directory.\n",
+    "planFilePath": "$PROBE_DIR/proj4/.plans/sunny-discovering-newt.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Notification",
+   "notification_type": "permission_prompt",
+   "payload_keys": [
+    "cwd",
+    "hook_event_name",
+    "message",
+    "notification_type",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:ExitPlanMode",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$PROBE_DIR/proj4/.plans/sunny-discovering-newt.md",
+     "content": "Create an empty file named notes_2.txt in the project root directory.\n"
+    }
+   },
+   {
+    "name": "ExitPlanMode",
+    "sidechain": false,
+    "input": {}
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $PROBE_DIR/proj4/.plans/sunny-discovering-newt.md (file state is current in your context \u2014 no need to Read it back)"
+   }
+  ],
+  "assistant_text": []
+ }
+}

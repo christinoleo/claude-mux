@@ -1,0 +1,228 @@
+{
+ "case": "by_mcpri_pre_allow",
+ "trial": "2",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_dialog_s": 3.9,
+  "at_after_keys_s": 5.0,
+  "at_final_s": 7.5
+ },
+ "mode": "by",
+ "dialog_seen": true,
+ "keys_sent": true,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": true,
+   "held_s": 0.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PreToolUse",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PreToolUse",
+     "permissionDecision": "allow"
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01Efmp6pKoqCf5jfvaVfMVt3",
+   "tool_input": {
+    "query": "select:mcp__probe__confirm_probe",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01Efmp6pKoqCf5jfvaVfMVt3",
+   "tool_input": {
+    "query": "select:mcp__probe__confirm_probe",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "mcp__probe__confirm_probe"
+    ],
+    "query": "select:mcp__probe__confirm_probe",
+    "total_deferred_tools": 23
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "mcp__probe__confirm_probe",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01LCXDAYWBT4tN3kqzzZWnMc",
+   "tool_input": {},
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "mcp_server",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "mcp__probe__confirm_probe",
+   "permission_mode": "bypassPermissions",
+   "tool_input": {},
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "mcp_server",
+    "permission_mode",
+    "permission_suggestions",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "mcp__probe__confirm_probe",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01LCXDAYWBT4tN3kqzzZWnMc",
+   "tool_input": {},
+   "tool_response": [
+    {
+     "type": "text",
+     "text": "confirmed"
+    }
+   ],
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "mcp_server",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:mcp__probe__confirm_probe",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "mcp__probe__confirm_probe",
+    "sidechain": false,
+    "input": {}
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "confirmed"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "confirmed"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "GOT: confirmed"
+   }
+  ]
+ },
+ "mcp": []
+}

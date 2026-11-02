@@ -1,0 +1,186 @@
+{
+ "case": "by_askrule_pre_allow",
+ "trial": "2",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_dialog_s": 1.5,
+  "at_after_keys_s": 2.7,
+  "at_final_s": 5.0
+ },
+ "mode": "by",
+ "dialog_seen": true,
+ "keys_sent": true,
+ "stop_fired": true,
+ "file_exists": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": true,
+   "held_s": 0.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PreToolUse",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PreToolUse",
+     "permissionDecision": "allow"
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01YSunNXyMFNg78r6NSPq2td",
+   "tool_input": {
+    "command": "echo probe >> probe_by_askrule_pre_allow_t2.txt",
+    "description": "Append probe line to probe_by_askrule_pre_allow_t2.txt"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "Bash",
+   "permission_mode": "bypassPermissions",
+   "tool_input": {
+    "command": "echo probe >> probe_by_askrule_pre_allow_t2.txt",
+    "description": "Append probe line to probe_by_askrule_pre_allow_t2.txt"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "bypassPermissions",
+   "tool_use_id": "toolu_01YSunNXyMFNg78r6NSPq2td",
+   "tool_input": {
+    "command": "echo probe >> probe_by_askrule_pre_allow_t2.txt",
+    "description": "Append probe line to probe_by_askrule_pre_allow_t2.txt"
+   },
+   "tool_response": {
+    "stdout": "",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "",
+   "agent_id": "a4db087cb86ba595a",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "echo probe >> probe_by_askrule_pre_allow_t2.txt",
+     "description": "Append probe line to probe_by_askrule_pre_allow_t2.txt"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "(Bash completed with no output)"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "DONE"
+   }
+  ]
+ }
+}

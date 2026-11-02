@@ -1,0 +1,289 @@
+{
+ "case": "df_auq_pr_answer",
+ "trial": "2",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 2.2,
+  "at_final_s": 5.7
+ },
+ "mode": "df",
+ "held": true,
+ "dialog_during_hold": true,
+ "hook_ended_after_s": 2.0,
+ "dialog_seen": false,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PermissionRequest",
+     "decision": {
+      "behavior": "allow",
+      "updatedInput": {
+       "questions": [
+        {
+         "question": "Pick a shape",
+         "header": "Shape",
+         "options": [
+          {
+           "label": "Square",
+           "description": "square option"
+          },
+          {
+           "label": "Circle",
+           "description": "circle option"
+          }
+         ],
+         "multiSelect": false
+        }
+       ],
+       "answers": {
+        "Pick a shape": "Square"
+       }
+      }
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01BBCN69YsYb1tUwf5q44Xid",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ]
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "default",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ]
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01BBCN69YsYb1tUwf5q44Xid",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ],
+    "answers": {
+     "Pick a shape": "Square"
+    }
+   },
+   "tool_response": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ],
+    "answers": {
+     "Pick a shape": "Square"
+    }
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "default",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "default",
+   "agent_type": "",
+   "agent_id": "adb983edf5ea4a266",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": false,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "square option"
+        },
+        {
+         "label": "Circle",
+         "description": "circle option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Square\". You can now continue with these answers in mind."
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Square\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "GOT: Your questions have been answered: \"Pick a shape\"=\"Square\". You can now continue with these answers in mind."
+   }
+  ]
+ }
+}

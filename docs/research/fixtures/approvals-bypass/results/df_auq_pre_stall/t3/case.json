@@ -1,0 +1,7 @@
+[
+ {
+  "ev": "PreToolUse",
+  "tool": "AskUserQuestion",
+  "hold": "forever"
+ }
+]

@@ -1,0 +1,273 @@
+{
+ "case": "by_fork_auq_pre",
+ "trial": "3",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 3.0,
+  "at_final_s": 10.4
+ },
+ "mode": "by",
+ "held": true,
+ "dialog_during_hold": false,
+ "hook_ended_after_s": 2.0,
+ "dialog_seen": false,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PreToolUse"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PreToolUse",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PreToolUse",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PreToolUse",
+     "permissionDecision": "allow",
+     "updatedInput": {
+      "questions": [
+       {
+        "question": "Pick a shape",
+        "header": "Shape",
+        "options": [
+         {
+          "label": "Square",
+          "description": "square option"
+         },
+         {
+          "label": "Circle",
+          "description": "circle option"
+         }
+        ],
+        "multiSelect": false
+       }
+      ],
+      "answers": {
+       "Pick a shape": "Square"
+      }
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "SubagentStart",
+   "agent_type": "fork",
+   "agent_id": "acall-the-askuserquestion-b3f61300fc931d61",
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "hook_event_name",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "fork",
+   "agent_id": "acall-the-askuserquestion-b3f61300fc931d61",
+   "tool_use_id": "toolu_01KDN3uXCwKy7AFAc1ADTut6",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ]
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "AskUserQuestion",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "fork",
+   "agent_id": "acall-the-askuserquestion-b3f61300fc931d61",
+   "tool_use_id": "toolu_01KDN3uXCwKy7AFAc1ADTut6",
+   "tool_input": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ],
+    "answers": {
+     "Pick a shape": "Square"
+    }
+   },
+   "tool_response": {
+    "questions": [
+     {
+      "question": "Pick a shape",
+      "header": "Shape",
+      "options": [
+       {
+        "label": "Square",
+        "description": "square option"
+       },
+       {
+        "label": "Circle",
+        "description": "circle option"
+       }
+      ],
+      "multiSelect": false
+     }
+    ],
+    "answers": {
+     "Pick a shape": "Square"
+    }
+   },
+   "payload_keys": [
+    "agent_id",
+    "agent_type",
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "SubagentStop",
+   "permission_mode": "bypassPermissions",
+   "agent_type": "fork",
+   "agent_id": "acall-the-askuserquestion-b3f61300fc931d61",
+   "payload_keys": [
+    "agent_id",
+    "agent_transcript_path",
+    "agent_type",
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "bypassPermissions",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "AskUserQuestion",
+    "sidechain": true,
+    "input": {
+     "questions": [
+      {
+       "question": "Pick a shape",
+       "header": "Shape",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Square",
+         "description": "square option"
+        },
+        {
+         "label": "Circle",
+         "description": "circle option"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": true,
+    "is_error": false,
+    "content": "Your questions have been answered: \"Pick a shape\"=\"Square\". You can now continue with these answers in mind."
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The subtask finished. Its result:\n\nGOT: The user answered \"Pick a shape\" with \"Square\".\n\nI didn't ask that question myself. It came from the background subtask, and I haven't acted on the answer."
+   },
+   {
+    "sidechain": true,
+    "text": "GOT: The user answered \"Pick a shape\" with \"Square\"."
+   }
+  ]
+ }
+}

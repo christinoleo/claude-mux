@@ -1,0 +1,19 @@
+▐▛███▛█   Claude Code v2.1.316
+▝▜██████▀  Haiku 5.5 · Claude Ultra
+ ▝▝   ▝▝   $PROBE_DIR/proj1
+
+
+❯ Run this exact command with the Bash tool, then reply DONE whatever its result. Use no other tool: echo probe >>
+  probe_by_askrule_pre_allow_t3.txt
+
+● Bash(echo probe >> probe_by_askrule_pre_allow_t3.txt)
+  ⎿  (No output)
+
+● DONE
+
+✻ Crunched for 3s · done 10:04 PM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents                                                          ◐ medium · /effort

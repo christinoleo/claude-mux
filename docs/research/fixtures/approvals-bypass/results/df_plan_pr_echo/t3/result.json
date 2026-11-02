@@ -1,0 +1,395 @@
+{
+ "case": "df_plan_pr_echo",
+ "trial": "3",
+ "flags": {
+  "at_start_s": -0.0,
+  "at_holding_s": 15.5,
+  "at_dialog_s": 16.7,
+  "at_final_s": 22.9
+ },
+ "mode": "df",
+ "held": true,
+ "dialog_during_hold": true,
+ "hook_ended_after_s": 1.9,
+ "dialog_seen": true,
+ "stop_fired": true,
+ "hold_pids_alive_at_end": [],
+ "hook_lifecycle": [
+  {
+   "kind": "hold_start",
+   "ev": "PermissionRequest"
+  },
+  {
+   "kind": "hold_end",
+   "ev": "PermissionRequest",
+   "got_reply": true,
+   "held_s": 2.0
+  },
+  {
+   "kind": "output_written",
+   "ev": "PermissionRequest",
+   "out": {
+    "hookSpecificOutput": {
+     "hookEventName": "PermissionRequest",
+     "decision": {
+      "behavior": "allow",
+      "updatedInput": {
+       "plan": "Create an empty file named notes_3.txt in $HOME/proj2.\n",
+       "planFilePath": "$HOME/proj2/.plans/jiggly-wibbling-dawn.md"
+      }
+     }
+    }
+   }
+  }
+ ],
+ "fired": [
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01S55wZEFKaLhLFe8Dupg6Td",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ToolSearch",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01S55wZEFKaLhLFe8Dupg6Td",
+   "tool_input": {
+    "query": "select:ExitPlanMode",
+    "max_results": 1
+   },
+   "tool_response": {
+    "matches": [
+     "ExitPlanMode"
+    ],
+    "query": "select:ExitPlanMode",
+    "total_deferred_tools": 21
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01UzVEa959j4rifegMfNSwXw",
+   "tool_input": {
+    "file_path": "$HOME/proj2/.plans/jiggly-wibbling-dawn.md",
+    "content": "Create an empty file named notes_3.txt in $HOME/proj2.\n"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Write",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01UzVEa959j4rifegMfNSwXw",
+   "tool_input": {
+    "file_path": "$HOME/proj2/.plans/jiggly-wibbling-dawn.md",
+    "content": "Create an empty file named notes_3.txt in $HOME/proj2.\n"
+   },
+   "tool_response": {
+    "type": "create",
+    "filePath": "$HOME/proj2/.plans/jiggly-wibbling-dawn.md",
+    "content": "Create an empty file named notes_3.txt in $HOME/proj2.\n",
+    "structuredPatch": [],
+    "originalFile": null,
+    "userModified": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_use_id": "toolu_01Xk9Qoj6AChyN8Jo6DBbKhh",
+   "tool_input": {
+    "plan": "Create an empty file named notes_3.txt in $HOME/proj2.\n",
+    "planFilePath": "$HOME/proj2/.plans/jiggly-wibbling-dawn.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PermissionRequest",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "plan",
+   "tool_input": {
+    "plan": "Create an empty file named notes_3.txt in $HOME/proj2.\n",
+    "planFilePath": "$HOME/proj2/.plans/jiggly-wibbling-dawn.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "ExitPlanMode",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01Xk9Qoj6AChyN8Jo6DBbKhh",
+   "tool_input": {},
+   "tool_response": {
+    "plan": "Create an empty file named notes_3.txt in $HOME/proj2.\n",
+    "isAgent": false,
+    "filePath": "$HOME/proj2/.plans/jiggly-wibbling-dawn.md"
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PreToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01NfrQaxR2T8ZgNituufQ6CS",
+   "tool_input": {
+    "command": "ls -la notes_3.txt 2>&1; wc -c notes_3.txt 2>/dev/null",
+    "description": "Check whether notes_3.txt already exists and its size"
+   },
+   "payload_keys": [
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "PostToolUse",
+   "tool_name": "Bash",
+   "permission_mode": "default",
+   "tool_use_id": "toolu_01NfrQaxR2T8ZgNituufQ6CS",
+   "tool_input": {
+    "command": "ls -la notes_3.txt 2>&1; wc -c notes_3.txt 2>/dev/null",
+    "description": "Check whether notes_3.txt already exists and its size"
+   },
+   "tool_response": {
+    "stdout": "-rw-r--r-- 1 user user 0 Nov  2 22:31 notes_3.txt\n0 notes_3.txt",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+   },
+   "payload_keys": [
+    "cwd",
+    "duration_ms",
+    "effort",
+    "hook_event_name",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_id",
+    "tool_input",
+    "tool_name",
+    "tool_response",
+    "tool_use_id",
+    "transcript_path"
+   ]
+  },
+  {
+   "ev": "Stop",
+   "permission_mode": "default",
+   "payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "scratchpad_dir",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+   ]
+  }
+ ],
+ "transcript": {
+  "tool_uses": [
+   {
+    "name": "ToolSearch",
+    "sidechain": false,
+    "input": {
+     "query": "select:ExitPlanMode",
+     "max_results": 1
+    }
+   },
+   {
+    "name": "Write",
+    "sidechain": false,
+    "input": {
+     "file_path": "$HOME/proj2/.plans/jiggly-wibbling-dawn.md",
+     "content": "Create an empty file named notes_3.txt in $HOME/proj2.\n"
+    }
+   },
+   {
+    "name": "ExitPlanMode",
+    "sidechain": false,
+    "input": {}
+   },
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "ls -la notes_3.txt 2>&1; wc -c notes_3.txt 2>/dev/null",
+     "description": "Check whether notes_3.txt already exists and its size"
+    }
+   },
+   {
+    "name": "Bash",
+    "sidechain": false,
+    "input": {
+     "command": "cd $HOME/proj2 && ls -la notes_3.txt 2>&1; wc -c notes_3.txt 2>/dev/null",
+     "description": "Check whether notes_3.txt already exists and its size"
+    }
+   }
+  ],
+  "tool_results": [
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": ""
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $HOME/proj2/.plans/jiggly-wibbling-dawn.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $HOME/proj2/.plans/jiggly-wibbling-dawn.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named notes_3.txt in $HOME/proj2.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "File created successfully at: $HOME/proj2/.plans/jiggly-wibbling-dawn.md (file state is current in your context \u2014 no need to Read it back)"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "User has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: $HOME/proj2/.plans/jiggly-wibbling-dawn.md\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\nCreate an empty file named notes_3.txt in $HOME/proj2.\n"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "-rw-r--r-- 1 user user 0 Nov  2 22:31 notes_3.txt\n0 notes_3.txt"
+   },
+   {
+    "sidechain": false,
+    "is_error": false,
+    "content": "-rw-r--r-- 1 user user 0 Nov  2 22:31 notes_3.txt\n0 notes_3.txt"
+   }
+  ],
+  "assistant_text": [
+   {
+    "sidechain": false,
+    "text": "The approved plan is to create an empty `notes_3.txt`, but the git status at session start listed `notes_3.txt` as already existing. I'll check before writing so I don't overwrite existing content."
+   },
+   {
+    "sidechain": false,
+    "text": "`notes_3.txt` already exists as an empty file (0 bytes), so there is nothing to create. I left it untouched.\n\nThe file is in `$HOME/proj2/notes_3.txt`. It is untracked in git, which matches the git status from the start of the session."
+   }
+  ]
+ }
+}

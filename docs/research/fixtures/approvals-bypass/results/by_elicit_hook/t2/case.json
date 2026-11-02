@@ -1,0 +1,10 @@
+[
+ {
+  "ev": "Elicitation",
+  "hold": 2,
+  "action": "accept",
+  "content": {
+   "color": "red"
+  }
+ }
+]

@@ -1,0 +1,11 @@
+[
+ {
+  "ev": "PreToolUse",
+  "tool": "AskUserQuestion",
+  "hold": 2,
+  "answers": {
+   "Pick a shape": "Circle",
+   "Pick colors": "Red, Blue"
+  }
+ }
+]
