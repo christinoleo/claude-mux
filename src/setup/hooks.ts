@@ -1,15 +1,23 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, realpathSync, statSync, lstatSync } from "fs";
 import { basename, dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { CLAUDE_SETTINGS_PATH, CLAUDE_DIR } from "../utils/paths.js";
+import { writeFileAtomic } from "../utils/atomic-write.js";
+import { CLAUDE_SETTINGS_PATH } from "../utils/paths.js";
 import { VERSION } from "../utils/version.js";
 import { shellQuote } from "../utils/shell.js";
+import { withoutLiveTextHook } from "./live-text-hook.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-interface Hook {
-  type: "command";
-  command: string;
+/**
+ * One hook as `settings.json` holds it. Only a `command` hook has a `command`:
+ * the file also holds `http` hooks, ours among them (`live-text-hook.ts`), and
+ * whatever other types the person or Claude Code put there.
+ */
+export interface Hook {
+  type: string;
+  command?: string;
+  url?: string;
   timeout?: number;
 }
 
@@ -28,11 +36,16 @@ interface ClaudeMuxMetadata {
   hookPath?: string;
 }
 
-interface ClaudeSettings {
+export interface ClaudeSettings {
   hooks?: HooksConfig;
   "claude-mux"?: ClaudeMuxMetadata;
   "claude-watch"?: ClaudeMuxMetadata;
   [key: string]: unknown;
+}
+
+/** Whether a hook is one `getClaudeWatchHooks()` registers, whatever version wrote it. */
+function isClaudeMuxHook(hook: Hook): boolean {
+  return hook.command?.includes("claude-mux-hook") ?? false;
 }
 
 export function getClaudeMuxMetadata(settings: ClaudeSettings): ClaudeMuxMetadata | undefined {
@@ -107,14 +120,19 @@ export function getClaudeWatchHooks(): HooksConfig {
   };
 }
 
-export function loadClaudeSettings(): ClaudeSettings {
-  if (!existsSync(CLAUDE_SETTINGS_PATH)) {
-    return {};
-  }
+/**
+ * The settings as they are, throwing on a file it cannot read. Anything that
+ * writes back what it read needs this: an unreadable file taken for empty would
+ * wipe every setting the person has.
+ */
+export function readClaudeSettings(): ClaudeSettings {
+  if (!existsSync(CLAUDE_SETTINGS_PATH)) return {};
+  return JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, "utf-8")) as ClaudeSettings;
+}
 
+export function loadClaudeSettings(): ClaudeSettings {
   try {
-    const content = readFileSync(CLAUDE_SETTINGS_PATH, "utf-8");
-    return JSON.parse(content) as ClaudeSettings;
+    return readClaudeSettings();
   } catch {
     return {};
   }
@@ -143,7 +161,7 @@ export function checkHooksStatus(): "install" | "update" | "current" {
 
   // Check if any claude-watch hooks exist
   const hasClaudeWatchHooks = Object.values(settings.hooks).some((matchers) =>
-    matchers.some((m) => m.hooks.some((h) => h.command.includes("claude-mux-hook")))
+    matchers.some((m) => m.hooks.some(isClaudeMuxHook))
   );
 
   if (!hasClaudeWatchHooks) {
@@ -181,7 +199,7 @@ export function mergeHooks(existing: HooksConfig | undefined, newHooks: HooksCon
     } else {
       // Remove any existing claude-watch hooks for this event (so we can replace them)
       merged[eventName] = merged[eventName].filter((existingMatcher) => {
-        return !existingMatcher.hooks.some((h) => h.command.includes("claude-mux-hook"));
+        return !existingMatcher.hooks.some(isClaudeMuxHook);
       });
     }
 
@@ -200,7 +218,7 @@ export function removeClaudeWatchHooks(hooks: HooksConfig): HooksConfig {
   for (const [eventName, matchers] of Object.entries(hooks)) {
     const filteredMatchers = matchers.filter((matcher) => {
       // Remove matchers that have claude-mux-hook commands
-      return !matcher.hooks.some((h) => h.command.includes("claude-mux-hook"));
+      return !matcher.hooks.some(isClaudeMuxHook);
     });
 
     if (filteredMatchers.length > 0) {
@@ -244,13 +262,16 @@ export function generateDiff(
 }
 
 export function saveClaudeSettings(settings: ClaudeSettings): void {
-  // Ensure directory exists
-  if (!existsSync(CLAUDE_DIR)) {
-    mkdirSync(CLAUDE_DIR, { recursive: true });
+  // Every Claude Code on the machine reads this file, so it is replaced whole
+  // rather than rewritten in place, and a symlink to it (dotfiles) stays one.
+  if (lstatSync(CLAUDE_SETTINGS_PATH, { throwIfNoEntry: false })?.isSymbolicLink() && !existsSync(CLAUDE_SETTINGS_PATH)) {
+    // A link to nowhere (dotfiles not mounted yet): written through, or it fails, but it stays a link.
+    writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2), "utf-8");
+    return;
   }
-
-  const content = JSON.stringify(settings, null, 2);
-  writeFileSync(CLAUDE_SETTINGS_PATH, content, "utf-8");
+  const path = existsSync(CLAUDE_SETTINGS_PATH) ? realpathSync(CLAUDE_SETTINGS_PATH) : CLAUDE_SETTINGS_PATH;
+  const mode = existsSync(path) ? statSync(path).mode : undefined;
+  writeFileAtomic(path, JSON.stringify(settings, null, 2), mode);
 }
 
 export function installHooks(): { diff: string; newSettings: ClaudeSettings } {
@@ -282,7 +303,7 @@ export function uninstallHooks(): void {
     return;
   }
 
-  const cleanedHooks = removeClaudeWatchHooks(currentSettings.hooks);
+  const cleanedHooks = removeClaudeWatchHooks(withoutLiveTextHook(currentSettings).hooks ?? {});
 
   const newSettings: ClaudeSettings = {
     ...currentSettings,

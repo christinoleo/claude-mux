@@ -9,6 +9,7 @@ import {
 } from '$shared/server/ws-handlers.js';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { startClaudeUpdater } from '$shared/server/claude-update.js';
+import { followLiveTextPort } from '$shared/server/live-text-switch.js';
 import {
 	browserWsManager,
 	sessionsWsManager,
@@ -27,7 +28,7 @@ import {
 	type RelaySocket
 } from '$shared/server/fleet-relay.js';
 import { machineUrl } from '$lib/server/discover';
-import { MACHINE_ID } from '$lib/server/instance';
+import { listenPort, MACHINE_ID } from '$lib/server/instance';
 
 // Pushes go to phones with every tab closed, so their events are watched from
 // the moment the server starts rather than when the first page connects.
@@ -37,6 +38,7 @@ export const init: ServerInit = () => {
 	ensureFleetState();
 	// It restarts live sessions, so a dev server beside the real one must not run it.
 	if (!dev) startClaudeUpdater();
+	void followLiveTextPort({ dev, port: listenPort() });
 };
 
 /**
