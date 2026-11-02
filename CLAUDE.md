@@ -340,8 +340,16 @@ when the message ends, so `POST /api/hooks/message-display` takes Claude Code's
 `LiveTextStore` (`src/transcript/live-text.ts`), which holds it in memory per
 session and `message_id` whether or not anyone is reading. The call holds the
 terminal's screen, so the route only stores and answers. It refuses any request
-with an `Origin` and any unknown `session_id`. `setup` does not install the hook
-yet, and without it the Transcript behaves as it always did.
+with an `Origin` and any unknown `session_id`. Without the hook the Transcript
+behaves as it always did.
+
+The hook gets there by a switch per machine on the Machines view (`GET`/`POST
+/api/live-text`, `src/server/live-text-switch.ts`), off at first. The entry being
+in `~/.claude/settings.json` is the switch's whole state. Only a built server
+writes it, with its own port, and moves it at startup if the port changed and
+nothing answers on the old one; a dev server answers 409. `setup` recognises its own hooks by their command, so it
+passes this one by. Claude Code 2.1.316 notices the change within about 2 seconds,
+so sessions already open follow the switch without a restart.
 
 No id ties a batch to an entry. An entry takes the oldest live text that is a
 prefix of it, or a share of a message that begins with it (a message's text

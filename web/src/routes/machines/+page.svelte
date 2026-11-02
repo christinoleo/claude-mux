@@ -58,11 +58,45 @@
 		if (typeof enabled === 'boolean') autoUpdate[row.id] = { enabled, status: body?.claudeUpdate ?? null };
 	}
 
+	/** Each machine's live text switch; absent until it answers, or when it is too old to have one. */
+	let liveText = $state<Record<string, { enabled: boolean; switchable: boolean; error?: string }>>({});
+
+	/** Turns of each switch from this page, so a read sent before one does not undo it when it lands after. */
+	const liveTextTurns: Record<string, number> = {};
+
+	async function readLiveText(row: Row) {
+		const turns = liveTextTurns[row.id];
+		const answer = await browserIO.request(`${apiBase(row.machine)}/api/live-text`, 'GET');
+		if (turns !== liveTextTurns[row.id]) return;
+		const { enabled, switchable } = answer?.body ?? {};
+		if (typeof enabled === 'boolean') liveText[row.id] = { ...liveText[row.id], enabled, switchable: switchable === true };
+	}
+
+	async function setLiveText(row: Row, enabled: boolean) {
+		const prev = liveText[row.id];
+		liveTextTurns[row.id] = (liveTextTurns[row.id] ?? 0) + 1;
+		liveText[row.id] = { ...prev, enabled, error: undefined };
+		const answer = await fetch(`${apiBase(row.machine)}/api/live-text`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ enabled })
+		}).catch(() => null);
+		if (answer?.ok) return;
+		const body = (await answer?.json().catch(() => null)) as { error?: string } | null | undefined;
+		liveText[row.id] = { ...prev, error: body?.error ?? 'Did not answer' };
+	}
+
 	const onlineRows = $derived(rows.filter((r) => r.machine.online));
 	const onlineIds = $derived(onlineRows.map((r) => r.id).join());
 	$effect(() => {
 		void onlineIds;
-		const read = () => untrack(() => onlineRows.forEach((r) => void readAutoUpdate(r)));
+		const read = () =>
+			untrack(() =>
+				onlineRows.forEach((r) => {
+					void readAutoUpdate(r);
+					void readLiveText(r);
+				})
+			);
 		read();
 		// An install happens on its own time, so the line has to be read again.
 		const timer = setInterval(read, 30_000);
@@ -376,6 +410,18 @@
 								onCheckedChange={(on) => void setAutoUpdate(row, on === true)}
 							/>
 							<span>Keep Claude Code up to date: {autoUpdateLine(auto)}</span>
+						</div>
+					{/if}
+					{#if liveText[row.id]}
+						{@const live = liveText[row.id]}
+						<div class="line2 claude-line" class:drift={!!live.error} title={live.switchable ? '' : 'A dev server does not change Claude Code settings'}>
+							<Checkbox
+								checked={live.enabled}
+								disabled={!!offline || !live.switchable}
+								aria-label="Show replies as they are written on {machineName(m)}"
+								onCheckedChange={(on) => void setLiveText(row, on === true)}
+							/>
+							<span>Show replies as they are written: {live.error ?? (live.enabled ? 'on' : 'off')}</span>
 						</div>
 					{/if}
 					{#if align && alignBusy}
