@@ -77,6 +77,8 @@ export interface Session {
 	/** Claude Code's sign-in screen, read off the pane. */
 	pane_login?: LoginScreen;
 	pane_rewind?: RewindScreen;
+	/** claude-mux gave up installing the version this machine is due. */
+	auto_update_failed?: boolean;
 	/** The upgrade the status line started: running, or why it did not restart. */
 	upgrade?: UpgradeStatus | null;
 	/** The spinner line while a turn runs, split into its parts; `started_at` is in this browser's clock. */
@@ -128,6 +130,7 @@ function sessionChanged(a: Session, b: Session): boolean {
 		if (JSON.stringify(a.pane_choice) !== JSON.stringify(b.pane_choice)) return true;
 	}
 	if ((a.pane_update?.text ?? null) !== (b.pane_update?.text ?? null)) return true;
+	if (!!a.auto_update_failed !== !!b.auto_update_failed) return true;
 	if (JSON.stringify(a.pane_login ?? null) !== JSON.stringify(b.pane_login ?? null)) return true;
 	if (JSON.stringify(a.pane_rewind ?? null) !== JSON.stringify(b.pane_rewind ?? null)) return true;
 	if ((a.upgrade?.at ?? null) !== (b.upgrade?.at ?? null)) return true;

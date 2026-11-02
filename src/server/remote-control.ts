@@ -19,7 +19,7 @@ import { keysForOptionPick } from '../tmux/answer-keys.js';
 
 const SESSION_URL = 'https://claude.ai/code/';
 
-function claudeSessionsDir(): string {
+export function claudeSessionsDir(): string {
 	return process.env.CLAUDE_SESSIONS_DIR ?? join(CLAUDE_DIR, 'sessions');
 }
 

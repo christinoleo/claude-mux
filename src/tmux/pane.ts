@@ -254,6 +254,22 @@ export function isPaneShowingSpinner(content: string): boolean {
   return readActivityLine(content) !== null;
 }
 
+/**
+ * Whether the box is drawn and proven to hold nothing of a person's. `readPromptBox()`
+ * also answers null when it bails: a draft line reading `1. fix the tests`, or `!`
+ * shell mode, comes back as if the box were empty, so here any text it did not
+ * explain counts as a draft. Needs a capture with colour.
+ */
+export function isPromptBoxClear(raw: string): boolean {
+  const clean = stripAnsi(raw).split("\n");
+  const box = findPromptBox(clean);
+  if (!box) return false;
+  const read = readPromptBox(raw);
+  if (read) return read.kind === "suggestion";
+  const text = clean.slice(box.topSepIdx + 1, box.bottomSepIdx).join("\n").replace(/^\s*[❯>]/, "").trim();
+  return text === "" || PROMPT_HINTS.some((hint) => hint.test(text));
+}
+
 /** Why a pane cannot take a new message, though the hooks call its session idle. */
 export type PaneHold = "working" | "queued" | "typed" | "dialog";
 

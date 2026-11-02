@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { apiBase, blockedReason, fleetStore, liveCount, machineName, offlineLabel, offlineReason, versionDrifts, type Machine } from '$lib/stores/fleet.svelte';
 	import { browserIO, updateAll, updateMachine, updateOrder, type StepProgress } from '$lib/fleet-update';
@@ -10,6 +11,7 @@
 	import { alignPlan, comparePlugins, type AlignAnswer, type AlignJob, type MachineStanding } from '$shared/fleet-plugins.js';
 	import { onlyHereKey } from '$shared/fleet-prefs.js';
 	import { formatSpinnerElapsed } from '$lib/format';
+	import type { ClaudeUpdateStatus } from '$shared/server/claude-update.js';
 
 	/**
 	 * The Machines view: every machine in the fleet with its version, whether
@@ -42,6 +44,69 @@
 			return r.origin && p?.state === 'ok' && !!p.version && p.version !== VERSION;
 		})
 	);
+
+	/** Each machine's own switch and how its Claude Code updates stand; absent until it answers, or when it is too old to have one. */
+	let autoUpdate = $state<Record<string, { enabled: boolean; status: ClaudeUpdateStatus | null }>>({});
+
+	async function readAutoUpdate(row: Row) {
+		const answer = await browserIO.request(`${apiBase(row.machine)}/api/settings`, 'GET');
+		const body = answer?.body as {
+			settings?: { autoUpdateClaude?: unknown };
+			claudeUpdate?: ClaudeUpdateStatus | null;
+		} | undefined;
+		const enabled = body?.settings?.autoUpdateClaude;
+		if (typeof enabled === 'boolean') autoUpdate[row.id] = { enabled, status: body?.claudeUpdate ?? null };
+	}
+
+	const onlineRows = $derived(rows.filter((r) => r.machine.online));
+	const onlineIds = $derived(onlineRows.map((r) => r.id).join());
+	$effect(() => {
+		void onlineIds;
+		const read = () => untrack(() => onlineRows.forEach((r) => void readAutoUpdate(r)));
+		read();
+		// An install happens on its own time, so the line has to be read again.
+		const timer = setInterval(read, 30_000);
+		return () => clearInterval(timer);
+	});
+
+	async function setAutoUpdate(row: Row, enabled: boolean) {
+		const prev = autoUpdate[row.id];
+		if (prev) autoUpdate[row.id] = { ...prev, enabled };
+		const res = await fetch(`${apiBase(row.machine)}/api/settings`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ autoUpdateClaude: enabled })
+		}).catch(() => null);
+		if (!res?.ok && prev) autoUpdate[row.id] = prev;
+	}
+
+	/** What the Claude Code line says after its switch. */
+	function autoUpdateLine(entry: { enabled: boolean; status: ClaudeUpdateStatus | null }): string {
+		const s = entry.status;
+		if (!entry.enabled) return 'off';
+		if (!s) return 'not checked yet';
+		const on = s.installed ? `on ${s.installed}` : '';
+		switch (s.state) {
+			case 'failed':
+				return `Auto-update failed: ${s.target} did not install, ${on || 'version unknown'}. Stopped until a newer version appears`;
+			case 'installing':
+				return `installing ${s.target}`;
+			case 'retrying':
+				return `${s.target} did not install; one more try ${formatWhen(s.at)}`;
+			case 'waiting':
+				return `${on}; ${s.target} installs ${formatWhen(s.at)}`;
+			case 'self-updating':
+				return `${on}; updates itself, sessions restart when they can`;
+			case 'unknown-installer':
+				return `${on}; installed in a way claude-mux cannot update, sessions restart when they can`;
+			case 'current':
+				return `${on}; up to date`;
+		}
+	}
+
+	function formatWhen(at: number | undefined): string {
+		return at ? `at ${new Date(at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : 'soon';
+	}
 
 	function runOne(row: Row): Promise<StepProgress> {
 		return updateMachine(apiBase(row.machine), (p) => (progress[row.id] = p), browserIO);
@@ -301,6 +366,18 @@
 							</Button>
 						{/if}
 					</div>
+					{#if autoUpdate[row.id]}
+						{@const auto = autoUpdate[row.id]}
+						<div class="line2 claude-line" class:drift={auto.enabled && auto.status?.state === 'failed'} title={auto.status?.output ?? ''}>
+							<Checkbox
+								checked={auto.enabled}
+								disabled={!!offline}
+								aria-label="Keep Claude Code up to date on {machineName(m)}"
+								onCheckedChange={(on) => void setAutoUpdate(row, on === true)}
+							/>
+							<span>Keep Claude Code up to date: {autoUpdateLine(auto)}</span>
+						</div>
+					{/if}
 					{#if align && alignBusy}
 						<p class="progress">{alignLine(align)}</p>
 					{:else if failures.length > 0}
@@ -498,6 +575,9 @@
 		margin-top: 3px;
 		color: var(--ink-muted);
 		font-size: 12px;
+	}
+	.claude-line.drift {
+		color: var(--bad);
 	}
 	.plugins-line iconify-icon {
 		font-size: 14px;

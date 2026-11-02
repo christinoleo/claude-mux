@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import {
+  DEFAULT_SETTINGS,
   getSettings,
   updateSettings,
   setSettingsPath,
@@ -23,17 +24,23 @@ describe("settings (JSON file)", () => {
   });
 
   it("defaults to Remote Control off, and remembers a change", () => {
-    expect(getSettings()).toEqual({ autoRemoteControl: false });
-    expect(updateSettings({ autoRemoteControl: true })).toEqual({ autoRemoteControl: true });
+    expect(getSettings()).toEqual({ autoRemoteControl: false, autoUpdateClaude: true });
+    expect(updateSettings({ autoRemoteControl: true })).toEqual({ autoRemoteControl: true, autoUpdateClaude: true });
     expect(getSettings().autoRemoteControl).toBe(true);
+  });
+
+  it("keeps Claude Code up to date unless told not to", () => {
+    expect(getSettings().autoUpdateClaude).toBe(true);
+    updateSettings({ autoUpdateClaude: false });
+    expect(getSettings().autoUpdateClaude).toBe(false);
   });
 
   it("ignores junk in the file and in a patch", () => {
     writeFileSync(path, JSON.stringify({ autoRemoteControl: "yes", other: 1 }));
-    expect(getSettings()).toEqual({ autoRemoteControl: false });
+    expect(getSettings()).toEqual(DEFAULT_SETTINGS);
     writeFileSync(path, "{nope");
-    expect(getSettings()).toEqual({ autoRemoteControl: false });
-    expect(updateSettings({ autoRemoteControl: "true" as unknown as boolean })).toEqual({ autoRemoteControl: false });
+    expect(getSettings()).toEqual(DEFAULT_SETTINGS);
+    expect(updateSettings({ autoRemoteControl: "true" as unknown as boolean })).toEqual(DEFAULT_SETTINGS);
   });
 });
 

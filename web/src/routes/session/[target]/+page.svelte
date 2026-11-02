@@ -2494,6 +2494,12 @@
 								: 'upgrade failed'}
 					</span>
 				{/if}
+				{#if currentSession?.auto_update_failed}
+					<span class="say upd failed" title="claude-mux tried twice and stopped until a newer version appears. This button can still try.">
+						<iconify-icon icon="mdi:alert-circle-outline"></iconify-icon>
+						Auto-update failed
+					</span>
+				{/if}
 			{:else}
 				<span class="say upd {paneUpdate.kind}" title={paneUpdate.text}>
 					<iconify-icon icon="mdi:update"></iconify-icon>

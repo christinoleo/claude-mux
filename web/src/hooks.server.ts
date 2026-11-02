@@ -1,4 +1,5 @@
 import { type Handle, type ServerInit } from '@sveltejs/kit';
+import { dev } from '$app/environment';
 import {
 	handleWsMessage,
 	parseWsPath,
@@ -7,6 +8,7 @@ import {
 	type WsMessageHandlers
 } from '$shared/server/ws-handlers.js';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
+import { startClaudeUpdater } from '$shared/server/claude-update.js';
 import {
 	browserWsManager,
 	sessionsWsManager,
@@ -33,6 +35,8 @@ import { MACHINE_ID } from '$lib/server/instance';
 export const init: ServerInit = () => {
 	ensurePushMonitor();
 	ensureFleetState();
+	// It restarts live sessions, so a dev server beside the real one must not run it.
+	if (!dev) startClaudeUpdater();
 };
 
 /**
