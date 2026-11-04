@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { DIALOG_HOOK_PATH } from "../setup/dialog-hook.js";
 import { CLAUDE_MUX_DIR, SESSIONS_DIR, DEFAULT_SERVER_PORT } from "../utils/paths.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -42,7 +43,12 @@ export async function runServe(options: ServeOptions): Promise<void> {
   const server = Bun.serve({
     port: Number(options.port),
     hostname: options.host,
-    fetch: handlerFetch,
+    fetch(request, bunServer) {
+      // A dialog's hook call waits on a person for minutes, saying nothing, and
+      // Bun closes a connection after ten silent seconds.
+      if (new URL(request.url).pathname === DIALOG_HOOK_PATH) bunServer.timeout(request, 0);
+      return handlerFetch(request, bunServer);
+    },
     // Enable perMessageDeflate for WebSocket compression (RFC 7692)
     // This typically achieves 70-80% compression on JSON/text messages
     ...(websocket

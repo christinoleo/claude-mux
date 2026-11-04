@@ -15,6 +15,8 @@ import { type ContextUsage } from '../transcript/context.js';
 import { TranscriptBuilder, type TranscriptEntry } from '../transcript/parser.js';
 import { subagentPayload, type SubagentPayload } from '../transcript/subagent.js';
 import { LiveTextStore, type LiveBatch, type LiveText } from '../transcript/live-text.js';
+import { dialogHolds } from './dialog-holds.js';
+import type { DialogHold } from '../types/ws-messages.js';
 import { isDictated } from './dictation-marks.js';
 import { homeDiskPercent } from './disk.js';
 import { findTranscriptById, JsonlTailer, listSubagents, resolveTranscriptPath, type SubagentMeta } from '../transcript/tailer.js';
@@ -44,6 +46,8 @@ type LivePaneFields = {
 	draft_kind: 'typed' | 'suggestion' | null;
 	pane_queue: string[];
 	pane_choice: PromptChoice;
+	/** The dialog held for the dashboard to answer through its hook; null when none is (`dialog-holds.ts`). */
+	dialog_hold: DialogHold | null;
 	/** Claude Code's footer notice about its own update; null when it shows none. */
 	pane_update: UpdateNotice;
 	/** Claude Code's sign-in screen, which the transcript never sees; null when none is drawn. */
@@ -496,6 +500,13 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 		// Live only: what sits in the prompt box right now, so the transcript
 		// view can show it without the terminal mirror.
 		const box = raw ? readPromptBox(raw) : null;
+		// When the hooks report a dialog, any run at the foot is one. When they
+		// don't — a local command's dialog such as `/model` leaves the session
+		// idle, and the permission notification can trail the dialog by a tick —
+		// only a dialog that names its own keys is believed. A hold says a dialog
+		// is open too, when a subagent's tool event has just called the session busy.
+		const paneChoice = stripped ? readPromptOptions(stripped, { declaredOnly: !isDialogState(s.state) && !dialogHolds.view(s.id) }) : null;
+		if (stripped) dialogHolds.paneRead(s.id, paneChoice !== null);
 		const enriched: Session & LivePaneFields = {
 			...s,
 			pane_title: paneTitle,
@@ -507,15 +518,8 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 			pane_queue: raw ? readQueuedMessages(raw) : [],
 			// The dialog's own numbered rows, so the composer can offer them as
 			// answers instead of making you drive arrows at a screen you can't see.
-			// When the hooks report a dialog, any run at the foot is one. When
-			// they don't — a local command's dialog such as `/model` leaves the
-			// session idle, and the permission notification can trail the dialog
-			// by a tick — only a dialog that names its own keys is believed.
-			pane_choice: stripped
-				? readPromptOptions(stripped, {
-						declaredOnly: !isDialogState(s.state)
-					})
-				: null,
+			pane_choice: paneChoice,
+			dialog_hold: dialogHolds.view(s.id),
 			// Claude Code says so only in its footer, which the transcript never sees.
 			pane_update: stripped ? readUpdateNotice(stripped) : null,
 			pane_login: stripped ? readLoginScreen(stripped) : null,

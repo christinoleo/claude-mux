@@ -722,6 +722,8 @@
 	 */
 	function handleChooserKeys(e: KeyboardEvent): boolean {
 		if (!paneChoice || hasDraft || paneTyping || overlayOpen) return false;
+		// Its card answers with no keys, and Enter on its Deny must not reach the pane's highlighted Yes.
+		if (currentSession?.dialog_hold) return false;
 		if (e.ctrlKey || e.metaKey || e.altKey) return false;
 		const el = e.target as HTMLElement | null;
 		if (el?.isContentEditable || TYPING_TAGS.test(el?.tagName ?? '')) return false;
@@ -2640,6 +2642,7 @@
 						{suggestion}
 						onAcceptSuggestion={() => void acceptSuggestion()}
 						{paneChoice}
+						dialogHold={currentSession?.dialog_hold ?? null}
 						paneLogin={currentSession?.pane_login ?? null}
 						paneRewind={currentSession?.pane_rewind ?? null}
 						onRewind={rewind}

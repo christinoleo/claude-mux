@@ -58,32 +58,41 @@
 		if (typeof enabled === 'boolean') autoUpdate[row.id] = { enabled, status: body?.claudeUpdate ?? null };
 	}
 
-	/** Each machine's live text switch; absent until it answers, or when it is too old to have one. */
-	let liveText = $state<Record<string, { enabled: boolean; switchable: boolean; error?: string }>>({});
+	/** The switches that are a hook in each machine's Claude Code settings. */
+	const HOOK_SWITCHES = [
+		{ path: '/api/live-text', label: 'Show replies as they are written' },
+		{ path: '/api/dialog-answers', label: 'Answer questions and approvals from here, with no keys sent' }
+	];
+	type HookSwitch = (typeof HOOK_SWITCHES)[number];
+
+	/** Each machine's switches, by row and path; absent until it answers, or when it is too old to have one. */
+	let hookSwitches = $state<Record<string, { enabled: boolean; switchable: boolean; error?: string }>>({});
 
 	/** Turns of each switch from this page, so a read sent before one does not undo it when it lands after. */
-	const liveTextTurns: Record<string, number> = {};
+	const hookSwitchTurns: Record<string, number> = {};
 
-	async function readLiveText(row: Row) {
-		const turns = liveTextTurns[row.id];
-		const answer = await browserIO.request(`${apiBase(row.machine)}/api/live-text`, 'GET');
-		if (turns !== liveTextTurns[row.id]) return;
+	async function readHookSwitch(row: Row, { path }: HookSwitch) {
+		const key = row.id + path;
+		const turns = hookSwitchTurns[key];
+		const answer = await browserIO.request(`${apiBase(row.machine)}${path}`, 'GET');
+		if (turns !== hookSwitchTurns[key]) return;
 		const { enabled, switchable } = answer?.body ?? {};
-		if (typeof enabled === 'boolean') liveText[row.id] = { ...liveText[row.id], enabled, switchable: switchable === true };
+		if (typeof enabled === 'boolean') hookSwitches[key] = { ...hookSwitches[key], enabled, switchable: switchable === true };
 	}
 
-	async function setLiveText(row: Row, enabled: boolean) {
-		const prev = liveText[row.id];
-		liveTextTurns[row.id] = (liveTextTurns[row.id] ?? 0) + 1;
-		liveText[row.id] = { ...prev, enabled, error: undefined };
-		const answer = await fetch(`${apiBase(row.machine)}/api/live-text`, {
+	async function setHookSwitch(row: Row, { path }: HookSwitch, enabled: boolean) {
+		const key = row.id + path;
+		const prev = hookSwitches[key];
+		hookSwitchTurns[key] = (hookSwitchTurns[key] ?? 0) + 1;
+		hookSwitches[key] = { ...prev, enabled, error: undefined };
+		const answer = await fetch(`${apiBase(row.machine)}${path}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ enabled })
 		}).catch(() => null);
 		if (answer?.ok) return;
 		const body = (await answer?.json().catch(() => null)) as { error?: string } | null | undefined;
-		liveText[row.id] = { ...prev, error: body?.error ?? 'Did not answer' };
+		hookSwitches[key] = { ...prev, error: body?.error ?? 'Did not answer' };
 	}
 
 	const onlineRows = $derived(rows.filter((r) => r.machine.online));
@@ -94,7 +103,7 @@
 			untrack(() =>
 				onlineRows.forEach((r) => {
 					void readAutoUpdate(r);
-					void readLiveText(r);
+					for (const hook of HOOK_SWITCHES) void readHookSwitch(r, hook);
 				})
 			);
 		read();
@@ -412,18 +421,20 @@
 							<span>Keep Claude Code up to date: {autoUpdateLine(auto)}</span>
 						</div>
 					{/if}
-					{#if liveText[row.id]}
-						{@const live = liveText[row.id]}
-						<div class="line2 claude-line" class:drift={!!live.error} title={live.switchable ? '' : 'A dev server does not change Claude Code settings'}>
-							<Checkbox
-								checked={live.enabled}
-								disabled={!!offline || !live.switchable}
-								aria-label="Show replies as they are written on {machineName(m)}"
-								onCheckedChange={(on) => void setLiveText(row, on === true)}
-							/>
-							<span>Show replies as they are written: {live.error ?? (live.enabled ? 'on' : 'off')}</span>
-						</div>
-					{/if}
+					{#each HOOK_SWITCHES as hook (hook.path)}
+						{@const state = hookSwitches[row.id + hook.path]}
+						{#if state}
+							<div class="line2 claude-line" class:drift={!!state.error} title={state.switchable ? '' : 'A dev server does not change Claude Code settings'}>
+								<Checkbox
+									checked={state.enabled}
+									disabled={!!offline || !state.switchable}
+									aria-label="{hook.label} on {machineName(m)}"
+									onCheckedChange={(on) => void setHookSwitch(row, hook, on === true)}
+								/>
+								<span>{hook.label}: {state.error ?? (state.enabled ? 'on' : 'off')}</span>
+							</div>
+						{/if}
+					{/each}
 					{#if align && alignBusy}
 						<p class="progress">{alignLine(align)}</p>
 					{:else if failures.length > 0}

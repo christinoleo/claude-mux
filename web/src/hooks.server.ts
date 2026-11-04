@@ -9,6 +9,7 @@ import {
 } from '$shared/server/ws-handlers.js';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { startClaudeUpdater } from '$shared/server/claude-update.js';
+import { followDialogAnswersPort } from '$shared/server/dialog-switch.js';
 import { followLiveTextPort } from '$shared/server/live-text-switch.js';
 import {
 	browserWsManager,
@@ -39,6 +40,7 @@ export const init: ServerInit = () => {
 	// It restarts live sessions, so a dev server beside the real one must not run it.
 	if (!dev) startClaudeUpdater();
 	void followLiveTextPort({ dev, port: listenPort() });
+	void followDialogAnswersPort({ dev, port: listenPort() });
 };
 
 /**

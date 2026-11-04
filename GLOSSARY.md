@@ -30,6 +30,10 @@ _Avoid_: Agent, pane, chat
 The words of a reply while Claude writes them, before they enter the session's record.
 _Avoid_: Preview, streaming, draft
 
+**Held dialog**:
+A question or approval whose hook is waiting for a person's answer from the dashboard, while the terminal can still answer it.
+_Avoid_: Pending request, blocked hook
+
 **Past session**:
 A Claude Code conversation whose transcript is on a machine's disk but which has no live pane.
 _Avoid_: Dead session, history, closed session
