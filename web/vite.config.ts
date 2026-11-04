@@ -2,6 +2,26 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type ViteDevServer } from 'vite';
 import { WebSocketServer, WebSocket } from 'ws';
+import { cpSync, existsSync } from 'fs';
+import { createRequire } from 'module';
+import { dirname, join } from 'path';
+
+/**
+ * What pdf.js fetches by name at run time, not imported, so the bundler never
+ * sees it: copied to `static/pdfjs/`, served at `/pdfjs/` (`lib/side-panel/pdf.ts`).
+ */
+function pdfjsAssets() {
+	return {
+		name: 'pdfjs-assets',
+		buildStart() {
+			const from = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+			for (const dir of ['wasm', 'cmaps', 'standard_fonts', 'iccs']) {
+				const to = join('static/pdfjs', dir);
+				if (!existsSync(to)) cpSync(join(from, dir), to, { recursive: true });
+			}
+		}
+	};
+}
 
 // Dev WebSocket plugin - uses shared handlers
 function devWebSocket() {
@@ -233,7 +253,7 @@ function devWebSocket() {
 }
 
 export default defineConfig({
-	plugins: [tailwindcss(), sveltekit(), devWebSocket()],
+	plugins: [pdfjsAssets(), tailwindcss(), sveltekit(), devWebSocket()],
 	server: {
 		host: '0.0.0.0',
 		allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',').map((h) => h.trim()) ?? true,

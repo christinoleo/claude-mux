@@ -5,8 +5,8 @@ import { FileAccessError, filesRoot, listDir } from '$shared/server/files.js';
 
 /**
  * One directory of the session's project (`dir`, relative to the root; empty
- * for the root), or any folder by its absolute path. Ignored entries are left
- * out unless `ignored=1`.
+ * for the root, and through a link wherever it leads), or any folder by its
+ * absolute path. Ignored entries are left out unless `ignored=1`.
  */
 export const GET: RequestHandler = async ({ params, url }) => {
 	const id = decodeURIComponent(params.id);
