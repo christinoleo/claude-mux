@@ -8,6 +8,7 @@
 	import GithubRefCards from './GithubRefCards.svelte';
 	import { keepsCaret, sayInto } from '$lib/dictation';
 	import DialogCard from '$lib/components/DialogCard.svelte';
+	import DialogHoldCard from '$lib/components/DialogHoldCard.svelte';
 	import LoginCard from '$lib/components/LoginCard.svelte';
 	import RewindCard from '$lib/components/RewindCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
@@ -18,7 +19,7 @@
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
 	import { sessionStateVisual } from '$shared/session-state.js';
 	import type { DeliveryInfo } from '$shared/types/ws-messages.js';
-	import type { PaneActivity, PaneChoice } from '$shared/types/ws-messages.js';
+	import type { DialogHold, PaneActivity, PaneChoice } from '$shared/types/ws-messages.js';
 	import type { LoginScreen } from '$shared/tmux/login.js';
 	import type { RewindAction, RewindScreen } from '$shared/tmux/rewind.js';
 	import { foldRewound } from '$shared/transcript/forks.js';
@@ -45,6 +46,7 @@
 		suggestion = null,
 		onAcceptSuggestion,
 		paneChoice = null,
+		dialogHold = null,
 		paneLogin = null,
 		paneRewind = null,
 		onRewind,
@@ -83,6 +85,8 @@
 		onAcceptSuggestion?: () => void;
 		/** The dialog the pane is drawing, as the poll read it; drawn as a card here. */
 		paneChoice?: PaneChoice | null;
+		/** The open dialog when its hook is waiting for the dashboard: answered with no keys sent. */
+		dialogHold?: DialogHold | null;
 		/** Claude Code's sign-in screen, which only the pane shows. */
 		paneLogin?: LoginScreen;
 		/** Claude Code's rewind dialog, which only the pane shows. */
@@ -404,8 +408,20 @@
 		}
 		lastLiveAsk = liveAskId ? { id: liveAskId, seen: seenLive === liveAskId } : null;
 	});
+	/** A hold whose card someone left for the pane's own rows, which offer what a hook cannot. */
+	let rowsForHold = $state<string | null>(null);
+	/** The hold this page just answered, whose card must not come back on a broadcast sent before the press. */
+	let answeredHold = $state<string | null>(null);
+	/** The hold's card takes the place of the keys-driven one. */
+	const holdCard = $derived(
+		dialogHold && rowsForHold !== dialogHold.id && answeredHold !== dialogHold.id ? dialogHold : null
+	);
+	$effect(() => {
+		// A dialog held after the last one was answered is open, whatever the last press said.
+		if (holdCard) submitted = null;
+	});
 	/** The pane's dialog at the foot, when it is not the live question's. */
-	const footDialog = $derived(liveAskId === null && paneChoice !== null);
+	const footDialog = $derived(liveAskId === null && paneChoice !== null && !holdCard);
 
 	/**
 	 * The turns claude-mux delivered from its queue or as a steer, by entry id.
@@ -773,6 +789,8 @@
 						{/each}
 					</div>
 				</details>
+			{:else if entry.id === liveAskId && holdCard}
+				<!-- Its card is at the foot, which holds whether or not the log has this entry yet. -->
 			{:else if entry.id === liveAskId || answeredAsks[entry.id]}
 				<DialogCard
 					ask={entry}
@@ -1002,6 +1020,20 @@
 		{/if}
 	{/each}
 
+	{#if holdCard}
+		{#key holdCard.id}
+			<DialogHoldCard
+				hold={holdCard}
+				{base}
+				onAnswered={() => {
+					answeredHold = holdCard.id;
+					submitted = dialogKey;
+				}}
+				onMoreOptions={paneChoice ? () => (rowsForHold = holdCard.id) : null}
+			/>
+		{/key}
+	{/if}
+
 	{#if footDialog}
 		<DialogCard
 			choice={paneChoice}
@@ -1056,7 +1088,7 @@
 			<span class="live-text">
 				{#if dialogClosed}
 					Answer sent — waiting for Claude to carry on
-				{:else if liveAskId || footDialog}
+				{:else if liveAskId || footDialog || holdCard}
 					Waiting for your answer — answer in the card above ↑
 				{:else if state === 'permission'}
 					Waiting for permission — reading the dialog, or switch to terminal view to respond

@@ -194,7 +194,7 @@ export function unwrapPasted(text: string): string {
   return text.replace(PASTED_OPEN, "").replace(PASTED_CLOSE, "\n").trim();
 }
 
-function parseAskQuestions(input: Record<string, unknown>): AskQuestion[] {
+export function parseAskQuestions(input: Record<string, unknown>): AskQuestion[] {
   const raw = input.questions;
   if (!Array.isArray(raw)) return [];
   const questions: AskQuestion[] = [];

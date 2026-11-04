@@ -1026,6 +1026,59 @@ happens.
 To test it, run the built server under a `HOME` of its own with a `tmux` on `PATH`
 that adds `-L <name>`; never against the real installation.
 
+### 13. Answering a dialog through its hook
+
+With the switch on, the dashboard answers a question, a plan or an approval with
+no keys sent. `POST /api/hooks/dialog` takes Claude Code's `PermissionRequest`
+hook (`type: "http"`) and does not answer it: `DialogHolds`
+(`src/server/dialog-holds.ts`) holds the call, the terminal's dialog stays on
+screen, and whoever answers first decides, since Claude Code ignores a later
+decision. The hold rides the broadcast as the live field `dialog_hold`, which
+`DialogHoldCard.svelte` draws in place of `DialogCard`; its "More options" brings
+the pane's rows back, for what only the terminal's dialog offers ("don't ask
+again"). A press, `POST /api/dialog-holds/<id>`, names the hold it was looking at,
+so it can only answer the dialog on the person's screen. While a hold shows, the
+session page's keyboard shortcuts leave the pane alone, or Enter on Deny would pick
+the pane's highlighted Yes.
+
+A question takes `updatedInput` plus `answers`, and a plan its input echoed:
+`allow` alone leaves either dialog open. Nothing in Claude Code checks that
+answers are complete (a missing one is dropped in silence), so the store does. The
+only way to `allow` is that press, because this hook can otherwise approve a
+critical-path removal with nobody there. Every other ending passes, which leaves
+the terminal's dialog as the only way to answer: the ten-minute limit
+(`HOLD_LIMIT_MS`), and with the server down the hook simply fails the same way.
+
+Claude Code does not tell a held hook that a person answered in the terminal, and
+`PermissionRequest` has no `tool_use_id`, so what ends a hold is, in trust order:
+the connection closing (a person's Esc or "No"), `PostToolUse` or
+`PostToolUseFailure` with the same tool and input (a question or plan comes back
+with fields added, so those match on the tool), `Stop` (the two-minute countdown on
+a critical path under `--dangerously-skip-permissions` denies with nothing else to
+say), and last the screen: a long command approved in the terminal reports nothing
+until it ends, so a dialog the poll saw drawn and then misses three reads running
+ends the hold too.
+
+Two kinds of call are not held, and go on being answered by keys as before. An MCP
+tool, as no hook can answer one marked `requiresUserInteraction` and the payload
+does not say which those are. And anything with an `agent_id`: a background
+subagent's or a fork's dialog is not drawn until the hook returns, so a hold would
+hide it from a person at the terminal. An MCP form has its own `Elicitation` event,
+which this does not touch.
+
+Bun closes a connection after ten silent seconds, so `serve` lifts that for this
+one route (`server.timeout(request, 0)`). The Vite dev server has no such limit,
+which makes a hold that dies at ten seconds a bug only a built server shows.
+
+The switch is `GET`/`POST /api/dialog-answers` on the Machines view, off at first,
+on the same terms as live text (`src/server/hook-switch.ts` is both): the entries
+in `~/.claude/settings.json` are its whole state, only a built server writes them,
+and they follow the server's port. It adds the `http` hold on `PermissionRequest`,
+and on `PostToolUse`, `PostToolUseFailure` and `Stop` a `curl` to
+`/api/hooks/dialog/ended`: those fire for every tool in every session, an `http`
+hook would print `connect ECONNREFUSED` in the terminal on each while the server is
+down, and the route does not read the request unless something is held.
+
 ## Key Data Flow
 
 ```

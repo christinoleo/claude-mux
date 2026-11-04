@@ -3,6 +3,7 @@ import { createPersisted } from './persisted';
 import {
 	SessionsWsMessageSchema,
 	type SystemStatsMessage,
+	type DialogHold,
 	type PaneChoice,
 	type PaneActivity,
 	type IssueInfo,
@@ -72,6 +73,7 @@ export interface Session {
 	pane_queue?: string[];
 	/** Numbered options a dialog is offering in the pane. Gate on `state`. */
 	pane_choice?: PaneChoice | null;
+	dialog_hold?: DialogHold | null;
 	/** Claude Code's footer notice about its own update. */
 	pane_update?: { kind: 'installed' | 'available' | 'failed'; text: string; command?: string } | null;
 	/** Claude Code's sign-in screen, read off the pane. */
@@ -129,6 +131,7 @@ function sessionChanged(a: Session, b: Session): boolean {
 		if (!a.pane_choice || !b.pane_choice) return true;
 		if (JSON.stringify(a.pane_choice) !== JSON.stringify(b.pane_choice)) return true;
 	}
+	if ((a.dialog_hold?.id ?? null) !== (b.dialog_hold?.id ?? null)) return true;
 	if ((a.pane_update?.text ?? null) !== (b.pane_update?.text ?? null)) return true;
 	if (!!a.auto_update_failed !== !!b.auto_update_failed) return true;
 	if (JSON.stringify(a.pane_login ?? null) !== JSON.stringify(b.pane_login ?? null)) return true;

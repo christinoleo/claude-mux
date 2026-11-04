@@ -5,13 +5,14 @@ import { writeFileAtomic } from "../utils/atomic-write.js";
 import { CLAUDE_SETTINGS_PATH } from "../utils/paths.js";
 import { VERSION } from "../utils/version.js";
 import { shellQuote } from "../utils/shell.js";
+import { withoutDialogHook } from "./dialog-hook.js";
 import { withoutLiveTextHook } from "./live-text-hook.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * One hook as `settings.json` holds it. Only a `command` hook has a `command`:
- * the file also holds `http` hooks, ours among them (`live-text-hook.ts`), and
+ * the file also holds `http` hooks, ours among them (`http-hook.ts`), and
  * whatever other types the person or Claude Code put there.
  */
 export interface Hook {
@@ -303,7 +304,7 @@ export function uninstallHooks(): void {
     return;
   }
 
-  const cleanedHooks = removeClaudeWatchHooks(withoutLiveTextHook(currentSettings).hooks ?? {});
+  const cleanedHooks = removeClaudeWatchHooks(withoutDialogHook(withoutLiveTextHook(currentSettings)).hooks ?? {});
 
   const newSettings: ClaudeSettings = {
     ...currentSettings,

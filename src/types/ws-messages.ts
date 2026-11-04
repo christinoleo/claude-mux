@@ -25,6 +25,26 @@ const ScreenshotSchema = z.object({
 	timestamp: z.number()
 });
 
+const DialogHoldSchema = z.discriminatedUnion('kind', [
+	z.object({
+		id: z.string(),
+		kind: z.literal('question'),
+		questions: z.array(
+			z.object({
+				header: z.string(),
+				question: z.string(),
+				multiSelect: z.boolean(),
+				options: z.array(
+					z.object({ label: z.string(), description: z.string().optional(), preview: z.string().optional() })
+				)
+			})
+		)
+	}),
+	z.object({ id: z.string(), kind: z.literal('plan'), detail: z.string() }),
+	z.object({ id: z.string(), kind: z.literal('approval'), tool: z.string(), detail: z.string() })
+]);
+export type DialogHold = z.infer<typeof DialogHoldSchema>;
+
 const PaneChoiceSchema = z.object({
 	question: z.string().nullable(),
 	options: z.array(
@@ -192,6 +212,8 @@ const EnrichedSessionSchema = z.object({
 	 * on `state`: the hooks are authoritative for whether a dialog is open.
 	 */
 	pane_choice: PaneChoiceSchema.nullable().optional(),
+	/** The dialog held for the dashboard to answer through its hook — live only. */
+	dialog_hold: DialogHoldSchema.nullable().optional(),
 	/** Claude Code's footer notice about its own update — live only. */
 	pane_update: z
 		.object({
