@@ -25,6 +25,9 @@ _bmad/
 web/.env
 web/.env.local
 
+# pdf.js's run-time assets, copied at build (web/vite.config.ts)
+web/static/pdfjs/
+
 # Electron build artifacts (steamdeck client)
 steamdeck/dist-electron/
 steamdeck/releases/

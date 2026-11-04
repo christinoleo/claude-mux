@@ -16,6 +16,7 @@
 	import { untrack } from 'svelte';
 	import type { ThemedToken } from 'shiki/core';
 	import type { PaneBodyProps } from '$lib/side-panel/panes';
+	import PdfView from './PdfView.svelte';
 	import { Toggle } from '$lib/components/ui/toggle';
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import * as Popover from '$lib/components/ui/popover';
@@ -155,7 +156,7 @@
 		if (!params.file && last) setParams({ file: last });
 	});
 
-	type Shown = { path: string; read: FileRead } | { path: string; error: string; binary?: boolean };
+	type Shown = { path: string; read: FileRead; seq: number } | { path: string; error: string; binary?: boolean };
 	let shown = $state<Shown | null>(null);
 	let fileSeq = 0;
 
@@ -172,7 +173,7 @@
 				return;
 			}
 			const read = body as FileRead;
-			shown = { path, read };
+			shown = { path, read, seq: mine };
 			// An absolute or roundabout spelling settles on the path inside the root.
 			if (read.path !== path) {
 				fileReadFor = `${read.path}\0${params.line ?? ''}`;
@@ -217,6 +218,10 @@
 	);
 	const read = $derived(current && 'read' in current ? current.read : null);
 	const openPath = $derived(read?.path ?? wantedFile);
+	/** Tells one read from the next: Reload must not get the bytes the browser kept, nor leave a PDF as it was. */
+	const rawVersion = $derived(current && 'seq' in current ? current.seq : 0);
+	/** Where an image's or a PDF's own bytes are. */
+	const rawUrl = (path: string) => `${api}/read?${new URLSearchParams({ path, raw: '1', v: String(rawVersion) })}`;
 
 	function openFile(path: string, line?: number) {
 		setParams({ file: path, line: line ? String(line) : null }, { push: true });
@@ -440,7 +445,21 @@
 {/snippet}
 
 {#snippet node(entry: FileEntry, depth: number)}
-	{#if entry.type === 'dir'}
+	{#if entry.broken}
+		<button
+			type="button"
+			class="item broken"
+			style:--depth={depth}
+			title="{entry.path}: broken link"
+			data-path={entry.path}
+			data-type="file"
+			disabled
+		>
+			<span class="chev"></span>
+			<iconify-icon class="ico" icon="mdi:link-variant-off"></iconify-icon>
+			<span class="name">{entry.name}</span>
+		</button>
+	{:else if entry.type === 'dir'}
 		{@const open = expanded.has(entry.path)}
 		<button
 			type="button"
@@ -519,15 +538,24 @@
 							class="flex min-h-8 items-center gap-1.5 rounded px-2 text-left text-stone-200 hover:bg-[#262626] {entry.path ===
 							openPath
 								? 'bg-[#262626]'
-								: ''} {entry.ignored ? 'text-stone-500' : ''}"
+								: ''} {entry.ignored ? 'text-stone-500' : ''} disabled:cursor-default disabled:text-stone-600 disabled:hover:bg-transparent"
+							disabled={entry.broken}
+							title={entry.broken ? 'Broken link' : undefined}
 							onclick={() => {
 								if (entry.type === 'dir') return browse(entry.path);
 								crumbFor = null;
 								openFile(entry.path);
 							}}
 						>
-							<iconify-icon icon={entry.type === 'dir' ? 'mdi:folder-outline' : 'mdi:file-outline'}></iconify-icon>
+							<iconify-icon
+								icon={entry.broken
+									? 'mdi:link-variant-off'
+									: entry.type === 'dir'
+										? 'mdi:folder-outline'
+										: 'mdi:file-outline'}
+							></iconify-icon>
 							<span class="min-w-0 flex-1 truncate">{entry.name}</span>
+							{#if entry.link && !entry.broken}<iconify-icon class="text-stone-500" icon="mdi:link-variant"></iconify-icon>{/if}
 							{#if entry.type === 'dir'}<iconify-icon icon="mdi:chevron-right"></iconify-icon>{/if}
 						</button>
 					{/each}
@@ -671,6 +699,11 @@
 				>
 					<iconify-icon icon="mdi:at"></iconify-icon>
 				</button>
+				{#if read?.kind === 'pdf'}
+					<a class="icon" href={rawUrl(read.path)} target="_blank" rel="noopener" title="Open in a new tab" aria-label="Open in a new tab">
+						<iconify-icon icon="mdi:open-in-new"></iconify-icon>
+					</a>
+				{/if}
 				{#if read?.kind === 'text' && !rendered}
 					{@const wrapLabel = preferences.fileWordWrap ? 'Let long lines scroll' : 'Wrap long lines'}
 					<button
@@ -711,8 +744,10 @@
 				</p>
 			{:else if read?.kind === 'image'}
 				<div class="image">
-					<img src="{api}/read?{new URLSearchParams({ path: read.path, raw: '1' })}" alt={read.path} />
+					<img src={rawUrl(read.path)} alt={read.path} />
 				</div>
+			{:else if read?.kind === 'pdf'}
+				<PdfView src={rawUrl(read.path)} />
 			{:else if rendered && read?.kind === 'text'}
 				<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped -->
 				<div class="md markdown">{@html renderMarkdown(read.text)}</div>
@@ -824,6 +859,13 @@
 	}
 	.item.ignored {
 		color: #6b6560;
+	}
+	.item.broken {
+		color: #6b6560;
+		cursor: default;
+	}
+	.item.broken:hover {
+		background: transparent;
 	}
 	.chev {
 		flex: none;

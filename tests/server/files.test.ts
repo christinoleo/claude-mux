@@ -10,7 +10,7 @@ import {
   listRepoFiles,
   locateProjectFile,
   readProjectFile,
-  readProjectImage,
+  readProjectMedia,
   resolveInRoot,
 } from "../../src/server/files.js";
 
@@ -64,11 +64,11 @@ describe("resolveInRoot", () => {
     expect(await refused(resolveInRoot(root, "/etc/passwd"))).toBe(403);
   });
 
-  it("with `anywhere`, resolves an absolute path outside the root but not a relative one", async () => {
+  it("with `anywhere`, resolves a path outside the root, absolute or relative", async () => {
     const any = { anywhere: true };
     expect((await resolveInRoot(root, join(outside, "key.txt"), any)).rel).toBe(join(outside, "key.txt"));
     expect((await resolveInRoot(root, join(root, "src/a.ts"), any)).rel).toBe("src/a.ts");
-    expect(await refused(resolveInRoot(root, "../secret/key.txt", any))).toBe(403);
+    expect((await resolveInRoot(root, "../secret/key.txt", any)).rel).toBe(join(outside, "key.txt"));
     expect(await refused(resolveInRoot(root, join(outside, "nope.txt"), any))).toBe(404);
     mkdirSync(join(outside, ".git"));
     writeFileSync(join(outside, ".git", "config"), "");
@@ -154,6 +154,181 @@ describe("listDir", () => {
   });
 });
 
+describe("a link out of the root, with `anywhere`", () => {
+  const any = { anywhere: true };
+
+  beforeEach(() => {
+    mkdirSync(join(outside, "sub"));
+    writeFileSync(join(outside, "sub", "deep.txt"), "deep\n");
+    symlinkSync(outside, join(root, "mount"));
+  });
+
+  it("is listed, marked as a link, as what it points to", async () => {
+    symlinkSync(join(outside, "key.txt"), join(root, "key-link.txt"));
+    const { entries } = await listDir(root, "", { repo: false, ...any });
+    expect(entries.find((e) => e.name === "mount")).toEqual({ name: "mount", path: "mount", type: "dir", link: true });
+    expect(entries.find((e) => e.name === "key-link.txt")).toEqual({
+      name: "key-link.txt",
+      path: "key-link.txt",
+      type: "file",
+      link: true,
+    });
+  });
+
+  it("is followed, and what is below it keeps the path through the link", async () => {
+    const top = await listDir(root, "mount", { repo: false, ...any });
+    expect(top.dir).toBe("mount");
+    expect(top.entries.map((e) => e.path)).toEqual(["mount/sub", "mount/key.txt"]);
+    const sub = await listDir(root, "mount/sub", { repo: false, ...any });
+    expect(sub.entries).toEqual([{ name: "deep.txt", path: "mount/sub/deep.txt", type: "file" }]);
+  });
+
+  it("resolves a relative path through it, and a file there reads like any other", async () => {
+    const resolved = await resolveInRoot(root, "mount/sub/deep.txt", any);
+    expect(resolved.rel).toBe("mount/sub/deep.txt");
+    expect(resolved.abs).toBe(join(outside, "sub", "deep.txt"));
+    expect(await readProjectFile(root, "mount/sub/deep.txt", any)).toMatchObject({
+      kind: "text",
+      path: "mount/sub/deep.txt",
+      text: "deep\n",
+    });
+    expect(await refused(resolveInRoot(root, "mount/sub/nope.txt", any))).toBe(404);
+  });
+
+  it("is reachable by its absolute path too, which settles on the path through it", async () => {
+    expect((await resolveInRoot(root, join(root, "mount/key.txt"), any)).rel).toBe("mount/key.txt");
+  });
+
+  it("stays refused without `anywhere`", async () => {
+    expect(await refused(resolveInRoot(root, "mount/key.txt"))).toBe(403);
+    expect(await refused(listDir(root, "mount", { repo: false }))).toBe(403);
+  });
+
+  it("lists a dangling link as broken, and refuses to open it", async () => {
+    symlinkSync(join(base, "gone"), join(root, "dangling"));
+    const { entries } = await listDir(root, "", { repo: false, ...any });
+    expect(entries.find((e) => e.name === "dangling")).toEqual({
+      name: "dangling",
+      path: "dangling",
+      type: "file",
+      link: true,
+      broken: true,
+    });
+    expect(await refused(resolveInRoot(root, "dangling", any))).toBe(404);
+    expect((await listDir(root, "", { repo: false })).entries.some((e) => e.name === "dangling")).toBe(false);
+  });
+
+  it("lists a loop of links as broken, and refuses to open it", async () => {
+    symlinkSync(join(root, "loop-b"), join(root, "loop-a"));
+    symlinkSync(join(root, "loop-a"), join(root, "loop-b"));
+    const { entries } = await listDir(root, "", { repo: false, ...any });
+    expect(entries.filter((e) => e.broken).map((e) => e.name)).toEqual(["loop-a", "loop-b"]);
+    expect(await refused(resolveInRoot(root, "loop-a/x", any))).toBe(404);
+  });
+
+  it("gives a link back to a folder that holds it a longer path each time, so a tree never holds itself", async () => {
+    symlinkSync(root, join(root, "up"));
+    symlinkSync(outside, join(outside, "self"));
+    const up = await listDir(root, "up", { repo: false, ...any });
+    expect(up.dir).toBe("up");
+    expect(up.entries.map((e) => e.path)).toContain("up/up");
+    expect((await listDir(root, "up/up", { repo: false, ...any })).entries.map((e) => e.path)).toContain("up/up/up");
+    const self = await listDir(root, "mount/self", { repo: false, ...any });
+    expect(self.entries.map((e) => e.path)).toContain("mount/self/self");
+  });
+
+  it("refuses .git through a link, by the link's own name or its target's", async () => {
+    mkdirSync(join(outside, ".git"));
+    writeFileSync(join(outside, ".git", "config"), "");
+    symlinkSync(join(outside, ".git"), join(root, "gitdir"));
+    symlinkSync(join(outside, ".git", "config"), join(root, "gitfile"));
+    expect(await refused(resolveInRoot(root, "mount/.git/config", any))).toBe(403);
+    expect(await refused(resolveInRoot(root, "gitdir", any))).toBe(403);
+    expect(await refused(resolveInRoot(root, "gitdir/config", any))).toBe(403);
+    expect(await refused(resolveInRoot(root, "gitfile", any))).toBe(403);
+    const names = (await listDir(root, "", { repo: false, ...any })).entries.map((e) => e.name);
+    expect(names).not.toContain("gitdir");
+    expect(names).not.toContain("gitfile");
+    expect((await listDir(root, "mount", { repo: false, ...any })).entries.map((e) => e.name)).not.toContain(".git");
+  });
+
+  it("is not asked of git below the link, and stays listed when git ignores it", async () => {
+    git("init", "-q");
+    writeFileSync(join(root, ".gitignore"), "mount\nsrc-ignored\n");
+    mkdirSync(join(root, "src-ignored"));
+    const top = await listDir(root, "", { repo: true, ...any });
+    expect(top.entries.find((e) => e.name === "mount")).toMatchObject({ link: true, ignored: true });
+    expect(top.entries.some((e) => e.name === "src-ignored")).toBe(false);
+    expect(top.hidden).toBe(1);
+    const below = await listDir(root, "mount", { repo: true, ...any });
+    expect(below.entries.map((e) => e.name)).toEqual(["sub", "key.txt"]);
+    expect(below.hidden).toBe(0);
+  });
+
+  it("still asks git about a link that leads back into the project, by its real path", async () => {
+    git("init", "-q");
+    writeFileSync(join(root, ".gitignore"), "*.log\n");
+    writeFileSync(join(root, "src", "debug.log"), "x");
+    symlinkSync(join(root, "src"), join(root, "srclink"));
+    const listing = await listDir(root, "srclink", { repo: true, ...any });
+    expect(listing.entries.map((e) => e.path)).toEqual(["srclink/a.ts"]);
+    expect(listing.hidden).toBe(1);
+  });
+
+  it("is found by a message's spelling of the path, from the cwd as well", async () => {
+    git("init", "-q");
+    expect(await locateProjectFile(root, "mount/sub/deep.txt", root, any)).toBe("mount/sub/deep.txt");
+    expect(await locateProjectFile(root, "../mount/key.txt", join(root, "src"), any)).toBe(join(root, "mount/key.txt"));
+  });
+
+  it("reads a path that climbs from the cwd only, however it is spelled", async () => {
+    git("init", "-q");
+    const cwd = join(root, "src");
+    const home = join(root, "b.ts");
+    writeFileSync(home, "from the cwd\n");
+    writeFileSync(join(base, "b.ts"), "from above the root\n");
+    for (const spelled of ["../b.ts", "./../b.ts", "lib/../../b.ts"]) {
+      expect(await locateProjectFile(root, spelled, cwd, any)).toBe(home);
+    }
+    rmSync(home);
+    const missing = await locateProjectFile(root, "../b.ts", cwd, any);
+    expect(await refused(readProjectFile(root, missing, any))).toBe(404);
+  });
+});
+
+describe("a PDF", () => {
+  const PDF = Buffer.from("%PDF-1.4\n\0binary\n%%EOF\n");
+
+  it("answers its own kind and its bytes with the right type, whatever bytes it opens with", async () => {
+    writeFileSync(join(root, "doc.PDF"), PDF);
+    expect(await readProjectFile(root, "doc.PDF")).toEqual({
+      kind: "pdf",
+      path: "doc.PDF",
+      size: PDF.length,
+      mime: "application/pdf",
+    });
+    const served = await readProjectMedia(root, "doc.PDF");
+    expect(served.mime).toBe("application/pdf");
+    expect(served.bytes.equals(PDF)).toBe(true);
+  });
+
+  it("opens through a link, under the guard", async () => {
+    writeFileSync(join(outside, "paper.pdf"), PDF);
+    symlinkSync(outside, join(root, "mount"));
+    const any = { anywhere: true };
+    expect((await readProjectFile(root, "mount/paper.pdf", any)).kind).toBe("pdf");
+    expect((await readProjectMedia(root, "mount/paper.pdf", any)).mime).toBe("application/pdf");
+    expect(await refused(readProjectMedia(root, "mount/paper.pdf"))).toBe(403);
+  });
+
+  it("is judged on the real path, so a link named .pdf hands out nothing else", async () => {
+    symlinkSync(join(outside, "key.txt"), join(root, "fake.pdf"));
+    const any = { anywhere: true };
+    expect((await readProjectFile(root, "fake.pdf", any)).kind).toBe("text");
+    expect(await refused(readProjectMedia(root, "fake.pdf", any))).toBe(415);
+  });
+});
+
 describe("readProjectFile", () => {
   it("reads text, and calls a file with a NUL binary", async () => {
     expect(await readProjectFile(root, "src/a.ts")).toMatchObject({
@@ -188,10 +363,10 @@ describe("readProjectFile", () => {
   it("serves an image only through the guard", async () => {
     writeFileSync(join(root, "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     expect(await readProjectFile(root, "logo.png")).toMatchObject({ kind: "image", mime: "image/png" });
-    expect((await readProjectImage(root, "logo.png")).bytes.length).toBe(4);
+    expect((await readProjectMedia(root, "logo.png")).bytes.length).toBe(4);
     writeFileSync(join(outside, "x.png"), "");
-    expect(await refused(readProjectImage(root, "../secret/x.png"))).toBe(403);
-    expect(await refused(readProjectImage(root, "src/a.ts"))).toBe(415);
+    expect(await refused(readProjectMedia(root, "../secret/x.png"))).toBe(403);
+    expect(await refused(readProjectMedia(root, "src/a.ts"))).toBe(415);
   });
 });
 
