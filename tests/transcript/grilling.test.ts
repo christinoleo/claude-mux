@@ -25,9 +25,9 @@ describe("parseGrillRound", () => {
   it("reads every question with its title, body and recommendation", () => {
     const round = parseGrillRound(ROUND)!;
     expect(round.intro).toBe("Good — the destination is settled. Next round:");
-    expect(round.questions.map((q) => q.n)).toEqual([1, 2, 3]);
+    expect(round.questions.map((q) => q.label)).toEqual(["Q1", "Q2", "Q3"]);
     expect(round.questions[0]).toEqual({
-      n: 1,
+      label: "Q1",
       title: "Storage",
       body: "Where should drafts live?\n\nThey could sit in the session JSON, or in a file of their own.",
       recommended: "In the session JSON, next to the rest of the live state.",
@@ -47,7 +47,7 @@ describe("parseGrillRound", () => {
 
   it("takes a title written inside the number's bold", () => {
     const round = parseGrillRound("❓ **Q4 - Naming**: What is it called?\n\n➡️ `inbox`.")!;
-    expect(round.questions[0]).toMatchObject({ n: 4, title: "Naming", body: "What is it called?", recommended: "`inbox`." });
+    expect(round.questions[0]).toMatchObject({ label: "Q4", title: "Naming", body: "What is it called?", recommended: "`inbox`." });
   });
 
   it("takes a middle dot inside the bold and rules between questions", () => {
@@ -62,9 +62,9 @@ describe("parseGrillRound", () => {
 ❓ **Q2 · Proxy**: os eventos passam por \`/ingest\`.
 
 ➡️ Sim.`)!;
-    expect(round.questions.map((q) => [q.n, q.title, q.recommended])).toEqual([
-      [1, "Modo do PostHog", "Sim: sem cookies."],
-      [2, "Proxy", "Sim."],
+    expect(round.questions.map((q) => [q.label, q.title, q.recommended])).toEqual([
+      ["Q1", "Modo do PostHog", "Sim: sem cookies."],
+      ["Q2", "Proxy", "Sim."],
     ]);
     expect(round.questions[0].body).toBe("sem cookies, sem banner.");
   });
@@ -81,14 +81,73 @@ describe("parseGrillRound", () => {
   });
 });
 
+describe("parseGrillRound labels", () => {
+  it.each([
+    ["❓ **Q3b - Naming**: What is it called?", "Q3b", "Naming", "What is it called?"],
+    ["❓ **Q2 de novo - Naming**: What is it called?", "Q2 de novo", "Naming", "What is it called?"],
+    ["❓ **Q17, última vez - Naming**: What is it called?", "Q17, última vez", "Naming", "What is it called?"],
+    ["❓ **Q17 de novo - Naming** (asked twice now): What is it called?", "Q17 de novo", "Naming", "(asked twice now): What is it called?"],
+    ["❓ **Q3b** - **Naming**: What is it called?", "Q3b", "Naming", "What is it called?"],
+    ["❓ **Q2 de novo**: What is it called?", "Q2 de novo", null, "What is it called?"],
+    ["❓ **Q3b:** What is it called?", "Q3b", null, "What is it called?"],
+    ["❓ **Q3b:** **Naming**: What is it called?", "Q3b", "Naming", "What is it called?"],
+    ["❓ **Q2 re-asked - Naming**: What is it called?", "Q2 re-asked", "Naming", "What is it called?"],
+  ])("reads %s", (line, label, title, body) => {
+    expect(parseGrillRound(line)!.questions).toEqual([{ label, title, body, recommended: null }]);
+  });
+
+  it("leaves nothing out when a reply mixes plain and suffixed questions", () => {
+    const round = parseGrillRound(`Round three.
+
+❓ **Q1** - **Storage**: Where?
+
+➡️ Here.
+
+❓ **Q2 de novo - Sync**: Still no?
+
+➡️ Still no.
+
+❓ **Q3b - Limits**: How long?
+
+➡️ No limit.
+
+❓ **Q4 · Names**: Which?
+
+➡️ Short ones.
+
+Over to you.`)!;
+    expect(round.intro).toBe("Round three.");
+    expect(round.outro).toBe("Over to you.");
+    expect(round.questions.map((q) => [q.label, q.title, q.recommended])).toEqual([
+      ["Q1", "Storage", "Here."],
+      ["Q2 de novo", "Sync", "Still no."],
+      ["Q3b", "Limits", "No limit."],
+      ["Q4", "Names", "Short ones."],
+    ]);
+  });
+
+  it("does not take a long bold sentence for a label, and reads it quickly", () => {
+    expect(parseGrillRound(`❓ **Q1 ${"a - ".repeat(10000)}`)).toBeNull();
+    expect(parseGrillRound(`❓ **Q1 ${"word ".repeat(20)}**: body`)).toBeNull();
+  });
+
+  it("keeps a line it cannot read visible as text", () => {
+    const round = parseGrillRound("❓ **Q1 - A**: a?\n\n➡️ Yes.\n\n❓ And one more thing, unnumbered?")!;
+    expect(round.questions.map((q) => q.label)).toEqual(["Q1"]);
+    expect(round.outro).toBe("❓ And one more thing, unnumbered?");
+    expect(parseGrillRound("❓ **Question for you**: anything else?")).toBeNull();
+    expect(parseGrillRound("❓ **Q2x9 - A**: a?")).toBeNull();
+  });
+});
+
 describe("composeGrillReply", () => {
   const round = parseGrillRound(ROUND)!;
 
   it("writes one line per question, in order", () => {
     const reply = composeGrillReply(round, {
-      1: { mode: "accept" },
-      2: { mode: "own", text: "Yes, through the server.\n" },
-      3: { mode: "skip" },
+      Q1: { mode: "accept" },
+      Q2: { mode: "own", text: "Yes, through the server.\n" },
+      Q3: { mode: "skip" },
     });
     expect(reply).toBe(
       [
@@ -100,11 +159,37 @@ describe("composeGrillReply", () => {
   });
 
   it("accepts a recommendation nobody touched, and treats an empty answer as a skip", () => {
-    const reply = composeGrillReply(round, { 2: { mode: "own", text: "  " } });
+    const reply = composeGrillReply(round, { Q2: { mode: "own", text: "  " } });
     expect(reply.split("\n")).toEqual([
       "Q1 (Storage): agreed, go with your recommendation.",
       "Q2 (Sync): skip for now, leave it open.",
       "Q3 (Limits): agreed, go with your recommendation.",
+    ]);
+  });
+
+  it("quotes each label as written and keeps Q3 apart from Q3b", () => {
+    const suffixed = parseGrillRound(`❓ **Q3 - Limits**: How long?
+
+➡️ No limit.
+
+❓ **Q3b - Limits again**: How wide?
+
+➡️ No limit either.
+
+❓ **Q2 de novo - Sync**: Still no?
+
+➡️ Still no.
+
+❓ **Q17, última vez**: Sure?`)!;
+    const reply = composeGrillReply(suffixed, {
+      Q3b: { mode: "own", text: "80 columns." },
+      "Q17, última vez": { mode: "own", text: "Yes." },
+    });
+    expect(reply.split("\n")).toEqual([
+      "Q3 (Limits): agreed, go with your recommendation.",
+      "Q3b (Limits again): 80 columns.",
+      "Q2 de novo (Sync): agreed, go with your recommendation.",
+      "Q17, última vez: Yes.",
     ]);
   });
 });

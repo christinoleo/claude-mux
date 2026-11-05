@@ -15,9 +15,9 @@
  */
 
 export interface GrillQuestion {
-  /** The number Claude gave it: Q3 is 3. */
-  n: number;
-  /** The bold title after the number, when the question has one. */
+  /** The label as Claude wrote it, which also identifies it: `Q3`, `Q3b`, `Q2 de novo`. */
+  label: string;
+  /** The bold title after the label, when the question has one. */
   title: string | null;
   /** The question itself, as markdown. */
   body: string;
@@ -38,9 +38,13 @@ export type GrillAnswer = { mode: "accept" } | { mode: "own"; text: string } | {
 /**
  * `❓ **Q1** - **Title**: body`, or `❓ **Q1 - Title**: body`. The dash may be
  * any of the separators a model reaches for, a middle dot (`**Q1 · Title**`)
- * among them.
+ * among them. The number may carry a letter (`Q3b`) or a few words of its own
+ * (`Q2 de novo`, `Q17, última vez`), which belong to the label: a question
+ * Claude asks again is a different question from the first time it asked.
+ * Those words end at a separator with space after it, so `Q2 re-asked - Title`
+ * keeps its hyphen, and they stay short, so a long bold sentence is not a label.
  */
-const QUESTION = /^\s*❓️?\s*\*\*Q(\d+)(?:\s*[-–—:.·•|]\s*([^*]+?))?\*\*\s*[-–—:.·•|]?\s*(?:\*\*([^*]+?)\*\*\s*:?)?\s*(.*)$/;
+const QUESTION = /^\s*❓️?\s*\*\*(Q\d+\p{L}*(?:(?:,\s*|\s+)(?![-–—:.·•|\s*])[^*]{0,40}?(?=\s*[-–—:.·•|](?:\s|\*)|\s*\*\*))?)\s*(?:[-–—:.·•|]([^*]*?))?\*\*\s*[-–—:.·•|]?\s*(?:\*\*([^*]+?)\*\*\s*:?)?\s*(.*)$/u;
 const RECOMMENDED = /^\s*➡️?\s*(.*)$/;
 
 /** Splits text at blank lines into its first paragraph and the rest. */
@@ -94,8 +98,8 @@ export function parseGrillRound(text: string): GrillRound | null {
     }
 
     questions.push({
-      n: Number(m[1]),
-      title: (m[2] ?? m[3])?.trim() || null,
+      label: m[1],
+      title: m[2]?.trim() || m[3]?.trim() || null,
       body: join(bodyLines),
       recommended,
     });
@@ -109,11 +113,11 @@ export function parseGrillRound(text: string): GrillRound | null {
  * A skipped question is said to be skipped, so Claude knows it is still open
  * rather than guessing it was agreed.
  */
-export function composeGrillReply(round: GrillRound, answers: Record<number, GrillAnswer>): string {
+export function composeGrillReply(round: GrillRound, answers: Record<string, GrillAnswer>): string {
   return round.questions
     .map((q) => {
-      const label = q.title ? `Q${q.n} (${q.title})` : `Q${q.n}`;
-      const answer = answers[q.n] ?? (q.recommended ? { mode: "accept" } : { mode: "skip" });
+      const label = q.title ? `${q.label} (${q.title})` : q.label;
+      const answer = answers[q.label] ?? (q.recommended ? { mode: "accept" } : { mode: "skip" });
       if (answer.mode === "accept") return `${label}: agreed, go with your recommendation.`;
       if (answer.mode === "skip" || !answer.text.trim()) return `${label}: skip for now, leave it open.`;
       return `${label}: ${answer.text.trim()}`;

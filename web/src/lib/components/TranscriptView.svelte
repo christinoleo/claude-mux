@@ -279,7 +279,7 @@
 		return null;
 	});
 
-	let grillAnswers = $state<Record<string, Record<number, GrillAnswer>>>({});
+	let grillAnswers = $state<Record<string, Record<string, GrillAnswer>>>({});
 	let grillSending = $state<string | null>(null);
 	/**
 	 * What you have done with a round on this page: sent its answers, or opened
@@ -288,17 +288,17 @@
 	let grillPhase = $state<Record<string, 'sent' | 'reopened'>>({});
 
 	function answerOf(id: string, q: GrillRound['questions'][number]): GrillAnswer {
-		return grillAnswers[id]?.[q.n] ?? (q.recommended ? { mode: 'accept' } : { mode: 'own', text: '' });
+		return grillAnswers[id]?.[q.label] ?? (q.recommended ? { mode: 'accept' } : { mode: 'own', text: '' });
 	}
 
-	function setAnswer(id: string, n: number, answer: GrillAnswer) {
-		grillAnswers[id] = { ...(grillAnswers[id] ?? {}), [n]: answer };
+	function setAnswer(id: string, label: string, answer: GrillAnswer) {
+		grillAnswers[id] = { ...(grillAnswers[id] ?? {}), [label]: answer };
 	}
 
 	/** Typing makes the answer yours; clearing the field hands it back. */
 	function typeAnswer(id: string, q: GrillRound['questions'][number], text: string) {
-		if (text.trim() === '' && q.recommended) setAnswer(id, q.n, { mode: 'accept' });
-		else setAnswer(id, q.n, { mode: 'own', text });
+		if (text.trim() === '' && q.recommended) setAnswer(id, q.label, { mode: 'accept' });
+		else setAnswer(id, q.label, { mode: 'own', text });
 	}
 
 	function ownText(id: string, q: GrillRound['questions'][number]): string {
@@ -308,7 +308,7 @@
 
 	/** Each question's own field, for dictation to find its caret. Read only in handlers. */
 	const ownFields: Record<string, HTMLTextAreaElement | undefined> = {};
-	const fieldKey = (id: string, q: GrillRound['questions'][number]) => `${id}:${q.n}`;
+	const fieldKey = (id: string, q: GrillRound['questions'][number]) => `${id}:${q.label}`;
 
 	function tally(id: string, round: GrillRound): string {
 		let agreed = 0;
@@ -329,8 +329,8 @@
 
 	async function sendRound(id: string, round: GrillRound) {
 		if (!onSendReply || grillSending) return;
-		const answers: Record<number, GrillAnswer> = {};
-		for (const q of round.questions) answers[q.n] = answerOf(id, q);
+		const answers: Record<string, GrillAnswer> = {};
+		for (const q of round.questions) answers[q.label] = answerOf(id, q);
 		grillSending = id;
 		try {
 			if (await onSendReply(composeGrillReply(round, answers))) grillPhase[id] = 'sent';
@@ -508,10 +508,10 @@
 		<div class="assistant-text markdown">{@html markdown(round.intro)}</div>
 	{/if}
 	<section class="grill" class:live aria-label="Questions from Claude">
-		{#each round.questions as q (q.n)}
+		{#each round.questions as q (q.label)}
 			{@const a = answerOf(id, q)}
 			<div class="gq" class:skipped={live && a.mode === 'skip'}>
-				<span class="gq-n">Q{q.n}</span>
+				<span class="gq-n" class:long={q.label.length > 3}>{q.label}</span>
 				<div class="gq-main">
 					{#if q.title}<p class="gq-title">{q.title}</p>{/if}
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -- markdown output with raw HTML escaped above -->
@@ -523,7 +523,7 @@
 								class="gq-rec"
 								class:on={a.mode === 'accept'}
 								aria-pressed={a.mode === 'accept'}
-								onclick={() => setAnswer(id, q.n, { mode: 'accept' })}
+								onclick={() => setAnswer(id, q.label, { mode: 'accept' })}
 							>
 								<iconify-icon
 									icon={a.mode === 'accept' ? 'mdi:check-circle' : 'mdi:circle-outline'}
@@ -568,7 +568,7 @@
 								aria-pressed={a.mode === 'skip'}
 								title="Leave this question open for a later round"
 								onclick={() =>
-									setAnswer(id, q.n, a.mode === 'skip' ? (q.recommended ? { mode: 'accept' } : { mode: 'own', text: '' }) : { mode: 'skip' })}
+									setAnswer(id, q.label, a.mode === 'skip' ? (q.recommended ? { mode: 'accept' } : { mode: 'own', text: '' }) : { mode: 'skip' })}
 							>
 								{a.mode === 'skip' ? 'Left open' : 'Skip'}
 							</button>
@@ -1694,10 +1694,16 @@
 		text-align: right;
 		padding-right: 10px;
 	}
+	/* The 34px column holds three characters; a longer label (`long` in the markup) sits over the question instead. */
+	.gq-n.long {
+		grid-column: 2;
+		text-align: left;
+	}
 	.live .gq-n {
 		color: #fbbf24;
 	}
 	.gq-main {
+		grid-column: 2;
 		min-width: 0;
 	}
 	.gq-title {
