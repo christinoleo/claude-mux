@@ -143,6 +143,13 @@ const ANSI_SGR = /\x1b\[[0-9;]*m/g;
  */
 const LOCAL_CAVEAT = /^<local-command-caveat>/;
 
+/**
+ * What Claude Code puts in front of a compaction summary when the conversation
+ * held content written by others: a tag, and a sentence telling the model how
+ * to read it. Neither is part of the summary.
+ */
+const COMPACT_PREAMBLE = /^\s*<artifact-content-authored-by-others\/>\s*(?:[^\n]*\binstructions\.\s*)?/;
+
 /** What Claude Code logs when Escape stops a turn, with or without "for tool use". */
 const INTERRUPT_MARKER = /^\[Request interrupted (by user[^\]]*)\]$/;
 
@@ -627,7 +634,8 @@ export class TranscriptBuilder {
     if (record.isCompactSummary === true && typeof content === "string") {
       const owner = this.lastCompactId ? this.getEntry(this.lastCompactId) : undefined;
       if (owner?.kind === "compact") {
-        return [this.upsert({ ...owner, summary: truncate(content, TEXT_CHAR_LIMIT) })];
+        const summary = content.replace(COMPACT_PREAMBLE, "");
+        return [this.upsert({ ...owner, summary: truncate(summary, TEXT_CHAR_LIMIT) })];
       }
       return [];
     }
