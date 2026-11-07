@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { dirname, join } from "path";
 import {
   ReleaseRule,
   SETTLE_MS,
   PUBLISH_DEADLINE_MS,
   SELF_DEADLINE_MS,
+  RETRY_MS,
   emptyReleaseFile,
+  gateEnv,
   isDocsPath,
   takesPart,
   type GateResult,
@@ -60,6 +65,8 @@ class World {
   selfJob: { startedAt: number; state: "running" | "ok" | "failed"; line: string } | null = null;
   remoteUpdates: string[] = [];
   remoteFails = new Set<string>();
+  /** When set, tagging fails with this. */
+  tagError: string | null = null;
 
   deps(): ReleaseDeps {
     return {
@@ -74,6 +81,7 @@ class World {
         },
         tag: async (sha) => {
           this.tagged.push(sha);
+          if (this.tagError) return this.tagError;
           const [maj, min, patch] = this.version.split(".").map(Number);
           this.version = `${maj}.${min}.${patch + 1}`;
           return { version: this.version };
@@ -402,6 +410,81 @@ describe("release rule", () => {
     expect(w.tagged).toEqual([A, B]);
   });
 
+  it("does not count a hold against npm's or a machine's deadline", async () => {
+    const rule = w.rule();
+    await rule.tick();
+    w.now += SETTLE_MS;
+    await rule.tick();
+    w.held = true;
+    await rule.tick();
+    w.now += PUBLISH_DEADLINE_MS * 2;
+    await rule.tick();
+    w.held = false;
+    await rule.tick();
+    expect(rule.state().release!.state).toBe("publishing");
+    expect(w.issues).toEqual([]);
+    w.npm.add("1.0.1");
+    await rule.tick();
+    expect(rule.state().release!.state).toBe("rolling-out");
+  });
+
+  it("tries a failed tag again after a while, saying so once", async () => {
+    w.tagError = "the bump could not be pushed: auth";
+    const rule = w.rule();
+    await rule.tick();
+    w.now += SETTLE_MS;
+    await ticks(rule, 3);
+    expect(w.tagged).toEqual([A]);
+    w.now += RETRY_MS;
+    await ticks(rule, 2);
+    expect(w.tagged).toEqual([A, A]);
+    expect(rule.state().log.filter((l) => /Could not tag/.test(l.reason))).toHaveLength(1);
+    w.tagError = null;
+    w.now += RETRY_MS;
+    await rule.tick();
+    expect(rule.state().release).toMatchObject({ version: "1.0.1" });
+  });
+
+  it("tries a gate the machinery could not run again later, without filing it", async () => {
+    w.gates.set(A, { ok: false, step: "fetch", output: "could not fetch", transient: true });
+    const rule = w.rule();
+    await ticks(rule, 3);
+    expect(w.gated).toEqual([A]);
+    expect(w.issues).toEqual([]);
+    w.gates.delete(A);
+    w.now += RETRY_MS;
+    await rule.tick();
+    expect(w.gated).toEqual([A, A]);
+    expect(rule.state().gate).toMatchObject({ sha: A, state: "passed" });
+  });
+
+  it("gives a remote machine cut off by a restart its while to come back", async () => {
+    w.store.file = {
+      ...emptyReleaseFile(),
+      head: { sha: A, seenAt: T0 },
+      gate: { sha: A, state: "passed", reason: "", at: T0 },
+      release: {
+        sha: A,
+        version: "1.0.1",
+        taggedAt: T0,
+        state: "rolling-out",
+        reason: "",
+        attempts: [
+          { machine: "omarchy-id", name: "omarchy", self: true, state: "ok", reason: "" },
+          { machine: "beta-id", name: "beta", self: false, state: "updating", reason: "", startedAt: T0 },
+        ],
+      },
+    };
+    w.versions.set("beta-id", null);
+    const rule = w.rule();
+    await ticks(rule, 2);
+    expect(rule.state().release!.state).toBe("rolling-out");
+    w.versions.set("beta-id", "1.0.1");
+    await rule.tick();
+    expect(rule.state().release!.attempts[1]).toMatchObject({ state: "ok" });
+    expect(w.remoteUpdates).toEqual([]);
+  });
+
   it("acts on nothing before the first read of GitHub", async () => {
     const deps = w.deps();
     const rule = new ReleaseRule({ ...deps, github: () => null });
@@ -411,6 +494,21 @@ describe("release rule", () => {
 });
 
 describe("what takes part and what counts as docs", () => {
+  it("runs the gate under a HOME of its own, with nothing naming the live tmux or installation", () => {
+    const home = join(mkdtempSync(join(tmpdir(), "release-env-")), "home");
+    const env = gateEnv(home, {
+      PATH: "/bin",
+      HOME: "/home/leo",
+      TMUX: "/tmp/tmux-1000/default,1,0",
+      TMUX_PANE: "%1",
+      CLAUDECODE: "1",
+      CLAUDE_MUX_PORT: "3456",
+      MAESTRO_ISSUE: "203",
+    });
+    expect(env).toEqual({ PATH: "/bin", HOME: home, CI: "1" });
+    rmSync(dirname(home), { recursive: true, force: true });
+  });
+
   it("leaves out a machine that keeps its projects unless it is included", () => {
     expect(takesPart("distilo-1", ["engage"], null)).toBe(true);
     expect(takesPart("engage", ["engage"], null)).toBe(false);

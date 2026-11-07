@@ -58,7 +58,12 @@ push event set to the rule (`omarchy`), ticked after every read of GitHub and
 every 15 s, and keeps every step in `~/.claude-mux/release.json`. Each new head
 is gated in a worktree of a clone of its own (`~/.claude-mux/release/repo`,
 never a checkout someone works in): `bun install --frozen-lockfile`, lint,
-tests, build. A failure files an issue and that head is never gated again; a
+tests, build, run by `gateEnv()` under a `HOME` of its own with every `TMUX*`,
+`CLAUDE*` and `MAESTRO_*` variable dropped. A failure files an issue and that
+head is never gated again (a fetch or checkout that failed is the machinery's,
+not the code's, and is tried again five minutes later, as is a tag that could
+not be pushed; the clone fetches with `--prune-tags`, so a tag a failed push
+left behind is dropped); a
 head whose commits since the last `v*` tag touch only docs (`*.md`, `docs/`,
 `LICENSE`), or that is the tag's own commit, releases nothing. Ten minutes
 after the head last moved, a head that passed gets `npm version patch`, the
@@ -71,7 +76,8 @@ machine gets one attempt per version; one offline when the rollout begins is
 passed over; a failure stops the rollout, files an issue and rolls nothing back.
 A machine in `queue:exclusive` (`engage` unless set) takes part only when the
 fleet preference `release:include` names it. An open issue labelled
-`release-hold` pauses all of it: the poller's sweep reads the count with the
+`release-hold` pauses all of it, and the time it stays open does not count
+against npm's or a machine's deadline: the poller's sweep reads the count with the
 branch head, at no extra cost. What the rule did shows as the Runs of
 claude-mux's push Trigger on `/triggers`.
 

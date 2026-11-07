@@ -1,17 +1,16 @@
-import { execFile } from 'node:child_process';
 import { join } from 'node:path';
 import { CLAUDE_MUX_DIR } from '$shared/utils/paths.js';
 import { VERSION } from '$shared/utils/version.js';
 import { enabledProjects } from '$shared/db/event-map-json.js';
-import { eventPoller } from '$shared/server/github-events.js';
+import { RELEASE_REPO, eventPoller } from '$shared/server/github-events.js';
 import { readUpdateJob, startUpdate } from '$shared/server/self-update.js';
 import {
 	RELEASE_INCLUDE_KEY,
-	RELEASE_REPO,
 	RELEASE_TICK_MS,
 	ReleaseRule,
 	fileReleaseStore,
 	gitReleaseRepo,
+	realExec,
 	takesPart,
 	type ReleaseMachine
 } from '$shared/server/release.js';
@@ -31,13 +30,7 @@ import { ensureFleetPrefs, ensureFleetState } from '$lib/server/fleet.js';
 const UPDATE_DIR = join(CLAUDE_MUX_DIR, 'update');
 const g = globalThis as typeof globalThis & { __claudeMuxRelease?: ReleaseRule };
 
-function run(cmd: string, args: string[], cwd?: string): Promise<{ ok: boolean; stdout: string }> {
-	return new Promise((resolve) => {
-		execFile(cmd, args, { cwd, timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) =>
-			resolve({ ok: !err, stdout: String(stdout) })
-		);
-	});
-}
+const run = (cmd: string, args: string[], cwd?: string) => realExec(cmd, args, cwd, 60_000);
 
 /** The project as the state map holds it, when its pushes are the rule's. */
 function releaseProject() {
@@ -54,7 +47,7 @@ async function machines(): Promise<(ReleaseMachine & { url: string | null })[]> 
 	const others = ensureFleetState()
 		.snapshot()
 		.map((m) => ({ id: m.id, name: placeName(m.hostname), self: false, online: m.online, url: m.url }));
-	return [self, ...others].filter((m) => m.self || takesPart(m.name, exclusive, include));
+	return [self, ...others].filter((m) => takesPart(m.name, exclusive, include));
 }
 
 /** The server's way of asking a machine, the same answers the Machines view reads. */
@@ -69,7 +62,7 @@ const serverIO: UpdateIO = {
 		}
 	},
 	sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-	now: () => Date.now()
+	now: Date.now
 };
 
 async function health(url: string | null): Promise<string | null> {
@@ -97,18 +90,18 @@ export function startReleaseRule(): ReleaseRule {
 			remote: async () => {
 				const root = releaseProject()?.root;
 				const res = root ? await run('git', ['remote', 'get-url', 'origin'], root) : null;
-				return res?.ok ? res.stdout.trim() : `https://github.com/${RELEASE_REPO}.git`;
+				return res?.ok ? res.output.trim() : `https://github.com/${RELEASE_REPO}.git`;
 			}
 		}),
 		github: () => (releaseProject() ? poller.branch(RELEASE_REPO) : null),
 		async fileIssue(title, body) {
 			const res = await run('gh', ['issue', 'create', '--repo', RELEASE_REPO, '--title', title, '--body', body]);
-			const n = Number(res.stdout.trim().split('/').at(-1));
+			const n = Number(/\/issues\/(\d+)/.exec(res.output)?.[1]);
 			return res.ok && n > 0 ? n : null;
 		},
 		async published(version) {
 			const res = await run('npm', ['view', `claude-mux@${version}`, 'version']);
-			return res.ok && res.stdout.trim() === version;
+			return res.ok && res.output.split('\n').some((line) => line.trim() === version);
 		},
 		machines: () => known,
 		updateSelf() {

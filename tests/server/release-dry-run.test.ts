@@ -166,6 +166,16 @@ describe("release dry run on a scratch repo", () => {
     ]);
   }, 60_000);
 
+  it("drops a tag a failed push left in its clone, so the same bump can go out", async () => {
+    const dir = join(scratch, "release-3");
+    const repo = gitReleaseRepo({ dir, remote, steps: [] });
+    const head = git(remote, "rev-parse", "main");
+    await repo.changes(head);
+    git(join(dir, "repo"), "tag", "v9.9.9", head);
+    await repo.changes(head);
+    expect(git(join(dir, "repo"), "tag", "--list", "v9.9.9")).toBe("");
+  }, 60_000);
+
   it("refuses to tag a head main has moved past", async () => {
     const repo = gitReleaseRepo({ dir: join(scratch, "release-2"), remote, steps: [] });
     const old = git(remote, "rev-parse", "main");
