@@ -323,6 +323,16 @@ export function readPaneHold(raw: string): PaneHold | null {
 }
 
 /**
+ * Whether a command typed into the pane now would run as a command and nothing
+ * else: the prompt drawn and idle, nothing holding it (`readPaneHold()`), and
+ * the box proven to hold nothing of a person's (`isPromptBoxClear()`), which
+ * also catches a draft `readPromptBox()` bails on. Needs a capture with colour.
+ */
+export function isPaneReadyForCommand(raw: string): boolean {
+  return isPaneShowingIdlePrompt(stripAnsi(raw)) && readPaneHold(raw) === null && isPromptBoxClear(raw);
+}
+
+/**
  * Heuristic for the Esc edge case hooks can't see: a `busy` session whose
  * pane shows no work indicator anymore was interrupted (Esc during thinking
  * prints no "Interrupted" marker in recent Claude Code versions). Inspects

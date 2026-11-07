@@ -333,7 +333,7 @@
 									{#each t.runs as r, i (`${r.at}-${i}`)}
 										<li>
 											<span class="status-tag {r.status}">{statusLabel(r.status)}</span>
-											<span class="reason">{r.reason}</span>
+											<span class="reason">{r.reason}{r.count ? ` · ${r.count} times in a row` : ''}</span>
 											<span class="when">{formatAgo(r.at, clock.now)}</span>
 											{#if r.link}
 												<a class="link" href={linkHref(current, r.link)} target={r.link.kind === 'github' ? '_blank' : undefined}

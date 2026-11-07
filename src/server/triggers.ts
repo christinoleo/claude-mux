@@ -78,6 +78,7 @@ export function parseSchedule(raw: unknown): Schedule | string {
  */
 export function nextFiring(schedule: Schedule, after: number, anchor: number): number | null {
   if (schedule.type === "once") return schedule.at > after ? schedule.at : null;
+  if (schedule.type === "every" && schedule.unit === "day") return nextLocalDay(schedule.n, after, anchor);
   if (schedule.type === "every") {
     const period = schedule.n * UNIT_MS[schedule.unit];
     if (after < anchor) return anchor + period;
@@ -93,9 +94,32 @@ export function nextFiring(schedule: Schedule, after: number, anchor: number): n
   return null;
 }
 
+/**
+ * Every N days steps the calendar in local time, at the anchor's time of day,
+ * so a daily Trigger keeps its hour across a change to or from summer time.
+ */
+function nextLocalDay(n: number, after: number, anchor: number): number {
+  const a = new Date(anchor);
+  const firing = (k: number) =>
+    new Date(a.getFullYear(), a.getMonth(), a.getDate() + k * n, a.getHours(), a.getMinutes(), a.getSeconds(), a.getMilliseconds()).getTime();
+  // An estimate off by at most one either way, since a local day is 23 to 25 hours.
+  let k = Math.max(1, Math.floor((after - anchor) / (n * UNIT_MS.day)));
+  while (k > 1 && firing(k - 1) > after) k--;
+  while (firing(k) <= after) k++;
+  return firing(k);
+}
+
+/** The longest a schedule can rightly wait between firings; null for a `once`, which waits for its date. */
+function longestWait(schedule: Schedule): number | null {
+  if (schedule.type === "once") return null;
+  // A local day can be an hour longer.
+  if (schedule.type === "every") return schedule.n * UNIT_MS[schedule.unit] + (schedule.unit === "day" ? 3_600_000 : 0);
+  return 7 * UNIT_MS.day + 3_600_000;
+}
+
 /** How many firings fell in `[from, to]`, counting `from` itself; capped, since a second's rule could miss days of them. */
 export function firingsBetween(schedule: Schedule, from: number, to: number, anchor: number, cap = 100_000): number {
-  if (schedule.type === "every") {
+  if (schedule.type === "every" && schedule.unit !== "day") {
     const period = schedule.n * UNIT_MS[schedule.unit];
     return Math.min(cap, Math.floor((to - from) / period) + 1);
   }
@@ -155,6 +179,10 @@ export interface Run {
   limitMinutes?: number;
   /** Why the server killed its window, when it did: no exit code is written then. */
   killed?: "limit" | "close";
+  /** When the Enter after `/exit` was sent again, because the box still held it. */
+  exitRetriedAt?: number;
+  /** How many firings in a row this skip stands for, when more than one; `at` is the latest. */
+  count?: number;
 }
 
 export interface TriggersFile {
@@ -190,7 +218,10 @@ export function fileTriggerStore(path: string): TriggerStore {
   };
 }
 
-/** How many Runs a Trigger keeps; a rule every second would otherwise fill the file. */
+/**
+ * How many Runs a Trigger keeps, and how many skips apart from them, so a
+ * stretch of skips cannot push the Runs that ran out of the history.
+ */
 export const RUNS_KEPT = 50;
 /** A firing later than this is one the server was not there for. */
 export const GRACE_MS = 60_000;
@@ -201,6 +232,8 @@ const LIMIT_SLACK_MS = 60_000;
 /** How often running session Runs are looked at. */
 export const RUN_CHECK_MS = 5_000;
 const DEFAULT_LIMIT_MINUTES = 45;
+/** Between the Escape and `/exit`: a key right behind an Escape reads as Alt and that key. */
+const ESCAPE_GAP_MS = 150;
 
 // ── the new-trigger form ─────────────────────────────────────────────────────
 
@@ -287,6 +320,8 @@ export interface SchedulerDeps {
   capture: (window: string) => Promise<string | null>;
   /** Whether a screen shows the prompt, empty and ready; `isPaneShowingIdlePrompt()` and an empty box. */
   atPrompt: (screen: string) => boolean;
+  /** What a person or a key typed into the screen's prompt box, trimmed; null when it holds nothing typed. */
+  typed: (screen: string) => string | null;
   /** The command a session Run runs, given its prompt; `CLAUDE_MUX_RUN_COMMAND` for a test. */
   runCommand?: (prompt: string) => string;
   now?: () => number;
@@ -384,6 +419,8 @@ export class Scheduler {
     this.ticking = (async () => {
       try {
         let changed = this.fireDue();
+        // On disk before any window opens: a restart from here on fails the Run and moves on, never opens it twice.
+        if (changed) this.save();
         const now = this.now();
         const watch = this.file.runs.some((r) => r.status === "running");
         if (watch && now - this.lastRunCheck >= RUN_CHECK_MS) {
@@ -414,16 +451,49 @@ export class Scheduler {
     const now = this.now();
     let changed = false;
     for (const trigger of this.file.triggers) {
-      if (trigger.paused || trigger.next === null || trigger.next > now) continue;
+      if (trigger.next === null) continue;
+      if (trigger.paused) {
+        // A paused `once` whose date passes would otherwise leave nothing to say it never ran.
+        if (trigger.when.type === "once" && trigger.next <= now) {
+          this.record(trigger, trigger.next, "skipped", "Paused at its date");
+          trigger.next = null;
+          changed = true;
+        }
+        continue;
+      }
+      changed = this.realign(trigger, now) || changed;
+      if (trigger.next === null || trigger.next > now) continue;
       const due = trigger.next;
       if (now - due > GRACE_MS) {
         const missed = firingsBetween(trigger.when, due, now, trigger.createdAt);
         this.record(trigger, due, "skipped", `Missed ${plural(missed, "firing")} while the server was down`);
-      } else if (trigger.what === "rule") {
-        this.record(trigger, due, "ran", "Recorded");
       } else {
-        this.fireSession(trigger, due);
+        if (trigger.what === "rule") this.record(trigger, due, "ran", "Recorded");
+        else this.fireSession(trigger, due);
+        // A tick that ran long, or came late, passes firings it cannot make up.
+        const late = firingsBetween(trigger.when, due, now, trigger.createdAt) - 1;
+        if (late > 0) this.record(trigger, now, "skipped", `Missed ${plural(late, "firing")} while a tick ran late`);
       }
+      trigger.next = nextFiring(trigger.when, now, trigger.createdAt);
+      changed = true;
+    }
+    return changed;
+  }
+
+  /**
+   * A clock that ran ahead and came back leaves a creation date in the future,
+   * or a next firing further off than the schedule ever waits, and the Trigger
+   * would sit silent for as long as the clock was ahead. Either is counted
+   * again from now.
+   */
+  private realign(trigger: ClockTrigger, now: number): boolean {
+    let changed = false;
+    if (trigger.createdAt > now) {
+      trigger.createdAt = now;
+      changed = true;
+    }
+    const longest = longestWait(trigger.when);
+    if (changed || (longest !== null && trigger.next !== null && trigger.next - now > longest)) {
       trigger.next = nextFiring(trigger.when, now, trigger.createdAt);
       changed = true;
     }
@@ -467,6 +537,8 @@ export class Scheduler {
       } else {
         Object.assign(run, { status: "failed", reason: "The session could not start", endedAt: this.now() });
       }
+      // Each window on disk as soon as it is known, before the next start is awaited.
+      this.save();
     }
     this.save();
   }
@@ -487,7 +559,8 @@ export class Scheduler {
     const command = (this.deps.runCommand ?? defaultRunCommand)(runPrompt(trigger));
     const seconds = trigger.limitMinutes * 60;
     // `--foreground`: plain `timeout` takes claude out of the terminal's foreground group and it never draws (#165).
-    const inner = `timeout --foreground -k 10 ${seconds} ${command}; echo $? > ${shellQuote(this.exitFile(run))}`;
+    // CLAUDE_MUX_RUN_SH names this shell, so the hook takes the Run id only for the claude it started, not for anything that claude starts in turn.
+    const inner = `CLAUDE_MUX_RUN_SH=$$ timeout --foreground -k 10 ${seconds} ${command}; echo $? > ${shellQuote(this.exitFile(run))}`;
     // A claude-mux started from a Claude session would pass CLAUDECODE on, and claude refuses to start nested.
     const full = `env -u CLAUDECODE CLAUDE_MUX_RUN=${run.id} sh -c ${shellQuote(inner)}`;
     const window = await openWindow(this.deps.tmux, session, name, trigger.root, full);
@@ -563,7 +636,11 @@ export class Scheduler {
         run.killed = kill;
         continue;
       }
-      if (run.closingAt || !session) continue;
+      if (run.closingAt) {
+        await this.confirmExit(run, windowId, session, now);
+        continue;
+      }
+      if (!session) continue;
       const finished =
         session.state === "idle" &&
         session.backgroundTasks === 0 &&
@@ -571,8 +648,11 @@ export class Scheduler {
         session.turnCompletedAt >= run.at;
       if (!finished) continue;
       const screen = await this.deps.capture(windowId);
-      // Typed into a dialog, `/exit` and Enter would answer it; only an empty prompt takes it.
+      // Typed into a dialog, `/exit` and Enter would answer it, and typed behind a draft it would join it; only an empty prompt takes it.
       if (!screen || !this.deps.atPrompt(screen)) continue;
+      // Escape first, as #165 found safe: it closes whatever drew itself since the screen was read.
+      await this.deps.tmux(["send-keys", "-t", windowId, "Escape"]);
+      await new Promise((resolve) => setTimeout(resolve, ESCAPE_GAP_MS));
       await this.deps.tmux(["send-keys", "-t", windowId, "-l", "/exit"]);
       await this.deps.tmux(["send-keys", "-t", windowId, "Enter"]);
       run.closingAt = now;
@@ -583,15 +663,37 @@ export class Scheduler {
     return changed;
   }
 
+  /**
+   * Whether `/exit` was taken. Claude Code can fold an Enter into the text
+   * typed just before it, leaving `/exit` in the box, so the box is read back
+   * as the send route does, and one more Enter sent when it still holds it.
+   */
+  private async confirmExit(run: Run, windowId: string, session: RunSession | undefined, now: number): Promise<void> {
+    if (run.exitRetriedAt || !run.closingAt || now - run.closingAt < RUN_CHECK_MS) return;
+    // A dialog that opened meanwhile would take the Enter as its answer.
+    if (session && (session.state === "waiting" || session.state === "permission")) return;
+    const screen = await this.deps.capture(windowId);
+    if (!screen || this.deps.typed(screen) !== "/exit") return;
+    await this.deps.tmux(["send-keys", "-t", windowId, "Enter"]);
+    run.exitRetriedAt = now;
+  }
+
   private record(trigger: ClockTrigger, at: number, status: RunStatus, reason: string): Run {
+    const latest = this.file.runs.find((r) => r.trigger === trigger.id);
+    // A skip for the same reason as the one before it is the same entry, counted again.
+    if (status === "skipped" && latest?.status === "skipped" && latest.reason === reason) {
+      Object.assign(latest, { at, count: (latest.count ?? 1) + 1, endedAt: this.now() });
+      return latest;
+    }
     const run: Run = { id: newId("r", this.now()), trigger: trigger.id, at, status, reason };
     if (status !== "running") run.endedAt = this.now();
     this.file.runs.unshift(run);
-    // Each Trigger keeps its own latest Runs, and none still going is dropped.
+    // Each Trigger keeps its own latest Runs and, apart from them, its latest skips; none still going is dropped.
     const counts = new Map<string, number>();
     this.file.runs = this.file.runs.filter((r) => {
-      const n = (counts.get(r.trigger) ?? 0) + 1;
-      counts.set(r.trigger, n);
+      const key = `${r.trigger} ${r.status === "skipped"}`;
+      const n = (counts.get(key) ?? 0) + 1;
+      counts.set(key, n);
       return n <= RUNS_KEPT || r.status === "running";
     });
     return run;
@@ -626,6 +728,8 @@ export interface RunView {
   at: number;
   status: RunStatus;
   reason: string;
+  /** How many firings in a row a skip stands for, when more than one. */
+  count?: number;
   /** Where to look: the session while it runs or after, an issue or a commit. */
   link: { kind: "session" | "past" | "github"; href: string; label: string } | null;
 }
@@ -664,6 +768,7 @@ export function clockTriggerView(trigger: ClockTrigger, runs: readonly Run[]): T
       at: r.at,
       status: r.status,
       reason: r.reason,
+      count: r.count,
       link: runLink(r),
     })),
   };

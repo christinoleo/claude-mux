@@ -384,8 +384,7 @@ function getClaudePid(): number {
 
       debugLog(`getClaudePid: level ${i}, pid=${pid}, ps output: ${psOutput}`);
 
-      const isClaudeCode =
-        psOutput.includes("claude") && !psOutput.includes("claude-mux");
+      const isClaudeCode = isClaudeProcess(psOutput);
 
       if (isClaudeCode) {
         debugLog(`getClaudePid: found Claude at pid=${pid}`);
@@ -532,8 +531,43 @@ function launchFields(): Pick<Session, "maestro_role" | "maestro_issue" | "run_i
   return {
     maestro_role: role,
     maestro_issue: role && Number.isFinite(issue) ? issue : null,
-    run_id: run && /^[a-z0-9-]+$/.test(run) ? run : null,
+    run_id: run && /^[a-z0-9-]+$/.test(run) && startedByRun() ? run : null,
   };
+}
+
+/**
+ * Whether this claude is the one a Run's shell started. Everything that claude
+ * starts inherits CLAUDE_MUX_RUN, a nested claude among them, so the Run's
+ * shell names itself in CLAUDE_MUX_RUN_SH and the claude counts only when that
+ * shell is reached going up from it with no other claude in between.
+ */
+function startedByRun(): boolean {
+  const shell = Number.parseInt(process.env.CLAUDE_MUX_RUN_SH ?? "", 10);
+  const claude = getClaudePid();
+  if (!Number.isInteger(shell) || shell <= 1 || claude <= 1) return false;
+  for (let pid = claude, i = 0; i < 10; i++) {
+    const ps = processInfo(pid);
+    if (!ps || ps.ppid <= 1) return false;
+    // `timeout`, the shell's own child, names claude in its arguments, and is no claude.
+    if (pid !== claude && ps.comm !== "timeout" && isClaudeProcess(ps.line)) return false;
+    if (ps.ppid === shell) return true;
+    pid = ps.ppid;
+  }
+  return false;
+}
+
+function processInfo(pid: number): { ppid: number; comm: string; line: string } | null {
+  try {
+    const line = execSync(`ps -p ${pid} -o ppid=,comm=,args=`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    const [ppid, comm = ""] = line.split(/\s+/);
+    return Number.isFinite(Number(ppid)) ? { ppid: Number(ppid), comm, line } : null;
+  } catch {
+    return null;
+  }
+}
+
+function isClaudeProcess(psLine: string): boolean {
+  return psLine.includes("claude") && !psLine.includes("claude-mux");
 }
 
 /**
