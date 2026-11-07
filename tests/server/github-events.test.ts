@@ -5,6 +5,7 @@ import { join } from "path";
 import {
   EventPoller,
   POLL_MS,
+  READY_MAX_AGE_MS,
   fileEventStore,
   readiness,
   type EventsFile,
@@ -113,6 +114,25 @@ describe("readiness", () => {
     expect(r).toEqual({ state: "ready", labeledAt: "2026-11-04T00:00:00Z" });
   });
 
+  it("asks again when someone else took a label off after the ready label", () => {
+    const r = readiness(
+      detail(1, [
+        labeled("2026-11-02T00:00:00Z"),
+        { __typename: "UnlabeledEvent", createdAt: "2026-11-03T00:00:00Z", label: { name: "hold" }, actor: STRANGER },
+      ]),
+      "christinoleo"
+    );
+    expect(r).toMatchObject({ state: "approve", by: "stranger", what: "unlabelled" });
+    const own = readiness(
+      detail(1, [
+        labeled("2026-11-02T00:00:00Z"),
+        { __typename: "UnlabeledEvent", createdAt: "2026-11-03T00:00:00Z", label: { name: "hold" }, actor: LEO },
+      ]),
+      "christinoleo"
+    );
+    expect(own.state).toBe("ready");
+  });
+
   it("counts a deleted account as someone else", () => {
     const r = readiness(
       detail(1, [labeled("2026-11-02T00:00:00Z"), { __typename: "IssueComment", createdAt: "2026-11-03T00:00:00Z", author: null }]),
@@ -127,11 +147,14 @@ class FakeGithub {
   repos = new Map<string, { head: string; issues: IssueDetail[]; holds?: number }>();
   queries: string[] = [];
   down = false;
+  /** The detail query fails while this is set. */
+  detailDown = false;
   labelCalls: string[][] = [];
 
   graphql = async (query: string): Promise<Record<string, unknown> | null> => {
     this.queries.push(query);
     if (this.down) return null;
+    if (this.detailDown && /\bd0:/.test(query)) return null;
     const data: Record<string, unknown> = { rateLimit: { cost: 1, remaining: 4999, resetAt: "" }, viewer: { login: "christinoleo" } };
     for (const m of query.matchAll(/(r\d+): repository\(owner: "([^"]+)", name: "([^"]+)"\)/g)) {
       const repo = this.repos.get(`${m[2]}/${m[3]}`);
@@ -247,10 +270,68 @@ describe("EventPoller", () => {
         url: "https://github.com/o/r/issues/5",
         labels: ["ready-for-agent", "stop-at-pr"],
         blockedBy: 1,
+        updatedAt: issue.updatedAt,
       },
     ]);
     // A stranger's label never reaches the queue.
     expect(p.readyIssues().some((i) => i.number === 6)).toBe(false);
+  });
+
+  it("asks for label removals in the detail query", async () => {
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    await poller().poll();
+    expect(gh.queries.at(-1)).toContain("UNLABELED_EVENT");
+    expect(gh.queries.at(-1)).toContain("... on UnlabeledEvent");
+  });
+
+  it("drops an issue whose full read failed after its updatedAt moved, rather than judge the old copy", async () => {
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r", events: { "issue-ready": "session" } });
+    const p = poller();
+    await p.poll();
+    expect(p.readyIssues().map((i) => i.number)).toEqual([5]);
+
+    // A stranger comments; the sweep sees updatedAt move, but the full read fails.
+    const issue = gh.repos.get("o/r")!.issues[0];
+    gh.repos.get("o/r")!.issues = [
+      {
+        ...issue,
+        updatedAt: "u2",
+        timelineItems: { nodes: [...issue.timelineItems.nodes, { __typename: "IssueComment", createdAt: "2026-11-07T11:30:00Z", author: STRANGER }] },
+      },
+    ];
+    gh.detailDown = true;
+    now += POLL_MS;
+    await p.poll();
+    expect(p.readyIssues()).toEqual([]);
+
+    gh.detailDown = false;
+    now += POLL_MS;
+    await p.poll();
+    expect(p.readyIssues()).toEqual([]);
+    expect(p.approvalTickets()).toMatchObject([{ number: 5 }]);
+  });
+
+  it("hands out no ready issues once a read fails, nor a list gone old", async () => {
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r", events: { "issue-ready": "session" } });
+    const p = poller();
+    await p.poll();
+    expect(p.readyIssues()).toHaveLength(1);
+
+    gh.down = true;
+    now += POLL_MS;
+    await p.poll();
+    expect(p.readyIssues()).toEqual([]);
+
+    gh.down = false;
+    now += POLL_MS;
+    await p.poll();
+    expect(p.readyIssues()).toHaveLength(1);
+    // No read since (the timer stopped, say): the list is not trusted.
+    now += READY_MAX_AGE_MS + 1;
+    expect(p.readyIssues()).toEqual([]);
   });
 
   it("records nothing for an event the map ignores, and finds it when the rule is turned on", async () => {

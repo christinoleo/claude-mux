@@ -14,7 +14,7 @@
  *
  * Two events exist. An issue is ready when the latest `ready-for-agent` label
  * on it was applied by Leo, the account `gh` is logged in as, and nobody else
- * commented, renamed or edited it afterwards. His own later edits pass, and so
+ * commented, renamed, edited or took a label off it afterwards. His own later edits pass, and so
  * do an agent's, since maestro's workers act under his token; a Bot does not,
  * since a stranger can set off a workflow or app. An issue someone else touched
  * after the label is not ready; it waits in Needs you until Leo approves it
@@ -48,6 +48,8 @@ const QUOTA_WINDOW_MS = 60 * 60_000;
 const LOG_LIMIT = 200;
 /** A sweep reads at most this many ready issues per project. */
 const READY_PAGE = 50;
+/** A ready list older than this is not handed out: the reads since failed, or stopped. */
+export const READY_MAX_AGE_MS = 3 * POLL_MS;
 
 // ── what GitHub answers ──────────────────────────────────────────────────────
 
@@ -58,6 +60,7 @@ export interface Actor {
 
 export type TimelineNode =
   | { __typename: "LabeledEvent"; createdAt: string; label?: { name: string } | null; actor?: Actor | null }
+  | { __typename: "UnlabeledEvent"; createdAt: string; label?: { name: string } | null; actor?: Actor | null }
   | { __typename: "RenamedTitleEvent"; createdAt: string; actor?: Actor | null }
   | {
       __typename: "IssueComment";
@@ -103,7 +106,7 @@ export type GhRunner = (args: string[]) => Promise<boolean>;
 // ── the rule for Leo's own action ────────────────────────────────────────────
 
 /** What someone other than Leo did to an issue marked ready. */
-export type StrangerAct = "labelled" | "commented" | "renamed" | "edited";
+export type StrangerAct = "labelled" | "unlabelled" | "commented" | "renamed" | "edited";
 
 export type Readiness =
   | { state: "ready"; labeledAt: string }
@@ -144,6 +147,8 @@ export function readiness(issue: IssueDetail, viewer: string): Readiness {
   const acts: { by: Actor | null | undefined; what: Exclude<StrangerAct, "labelled">; at: string }[] = [];
   for (const n of nodes) {
     if (n.__typename === "RenamedTitleEvent" && after(n.createdAt)) acts.push({ by: n.actor, what: "renamed", at: n.createdAt });
+    // A label taken off (`hold`, `stop-at-pr`) can loosen what a worker may do.
+    if (n.__typename === "UnlabeledEvent" && after(n.createdAt)) acts.push({ by: n.actor, what: "unlabelled", at: n.createdAt });
     if (n.__typename === "IssueComment") {
       if (after(n.createdAt)) acts.push({ by: n.author, what: "commented", at: n.createdAt });
       if (after(n.lastEditedAt)) acts.push({ by: n.editor, what: "edited", at: n.lastEditedAt });
@@ -194,10 +199,11 @@ export function detailQuery(wanted: { slug: string; number: number }[]): string 
     issue(number: ${number}) {
       number title url updatedAt
       labels(first: 30) { nodes { name } }
-      timelineItems(itemTypes: [LABELED_EVENT, RENAMED_TITLE_EVENT, ISSUE_COMMENT], last: 100) {
+      timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT, ISSUE_COMMENT], last: 100) {
         nodes {
           __typename
           ... on LabeledEvent { createdAt label { name } ${ACTOR} }
+          ... on UnlabeledEvent { createdAt label { name } ${ACTOR} }
           ... on RenamedTitleEvent { createdAt ${ACTOR} }
           ... on IssueComment { createdAt lastEditedAt author { __typename login } editor { __typename login } }
         }
@@ -297,6 +303,8 @@ export interface ReadyIssue {
   labels: string[];
   /** How many of its blockers are still open. */
   blockedBy: number;
+  /** The `updatedAt` of the copy its readiness was judged on: the queue checks GitHub still has it before claiming. */
+  updatedAt: string;
 }
 
 export interface BranchState {
@@ -322,6 +330,8 @@ export class EventPoller {
   private details = new Map<string, IssueDetail>();
   private approvals = new Map<string, Approval>();
   private ready: ReadyIssue[] = [];
+  /** When `ready` was last worked out from an answer. */
+  private readyAt: number | null = null;
   private branches = new Map<string, BranchState>();
   private sweepListeners = new Set<() => void>();
   private spent: { at: number; cost: number }[] = [];
@@ -384,8 +394,9 @@ export class EventPoller {
     };
   }
 
-  /** The ready issues whose project starts a session for them, as the last read found them. */
+  /** The ready issues whose project starts a session for them, as the last read found them; none when that read is old. */
   readyIssues(): ReadyIssue[] {
+    if (this.readyAt === null || this.now() - this.readyAt > READY_MAX_AGE_MS) return [];
     return this.ready;
   }
 
@@ -414,7 +425,7 @@ export class EventPoller {
       url: a.url,
       kind: "approve" as const,
       since: a.at,
-      note: `${a.by === "someone" ? "Someone" : `@${a.by}`} ${a.what} it after it was marked ${READY_LABEL}`,
+      note: `${a.by === "someone" ? "Someone" : `@${a.by}`} ${a.what === "unlabelled" ? "took a label off" : a.what} it after it was marked ${READY_LABEL}`,
     }));
   }
 
@@ -480,7 +491,7 @@ export class EventPoller {
     // Approvals belong to enabled projects only.
     for (const [key, a] of this.approvals) if (!projects.has(a.repo)) this.approvals.delete(key);
     if (slugs.length === 0) {
-      this.ready = [];
+      this.setReady([]);
       return true;
     }
 
@@ -488,6 +499,7 @@ export class EventPoller {
     this.lastPollAt = this.now();
     if (!data) {
       this.lastError = "GitHub did not answer";
+      this.setReady([]);
       return false;
     }
     this.charge(data);
@@ -495,6 +507,7 @@ export class EventPoller {
     const viewer = (data.viewer as { login?: string } | undefined)?.login ?? null;
     if (!viewer) {
       this.lastError = "gh is not logged in";
+      this.setReady([]);
       return false;
     }
     this.viewer = viewer;
@@ -545,13 +558,13 @@ export class EventPoller {
 
     if (stale.length > 0) {
       const detail = await this.deps.graphql(detailQuery(stale));
-      if (detail) {
-        this.charge(detail);
-        stale.forEach(({ slug, number }, i) => {
-          const issue = (detail[`d${i}`] as { issue?: IssueDetail | null } | null | undefined)?.issue;
-          if (issue) this.details.set(`${slug}#${number}`, issue);
-        });
-      }
+      if (detail) this.charge(detail);
+      stale.forEach(({ slug, number }, i) => {
+        const issue = (detail?.[`d${i}`] as { issue?: IssueDetail | null } | null | undefined)?.issue;
+        // The old copy predates whatever moved `updatedAt` (a stranger's comment, say), so it is dropped, never judged.
+        if (issue) this.details.set(`${slug}#${number}`, issue);
+        else this.details.delete(`${slug}#${number}`);
+      });
     }
 
     const ready: ReadyIssue[] = [];
@@ -597,6 +610,7 @@ export class EventPoller {
             url: issue.url,
             labels: (issue.labels?.nodes ?? []).flatMap((l) => (l ? [l.name] : [])),
             blockedBy: blocked.get(id) ?? 0,
+            updatedAt: issue.updatedAt,
           });
         }
         const key = `${id}@${readyState.labeledAt}`;
@@ -612,9 +626,14 @@ export class EventPoller {
       cursor.seen = keep;
     }
 
-    this.ready = ready.sort((a, b) => a.repo.localeCompare(b.repo) || a.number - b.number);
+    this.setReady(ready.sort((a, b) => a.repo.localeCompare(b.repo) || a.number - b.number));
     if (dirty) this.deps.store.save(this.file);
     return true;
+  }
+
+  private setReady(ready: ReadyIssue[]): void {
+    this.ready = ready;
+    this.readyAt = this.now();
   }
 }
 

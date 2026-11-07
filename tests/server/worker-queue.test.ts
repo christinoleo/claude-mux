@@ -1,4 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { execFileSync } from "child_process";
+import { mkdirSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   WorkerQueue,
   DEFAULT_SETTINGS,
@@ -7,6 +11,8 @@ import {
   parseSettingsPatch,
   winningClaim,
   sumTrees,
+  checkoutProblem,
+  START_ATTEMPTS,
   type HistoryStore,
   type LiveWorker,
   type WorkerRun,
@@ -23,7 +29,9 @@ import { exclusiveList, nameList } from "../../src/worker-placement.js";
 
 /** One GitHub that several machines' queues share, so they can race on it. */
 class FakeGithub {
-  issues = new Map<string, { open: boolean; labels: Set<string> }>();
+  issues = new Map<string, { open: boolean; labels: Set<string>; updatedAt: string }>();
+  /** addLabel() fails while this is above zero, counting down. */
+  failLabels = 0;
   comments: { repo: string; number: number; id: number; body: string; at: number }[] = [];
   /** The clock comments are stamped with. */
   clock = Date.parse("2026-11-07T12:00:00Z");
@@ -33,9 +41,11 @@ class FakeGithub {
   /** Comments posted but not yet readable, as GitHub can lag; released by `settle()`. */
   hidden = new Set<number>();
   lagging = false;
+  /** Comments left out of this many more markers() reads each, however long one waits: a list that lags. */
+  hideReads = new Map<number, number>();
 
   add(repo: string, number: number, labels: string[] = ["ready-for-agent"]): void {
-    this.issues.set(`${repo}#${number}`, { open: true, labels: new Set(labels) });
+    this.issues.set(`${repo}#${number}`, { open: true, labels: new Set(labels), updatedAt: "2026-11-07T11:00:00Z" });
   }
 
   get(repo: string, number: number) {
@@ -50,7 +60,7 @@ class FakeGithub {
     return {
       issue: async (repo, number) => {
         const i = this.issues.get(`${repo}#${number}`);
-        return i ? { open: i.open, labels: [...i.labels] } : null;
+        return i ? { open: i.open, labels: [...i.labels], updatedAt: i.updatedAt } : null;
       },
       comment: async (repo, number, body) => {
         const id = this.nextId++;
@@ -67,11 +77,19 @@ class FakeGithub {
           this.failMarkers--;
           return null;
         }
-        return this.comments
-          .filter((c) => c.repo === repo && c.number === number && c.body.includes("<!-- claude-mux:") && !this.hidden.has(c.id))
-          .map(({ id, body, at }) => ({ id, body, at }));
+        const shown = this.comments.filter((c) => {
+          if (c.repo !== repo || c.number !== number || !c.body.includes("<!-- claude-mux:") || this.hidden.has(c.id)) return false;
+          const left = this.hideReads.get(c.id) ?? 0;
+          if (left > 0) this.hideReads.set(c.id, left - 1);
+          return left === 0;
+        });
+        return shown.map(({ id, body, at }) => ({ id, body, at }));
       },
       addLabel: async (repo, number, label) => {
+        if (this.failLabels > 0) {
+          this.failLabels--;
+          return false;
+        }
         this.get(repo, number).labels.add(label);
         return true;
       },
@@ -149,6 +167,8 @@ function ready(repo: string, number: number, extra: Partial<ReadyIssue> = {}): R
     url: `https://github.com/${repo}/issues/${number}`,
     labels: ["ready-for-agent"],
     blockedBy: 0,
+    // Filled from the fake GitHub by `machine()` unless a test gives one.
+    updatedAt: "",
     ...extra,
   };
 }
@@ -174,7 +194,10 @@ function machine(
     machineId: `id-${opts.name ?? "omarchy"}`,
     ready: () =>
       // What the poller would report: its labels as GitHub holds them now.
-      issues().map((i) => ({ ...i, labels: [...(github.issues.get(`${i.repo}#${i.number}`)?.labels ?? i.labels)] })),
+      issues().map((i) => {
+        const now = github.issues.get(`${i.repo}#${i.number}`);
+        return { ...i, labels: [...(now?.labels ?? i.labels)], updatedAt: i.updatedAt || (now?.updatedAt ?? "") };
+      }),
     github: github.api(),
     tmux: tmux.runner(),
     git: async (cwd, args) => {
@@ -185,6 +208,9 @@ function machine(
     liveWorkers: () => opts.live ?? [],
     placement: () => null,
     keptBy: () => null,
+    checkout: async () => null,
+    wanted: () => true,
+    machineGone: () => false,
     sleep: async () => github.settle(),
     ...withoutLocal(opts),
   });
@@ -230,9 +256,17 @@ describe("winningClaim", () => {
     ).toBe(4);
   });
 
-  it("lets no claim older than the window beat a fresh one, however the issue came back", () => {
+  it("lets an old claim lapse only when its machine is gone, never on age alone", () => {
     const stale = m(1, "<!-- claude-mux:claim a -->", T - CLAIM_WINDOW_MS - 1);
-    expect(winningClaim([stale, m(9, "<!-- claude-mux:claim b -->")], 9)?.id).toBe(9);
+    const fresh = m(9, "<!-- claude-mux:claim b -->");
+    expect(winningClaim([stale, fresh], 9)?.id).toBe(1);
+    expect(winningClaim([stale, fresh], 9, () => false)?.id).toBe(1);
+    expect(winningClaim([stale, fresh], 9, (c) => c.id === 1)?.id).toBe(9);
+  });
+
+  it("never lets a young claim lapse, even from a machine that looks gone", () => {
+    const young = m(1, "<!-- claude-mux:claim a -->", T - 1000);
+    expect(winningClaim([young, m(9, "<!-- claude-mux:claim b -->")], 9, () => true)?.id).toBe(1);
   });
 
   it("knows nothing until its own claim can be read back", () => {
@@ -288,14 +322,25 @@ describe("WorkerQueue", () => {
     expect(m2.tmux.started[0].args[0]).toBe("new-window");
   });
 
-  it("passes stop-at-pr on to the worker", async () => {
+  it("never claims an issue labelled stop-at-pr, since a worker could still merge it", async () => {
     const github = new FakeGithub();
     github.add(REPO, 3, ["ready-for-agent", "stop-at-pr"]);
     const m = machine(github, () => [ready(REPO, 3)]);
     await m.queue.tick();
-    const command = m.tmux.started[0].args.at(-1)!;
-    expect(command).toContain("MAESTRO_STOP_AT_PR=1");
-    expect(command).toContain("stop-at-pr: open the pull request and stop there");
+    expect(m.tmux.started).toHaveLength(0);
+    expect(github.comments).toEqual([]);
+    expect(m.queue.status().waiting[0].why).toMatch(/stop-at-pr/);
+  });
+
+  it("does not claim stop-at-pr even when the sweep has not seen the label yet", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 3, ["ready-for-agent", "stop-at-pr"]);
+    const m = machine(github, () => [ready(REPO, 3)], {
+      ready: () => [ready(REPO, 3, { updatedAt: github.get(REPO, 3).updatedAt })],
+    });
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(0);
+    expect(github.comments).toEqual([]);
   });
 
   it("never takes an issue that is claimed, asking for help, a person's, on hold, or blocked", async () => {
@@ -389,10 +434,11 @@ describe("WorkerQueue", () => {
       await m.queue.tick();
       expect(m.tmux.started).toHaveLength(1);
       expect(m.tmux.killed).toEqual([]);
-      expect(m.queue.status().hold).toBe("Held: 2.0 GiB free, under 2.5 GiB");
+      // The worker started a moment ago has not grown yet: its share counts as gone already.
+      expect(m.queue.status().hold).toBe("Held: 0.6 GiB free, under 2.5 GiB");
 
       memory = { availableGiB: 2, pressure: 0 };
-      m.queue.update({ minFreeGiB: 1.5 });
+      m.queue.update({ minFreeGiB: 0.5 });
       await m.queue.tick();
       expect(m.tmux.started).toHaveLength(2);
     });
@@ -559,11 +605,30 @@ describe("WorkerQueue", () => {
       expect(a.queue.status().workers).toHaveLength(1);
     });
 
-    it("takes an issue whose old claim was never released, once that claim is out of the window", async () => {
+    it("takes an issue whose old claim was never released once that claim's machine is gone", async () => {
       const github = new FakeGithub();
       github.add(REPO, 6);
       // A claim from a day ago by a machine that is gone, and no release after it.
       github.comments.push({ repo: REPO, number: 6, id: 1, body: "<!-- claude-mux:claim id-gone -->", at: github.clock - 86_400_000 });
+      const a = machine(github, () => [ready(REPO, 6)], { machineGone: (id) => id === "id-gone" });
+      await a.queue.tick();
+      expect(a.tmux.started).toHaveLength(1);
+    });
+
+    it("lets an old claim stand while its machine is still there, whatever its age", async () => {
+      const github = new FakeGithub();
+      github.add(REPO, 6);
+      // distilo-1 claimed it a day ago and its label failed or was taken off: it may still run a worker.
+      github.comments.push({ repo: REPO, number: 6, id: 1, body: "<!-- claude-mux:claim id-distilo-1 -->", at: github.clock - 86_400_000 });
+      const a = machine(github, () => [ready(REPO, 6)]);
+      await a.queue.tick();
+      expect(a.tmux.started).toHaveLength(0);
+    });
+
+    it("lets its own left-over claim lapse, since it knows it runs no worker on the issue", async () => {
+      const github = new FakeGithub();
+      github.add(REPO, 6);
+      github.comments.push({ repo: REPO, number: 6, id: 1, body: "<!-- claude-mux:claim id-omarchy -->", at: github.clock - 86_400_000 });
       const a = machine(github, () => [ready(REPO, 6)]);
       await a.queue.tick();
       expect(a.tmux.started).toHaveLength(1);
@@ -779,5 +844,174 @@ describe("sumTrees", () => {
     expect(out.get(10)).toBe(2);
     expect(out.get(20)).toBeCloseTo(1 / 1024);
     expect(out.has(99)).toBe(false);
+  });
+});
+
+describe("what review found in the queue (#213)", () => {
+  const claims = (github: FakeGithub) => github.comments.filter((c) => c.body.includes("claude-mux:claim"));
+  const releases = (github: FakeGithub) => github.comments.filter((c) => c.body.includes(RELEASE_MARK));
+
+  it("claims nothing when GitHub's updated_at is not the copy readiness was judged on", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    // The poller judged an older copy; a stranger's comment moved updated_at since.
+    const m = machine(github, () => [ready(REPO, 1, { updatedAt: "2026-11-07T10:00:00Z" })]);
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(0);
+    expect(github.comments).toEqual([]);
+    expect(m.queue.status().waiting[0].why).toMatch(/Changed since/);
+  });
+
+  it("claims nothing where the project's root is no checkout of it, so claude never runs in $HOME", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    const m = machine(github, () => [ready(REPO, 1)], { checkout: async () => "No checkout here: /gone is missing" });
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(0);
+    expect(github.comments).toEqual([]);
+    expect(m.queue.status().waiting[0]).toMatchObject({ why: "No checkout here: /gone is missing", kind: "placed" });
+  });
+
+  it("asks for help after a few failed starts instead of claiming and releasing every minute", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    const real = new FakeTmux().runner();
+    const m = machine(github, () => [ready(REPO, 1)], {
+      tmux: async (args) => (args[0] === "new-window" || args[0] === "new-session" ? { ok: false, stdout: "" } : real(args)),
+    });
+    for (let i = 0; i < START_ATTEMPTS + 2; i++) await m.queue.tick();
+    expect(claims(github)).toHaveLength(START_ATTEMPTS);
+    expect(releases(github)).toHaveLength(START_ATTEMPTS);
+    const labels = github.get(REPO, 1).labels;
+    expect(labels.has("needs-help")).toBe(true);
+    expect(labels.has("in-progress")).toBe(false);
+    expect(m.store.file.failedStarts).toEqual({});
+  });
+
+  it("treats a failed in-progress label like a failed comment: its claim deleted and nothing started", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    github.failLabels = 1;
+    const m = machine(github, () => [ready(REPO, 1)]);
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(0);
+    expect(github.comments).toEqual([]);
+    expect(m.queue.status().waiting[0].why).toMatch(/Could not label it/);
+  });
+
+  it("counts every worker started in the last ten minutes against free memory, not just this sweep's", () => {
+    const github = new FakeGithub();
+    const m = machine(github, () => [], {
+      memory: () => ({ availableGiB: 3, pressure: 0 }),
+      file: {
+        workers: [
+          {
+            repo: REPO,
+            number: 1,
+            title: "",
+            url: "",
+            root: "/p",
+            window: "@1",
+            server: "4242",
+            name: "mw-1",
+            target: "queue-scratch:mw-1",
+            startedAt: Date.now() - 5 * 60_000,
+          },
+        ],
+      },
+    });
+    expect(m.queue.room()).toMatch(/1\.6 GiB free, under 2\.5 GiB/);
+  });
+
+  it("claims nothing for a project no longer starting sessions, nor for an issue no longer ready-for-agent", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    github.add(REPO, 2, []);
+    const off = machine(github, () => [ready(REPO, 1)], { wanted: () => false });
+    await off.queue.tick();
+    expect(github.comments).toEqual([]);
+    const m = machine(github, () => [ready(REPO, 2)]);
+    await m.queue.tick();
+    expect(github.comments).toEqual([]);
+    expect(m.tmux.started).toHaveLength(0);
+  });
+
+  it("kills no window by its bare id when tmux could not list them", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    const m = machine(github, () => [ready(REPO, 1)]);
+    await m.queue.tick();
+    github.get(REPO, 1).open = false;
+    const killed: string[][] = [];
+    const broken = machine(github, () => [], {
+      file: m.store.file,
+      tmux: async (args) => {
+        if (args[0] === "kill-window") killed.push(args);
+        return { ok: false, stdout: "server exited unexpectedly" };
+      },
+    });
+    await broken.queue.tick();
+    expect(killed).toEqual([]);
+  });
+
+  it("keeps a worker whose window a person renamed", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    const m = machine(github, () => [ready(REPO, 1)]);
+    await m.queue.tick();
+    const [line] = [...m.tmux.windows];
+    m.tmux.windows = new Set([line.replace(/ \S+$/, " my-renamed-window")]);
+    await m.queue.tick();
+    expect(m.queue.status().workers).toHaveLength(1);
+    expect(releases(github)).toEqual([]);
+    expect(github.get(REPO, 1).labels.has("in-progress")).toBe(true);
+  });
+
+  it("starts nothing on a lagging comment list until two reads agree on the winner", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    // distilo-1 claimed first, but its comment is missing from this machine's first read.
+    github.comments.push({ repo: REPO, number: 1, id: 1, body: "<!-- claude-mux:claim id-distilo-1 -->", at: github.clock });
+    github.hideReads.set(1, 1);
+    const m = machine(github, () => [ready(REPO, 1)]);
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(0);
+    expect(claims(github).map((c) => c.id)).toEqual([1]);
+  });
+
+  it("releases the claim of a worker that ended asking for help, so a later claim can win", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    const m = machine(github, () => [ready(REPO, 1)]);
+    await m.queue.tick();
+    github.get(REPO, 1).labels.add("needs-help");
+    m.tmux.windows.clear();
+    await m.queue.tick();
+    expect(releases(github)).toHaveLength(1);
+    expect(github.get(REPO, 1).labels.has("in-progress")).toBe(true);
+  });
+});
+
+describe("checkoutProblem", () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+
+  it("passes only a checkout of the repo at its root", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "checkout-"));
+    try {
+      expect(await checkoutProblem(join(dir, "missing"), "o/r")).toMatch(/missing/);
+      const plain = join(dir, "plain");
+      mkdirSync(plain);
+      expect(await checkoutProblem(plain, "o/r")).toMatch(/not a git repository/);
+      const repo = join(dir, "repo");
+      mkdirSync(repo);
+      git(repo, "init", "-q");
+      git(repo, "remote", "add", "origin", "git@github.com:O/R.git");
+      expect(await checkoutProblem(repo, "o/r")).toBeNull();
+      expect(await checkoutProblem(repo, "o/other")).toMatch(/not a checkout of o\/other/);
+      mkdirSync(join(repo, "sub"));
+      expect(await checkoutProblem(join(repo, "sub"), "o/r")).toMatch(/inside another repository/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

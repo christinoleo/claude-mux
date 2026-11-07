@@ -16,22 +16,29 @@
  *    alone (#185: 8 on `omarchy`, set on the Events screen) and counts every
  *    live worker session here, a daemon's too. A start is held, never a
  *    running worker stopped, while free memory is under a floor (2.5 GiB) or
- *    memory pressure is over a ceiling (#181); each start in one sweep counts
- *    against the free memory read at its beginning, since a worker grows into
- *    its share minutes after it starts.
+ *    memory pressure is over a ceiling (#181); each worker started here in
+ *    the last ten minutes counts against the free memory read, since a worker
+ *    grows into its share minutes after it starts.
  *
  * An issue is taken only when it is open, unblocked, not `in-progress`,
- * `needs-help`, `ready-for-human` or `hold`, and may run here: its project's
- * placement list (`src/worker-placement.ts`) names this machine or is empty,
- * and no machine that keeps its projects (`engage`) holds it, unless that is
- * this one. `stop-at-pr` passes to the worker, which opens its PR and stops.
+ * `needs-help`, `ready-for-human`, `hold` or `stop-at-pr`, and may run here:
+ * its project's placement list (`src/worker-placement.ts`) names this machine
+ * or is empty, no machine that keeps its projects (`engage`) holds it, unless
+ * that is this one, and this machine's checkout at the project's root is a
+ * checkout of that repo. `stop-at-pr` is refused outright until the worker
+ * skill can be trusted to stop at its pull request (christinoleo/ak-plugins#2),
+ * so nothing started here can merge such an issue.
  *
- * Two machines may go for one issue in the same minute. Each re-reads it,
- * posts a claim comment carrying a marker, labels it `in-progress`, waits a
- * moment and reads the markers back: the earliest claim since the last
- * release, and no older than ten minutes before its own, wins, and the loser
- * deletes its own. A release marker is posted whenever this queue puts an
- * issue back, and the window covers an issue that came back any other way.
+ * Two machines may go for one issue in the same minute. Each re-reads it
+ * (still open, still `ready-for-agent`, unchanged since the poller judged it,
+ * its project still starting sessions), posts a claim comment carrying a
+ * marker, labels it `in-progress`, waits a moment and reads the markers back
+ * until two reads agree: the earliest claim since the last release wins, and
+ * the loser deletes its own. A claim lapses only on a release marker, or when
+ * it is old and its machine is gone from the fleet (or is this machine, which
+ * knows it runs no worker on the issue); age alone never voids one. A release
+ * marker is posted whenever this queue puts an issue back or its worker ends
+ * with the issue still open.
  *
  * The switch is per machine and off at first, so this coexists with the
  * per-repo daemons until each project moves over. A project still run by a
@@ -40,14 +47,15 @@
  */
 
 import { execFile } from "child_process";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync, realpathSync } from "fs";
 import { join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { CLAUDE_MUX_DIR } from "../utils/paths.js";
 import { readProcessTable, type ProcessRow } from "../utils/processes.js";
 import { shellQuote } from "../utils/shell.js";
 import { tmuxServerRunning } from "../tmux/server.js";
-import type { ReadyIssue } from "./github-events.js";
+import { READY_LABEL, type ReadyIssue } from "./github-events.js";
+import { normaliseRemote } from "../fleet-projects.js";
 import { HOLD, NEEDS_HELP, STOP_AT_PR } from "./github.js";
 import { git } from "./git.js";
 import { placeName } from "../worker-placement.js";
@@ -55,17 +63,21 @@ import { placeName } from "../worker-placement.js";
 export const IN_PROGRESS = "in-progress";
 export const READY_FOR_HUMAN = "ready-for-human";
 
-/** What a worker takes, typically, once it has grown (#181): counted against free memory for each start in a sweep. */
+/** What a worker takes, typically, once it has grown (#181): counted against free memory for each recent start. */
 export const WORKER_ESTIMATE_GIB = 1.4;
+/** How long a worker's start is counted against free memory: about how long it takes to grow into its share. */
+export const GROWTH_MS = 10 * 60_000;
+/** How many starts in a row may fail before the queue asks for help instead of trying again. */
+export const START_ATTEMPTS = 3;
 /** How long a claim waits for the other machine's comment to be readable before the markers are compared. */
 export const CLAIM_SETTLE_MS = 3_000;
-/** How many times the claims are read back before the queue gives up on knowing who won. */
-const MARKER_READS = 3;
+/** How many times the claims are read back, looking for two reads that agree, before the queue gives up on knowing who won. */
+const MARKER_READS = 4;
 /**
- * How far back a claim can still beat a newer one. Two machines race within
- * seconds; an older claim is one whose issue came back to the queue some way
- * that posted no release (a person cleared needs-help, the issue was
- * reopened, a machine died), and it must not win forever.
+ * A claim younger than this before one's own always stands, whoever made it:
+ * two machines race within seconds, and a machine that only looks gone (the
+ * fleet state starts with every peer offline) may still be racing. An older
+ * claim lapses only when its machine is gone.
  */
 export const CLAIM_WINDOW_MS = 10 * 60_000;
 const LOG_LIMIT = 100;
@@ -213,6 +225,8 @@ export interface QueueFile {
   log: QueueEvent[];
   /** When each issue now in the queue was first seen there, by `repo#n`: what a run's wait is counted from. */
   seen?: Record<string, number>;
+  /** How many starts in a row failed for each issue, by `repo#n`. */
+  failedStarts?: Record<string, number>;
 }
 
 export interface QueueStore {
@@ -239,6 +253,7 @@ export function fileQueueStore(path: string = join(CLAUDE_MUX_DIR, "worker-queue
         retried: Array.isArray(raw.retried) ? raw.retried : [],
         log: Array.isArray(raw.log) ? raw.log : [],
         seen: raw.seen && typeof raw.seen === "object" ? raw.seen : {},
+        failedStarts: raw.failedStarts && typeof raw.failedStarts === "object" ? raw.failedStarts : {},
       };
     },
     save(file) {
@@ -254,6 +269,8 @@ export interface IssueNow {
   labels: string[];
   /** GitHub's `state_reason` once closed: `completed` or `not_planned`. */
   reason?: string | null;
+  /** GitHub's `updated_at`. */
+  updatedAt?: string | null;
 }
 
 export interface Marker {
@@ -338,6 +355,12 @@ export interface QueueDeps {
   placement: (repo: string) => string[] | null;
   /** The name of a machine that keeps its projects and holds this one, other than this machine; null for none. */
   keptBy: (repo: string) => string | null;
+  /** Why `root` is not a checkout of `repo` a worker can start in, or null when it is. */
+  checkout: (root: string, repo: string) => Promise<string | null>;
+  /** Whether the state map still has `repo` enabled with its `issue-ready` starting a session. */
+  wanted: (repo: string) => boolean;
+  /** Whether the machine with this id is gone: unknown to the fleet, or offline. */
+  machineGone: (machineId: string) => boolean;
   /** Each process tree's resident memory in GiB, by its root pid; missing where it could not be read. */
   measure?: (pids: number[]) => Promise<Map<number, number>>;
   /** What a session's transcripts cost so far. */
@@ -345,7 +368,7 @@ export interface QueueDeps {
   /** Where ended runs are kept; none in a test that does not ask. */
   history?: HistoryStore;
   /** The command a worker runs, issue number given; the environment is put before it. */
-  workerCommand?: (issue: number, stopAtPr: boolean) => string;
+  workerCommand?: (issue: number) => string;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -390,10 +413,12 @@ export function claimBody(machineId: string, machine: string): string {
 
 /**
  * The claim that stands against `mine`: the earliest posted since the last
- * release and no more than `CLAIM_WINDOW_MS` before it. Null when `mine`
- * cannot be read back yet, since then nothing is known.
+ * release that has not lapsed. A claim more than `CLAIM_WINDOW_MS` before
+ * `mine` lapses only when `lapsed` says so of it (its machine is gone); a
+ * younger one always stands. Null when `mine` cannot be read back yet, since
+ * then nothing is known.
  */
-export function winningClaim(markers: readonly Marker[], mine: number): Marker | null {
+export function winningClaim(markers: readonly Marker[], mine: number, lapsed: (claim: Marker) => boolean = () => false): Marker | null {
   const sorted = [...markers].sort((a, b) => a.id - b.id);
   const own = sorted.find((m) => m.id === mine);
   if (!own) return null;
@@ -402,7 +427,9 @@ export function winningClaim(markers: readonly Marker[], mine: number): Marker |
     if (m.body.includes(RELEASE_MARK)) since = i + 1;
   });
   return (
-    sorted.slice(since).find((m) => m.body.includes(CLAIM_MARK) && m.at >= own.at - CLAIM_WINDOW_MS) ?? null
+    sorted
+      .slice(since)
+      .find((m) => m.body.includes(CLAIM_MARK) && (m.id === mine || m.at >= own.at - CLAIM_WINDOW_MS || !lapsed(m))) ?? null
   );
 }
 
@@ -423,9 +450,8 @@ export function slug(text: string, max = 30): string {
     .replace(/-$/, "");
 }
 
-export function defaultWorkerCommand(issue: number, stopAtPr: boolean): string {
-  const prompt = `/ak:maestro-worker ${issue}${stopAtPr ? ` ${STOP_AT_PR}: open the pull request and stop there; do not merge it` : ""}`;
-  return `claude --model opus --dangerously-skip-permissions ${shellQuote(prompt)}`;
+export function defaultWorkerCommand(issue: number): string {
+  return `claude --model opus --dangerously-skip-permissions ${shellQuote(`/ak:maestro-worker ${issue}`)}`;
 }
 
 /** A window as `list-windows` prints it with `WINDOW_FORMAT`, and as a record names it. */
@@ -455,8 +481,13 @@ export async function openWindow(tmux: TmuxRunner, session: string, name: string
   const line = res.stdout.trim().split("\n")[0];
   return res.ok && line.split(" ")[1]?.startsWith("@") ? line : null;
 }
-function windowKey(w: Pick<WorkerRecord, "server" | "window" | "name">): string {
-  return `${w.server} ${w.window} ${w.name}`;
+
+/**
+ * A window as the queue knows it: the tmux server's pid and the window's id.
+ * The name is left out, since a person may rename the window.
+ */
+function windowKey(w: Pick<WorkerRecord, "server" | "window">): string {
+  return `${w.server} ${w.window}`;
 }
 
 /** The tmux session a project's workers are started in. */
@@ -470,6 +501,8 @@ const TAKEN_WHY: Record<string, { why: string; kind: WaitKind }> = {
   [NEEDS_HELP]: { why: "Its worker asked for help", kind: "running" },
   [READY_FOR_HUMAN]: { why: "A person's task", kind: "taken" },
   [HOLD]: { why: "On hold", kind: "taken" },
+  // Until christinoleo/ak-plugins#2 a worker may merge whatever its prompt says, so none is started on it.
+  [STOP_AT_PR]: { why: `Marked ${STOP_AT_PR}, which a worker cannot yet be trusted to keep`, kind: "taken" },
 };
 
 /** Why a label keeps an issue from being taken, or null. */
@@ -558,7 +591,7 @@ export class WorkerQueue {
    */
   room(starting = 0): string | null {
     const running = Math.max(this.runningCount, this.deps.liveWorkers().length) + starting;
-    return limitHold(this.file.settings, running, this.deps.memory())?.why ?? null;
+    return limitHold(this.file.settings, running, this.freeAfterStarts(this.deps.memory()))?.why ?? null;
   }
 
   /** The runs that ended in the last `days` days, newest first. */
@@ -627,6 +660,18 @@ export class WorkerQueue {
     return null;
   }
 
+  /**
+   * The memory reading with each worker started here in the last
+   * `GROWTH_MS` counted as already taking its share, since it has not grown
+   * into it yet.
+   */
+  private freeAfterStarts(memory: MemoryReading): MemoryReading {
+    if (memory.availableGiB === null) return memory;
+    const since = this.now() - GROWTH_MS;
+    const recent = this.file.workers.filter((w) => w.startedAt > since).length;
+    return { ...memory, availableGiB: memory.availableGiB - recent * WORKER_ESTIMATE_GIB };
+  }
+
   private note(repo: string, number: number, what: string): void {
     this.file.log = [{ at: this.now(), repo, number, what }, ...this.file.log].slice(0, LOG_LIMIT);
   }
@@ -657,7 +702,8 @@ export class WorkerQueue {
   private async windows(): Promise<Set<string> | null> {
     // Only recorded workers are looked up in it.
     if (this.file.workers.length === 0) return null;
-    return listWindows(this.deps.tmux);
+    const lines = await listWindows(this.deps.tmux);
+    return lines && new Set([...lines].map((l) => l.split(" ").slice(0, 2).join(" ")));
   }
 
   /** Read what each live worker session holds: its memory, its spend, and for this queue's, its peak. */
@@ -704,10 +750,10 @@ export class WorkerQueue {
     const { settings } = this.file;
     const memory = this.deps.memory();
     this.memoryNow = memory;
-    let free = memory.availableGiB;
 
+    // Read afresh for each start, since the one before it counts against the memory.
     const holdNow = (): { why: string; kind: WaitKind } | null =>
-      settings.enabled ? limitHold(settings, running, { ...memory, availableGiB: free }) : { why: "Off on this machine", kind: "off" };
+      settings.enabled ? limitHold(settings, running, this.freeAfterStarts(memory)) : { why: "Off on this machine", kind: "off" };
 
     const ready = this.deps.ready();
     const seen = this.file.seen ?? {};
@@ -752,10 +798,8 @@ export class WorkerQueue {
         continue;
       }
       const outcome = await this.claim(issue, stillSeen[issueKey(issue)] ?? null);
-      if (outcome === "started") {
-        running++;
-        if (free !== null) free -= WORKER_ESTIMATE_GIB;
-      } else if (outcome) wait(issue, outcome.why, outcome.kind);
+      if (outcome === "started") running++;
+      else if (outcome) wait(issue, outcome.why, outcome.kind);
     }
     this.runningCount = running;
     this.hold = holdNow()?.why ?? null;
@@ -767,22 +811,44 @@ export class WorkerQueue {
   private async claim(issue: ReadyIssue, queuedAt: number | null): Promise<"started" | { why: string; kind: WaitKind } | null> {
     const { github } = this.deps;
     const { repo, number } = issue;
+    if (!this.deps.wanted(repo)) return { why: "Its project no longer starts sessions here", kind: "off" };
+    const problem = await this.deps.checkout(issue.root, repo);
+    if (problem) return { why: problem, kind: "placed" };
     const now = await github.issue(repo, number);
     if (!now) return { why: "GitHub did not answer", kind: "github" };
     // The sweep's labels may be a minute old; this read is not.
     if (!now.open) return { why: "Closed", kind: "closed" };
     const taken = takenBy(now.labels);
     if (taken) return taken;
+    if (!now.labels.includes(READY_LABEL)) return { why: `No longer ${READY_LABEL}`, kind: "github" };
+    // Readiness was judged on one copy of the issue; anything since (a stranger's comment) waits for the poller to judge it again.
+    if (!now.updatedAt || !issue.updatedAt || Date.parse(now.updatedAt) !== Date.parse(issue.updatedAt)) {
+      return { why: "Changed since it was last read; read again on the next sweep", kind: "github" };
+    }
 
     const mine = await github.comment(repo, number, claimBody(this.deps.machineId, this.deps.machine()));
     if (mine === null) return { why: "Could not comment on it", kind: "github" };
-    await github.addLabel(repo, number, IN_PROGRESS);
+    if (!(await github.addLabel(repo, number, IN_PROGRESS))) {
+      // Without the label another machine sees the issue free; the claim alone must not start a worker.
+      await github.deleteComment(repo, mine);
+      return { why: `Could not label it ${IN_PROGRESS}`, kind: "github" };
+    }
+    // This machine runs no worker on the issue, so a claim of its own other than this one is left over; another machine's only once it is gone.
+    const lapsed = (m: Marker) => {
+      const by = claimant(m);
+      return by === this.deps.machineId || (by !== null && this.deps.machineGone(by));
+    };
+    // GitHub's comment list can lag: a winner counts only once two reads in a row agree on it.
     let winner: Marker | null = null;
-    for (let read = 0; read < MARKER_READS && !winner; read++) {
+    let agreed = false;
+    for (let read = 0; read < MARKER_READS && !agreed; read++) {
       await this.sleep(CLAIM_SETTLE_MS);
       const markers = await github.markers(repo, number);
-      winner = markers ? winningClaim(markers, mine) : null;
+      const found = markers ? winningClaim(markers, mine, lapsed) : null;
+      agreed = !!found && !!winner && found.id === winner.id;
+      winner = found;
     }
+    if (!agreed) winner = winner && winner.id !== mine ? winner : null;
     if (!winner || winner.id !== mine) {
       await github.deleteComment(repo, mine);
       if (!winner) {
@@ -795,11 +861,24 @@ export class WorkerQueue {
       return TAKEN_WHY[IN_PROGRESS];
     }
 
-    const started = await this.spawn(issue, now.labels.includes(STOP_AT_PR));
+    const started = await this.spawn(issue);
+    const failed = (this.file.failedStarts ??= {});
     if (!started) {
-      await this.release(issue, "Worker could not start");
-      return { why: "The worker could not start", kind: "github" };
+      const key = issueKey(issue);
+      failed[key] = (failed[key] ?? 0) + 1;
+      if (failed[key] < START_ATTEMPTS) {
+        await this.release(issue, "the worker could not start");
+        return { why: "The worker could not start", kind: "github" };
+      }
+      delete failed[key];
+      await github.addLabel(repo, number, NEEDS_HELP);
+      await this.release(
+        issue,
+        `the worker could not start ${START_ATTEMPTS} times running on **${this.deps.machine()}**, so it needs help`
+      );
+      return TAKEN_WHY[NEEDS_HELP];
     }
+    delete failed[issueKey(issue)];
     started.queuedAt = queuedAt;
     this.file.workers.push(started);
     this.live.set(issueKey(started), { sessionId: null, memGiB: null, labels: [...now.labels, IN_PROGRESS] });
@@ -808,20 +887,24 @@ export class WorkerQueue {
     return "started";
   }
 
-  /** Put an issue back in the queue: a release marker, so the claim before it never wins again, and its label off. */
-  private async release(issue: { repo: string; number: number }, why: string): Promise<void> {
+  /**
+   * Put an issue back in the queue: a release marker, so the claim before it
+   * never wins again, and its label off (unless `unlabel` is false, for a
+   * worker that asked for help and owns the label until a person is done).
+   */
+  private async release(issue: { repo: string; number: number }, why: string, unlabel = true): Promise<void> {
     await this.deps.github.comment(issue.repo, issue.number, `${RELEASE_MARK}\nclaude-mux put this issue back in the queue: ${why}.`);
-    await this.deps.github.removeLabel(issue.repo, issue.number, IN_PROGRESS);
+    if (unlabel) await this.deps.github.removeLabel(issue.repo, issue.number, IN_PROGRESS);
     this.note(issue.repo, issue.number, `Put back: ${why}`);
   }
 
-  private async spawn(issue: ReadyIssue, stopAtPr: boolean): Promise<WorkerRecord | null> {
+  private async spawn(issue: ReadyIssue): Promise<WorkerRecord | null> {
     const session = queueSessionName(issue.repo);
     const titleSlug = slug(issue.title);
     const name = titleSlug ? `mw-${issue.number}-${titleSlug}` : `mw-${issue.number}`;
     // A claude-mux started from a Claude session would pass CLAUDECODE on, and claude refuses to start nested.
-    const env = `env -u CLAUDECODE MAESTRO_ROLE=worker MAESTRO_ISSUE=${issue.number}${stopAtPr ? " MAESTRO_STOP_AT_PR=1" : ""}`;
-    const command = `${env} ${(this.deps.workerCommand ?? defaultWorkerCommand)(issue.number, stopAtPr)}`;
+    const env = `env -u CLAUDECODE MAESTRO_ROLE=worker MAESTRO_ISSUE=${issue.number}`;
+    const command = `${env} ${(this.deps.workerCommand ?? defaultWorkerCommand)(issue.number)}`;
     const line = await openWindow(this.deps.tmux, session, name, issue.root, command);
     if (!line) return null;
     const [server, window] = line.split(" ");
@@ -846,6 +929,8 @@ export class WorkerQueue {
       const key = issueKey(w);
       const now = issues[i];
       const alive = windows?.has(windowKey(w)) ?? true;
+      // Ids repeat across tmux servers: a window is killed only when the list just read holds this one.
+      const killable = !!windows?.has(windowKey(w));
       if (!now) {
         keep.push(w);
         continue;
@@ -853,7 +938,7 @@ export class WorkerQueue {
       const live = this.live.get(key);
       this.live.set(key, { sessionId: live?.sessionId ?? null, memGiB: live?.memGiB ?? null, labels: now.labels });
       if (!now.open) {
-        if (alive) await this.deps.tmux(["kill-window", "-t", w.window]);
+        if (killable) await this.deps.tmux(["kill-window", "-t", w.window]);
         await this.deps.git(w.root, ["worktree", "remove", "--force", `.worktree/${w.number}`]);
         await this.deps.git(w.root, ["branch", "-D", `task/${w.number}`]);
         this.file.retried = this.file.retried.filter((k) => k !== key);
@@ -868,20 +953,15 @@ export class WorkerQueue {
       // The window is gone and the issue still open.
       if (now.labels.includes(NEEDS_HELP) || now.labels.includes(READY_FOR_HUMAN)) {
         this.file.retried = this.file.retried.filter((k) => k !== key);
-        this.note(w.repo, w.number, "Worker ended; the issue waits on a person");
+        // Released, so that once the person is done any machine can claim it again.
+        await this.release(w, "its worker ended and the issue waits on a person", false);
         this.ended(w, "help");
         continue;
       }
       if (this.file.retried.includes(key)) {
         this.file.retried = this.file.retried.filter((k) => k !== key);
         await this.deps.github.addLabel(w.repo, w.number, NEEDS_HELP);
-        await this.deps.github.removeLabel(w.repo, w.number, IN_PROGRESS);
-        await this.deps.github.comment(
-          w.repo,
-          w.number,
-          `claude-mux on **${this.deps.machine()}**: needs help. The worker disappeared twice without finishing.`
-        );
-        this.note(w.repo, w.number, "Worker disappeared twice: asked for help");
+        await this.release(w, `the worker disappeared twice without finishing on **${this.deps.machine()}**, so it needs help`);
         this.ended(w, "lost");
         continue;
       }
@@ -931,15 +1011,36 @@ export const realTmux: TmuxRunner = async (args) => {
 
 export const realGit: GitRunner = async (cwd, args) => (await git(args, cwd)) !== null;
 
+/**
+ * Why `root` is no checkout of `repo` to start a worker in, or null. tmux
+ * opens a window whose directory is missing in `$HOME`, where `claude` would
+ * run with no project at all.
+ */
+export async function checkoutProblem(root: string, repo: string): Promise<string | null> {
+  if (!existsSync(root)) return `No checkout here: ${root} is missing`;
+  const top = await git(["rev-parse", "--show-toplevel"], root);
+  if (top === null) return `No checkout here: ${root} is not a git repository`;
+  let same = false;
+  try {
+    same = realpathSync(top.trim()) === realpathSync(root);
+  } catch {
+    // Unreadable: not the same.
+  }
+  if (!same) return `No checkout here: ${root} sits inside another repository`;
+  const url = await git(["remote", "get-url", "origin"], root);
+  if (!url || normaliseRemote(url) !== `github.com/${repo.toLowerCase()}`) return `No checkout here: ${root} is not a checkout of ${repo}`;
+  return null;
+}
+
 const gh = (args: string[]) => run("gh", args);
 
 export const realGithub: QueueGithub = {
   async issue(repo, number) {
-    const res = await gh(["api", `repos/${repo}/issues/${number}`, "--jq", "{state, state_reason, labels: [.labels[].name]}"]);
+    const res = await gh(["api", `repos/${repo}/issues/${number}`, "--jq", "{state, state_reason, updated_at, labels: [.labels[].name]}"]);
     if (!res.ok) return null;
     try {
-      const raw = JSON.parse(res.stdout) as { state: string; state_reason: string | null; labels: string[] };
-      return { open: raw.state === "open", labels: raw.labels, reason: raw.state_reason };
+      const raw = JSON.parse(res.stdout) as { state: string; state_reason: string | null; updated_at: string; labels: string[] };
+      return { open: raw.state === "open", labels: raw.labels, reason: raw.state_reason, updatedAt: raw.updated_at };
     } catch {
       return null;
     }

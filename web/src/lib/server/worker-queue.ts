@@ -1,6 +1,7 @@
 import { existsSync } from 'fs';
 import { getAllSessions, isSessionDead, type Session } from '$shared/db/sessions-json.js';
 import { eventPoller } from '$shared/server/github-events.js';
+import { enabledProjects } from '$shared/db/event-map-json.js';
 import { loadRateTable } from '$shared/usage/rate-table.js';
 import { SpendMeter } from '$shared/usage/session-spend.js';
 import { resolveTranscriptPath } from '$shared/transcript/tailer.js';
@@ -13,6 +14,7 @@ import {
 	realGit,
 	realGithub,
 	realTmux,
+	checkoutProblem,
 	countsAgainstLimit,
 	type LiveWorker
 } from '$shared/server/worker-queue.js';
@@ -107,6 +109,11 @@ export function startWorkerQueue(): WorkerQueue {
 		liveWorkers,
 		placement: (repo) => nameList(ensureFleetPrefs().all()[placementKey(repo)]?.value),
 		keptBy,
+		checkout: checkoutProblem,
+		wanted: (repo) => enabledProjects().get(repo)?.events['issue-ready'] === 'session',
+		machineGone: (id) => !ensureFleetState()
+			.snapshot()
+			.some((m) => m.id === id && m.online),
 		workerCommand: workerCommandOverride()
 	});
 	g.__claudeMuxWorkerQueue = queue;
