@@ -7,6 +7,7 @@ import {
 	realGit,
 	realGithub,
 	realTmux,
+	countsAgainstLimit,
 	type LiveWorker
 } from '$shared/server/worker-queue.js';
 import { EXCLUSIVE_KEY, exclusiveList, nameList, placeName, placementKey } from '$shared/worker-placement.js';
@@ -25,7 +26,7 @@ const g = globalThis as typeof globalThis & { __claudeMuxWorkerQueue?: WorkerQue
 
 function liveWorkers(): LiveWorker[] {
 	return getAllSessions()
-		.filter((s) => s.maestro_role === 'worker' && !isSessionDead(s))
+		.filter((s) => countsAgainstLimit(s) && !isSessionDead(s))
 		.map((s) => ({ issue: s.maestro_issue ?? null, cwd: s.cwd ?? null }));
 }
 

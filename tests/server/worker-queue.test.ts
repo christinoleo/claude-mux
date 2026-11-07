@@ -247,6 +247,21 @@ describe("WorkerQueue", () => {
     expect(m.queue.status().waiting).toMatchObject([{ number: 1, why: "Off on this machine" }]);
   });
 
+  it("answers a Trigger's Run by the same limit and memory brake, whatever the switch says", async () => {
+    const github = new FakeGithub();
+    const live: LiveWorker[] = Array.from({ length: 7 }, () => ({ issue: null, cwd: "/p" }));
+    let free = 20;
+    const m = machine(github, () => [], {
+      file: { settings: { ...DEFAULT_SETTINGS } },
+      live,
+      memory: () => ({ availableGiB: free, pressure: 0 }),
+    });
+    expect(m.queue.room()).toBeNull();
+    expect(m.queue.room(1)).toBe("At the limit: 8 of 8 running");
+    free = 1;
+    expect(m.queue.room()).toMatch(/1\.0 GiB free, under 2\.5 GiB/);
+  });
+
   it("starts a worker as the daemon did: labelled in-progress, a tmux window running claude with the maestro environment", async () => {
     const github = new FakeGithub();
     github.add(REPO, 7);

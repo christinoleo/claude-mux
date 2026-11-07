@@ -464,6 +464,33 @@ gone while the issue is open is released once and asks for help the second
 time. `CLAUDE_MUX_WORKER_COMMAND` (with `{issue}`) replaces `claude` for a
 test under a `HOME` of its own, with a `tmux` on `PATH` that adds `-L <name>`.
 
+Triggers (`src/server/triggers.ts`, the `/triggers` screen, `GET`/`POST
+/api/triggers` and `PATCH`/`DELETE /api/triggers/<id>`) are when plus what,
+per machine (GLOSSARY.md). Clock Triggers live in `~/.claude-mux/triggers.json`
+with their Runs (the latest 50 each): every N seconds, minutes, hours or
+days counted from the Trigger's creation, chosen weekdays at a local time,
+or once. No cron. `Scheduler` ticks every second beside the poller (built
+server, or a dev server with `CLAUDE_MUX_EVENTS=1`). A firing more than a
+minute late is one the server was down for: skipped and recorded with the
+count, never made up. A rule fires at any interval and only records the Run.
+A session fires at most once a minute, never while its last Run still goes,
+and only when `WorkerQueue.room()` (the queue's limit and memory brake, not
+its switch) lets it; otherwise the Run is skipped with that reason. A Run
+starts as a window `run-<name>` in the tmux session `runs-<folder>` at the
+project's root, running `env CLAUDE_MUX_RUN=<run id> sh -c 'timeout
+--foreground -k 10 <limit> claude --dangerously-skip-permissions <prompt>;
+echo $? > ~/.claude-mux/runs/<run id>.exit'` (#165: the limit must live in
+the pane, and plain `timeout` never draws). The hook records `run_id`, and
+such a session counts against the worker limit. Once its hooks say the turn
+ended and the pane shows an empty prompt, `/exit` is typed (never into a
+dialog, whose default Enter would answer it); a pane still open 30 s later,
+or a minute past its limit, is killed. The exit file tells how it ended:
+0 done, 124 timed out. Event Triggers are not stored: `eventTriggers()`
+lists one per enabled project and event the state map does not ignore, with
+the poller's log and, for issues that start a session, the queue's log as
+its Runs. `CLAUDE_MUX_RUN_COMMAND` (with `{prompt}`) replaces `claude` for a
+test under a `HOME` of its own.
+
 ### 7. What a session changed
 
 Two sources, both served by `GET /api/sessions/<id>/changes?source=session|git`

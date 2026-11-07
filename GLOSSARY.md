@@ -37,3 +37,17 @@ _Avoid_: Pending request, blocked hook
 **Past session**:
 A Claude Code conversation whose transcript is on a machine's disk but which has no live pane.
 _Avoid_: Dead session, history, closed session
+
+## Triggers
+
+**Trigger**:
+When plus what: a schedule or an event the GitHub polling finds, and the rule or session it fires. Set up per machine.
+_Avoid_: Job, cron, hook, automation
+
+**Run**:
+One firing of a Trigger, kept with what came of it: run, or skipped with the reason, and for a session a link to it.
+_Avoid_: Execution, job, instance
+
+**Scheduled Task**:
+A Trigger on the clock that opens a session with a prompt, in a project, and closes it when its turn ends or its time limit falls.
+_Avoid_: Cron job, routine, scheduled session

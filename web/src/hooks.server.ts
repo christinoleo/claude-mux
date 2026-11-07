@@ -21,6 +21,7 @@ import {
 import { ensurePushMonitor } from '$lib/server/push.js';
 import { ensureFleetState, relayGate } from '$lib/server/fleet.js';
 import { startWorkerQueue } from '$lib/server/worker-queue.js';
+import { startScheduler } from '$lib/server/triggers.js';
 import {
 	admitRelay,
 	FORWARDED_HEADER,
@@ -47,6 +48,8 @@ export const init: ServerInit = () => {
 		eventPoller(() => sessionsWsManager.broadcastNow()).start();
 		// Off on every machine until switched on; it runs after each read of GitHub.
 		startWorkerQueue();
+		// Triggers start sessions too, through the queue's limit, so the same terms hold.
+		startScheduler();
 	}
 	void followLiveTextPort({ dev, port: listenPort() });
 	void followDialogAnswersPort({ dev, port: listenPort() });
