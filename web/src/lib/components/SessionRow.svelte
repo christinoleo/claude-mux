@@ -135,6 +135,10 @@
 			aria-expanded={fold.open}
 			title={fold.open ? 'Hide subagents' : 'Show subagents'}
 			onclick={(e) => { e.preventDefault(); e.stopPropagation(); fold?.toggle(); }}
+			onmousedown={(e) => e.stopPropagation()}
+			ontouchstart={(e) => e.stopPropagation()}
+			ondblclick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+			ondragstart={(e) => { e.preventDefault(); e.stopPropagation(); }}
 		><iconify-icon class="chev" class:open={fold.open} icon="mdi:chevron-right"></iconify-icon>{text}</button>
 	{:else}
 		<span class="path" title={s.cwd}>{text}</span>
@@ -253,7 +257,7 @@
 				{s.current_action || (shown === 'done' ? 'done' : s.state)}
 			{/if}
 		</span>
-		{#if !draft && where}{@render whereChip(where)}{/if}
+		{#if where && (fold || !draft)}{@render whereChip(where)}{/if}
 	</span>
 	{/if}
 </a>
@@ -476,6 +480,7 @@
 		display: flex;
 		align-items: center;
 		min-width: 0;
+		overflow: hidden;
 		white-space: nowrap;
 		font-family: var(--font-mono);
 		font-size: 11px;

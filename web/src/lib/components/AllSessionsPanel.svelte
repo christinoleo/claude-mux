@@ -209,16 +209,7 @@
 	});
 
 	/** The subagent on the page (`/session/<target>/agent/<id>`), under the session `current` names. */
-	const currentAgent = $derived.by((): string | null => {
-		const rest = parseSessionPath($page.url.pathname)?.rest ?? '';
-		const match = /^\/agent\/([^/]+)$/.exec(rest);
-		if (!match) return null;
-		try {
-			return decodeURIComponent(match[1]);
-		} catch {
-			return null;
-		}
-	});
+	const currentAgent = $derived($page.params.agentId ?? null);
 
 	/** Whether a machine's session is the one on the page. */
 	function isCurrent(machine: Machine, tmuxTarget: string | null): boolean {
@@ -263,14 +254,13 @@
 	}
 
 	/**
-	 * The chip under a row: its subagents ("1 agent · 4 done"), else the path
-	 * under a named session; a title made of the path needs none. A master's
-	 * workers are counted by their own group's header.
+	 * The chip under a row: its subagents' tally ("1 agent · 4 done"), else
+	 * the path under a named session; a title made of the path needs none. A
+	 * master's workers are counted by their own group's header.
 	 */
-	function rowWhere(row: Row, agents: AgentView): string | null {
+	function rowWhere(row: Row, tally: string | null): string | null {
 		if (row.orchestrator) return 'orch';
-		const children = childSummary(agents);
-		if (children) return children;
+		if (tally) return tally;
 		return !row.worker && row.session.display_name && row.rel ? row.rel : null;
 	}
 
@@ -971,8 +961,8 @@
 	});
 </script>
 
-{#snippet sessionRow(machine: Machine, row: Row, marked: boolean, offline: string | null)}
-	{#if row.worker}
+{#snippet sessionRow(machine: Machine, row: Row, marked: boolean, offline: string | null, loose = false)}
+	{#if row.worker && !loose}
 		<!-- A worker hangs off its master on a solid violet thread, and its own
 		     subagents ride inside that thread. -->
 		<div class="thread worker">{@render rowWithAgents(machine, row, marked, offline)}</div>
@@ -1012,11 +1002,12 @@
 		a.state === 'failed' || (isActive && a.id === currentAgent)
 	)}
 	{@const draftKey = s.tmux_target && !isActive ? formatRef(refOf(machine, s.tmux_target)) : null}
+	{@const tally = childSummary(agents)}
 	<SessionRow
 		session={s}
 		title={rowTitle(row)}
-		where={rowWhere(row, agents)}
-		fold={shownAgents.foldable && childSummary(agents) ? { open: agentsOpen, toggle: () => folds.toggle(foldKey, false) } : null}
+		where={rowWhere(row, tally)}
+		fold={shownAgents.foldable && tally && !row.orchestrator ? { open: agentsOpen, toggle: () => folds.toggle(foldKey, false) } : null}
 		href={sessionPath(refOf(machine, s.tmux_target ?? ''))}
 		hint={(machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`) + (canDrag ? ' · ⌥-click or drag to open side by side' : '')}
 		active={isActive}
@@ -1117,7 +1108,8 @@
 	<div class="place" class:off={!!offline} inert={!!offline}>
 		{#each place.rows.filter((r) => !r.crew && !(r.under && byMaster.has(r.under))) as row (row.session.id)}
 			{@const workers = byMaster.get(row.session) ?? []}
-			{@render sessionRow(place.machine, row, marked, offline)}
+			<!-- A worker here lost its master to the filter: no thread hangs it off the row above. -->
+			{@render sessionRow(place.machine, row, marked, offline, !!row.under)}
 			{#if workers.length > 0}
 				{@render workerGroup(place, workersFoldKey(row.session.id), workers, true, marked, extras, offline)}
 			{/if}
