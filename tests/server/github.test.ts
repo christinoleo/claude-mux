@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ticketsFromIssues, toIssueInfo, firstParagraph, withLiveAsker, type RawIssue } from "../../src/server/github.js";
+import { ticketsFromIssues, closedIssues, toIssueInfo, firstParagraph, withLiveAsker, type RawIssue } from "../../src/server/github.js";
 
 function issue(over: Partial<RawIssue> & { number: number }): RawIssue {
   return {
@@ -62,6 +62,51 @@ describe("ticketsFromIssues", () => {
       "/repo"
     );
     expect(tickets).toEqual([]);
+  });
+});
+
+describe("a pull request left for review", () => {
+  const stopAtPr = issue({ number: 12, labels: [{ name: "in-progress" }, { name: "stop-at-pr" }] });
+  const pr = (over: Partial<RawIssue> = {}) =>
+    issue({
+      number: 30,
+      title: "Fix the thing",
+      html_url: "https://github.com/o/r/pull/30",
+      created_at: "2026-09-05T00:00:00Z",
+      body: "Closes #12. Fixes the thing.",
+      pull_request: {},
+      ...over,
+    });
+  const prs = (issues: RawIssue[]) => ticketsFromIssues(issues, "o/r", "/repo").filter((t) => t.kind === "pr");
+
+  it("appears while it is open and closes a stop-at-pr issue, dated by when it was opened", () => {
+    const [t] = prs([stopAtPr, pr()]);
+    expect(t).toMatchObject({ kind: "pr", number: 30, title: "Fix the thing", repo: "o/r", url: "https://github.com/o/r/pull/30" });
+    expect(t.since).toBe(Date.parse("2026-09-05T00:00:00Z"));
+  });
+
+  it("leaves once it merges or closes, since only open ones are listed", () => {
+    expect(prs([stopAtPr, pr()])).toHaveLength(1);
+    // Merged: the PR leaves the open list and the merge closes its issue.
+    expect(prs([])).toEqual([]);
+    // Closed unmerged: the PR leaves the open list, the issue stays open.
+    expect(prs([stopAtPr])).toEqual([]);
+    expect(prs([stopAtPr, pr({ state: "closed" })])).toEqual([]);
+  });
+
+  it("is not listed for an issue a worker merges itself, or one on hold", () => {
+    expect(prs([issue({ number: 12, labels: [{ name: "in-progress" }] }), pr()])).toEqual([]);
+    expect(prs([issue({ number: 12, labels: [{ name: "stop-at-pr" }, { name: "hold" }] }), pr()])).toEqual([]);
+    expect(prs([stopAtPr, pr({ labels: [{ name: "hold" }] })])).toEqual([]);
+    expect(prs([stopAtPr, pr({ body: "Part of #12" })])).toEqual([]);
+  });
+});
+
+describe("closedIssues", () => {
+  it("reads GitHub's closing keywords, in this repo only", () => {
+    expect(closedIssues("Closes #12. Also fixes: #13, resolved o/r#14 and fixes x/y#15", "o/r")).toEqual([12, 13, 14]);
+    expect(closedIssues("Part of #12, see #13", "o/r")).toEqual([]);
+    expect(closedIssues(null, "o/r")).toEqual([]);
   });
 });
 

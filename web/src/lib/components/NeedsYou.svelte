@@ -4,9 +4,10 @@
 	 *
 	 * A dialog open in a pane is only one way an agent waits. A maestro worker
 	 * that labels its issue `needs-help` has stopped and gone quiet — its pane
-	 * reads idle — and a wayfinder ticket that only a conversation resolves
+	 * reads idle — a worker told to stop at its pull request has ended its
+	 * session and left the PR to be merged, and a wayfinder ticket that only a conversation resolves
 	 * waits on GitHub with no session at all. The project cards scatter the
-	 * first kind and cannot show the other two, so this card gathers them in
+	 * first kind and cannot show the others, so this card gathers them in
 	 * the order they started waiting: the longest wait is the one at the top.
 	 */
 	import { formatAgo } from '$lib/format';
@@ -35,7 +36,8 @@
 
 	type Waiting =
 		| { kind: 'session'; key: string; machine: Machine; session: Session; since: number }
-		| { kind: 'help'; key: string; machine: Machine; ticket: InboxTicket; session: Session | null; since: number };
+		| { kind: 'help'; key: string; machine: Machine; ticket: InboxTicket; session: Session | null; since: number }
+		| { kind: 'pr'; key: string; machine: Machine; ticket: InboxTicket; since: number };
 
 	interface Ready {
 		key: string;
@@ -53,6 +55,10 @@
 				out.push({ kind: 'session', key: `${host}/s/${s.id}`, machine, session: s, since: s.last_update });
 			}
 			for (const t of machine.inbox) {
+				if (t.kind === 'pr') {
+					out.push({ kind: 'pr', key: `${host}/p/${t.repo}#${t.number}`, machine, ticket: t, since: t.since });
+					continue;
+				}
 				if (t.kind !== 'needs-help') continue;
 				const session =
 					machine.sessions.find(
@@ -70,7 +76,7 @@
 		const out: Ready[] = [];
 		for (const machine of machines) {
 			for (const t of machine.inbox) {
-				if (t.kind === 'needs-help') continue;
+				if (t.kind === 'needs-help' || t.kind === 'pr') continue;
 				out.push({ key: `${machine.server.hostname}/t/${t.repo}#${t.number}`, machine, ticket: t });
 			}
 		}
@@ -142,6 +148,7 @@
 
 	const KIND_ICON: Record<InboxTicket['kind'], string> = {
 		'needs-help': 'mdi:hand-back-right-outline',
+		pr: 'mdi:source-pull',
 		grilling: 'mdi:signpost-outline',
 		prototype: 'mdi:shape-outline'
 	};
@@ -185,6 +192,18 @@
 						{asking(s)}{#if multiHost}<span class="host">{item.machine.server.hostname}</span>{/if}
 					</span>
 				</button>
+			{:else if item.kind === 'pr'}
+				{@const t = item.ticket}
+				<a class="it" href={t.url} target="_blank" rel="noopener" title="Review on GitHub" onclick={(e) => openTicket(e, t)}>
+					<span class="ic help"><iconify-icon icon={KIND_ICON.pr}></iconify-icon></span>
+					<span class="name">{t.title}</span>
+					<span class="when">{formatAgo(item.since, clock.now)}</span>
+					<span class="sub">
+						<span class="num">#{t.number}</span>PR to merge in {repoName(t)}{#if multiHost}<span class="host"
+								>{item.machine.server.hostname}</span
+							>{/if}
+					</span>
+				</a>
 			{:else}
 				{@const t = item.ticket}
 				{@const off = blockedReason(item.machine, clock.now)}
@@ -341,6 +360,7 @@
 		color: inherit;
 		font: inherit;
 		text-align: left;
+		text-decoration: none;
 		cursor: pointer;
 	}
 	.it:hover {
