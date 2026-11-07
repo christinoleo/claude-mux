@@ -9,10 +9,11 @@
  * seen; starting a session is never the default.
  */
 
-import { existsSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { getSessionsDir } from "./sessions-json.js";
+import { isRepoSlug } from "../github-ref.js";
 
 /** The events polling finds: an issue Leo marked ready, and a push to the default branch. */
 export const EVENT_KINDS = ["issue-ready", "push"] as const;
@@ -56,11 +57,6 @@ export function isEventAction(value: unknown): value is EventAction {
   return typeof value === "string" && (EVENT_ACTIONS as readonly string[]).includes(value);
 }
 
-/** `owner/name`, the only spelling of a project the map keeps. */
-export function isRepoSlug(value: unknown): value is string {
-  return typeof value === "string" && /^[\w.-]+\/[\w.-]+$/.test(value);
-}
-
 function parseProject(raw: unknown): ProjectEventMap | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -71,11 +67,16 @@ function parseProject(raw: unknown): ProjectEventMap | null {
   return { enabled: r.enabled === true, root: r.root, events };
 }
 
-export function getEventMap(): EventMap {
-  const path = resolvePath();
-  if (!existsSync(path)) return { v: 1, projects: {} };
+/** The map as the file holds it; null when the file exists but cannot be read as one. */
+function readMap(): EventMap | null {
+  let text: string;
   try {
-    const raw = JSON.parse(readFileSync(path, "utf-8")) as { projects?: unknown };
+    text = readFileSync(resolvePath(), "utf-8");
+  } catch {
+    return { v: 1, projects: {} };
+  }
+  try {
+    const raw = JSON.parse(text) as { projects?: unknown };
     const projects: Record<string, ProjectEventMap> = {};
     if (raw.projects && typeof raw.projects === "object") {
       for (const [slug, value] of Object.entries(raw.projects as Record<string, unknown>)) {
@@ -85,9 +86,13 @@ export function getEventMap(): EventMap {
     }
     return { v: 1, projects };
   } catch {
-    // A torn or hand-edited file turns everything off rather than taking the server down.
-    return { v: 1, projects: {} };
+    return null;
   }
+}
+
+/** The map; a torn or hand-broken file turns everything off rather than the server down. */
+export function getEventMap(): EventMap {
+  return readMap() ?? { v: 1, projects: {} };
 }
 
 /** The projects that are on, by `owner/name`. */
@@ -103,7 +108,9 @@ export interface ProjectPatch {
 
 /** Change one project; returns the map as it now stands. */
 export function updateProjectEvents(slug: string, patch: ProjectPatch): EventMap {
-  const map = getEventMap();
+  const map = readMap();
+  // Writing over a file that cannot be read would lose every other project in it.
+  if (!map) throw new Error(`${resolvePath()} cannot be read; fix or remove it first`);
   const have = map.projects[slug] ?? { enabled: false, root: patch.root ?? "", events: { ...DEFAULT_EVENTS } };
   map.projects[slug] = {
     enabled: patch.enabled ?? have.enabled,
@@ -141,7 +148,8 @@ export function eventProjectRows(
   const rows = new Map<string, EventProjectRow>();
   for (const [repo, root] of roots) {
     const mapped = map.projects[repo];
-    rows.set(repo, mapped ? { repo, ...mapped } : { repo, enabled: false, root, events: { ...DEFAULT_EVENTS } });
+    // The checkout where it is now, which a change on screen writes back to the map.
+    rows.set(repo, mapped ? { repo, ...mapped, root } : { repo, enabled: false, root, events: { ...DEFAULT_EVENTS } });
   }
   for (const [repo, mapped] of Object.entries(map.projects)) if (!rows.has(repo)) rows.set(repo, { repo, ...mapped });
   return [...rows.values()].sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.repo.localeCompare(b.repo));

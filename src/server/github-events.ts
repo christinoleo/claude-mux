@@ -15,8 +15,8 @@
  * Two events exist. An issue is ready when the latest `ready-for-agent` label
  * on it was applied by Leo, the account `gh` is logged in as, and nobody else
  * commented, renamed or edited it afterwards. His own later edits pass, and so
- * do an agent's: maestro's workers share his token, and a GitHub App acts as a
- * Bot that only the repo's owner can install. An issue someone else touched
+ * do an agent's, since maestro's workers act under his token; a Bot does not,
+ * since a stranger can set off a workflow or app. An issue someone else touched
  * after the label is not ready; it waits in Needs you until Leo approves it
  * again, which re-applies the label under his name. A push is the default
  * branch's head moving; the first read after enabling only notes where it is.
@@ -27,7 +27,7 @@
  */
 
 import { execFile } from "child_process";
-import { existsSync, readFileSync } from "fs";
+import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { getSessionsDir } from "../db/sessions-json.js";
@@ -91,16 +91,21 @@ export type GhRunner = (args: string[]) => Promise<boolean>;
 
 // ── the rule for Leo's own action ────────────────────────────────────────────
 
+/** What someone other than Leo did to an issue marked ready. */
+export type StrangerAct = "labelled" | "commented" | "renamed" | "edited";
+
 export type Readiness =
   | { state: "ready"; labeledAt: string }
   /** Someone else acted after the label, or applied it: Leo has to approve it again. */
-  | { state: "approve"; labeledAt: string; by: string; what: "labelled" | "commented" | "renamed" | "edited"; at: string }
+  | { state: "approve"; labeledAt: string; by: string; what: StrangerAct; at: string }
   | { state: "none" };
 
-/** Leo himself, or an agent: a Bot only the repo's owner can install. */
+/**
+ * Leo himself, or one of his agents, which act under his token. A Bot is not
+ * trusted: a workflow or app can be set off by a stranger and carry his words.
+ */
 export function trusted(actor: Actor | null | undefined, viewer: string): boolean {
   if (!actor) return false;
-  if (actor.__typename === "Bot") return true;
   return !!actor.login && actor.login.toLowerCase() === viewer.toLowerCase();
 }
 
@@ -125,7 +130,7 @@ export function readiness(issue: IssueDetail, viewer: string): Readiness {
     return { state: "approve", labeledAt, by: who(label.actor), what: "labelled", at: labeledAt };
   }
   const after = (at: string | null | undefined): at is string => !!at && Date.parse(at) > Date.parse(labeledAt);
-  const acts: { by: Actor | null | undefined; what: "commented" | "renamed" | "edited"; at: string }[] = [];
+  const acts: { by: Actor | null | undefined; what: Exclude<StrangerAct, "labelled">; at: string }[] = [];
   for (const n of nodes) {
     if (n.__typename === "RenamedTitleEvent" && after(n.createdAt)) acts.push({ by: n.actor, what: "renamed", at: n.createdAt });
     if (n.__typename === "IssueComment") {
@@ -227,13 +232,13 @@ export interface EventStore {
 export function fileEventStore(path: string = join(dirname(getSessionsDir()), "events.json")): EventStore {
   return {
     load() {
-      if (!existsSync(path)) return { v: 1, repos: {}, log: [] };
+      let raw: Partial<EventsFile> = {};
       try {
-        const raw = JSON.parse(readFileSync(path, "utf-8")) as Partial<EventsFile>;
-        return { v: 1, repos: raw.repos ?? {}, log: Array.isArray(raw.log) ? raw.log : [] };
+        raw = JSON.parse(readFileSync(path, "utf-8")) as Partial<EventsFile>;
       } catch {
-        return { v: 1, repos: {}, log: [] };
+        // Missing or torn: start afresh.
       }
+      return { v: 1, repos: raw.repos ?? {}, log: Array.isArray(raw.log) ? raw.log : [] };
     },
     save(file) {
       writeFileAtomic(path, JSON.stringify(file, null, 2));
@@ -250,15 +255,19 @@ export interface PollerDeps {
   /** The state map's enabled projects; read afresh on every sweep, so a change applies at once. */
   projects: () => Map<string, ProjectEventMap>;
   now?: () => number;
+  /** Told whenever the issues waiting for approval change, so Needs you hears at once. */
+  onApprovals?: () => void;
 }
 
 export interface Approval {
   repo: string;
+  /** The project's checkout, as the map held it when the issue was read. */
+  root: string;
   number: number;
   title: string;
   url: string;
   by: string;
-  what: "labelled" | "commented" | "renamed" | "edited";
+  what: StrangerAct;
   at: number;
 }
 
@@ -347,7 +356,7 @@ export class EventPoller {
   approvalTickets(): InboxTicket[] {
     return [...this.approvals.values()].map((a) => ({
       repo: a.repo,
-      git_root: this.deps.projects().get(a.repo)?.root ?? "",
+      git_root: a.root,
       number: a.number,
       title: a.title,
       url: a.url,
@@ -361,14 +370,16 @@ export class EventPoller {
    * Leo's approval: the label taken off and put back under his name, which
    * makes it newer than what the other person did. Then GitHub is read again.
    */
-  async approve(repo: string, number: number): Promise<boolean> {
-    if (!this.approvals.has(`${repo}#${number}`)) return false;
+  async approve(repo: string, number: number): Promise<"approved" | "not-waiting" | "refused" | "label-lost"> {
+    if (!this.approvals.has(`${repo}#${number}`)) return "not-waiting";
     const base = `repos/${repo}/issues/${number}/labels`;
-    const off = await this.deps.gh(["api", "-X", "DELETE", `${base}/${READY_LABEL}`]);
-    const on = off && (await this.deps.gh(["api", "-X", "POST", base, "-f", `labels[]=${READY_LABEL}`]));
-    if (!on) return false;
-    await this.poll();
-    return true;
+    const add = () => this.deps.gh(["api", "-X", "POST", base, "-f", `labels[]=${READY_LABEL}`]);
+    if (!(await this.deps.gh(["api", "-X", "DELETE", `${base}/${READY_LABEL}`]))) return "refused";
+    // The label is off now; one failed add must not leave it so.
+    if (!(await add()) && !(await add())) return "label-lost";
+    // The read that clears the approval runs on its own and is broadcast when it lands.
+    void this.poll();
+    return "approved";
   }
 
   private charge(data: Record<string, unknown>): void {
@@ -385,7 +396,28 @@ export class EventPoller {
   }
 
   private async sweep(): Promise<void> {
+    const before = this.approvalsKey();
+    try {
+      await this.read();
+    } finally {
+      if (this.approvalsKey() !== before) this.deps.onApprovals?.();
+    }
+  }
+
+  private approvalsKey(): string {
+    return JSON.stringify([...this.approvals.values()]);
+  }
+
+  private async read(): Promise<void> {
     const projects = this.deps.projects();
+    // A project turned off forgets where it was: turned on again, its branch
+    // head is noted afresh rather than taken for a push.
+    for (const slug of Object.keys(this.file.repos)) {
+      if (!projects.has(slug)) {
+        delete this.file.repos[slug];
+        this.deps.store.save(this.file);
+      }
+    }
     const slugs = [...projects.keys()];
     // Approvals belong to enabled projects only.
     for (const [key, a] of this.approvals) if (!projects.has(a.repo)) this.approvals.delete(key);
@@ -411,7 +443,12 @@ export class EventPoller {
     const listed = new Map<string, number[]>();
     slugs.forEach((slug, i) => {
       const repo = data[`r${i}`] as SweepRepo | null | undefined;
-      if (!repo) return;
+      if (!repo) {
+        // Renamed, deleted or out of reach: nothing there can be approved.
+        for (const [id, a] of this.approvals) if (a.repo === slug) this.approvals.delete(id);
+        this.lastError = `GitHub did not return ${slug}`;
+        return;
+      }
       const cursor = (this.file.repos[slug] ??= { head: null, seen: [] });
       const numbers: number[] = [];
       for (const issue of repo.issues.nodes) {
@@ -455,7 +492,8 @@ export class EventPoller {
 
     for (const [slug, numbers] of listed) {
       const cursor = this.file.repos[slug];
-      const action = projects.get(slug)!.events["issue-ready"];
+      const project = projects.get(slug)!;
+      const action = project.events["issue-ready"];
       const keep: string[] = [];
       const open = new Set(numbers);
       for (const key of [...this.details.keys()]) {
@@ -473,6 +511,7 @@ export class EventPoller {
         if (ready.state === "approve") {
           this.approvals.set(id, {
             repo: slug,
+            root: project.root,
             number,
             title: issue.title,
             url: issue.url,
@@ -503,10 +542,10 @@ export class EventPoller {
 
 // ── the real thing ───────────────────────────────────────────────────────────
 
-function runGh(args: string[]): Promise<string | null> {
+function runGh(args: string[]): Promise<{ ok: boolean; stdout: string }> {
   return new Promise((resolve) => {
     execFile("gh", args, { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) =>
-      resolve(err ? null : stdout)
+      resolve({ ok: !err, stdout })
     );
   });
 }
@@ -516,33 +555,27 @@ function runGh(args: string[]): Promise<string | null> {
  * renamed or out of reach), yet still prints the rest; one such project must
  * not blind the read to all the others.
  */
-export const ghGraphql: GraphqlRunner = (query) =>
-  new Promise((resolve) => {
-    execFile(
-      "gh",
-      ["api", "graphql", "-f", `query=${query}`],
-      { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 },
-      (_err, stdout) => {
-        try {
-          resolve((JSON.parse(stdout) as { data?: Record<string, unknown> | null }).data ?? null);
-        } catch {
-          resolve(null);
-        }
-      }
-    );
-  });
+export const ghGraphql: GraphqlRunner = async (query) => {
+  const { stdout } = await runGh(["api", "graphql", "-f", `query=${query}`]);
+  try {
+    return (JSON.parse(stdout) as { data?: Record<string, unknown> | null }).data ?? null;
+  } catch {
+    return null;
+  }
+};
 
 // On `globalThis`: under the dev server the routes and the broadcast load this module separately.
 const g = globalThis as typeof globalThis & { __claudeMuxEventPoller?: EventPoller };
 
 /** This server's poller, started on first call. */
-export function eventPoller(): EventPoller {
+export function eventPoller(onApprovals?: () => void): EventPoller {
   if (!g.__claudeMuxEventPoller) {
     g.__claudeMuxEventPoller = new EventPoller({
       graphql: ghGraphql,
-      gh: async (args) => (await runGh(args)) !== null,
+      gh: async (args) => (await runGh(args)).ok,
       store: fileEventStore(),
       projects: () => enabledProjects(),
+      onApprovals,
     });
   }
   return g.__claudeMuxEventPoller;

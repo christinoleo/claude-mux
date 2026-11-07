@@ -44,7 +44,8 @@
 
 	const machines = $derived(fleetStore.machines.filter((m) => m.server.id || m.local));
 	$effect(() => {
-		if (!selected && machines.length > 0) selected = machineKey(machines[0]);
+		// A machine's key moves from its name to its id once discovery reports it.
+		if (machines.length > 0 && !machines.some((m) => machineKey(m) === selected)) selected = machineKey(machines[0]);
 	});
 	const current = $derived(machines.find((m) => machineKey(m) === selected) ?? null);
 
@@ -79,11 +80,13 @@
 	}
 
 	// The poller reads GitHub once a minute; the page follows it.
+	// Keyed by the machine, not its object, which every broadcast replaces.
+	const currentKey = $derived(current ? machineKey(current) : null);
 	$effect(() => {
-		const m = current;
-		if (!m) return;
-		untrack(() => void read(m));
-		const timer = setInterval(() => void read(m), 15_000);
+		if (!currentKey) return;
+		const readCurrent = () => untrack(() => current && void read(current));
+		readCurrent();
+		const timer = setInterval(readCurrent, 15_000);
 		return () => clearInterval(timer);
 	});
 

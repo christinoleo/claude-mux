@@ -421,9 +421,11 @@ the events feed, so a read that failed or a server that was down loses
 nothing; `~/.claude-mux/events.json` keeps each project's head and the keys
 of the events recorded, so nothing fires twice. `readiness()` holds Leo's
 rule: the latest `ready-for-agent` is the `gh` account's own and nobody but
-that account or a Bot acted after it. Anything else rides the inbox as kind
-`approve`, and Needs you's Approve (`POST /api/events/approve`) takes the
-label off and puts it back under his name. Only a built server polls; a dev
+that account acted after it (his agents share his token; a Bot is not
+trusted, since a stranger can set one off). Anything else rides the inbox as
+kind `approve`, and Needs you's Approve (`POST /api/events/approve`) takes the
+label off and puts it back under his name; the poller's `onApprovals` has the
+sessions socket broadcast whenever that list changes. Only a built server polls; a dev
 server does with `CLAUDE_MUX_EVENTS=1`, under a `HOME` of its own.
 
 ### 7. What a session changed

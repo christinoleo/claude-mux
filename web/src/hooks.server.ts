@@ -42,7 +42,7 @@ export const init: ServerInit = () => {
 	if (!dev) startClaudeUpdater();
 	// What GitHub's events start will one day be sessions, so a dev server beside
 	// the real one reads them only when told to, under a HOME of its own.
-	if (!dev || process.env.CLAUDE_MUX_EVENTS === '1') eventPoller().start();
+	if (!dev || process.env.CLAUDE_MUX_EVENTS === '1') eventPoller(() => sessionsWsManager.broadcastNow()).start();
 	void followLiveTextPort({ dev, port: listenPort() });
 	void followDialogAnswersPort({ dev, port: listenPort() });
 };

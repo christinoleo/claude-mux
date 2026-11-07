@@ -76,7 +76,15 @@ describe("readiness", () => {
     }
   });
 
-  it("lets Leo's own edits and an agent's pass", () => {
+  it("does not take a Bot's word for Leo's: a stranger can set one off", () => {
+    const r = readiness(
+      detail(1, [labeled("2026-11-02T00:00:00Z"), { __typename: "IssueComment", createdAt: "2026-11-03T00:00:00Z", author: BOT }]),
+      "christinoleo"
+    );
+    expect(r).toMatchObject({ state: "approve", by: "github-actions", what: "commented" });
+  });
+
+  it("lets Leo's own edits pass, and his agents', which act under his token", () => {
     const after = "2026-11-03T00:00:00Z";
     const r = readiness(
       detail(
@@ -84,7 +92,6 @@ describe("readiness", () => {
         [
           labeled("2026-11-02T00:00:00Z"),
           { __typename: "IssueComment", createdAt: after, author: LEO },
-          { __typename: "IssueComment", createdAt: after, author: BOT },
           { __typename: "RenamedTitleEvent", createdAt: after, actor: { __typename: "User", login: "ChristinoLeo" } },
         ],
         { nodes: [{ editedAt: after, editor: LEO }] }
@@ -236,7 +243,8 @@ describe("EventPoller", () => {
     };
     const approver = new EventPoller({ graphql: gh.graphql, gh: (a) => gh.gh(a), store, projects: () => enabledProjects(), now: () => now });
     await approver.poll();
-    expect(await approver.approve("o/r", 5)).toBe(true);
+    expect(await approver.approve("o/r", 5)).toBe("approved");
+    await approver.poll();
     expect(gh.labelCalls.map((a) => a.slice(0, 3))).toEqual([
       ["api", "-X", "DELETE"],
       ["api", "-X", "POST"],
@@ -249,8 +257,75 @@ describe("EventPoller", () => {
     updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
     const p = poller();
     await p.poll();
-    expect(await p.approve("o/r", 9)).toBe(false);
+    expect(await p.approve("o/r", 9)).toBe("not-waiting");
     expect(gh.labelCalls).toEqual([]);
+  });
+
+  it("puts the label back when the first try fails, and says so when it cannot", async () => {
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z", STRANGER)])];
+    let adds = 0;
+    const calls: string[] = [];
+    const p = new EventPoller({
+      graphql: gh.graphql,
+      gh: async (args) => {
+        calls.push(args[2]);
+        return args[2] === "DELETE" || ++adds > 1;
+      },
+      store,
+      projects: () => enabledProjects(),
+    });
+    await p.poll();
+    expect(await p.approve("o/r", 5)).toBe("approved");
+    expect(calls).toEqual(["DELETE", "POST", "POST"]);
+
+    const never = new EventPoller({
+      graphql: gh.graphql,
+      gh: async (args) => args[2] === "DELETE",
+      store,
+      projects: () => enabledProjects(),
+    });
+    await never.poll();
+    expect(await never.approve("o/r", 5)).toBe("label-lost");
+  });
+
+  it("tells its listener when the issues waiting for approval change, and only then", async () => {
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    let told = 0;
+    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), onApprovals: () => told++ });
+    await p.poll();
+    expect(told).toBe(0);
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z", STRANGER)])];
+    await p.poll();
+    await p.poll();
+    expect(told).toBe(1);
+    gh.repos.get("o/r")!.issues = [];
+    await p.poll();
+    expect(told).toBe(2);
+  });
+
+  it("drops an approval for a repo GitHub no longer returns", async () => {
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z", STRANGER)])];
+    const p = poller();
+    await p.poll();
+    expect(p.approvalTickets()).toHaveLength(1);
+    gh.repos.delete("o/r");
+    await p.poll();
+    expect(p.approvalTickets()).toEqual([]);
+    expect(p.status().lastError).toBe("GitHub did not return o/r");
+  });
+
+  it("notes the head afresh when a project is turned on again, rather than taking it for a push", async () => {
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    const p = poller();
+    await p.poll();
+    updateProjectEvents("o/r", { enabled: false });
+    await p.poll();
+    gh.repos.get("o/r")!.head = "b2";
+    updateProjectEvents("o/r", { enabled: true });
+    await p.poll();
+    expect(p.log()).toEqual([]);
   });
 
   it("notes the branch head on the first read and records a push when it moves", async () => {
@@ -363,11 +438,18 @@ describe("the state map", () => {
     expect(rows).toEqual([{ repo: "o/r", root: "/p/r", enabled: false, events: { "issue-ready": "rule", push: "rule" } }]);
   });
 
+  it("names the checkout where it is now, though the map kept an older one", () => {
+    updateProjectEvents("o/r", { enabled: true, root: "/old/r" });
+    expect(eventProjectRows([{ root: "/new/r", remote: "github.com/o/r", sub: "" }])[0]).toMatchObject({ root: "/new/r", enabled: true });
+  });
+
   it("keeps what each project does, and a torn file turns everything off", async () => {
     updateProjectEvents("o/r", { enabled: true, root: "/p/r", events: { push: "ignore" } });
     expect(getEventMap().projects["o/r"]).toEqual({ enabled: true, root: "/p/r", events: { "issue-ready": "rule", push: "ignore" } });
     const { writeFileSync } = await import("fs");
     writeFileSync(join(dir, "event-map.json"), "{ torn");
     expect(enabledProjects().size).toBe(0);
+    // ...and is not written over, which would lose every project it held.
+    expect(() => updateProjectEvents("o/x", { enabled: true, root: "/p/x" })).toThrow(/cannot be read/);
   });
 });
