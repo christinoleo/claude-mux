@@ -6,7 +6,15 @@ vi.mock("child_process", async (orig) => ({
   spawnSync: (...args: unknown[]) => spawnSync(...args),
 }));
 
-const { prefetchRelease, patchUnitForRestart } = await import("../../src/commands/update.js");
+const { prefetchRelease, patchUnitForRestart, updateTarget } = await import("../../src/commands/update.js");
+
+describe("updateTarget", () => {
+  it("installs the version asked for rather than npm's latest", () => {
+    expect(updateTarget({ target: "1.2.3" }, () => "1.2.4")).toBe("1.2.3");
+    expect(updateTarget({}, () => "1.2.4")).toBe("1.2.4");
+    expect(updateTarget({ target: "--force" }, () => "1.2.4")).toBeNull();
+  });
+});
 
 describe("prefetchRelease", () => {
   beforeEach(() => {

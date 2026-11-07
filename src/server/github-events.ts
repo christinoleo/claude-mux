@@ -302,6 +302,8 @@ export interface ReadyIssue {
 export interface BranchState {
   head: string;
   held: boolean;
+  /** When this was read from GitHub. */
+  readAt: number;
 }
 
 export interface PollStatus {
@@ -523,7 +525,7 @@ export class EventPoller {
       listed.set(slug, numbers);
 
       const head = repo.defaultBranchRef?.target ?? null;
-      if (head) this.branches.set(slug, { head: head.oid, held: (repo.holds?.totalCount ?? 0) > 0 });
+      if (head) this.branches.set(slug, { head: head.oid, held: (repo.holds?.totalCount ?? 0) > 0, readAt: this.now() });
       if (head && head.oid !== cursor.head) {
         if (cursor.head !== null) {
           const action = projects.get(slug)!.events.push;

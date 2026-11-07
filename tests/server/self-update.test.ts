@@ -35,6 +35,11 @@ describe("startUpdate", () => {
     expect(job.finishedAt).toEqual(expect.any(Number));
   });
 
+  it("passes the version to install on to the update", async () => {
+    startUpdate({ dir, fromVersion: "0.30.9", target: "0.31.2", command: ["sh", "-c", 'echo "$@"', "x"] });
+    expect((await settle()).output).toBe("update --target 0.31.2\n");
+  });
+
   it("records a failure with its exit code", async () => {
     startUpdate({ dir, fromVersion: "0.30.9", command: ["sh", "-c", "echo npm broke >&2; exit 3", "x"] });
     expect(await settle()).toMatchObject({ state: "failed", exitCode: 3, output: "npm broke\n" });

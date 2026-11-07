@@ -4,7 +4,7 @@ import type { RequestHandler } from './$types';
 import { CLAUDE_MUX_DIR } from '$shared/utils/paths.js';
 import { VERSION } from '$shared/utils/version.js';
 import { PROTOCOL } from '$shared/fleet-protocol.js';
-import { readUpdateJob, startUpdate } from '$shared/server/self-update.js';
+import { isVersion, readUpdateJob, startUpdate } from '$shared/server/self-update.js';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 
 const UPDATE_DIR = join(CLAUDE_MUX_DIR, 'update');
@@ -24,6 +24,12 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!pageOriginAllowed(request.headers.get('origin'), request.headers.get('host'))) {
 		return json({ error: 'cross-origin request refused' }, { status: 403 });
 	}
-	const { started, job } = startUpdate({ dir: UPDATE_DIR, fromVersion: VERSION });
+	// The release rule names the version it rolls out, so a machine never installs a newer `latest` instead.
+	const asked = (await request.json().catch(() => ({}))) as { version?: unknown };
+	const target = typeof asked?.version === 'string' ? asked.version : undefined;
+	if (target !== undefined && !isVersion(target)) {
+		return json({ error: `not a version: ${target.slice(0, 40)}` }, { status: 400 });
+	}
+	const { started, job } = startUpdate({ dir: UPDATE_DIR, fromVersion: VERSION, target });
 	return json({ version: VERSION, protocol: PROTOCOL, job }, { status: started ? 202 : 409 });
 };

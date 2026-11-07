@@ -8,9 +8,15 @@ import {
   PUBLISH_DEADLINE_MS,
   SELF_DEADLINE_MS,
   RETRY_MS,
+  RECONNECT_MS,
+  STALE_READ_MS,
+  TRANSIENT_TRIES,
   emptyReleaseFile,
   gateEnv,
   isDocsPath,
+  isTransientFailure,
+  releaseExcludeList,
+  scrubOutput,
   takesPart,
   type GateResult,
   type ReleaseDeps,
@@ -67,12 +73,24 @@ class World {
   remoteFails = new Set<string>();
   /** When set, tagging fails with this. */
   tagError: string | null = null;
+  /** When set, tagging finds this tag already on the head. */
+  tagExisting: string | null = null;
+  /** When GitHub was last read; follows the clock unless set. */
+  readAt: number | null = null;
+  /** Issues still open, by number, and the comments made on them. */
+  openIssues = new Set<number>();
+  comments: { issue: number; body: string }[] = [];
+  pushedTags: { sha: string; version: string }[] = [];
+  /** The version each update was asked for. */
+  askedVersions: string[] = [];
+  /** Health reads a remote machine answers with its old version after updating, before the new one. */
+  slowRestarts = new Map<string, number>();
 
   deps(): ReleaseDeps {
     return {
       store: this.store,
       now: () => this.now,
-      github: () => ({ head: this.head, held: this.held }),
+      github: () => ({ head: this.head, held: this.held, readAt: this.readAt ?? this.now }),
       repo: {
         changes: async (sha) => (this.changes.has(sha) ? this.changes.get(sha)! : { lastTag: `v${this.version}`, tagged: false, files: ["src/x.ts"] }),
         gate: async (sha) => {
@@ -81,31 +99,54 @@ class World {
         },
         tag: async (sha) => {
           this.tagged.push(sha);
+          if (this.tagExisting) return { existing: this.tagExisting };
           if (this.tagError) return this.tagError;
           const [maj, min, patch] = this.version.split(".").map(Number);
           this.version = `${maj}.${min}.${patch + 1}`;
           return { version: this.version };
         },
+        pushTag: async (sha, version) => {
+          this.pushedTags.push({ sha, version });
+          return null;
+        },
       },
       fileIssue: async (title, body) => {
         this.issues.push({ title, body });
+        this.openIssues.add(300 + this.issues.length);
         return 300 + this.issues.length;
+      },
+      commentIssue: async (issue, body) => {
+        if (!this.openIssues.has(issue)) return false;
+        this.comments.push({ issue, body });
+        return true;
       },
       published: async (v) => this.npm.has(v),
       machines: () => this.machines,
-      updateSelf: () => {
+      updateSelf: (version) => {
+        this.askedVersions.push(version);
         this.selfStarts++;
         this.selfJob = { startedAt: this.now, state: "running", line: "" };
         return this.now;
       },
       selfJob: () => this.selfJob,
-      updateRemote: async (m) => {
+      updateRemote: async (m, version) => {
+        this.askedVersions.push(version);
         this.remoteUpdates.push(m.name);
         if (this.remoteFails.has(m.id)) return { ok: false, line: "npm ERR! boom" };
-        this.versions.set(m.id, this.version);
+        if (!this.slowRestarts.has(m.id)) this.versions.set(m.id, version);
         return { ok: true, line: "Updated" };
       },
-      health: async (m) => this.versions.get(m.id) ?? null,
+      health: async (m) => {
+        const slow = this.slowRestarts.get(m.id);
+        if (slow !== undefined) {
+          if (slow > 0) this.slowRestarts.set(m.id, slow - 1);
+          else {
+            this.slowRestarts.delete(m.id);
+            this.versions.set(m.id, this.version);
+          }
+        }
+        return this.versions.get(m.id) ?? null;
+      },
     };
   }
 
@@ -359,7 +400,7 @@ describe("release rule", () => {
     expect(rule.state().release!.state).toBe("done");
   });
 
-  it("passes over a machine offline when the rollout began", async () => {
+  it("passes over a machine still offline a while after its turn came, and names it at the end", async () => {
     w.machines[1].online = false;
     const rule = w.rule();
     await rule.tick();
@@ -369,12 +410,131 @@ describe("release rule", () => {
     await rule.tick();
     w.selfComesBack();
     await ticks(rule, 4);
+    expect(rule.state().release!.attempts[2]).toMatchObject({ name: "distilo-1", state: "queued" });
+    w.now += RECONNECT_MS;
+    await ticks(rule, 2);
     expect(rule.state().release!.attempts.map((a) => [a.name, a.state])).toEqual([
       ["omarchy", "ok"],
       ["beta", "ok"],
       ["distilo-1", "skipped"],
     ]);
-    expect(rule.state().release!.state).toBe("done");
+    expect(rule.state().release).toMatchObject({ state: "done", reason: "v1.0.1 is on omarchy, beta; not updated: distilo-1" });
+    expect(rule.state().log[0].reason).toBe("v1.0.1 is on omarchy, beta; not updated: distilo-1");
+  });
+
+  it("waits for the fleet to reconnect after this machine's own restart before calling a peer offline", async () => {
+    const rule = w.rule();
+    await rule.tick();
+    w.now += SETTLE_MS;
+    await rule.tick();
+    w.npm.add("1.0.1");
+    await rule.tick();
+    // This server comes back on the new version, and its links to the fleet start offline.
+    w.selfComesBack();
+    for (const m of w.machines) if (!m.self) m.online = false;
+    const after = new ReleaseRule(w.deps());
+    await ticks(after, 3);
+    w.now += 30_000;
+    for (const m of w.machines) m.online = true;
+    await ticks(after, 4);
+    expect(after.state().release!.attempts.map((a) => [a.name, a.state])).toEqual([
+      ["omarchy", "ok"],
+      ["beta", "ok"],
+      ["distilo-1", "ok"],
+    ]);
+    expect(after.state().release).toMatchObject({ state: "done", reason: "v1.0.1 is on omarchy, beta, distilo-1" });
+  });
+
+  it("asks every machine for the version it rolls out, and gives one still restarting a while to answer on it", async () => {
+    w.slowRestarts.set("beta-id", 2);
+    const rule = w.rule();
+    await rule.tick();
+    w.now += SETTLE_MS;
+    await rule.tick();
+    w.npm.add("1.0.1");
+    await rule.tick();
+    w.selfComesBack();
+    await ticks(rule, 6);
+    expect(w.askedVersions).toEqual(["1.0.1", "1.0.1", "1.0.1"]);
+    expect(rule.state().release!.attempts.map((a) => [a.name, a.state])).toEqual([
+      ["omarchy", "ok"],
+      ["beta", "ok"],
+      ["distilo-1", "ok"],
+    ]);
+    expect(w.issues).toEqual([]);
+  });
+
+  it("does nothing on a read of GitHub that stopped coming, as it may miss a hold", async () => {
+    const rule = w.rule();
+    await rule.tick();
+    expect(w.gated).toEqual([A]);
+    w.readAt = w.now;
+    w.now += SETTLE_MS;
+    // A hold opened since would not show: the read is older than two polls.
+    expect(w.now - w.readAt).toBeGreaterThan(STALE_READ_MS);
+    await ticks(rule, 3);
+    expect(w.tagged).toEqual([]);
+    expect(rule.lastError).toMatch(/last read/);
+    w.readAt = null;
+    await rule.tick();
+    expect(w.tagged).toEqual([A]);
+  });
+
+  it("stops at a head someone tagged by hand while it waited, and tags nothing again", async () => {
+    w.tagExisting = "v1.0.1";
+    const rule = w.rule();
+    await rule.tick();
+    w.now += SETTLE_MS;
+    await rule.tick();
+    expect(rule.state().release).toBeNull();
+    expect(rule.state().gate).toMatchObject({ sha: A, state: "skipped" });
+    w.now += RETRY_MS * 3;
+    await ticks(rule, 3);
+    expect(w.tagged).toEqual([A]);
+  });
+
+  it("pushes the tag of a bump commit that reached main without it, rather than bumping again", async () => {
+    w.changes.set(A, { lastTag: "v1.0.0", tagged: false, files: [], bump: "1.0.1" });
+    const rule = w.rule();
+    await rule.tick();
+    expect(w.pushedTags).toEqual([{ sha: A, version: "1.0.1" }]);
+    expect(w.gated).toEqual([]);
+    expect(w.tagged).toEqual([]);
+    expect(rule.state().release).toMatchObject({ sha: A, version: "1.0.1", state: "publishing" });
+  });
+
+  it("comments on the open gate-failure issue instead of filing one per merge, and files anew once it is closed", async () => {
+    const failing = { ok: false as const, step: "test", output: "1 failed" };
+    w.gates.set(A, failing);
+    w.gates.set(B, failing);
+    const rule = w.rule();
+    await rule.tick();
+    w.head = B;
+    await rule.tick();
+    expect(w.issues).toHaveLength(1);
+    expect(w.comments).toMatchObject([{ issue: 301 }]);
+    expect(rule.state().gate).toMatchObject({ sha: B, state: "failed", issue: 301 });
+    expect(rule.state().log[0].reason).toMatch(/commented on #301/);
+
+    w.openIssues.clear();
+    w.head = "d".repeat(40);
+    w.gates.set(w.head, failing);
+    await rule.tick();
+    expect(w.issues).toHaveLength(2);
+  });
+
+  it("retries an install or network failure before filing it", async () => {
+    w.gates.set(A, { ok: false, step: "install", output: "error: ECONNRESET", transient: true });
+    const rule = w.rule();
+    for (let i = 1; i < TRANSIENT_TRIES; i++) {
+      await rule.tick();
+      expect(w.issues).toEqual([]);
+      w.now += RETRY_MS;
+    }
+    await rule.tick();
+    expect(w.gated).toHaveLength(TRANSIENT_TRIES);
+    expect(w.issues).toHaveLength(1);
+    expect(w.issues[0].body).toContain(`${TRANSIENT_TRIES} times`);
   });
 
   it("gives up when npm never publishes the tag", async () => {
@@ -494,25 +654,57 @@ describe("release rule", () => {
 });
 
 describe("what takes part and what counts as docs", () => {
-  it("runs the gate under a HOME of its own, with nothing naming the live tmux or installation", () => {
-    const home = join(mkdtempSync(join(tmpdir(), "release-env-")), "home");
-    const env = gateEnv(home, {
+  it("runs the gate on an allowlist of variables, under a HOME and a tmux socket directory of its own", () => {
+    const dir = join(mkdtempSync(join(tmpdir(), "release-env-")), "env");
+    const env = gateEnv(dir, {
       PATH: "/bin",
+      LANG: "C.UTF-8",
       HOME: "/home/leo",
       TMUX: "/tmp/tmux-1000/default,1,0",
       TMUX_PANE: "%1",
+      TMUX_TMPDIR: "/tmp",
       CLAUDECODE: "1",
       CLAUDE_MUX_PORT: "3456",
       MAESTRO_ISSUE: "203",
+      GROQ_API_KEY: "gsk_secret",
+      GH_TOKEN: "ghp_secret",
+      NPM_TOKEN: "npm_secret",
+      XDG_RUNTIME_DIR: "/run/user/1000",
     });
-    expect(env).toEqual({ PATH: "/bin", HOME: home, CI: "1" });
-    rmSync(dirname(home), { recursive: true, force: true });
+    expect(env).toEqual({ PATH: "/bin", LANG: "C.UTF-8", HOME: join(dir, "home"), TMUX_TMPDIR: join(dir, "tmux"), CI: "1" });
+    rmSync(dirname(dir), { recursive: true, force: true });
   });
 
-  it("leaves out a machine that keeps its projects unless it is included", () => {
-    expect(takesPart("distilo-1", ["engage"], null)).toBe(true);
-    expect(takesPart("engage", ["engage"], null)).toBe(false);
-    expect(takesPart("engage", ["engage"], ["engage"])).toBe(true);
+  it("scrubs and trims a failing gate's output before it goes into a public issue", () => {
+    const env = { HOME: "/home/leo", GROQ_API_KEY: "plainsecretvalue123", PATH: "/bin" };
+    const token = `ghp_${"x".repeat(36)}`;
+    const noise = Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n");
+    const out = scrubOutput(`${noise}\nkey=plainsecretvalue123 at /home/leo/x\nauth ${token}\n${"y".repeat(9000)}\n\`\`\`end`, env);
+    expect(out).not.toContain("plainsecretvalue123");
+    expect(out).not.toContain(token);
+    expect(out).not.toContain("/home/leo");
+    expect(out).not.toContain("line 0\n");
+    expect(out.length).toBeLessThan(6_100);
+    expect(out).not.toContain("```");
+  });
+
+  it("counts an install or a network error as the machinery's, not the code's", () => {
+    expect(isTransientFailure("install", "error: lockfile had changes")).toBe(true);
+    expect(isTransientFailure("test", "getaddrinfo EAI_AGAIN registry.npmjs.org")).toBe(true);
+    expect(isTransientFailure("test", "FAIL tests/x.test.ts")).toBe(false);
+  });
+
+  it("leaves out engage unless chosen, and any machine whose name cannot be told", () => {
+    const exclude = releaseExcludeList(undefined);
+    expect(takesPart("distilo-1", exclude)).toBe(true);
+    expect(takesPart("engage", exclude)).toBe(false);
+    expect(takesPart("Engage.tail1234.ts.net", exclude)).toBe(false);
+    // Not because the queue keeps its projects: the release has a list of its own.
+    expect(takesPart("engage", releaseExcludeList([]))).toBe(true);
+    expect(takesPart("omarchy", releaseExcludeList(["omarchy"]))).toBe(false);
+    expect(takesPart("", exclude)).toBe(false);
+    expect(takesPart(undefined, exclude)).toBe(false);
+    expect(takesPart("localhost", exclude)).toBe(false);
   });
 
   it("counts markdown, docs/ and the licence as docs", () => {

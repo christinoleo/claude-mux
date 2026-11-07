@@ -71,13 +71,14 @@ afterAll(() => {
 describe("release dry run on a scratch repo", () => {
   it("shows each step: docs-only skipped, a failed gate filed, then gate, tag, npm and rollout", async () => {
     let failing = false;
+    // The gate's steps get none of this process's variables, so the switch is a file.
+    const flag = join(scratch, "fail-flag");
     const repo = gitReleaseRepo({
       dir: join(scratch, "release"),
       remote,
       // Stands in for lint, tests and build: fails while the test says so.
-      steps: [{ name: "test", cmd: "sh", args: ["-c", 'test "$FAIL" != 1 || { echo "1 failed"; exit 1; }'] }],
+      steps: [{ name: "test", cmd: "sh", args: ["-c", `test ! -e '${flag}' || { echo "1 failed"; exit 1; }`] }],
     });
-    const env = process.env;
     let now = Date.UTC(2026, 10, 9, 12);
     let head = git(seed, "rev-parse", "HEAD");
     const issues: string[] = [];
@@ -96,16 +97,18 @@ describe("release dry run on a scratch repo", () => {
       repo: {
         ...repo,
         gate: (sha) => {
-          env.FAIL = failing ? "1" : "0";
+          if (failing) writeFileSync(flag, "1");
+          else rmSync(flag, { force: true });
           return repo.gate(sha);
         },
       },
       now: () => now,
-      github: () => ({ head, held: false }),
+      github: () => ({ head, held: false, readAt: now }),
       fileIssue: async (title) => {
         issues.push(title);
         return issues.length;
       },
+      commentIssue: async () => false,
       published: async () => true,
       machines: () => machines,
       updateSelf: () => {
@@ -114,7 +117,8 @@ describe("release dry run on a scratch repo", () => {
         return now;
       },
       selfJob: () => job,
-      updateRemote: async (m) => {
+      updateRemote: async (m, version) => {
+        expect(version).toBe("1.0.1");
         versions.set(m.id, "1.0.1");
         return { ok: true, line: "Updated" };
       },
@@ -182,5 +186,35 @@ describe("release dry run on a scratch repo", () => {
     commit("later.js", "1\n", "later");
     expect(await repo.tag(old)).toMatch(/no longer at/);
     expect(git(remote, "tag", "--list")).toBe("v1.0.0\nv1.0.1");
+  }, 60_000);
+
+  it("stops when the head was tagged by hand while the rule waited", async () => {
+    const repo = gitReleaseRepo({ dir: join(scratch, "release-4"), remote, steps: [] });
+    const head = commit("hand.js", "1\n", "hand");
+    const before = git(remote, "tag", "--list");
+    git(seed, "tag", "v7.0.0", head);
+    git(seed, "push", "-q", "origin", "v7.0.0");
+    expect(await repo.tag(head)).toEqual({ existing: "v7.0.0" });
+    // Nothing bumped, nothing pushed.
+    expect(git(remote, "rev-parse", "main")).toBe(head);
+    expect(git(remote, "tag", "--list")).toBe(`${before}\nv7.0.0`);
+  }, 60_000);
+
+  it("pushes the tag of a bump commit whose tag never reached the remote, rather than bumping again", async () => {
+    const dir = join(scratch, "release-5");
+    const repo = gitReleaseRepo({ dir, remote, steps: [] });
+    // What a tag push that failed after its branch push leaves: the bump on main, no tag.
+    git(seed, "pull", "-q", "--ff-only", "origin", "main");
+    writeFileSync(join(seed, "package.json"), JSON.stringify({ name: "scratch", version: "7.0.1" }, null, 2) + "\n");
+    git(seed, "commit", "-q", "-am", "7.0.1");
+    git(seed, "push", "-q", "origin", "HEAD:main");
+    const bump = git(seed, "rev-parse", "HEAD");
+    const changes = await repo.changes(bump);
+    expect(changes).toMatchObject({ bump: "7.0.1" });
+    expect(await repo.pushTag(bump, "7.0.1")).toBeNull();
+    expect(git(remote, "rev-list", "-n", "1", "v7.0.1")).toBe(bump);
+    expect(git(remote, "rev-parse", "main")).toBe(bump);
+    // Once tagged, it is the tag's own commit.
+    expect(await repo.changes(bump)).toMatchObject({ tagged: true, lastTag: "v7.0.1" });
   }, 60_000);
 });

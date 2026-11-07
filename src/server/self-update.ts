@@ -121,9 +121,16 @@ export function selfCommand(argv: readonly string[] = process.argv, execPath = p
   return ["claude-mux"];
 }
 
+/** A plain release version, `1.2.3`: nothing that could be read as an option or a range. */
+export function isVersion(v: string): boolean {
+  return /^\d+\.\d+\.\d+$/.test(v);
+}
+
 export interface StartUpdateOptions {
   dir: string;
   fromVersion: string;
+  /** The version to install; npm's latest when unset. */
+  target?: string;
   /** The command to run, `update` appended; `selfCommand()` by default. */
   command?: string[];
   now?: () => number;
@@ -142,7 +149,7 @@ export function startUpdate(opts: StartUpdateOptions): { started: boolean; job: 
   const startedAt = (opts.now ?? Date.now)();
   const logPath = join(opts.dir, "output.log");
   const log = openSync(logPath, "w");
-  const command = [...(opts.command ?? selfCommand()), "update"];
+  const command = [...(opts.command ?? selfCommand()), "update", ...(opts.target ? ["--target", opts.target] : [])];
   // The exit code is written by the shell around the update, so it lands even
   // after the server that started it is gone.
   const child = spawn("sh", ["-c", '"$@"; echo $? > "$CLAUDE_MUX_UPDATE_EXIT"', "sh", ...command], {

@@ -19,9 +19,9 @@
  * 3. **Roll out.** Once npm has the version, this machine updates first,
  *    then its version and health are checked, then the other machines one
  *    by one. Each machine gets one attempt per version. A failure stops the
- *    rollout and files an issue; nothing is rolled back. A machine that keeps
- *    its projects (`queue:exclusive`, `engage` unless set) takes part only
- *    when named in `release:include`.
+ *    rollout and files an issue; nothing is rolled back. A machine named in
+ *    `release:exclude` (`engage` unless set) takes no part, and neither does
+ *    one whose name cannot be told.
  *
  * An open issue labelled `release-hold` pauses all of it, wherever it is:
  * nothing is gated, tagged or updated while one is open, and the rule picks
@@ -36,7 +36,8 @@ import { execFile } from "child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
-import { HOLD_LABEL, RELEASE_REPO } from "./github-events.js";
+import { HOLD_LABEL, POLL_MS, RELEASE_REPO } from "./github-events.js";
+import { placeName } from "../worker-placement.js";
 
 /** How long after the last merge a release waits, so a burst of merges goes out as one. */
 export const SETTLE_MS = 10 * 60_000;
@@ -48,6 +49,12 @@ export const SELF_DEADLINE_MS = 15 * 60_000;
 export const RELEASE_TICK_MS = 15_000;
 /** How long a tag that failed, or a gate the machinery could not run, waits before it is tried again. */
 export const RETRY_MS = 5 * 60_000;
+/** How many times a gate the machinery could not run (a fetch, an install, the network) is tried before it is filed. */
+export const TRANSIENT_TRIES = 3;
+/** How old the last read of GitHub may be before the rule stops trusting it, hold included. */
+export const STALE_READ_MS = 2 * POLL_MS + 15_000;
+/** How long a machine that is offline when its turn comes is waited for, since the fleet reconnects after this server restarts. */
+export const RECONNECT_MS = 3 * 60_000;
 const LOG_LIMIT = 100;
 
 /** A changed path that does not, on its own, make a release. */
@@ -79,6 +86,8 @@ export interface Attempt {
   state: AttemptState;
   reason: string;
   startedAt?: number;
+  /** Since when its turn came while it was offline. */
+  offlineSince?: number;
   /** For this machine: when the update job it started began, to tell it from an older one. */
   jobStartedAt?: number;
   endedAt?: number;
@@ -111,7 +120,9 @@ export interface ReleaseFile {
   /** Since when a hold has been open, while one is. */
   heldAt?: number | null;
   /** A tag that failed, or a gate the machinery could not run, tried again only after `RETRY_MS`. */
-  retry?: { sha: string; at: number; reason: string } | null;
+  retry?: { sha: string; at: number; reason: string; tries?: number } | null;
+  /** The issue the last gate failure filed, commented on by the next failure while it is open. */
+  gateIssue?: number | null;
   gate: GateRecord | null;
   release: ReleaseRecord | null;
   /** Newest first. */
@@ -139,6 +150,7 @@ export function fileReleaseStore(path: string): ReleaseStore {
           release: raw.release ?? null,
           heldAt: raw.heldAt ?? null,
           retry: raw.retry ?? null,
+          gateIssue: raw.gateIssue ?? null,
           log: Array.isArray(raw.log) ? raw.log : [],
         };
       } catch {
@@ -158,11 +170,19 @@ export type GateResult = { ok: true } | { ok: false; step: string; output: strin
 
 /** The repository, as the rule acts on it. Each answers null (or a string, for a tag) when it could not. */
 export interface ReleaseRepo {
-  /** What changed between the last version tag and `sha`; `tagged` when `sha` is that tag's commit. */
-  changes(sha: string): Promise<{ lastTag: string | null; tagged: boolean; files: string[] } | null>;
+  /**
+   * What changed between the last version tag and `sha`; `tagged` when `sha` is that tag's commit,
+   * and `bump` the version when `sha` is a bump commit whose tag never reached the remote.
+   */
+  changes(sha: string): Promise<{ lastTag: string | null; tagged: boolean; files: string[]; bump?: string | null } | null>;
   gate(sha: string): Promise<GateResult>;
-  /** Bump a patch on `sha`, push it to the default branch and push its tag. The version, or why it could not. */
-  tag(sha: string): Promise<{ version: string } | string>;
+  /**
+   * Bump a patch on `sha`, push it to the default branch and push its tag. The version, why it could not,
+   * or `existing`, the tag someone else already put on `sha`.
+   */
+  tag(sha: string): Promise<{ version: string } | { existing: string } | string>;
+  /** Push the tag `v<version>` on `sha`, a bump commit already on the default branch. Null, or why it could not. */
+  pushTag(sha: string, version: string): Promise<string | null>;
 }
 
 export interface ReleaseMachine {
@@ -175,34 +195,45 @@ export interface ReleaseMachine {
 export interface ReleaseDeps {
   store: ReleaseStore;
   repo: ReleaseRepo;
-  /** The default branch's head and whether a hold is open, as the last read of GitHub found them; null before one. */
-  github: () => { head: string; held: boolean } | null;
+  /** The default branch's head, whether a hold is open, and when GitHub was read; null before a read. */
+  github: () => { head: string; held: boolean; readAt: number } | null;
   fileIssue: (title: string, body: string) => Promise<number | null>;
+  /** Comment on an issue if it is still open; false when it is closed or could not be reached. */
+  commentIssue: (issue: number, body: string) => Promise<boolean>;
   /** Whether npm has the version yet. */
   published: (version: string) => Promise<boolean>;
   /** The machines that take part, this one among them. */
   machines: () => ReleaseMachine[];
-  /** Start this machine's own update; answers when the job began. It ends by restarting this server. */
-  updateSelf: () => number | null;
   /** This machine's update job as it stands. */
   selfJob: () => { startedAt: number; state: "running" | "ok" | "failed"; line: string } | null;
-  /** Update another machine and wait for how it went. */
-  updateRemote: (machine: ReleaseMachine) => Promise<{ ok: boolean; line: string }>;
+  /** Start this machine's update to `version`; answers when the job began. It ends by restarting this server. */
+  updateSelf: (version: string) => number | null;
+  /** Update another machine to `version` and wait for how it went. */
+  updateRemote: (machine: ReleaseMachine, version: string) => Promise<{ ok: boolean; line: string }>;
   /** A machine's version as its health check answers it; null when it does not answer as healthy. */
   health: (machine: ReleaseMachine) => Promise<string | null>;
   now?: () => number;
 }
 
-/** A preference naming the machines that take part although they keep their projects (`queue:exclusive`). */
-export const RELEASE_INCLUDE_KEY = "release:include";
+/** A preference naming the machines the rollout leaves out. */
+export const RELEASE_EXCLUDE_KEY = "release:exclude";
+/** Left out while `release:exclude` was never set: `engage` belongs to a client and joins only by choice. */
+export const DEFAULT_RELEASE_EXCLUDE = ["engage"];
+
+/** The machines the rollout leaves out: the preference when it was ever set (an empty list included), else the default. */
+export function releaseExcludeList(value: unknown): string[] {
+  if (!Array.isArray(value)) return DEFAULT_RELEASE_EXCLUDE;
+  return value.filter((v): v is string => typeof v === "string").map(placeName).filter(Boolean);
+}
 
 /**
- * Whether a machine takes part in the rollout: every machine does, but one
- * that keeps its projects (`engage` unless set) only once it is named in
- * `release:include`. Names as `placeName()` gives them.
+ * Whether a machine takes part in the rollout: every machine does but those
+ * `release:exclude` names, and one whose name cannot be told, which might be
+ * one of them. `hostname` as the fleet reports it.
  */
-export function takesPart(name: string, exclusive: readonly string[], include: readonly string[] | null): boolean {
-  return !exclusive.includes(name) || (include ?? []).includes(name);
+export function takesPart(hostname: string | null | undefined, exclude: readonly string[]): boolean {
+  const name = placeName(hostname ?? "");
+  return name !== "" && name !== "localhost" && !exclude.includes(name);
 }
 
 function short(sha: string): string {
@@ -211,6 +242,39 @@ function short(sha: string): string {
 
 function tail(text: string, lines = 40): string {
   return text.trimEnd().split("\n").slice(-lines).join("\n");
+}
+
+const SECRET_NAME = /TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_?KEY|PRIVATE|AUTH|COOKIE|SESSION/i;
+const SECRET_SHAPES = [
+  /\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g,
+  /\bnpm_[A-Za-z0-9]{20,}\b/g,
+  /\bsk-[A-Za-z0-9_-]{16,}\b/g,
+  /\bgsk_[A-Za-z0-9]{20,}\b/g,
+  /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  /\b(Bearer|token)\s+[A-Za-z0-9._~+/=-]{16,}/gi,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+];
+/** How much of a failing step's output goes into a public issue. */
+const ISSUE_OUTPUT_CHARS = 6_000;
+
+/**
+ * A failing gate's output as it may go into a public issue: its last lines,
+ * at most `ISSUE_OUTPUT_CHARS`, with this server's secrets (any variable
+ * whose name says it is one) and anything shaped like a token taken out, and
+ * the home directory written as `~`.
+ */
+export function scrubOutput(text: string, env: NodeJS.ProcessEnv = process.env): string {
+  let out = tail(text);
+  if (out.length > ISSUE_OUTPUT_CHARS) out = `…${out.slice(-ISSUE_OUTPUT_CHARS)}`;
+  const values = Object.entries(env)
+    .filter(([k, v]) => SECRET_NAME.test(k) && typeof v === "string" && v.length >= 6)
+    .map(([, v]) => v as string)
+    .sort((a, b) => b.length - a.length);
+  for (const v of values) out = out.split(v).join("[redacted]");
+  for (const shape of SECRET_SHAPES) out = out.replace(shape, "[redacted]");
+  if (env.HOME && env.HOME.length > 1) out = out.split(env.HOME).join("~");
+  return out.replace(/```/g, "`\u200b``");
 }
 
 // ── the rule ─────────────────────────────────────────────────────────────────
@@ -253,6 +317,11 @@ export class ReleaseRule {
     const github = this.deps.github();
     if (!github) return;
     const now = this.now();
+    // A read that stopped coming may have missed a hold opened since: nothing is done on it.
+    if (now - github.readAt > STALE_READ_MS) {
+      this.lastError = `GitHub was last read ${Math.round((now - github.readAt) / 60_000)} minutes ago; waiting for a fresh read`;
+      throw new Error(this.lastError);
+    }
     if (this.file.head?.sha !== github.head) {
       this.file.head = { sha: github.head, seenAt: now };
       this.save();
@@ -291,7 +360,10 @@ export class ReleaseRule {
     const release = this.file.release;
     if (release && (release.state === "publishing" || release.state === "rolling-out")) {
       release.taggedAt += heldFor;
-      for (const a of release.attempts) if (a.state === "updating" && a.startedAt !== undefined) a.startedAt += heldFor;
+      for (const a of release.attempts) {
+        if (a.state === "updating" && a.startedAt !== undefined) a.startedAt += heldFor;
+        if (a.offlineSince !== undefined) a.offlineSince += heldFor;
+      }
     }
     this.file.heldAt = null;
     this.save();
@@ -301,6 +373,10 @@ export class ReleaseRule {
     const changes = await this.deps.repo.changes(sha);
     if (!changes) {
       this.lastError = `could not read what changed up to ${short(sha)}`;
+      return;
+    }
+    if (changes.bump) {
+      await this.pushTag(sha, changes.bump);
       return;
     }
     const skip = changes.tagged
@@ -322,28 +398,58 @@ export class ReleaseRule {
       this.log("ran", `${short(sha)} passed lint, tests and build`, commitUrl(sha));
       return;
     }
-    if (result.transient) {
+    const tries = (this.file.retry?.sha === sha ? (this.file.retry.tries ?? 1) : 0) + 1;
+    if (result.transient && tries < TRANSIENT_TRIES) {
       this.file.gate = null;
-      this.file.retry = { sha, at: this.now(), reason: `${result.step} failed` };
+      this.file.retry = { sha, at: this.now(), reason: `${result.step} failed`, tries };
       this.log("skipped", `${short(sha)}: could not ${result.step}; trying again in ${RETRY_MS / 60_000} minutes`);
       return;
     }
-    const issue = await this.deps.fileIssue(
-      `Release gate failed on ${short(sha)}: ${result.step}`,
-      [
-        `The release rule ran lint, tests and build on ${commitUrl(sha)} and \`${result.step}\` failed, so nothing was released. It waits for a new commit.`,
-        "",
-        "```",
-        tail(result.output),
-        "```",
-      ].join("\n")
-    );
+    this.file.retry = null;
+    const body = [
+      `The release rule ran lint, tests and build on ${commitUrl(sha)} and \`${result.step}\` failed${result.transient ? ` ${tries} times` : ""}, so nothing was released. It waits for a new commit.`,
+      "",
+      "```",
+      scrubOutput(result.output),
+      "```",
+    ].join("\n");
+    // A broken main fails every merge until it is fixed: one issue says so, and each new failure is a comment on it.
+    const open = this.file.gateIssue;
+    const commented = open ? await this.deps.commentIssue(open, body) : false;
+    const issue = commented ? open! : await this.deps.fileIssue(`Release gate failed on ${short(sha)}: ${result.step}`, body);
+    if (issue) this.file.gateIssue = issue;
     this.file.gate = { sha, state: "failed", reason: `${result.step} failed`, at: this.now(), issue };
-    this.log("failed", `${short(sha)}: ${result.step} failed${issue ? `; filed #${issue}` : ""}`, issueUrl(issue) ?? commitUrl(sha));
+    const said = issue ? (commented ? `; commented on #${issue}` : `; filed #${issue}`) : "";
+    this.log("failed", `${short(sha)}: ${result.step} failed${said}`, issueUrl(issue) ?? commitUrl(sha));
+  }
+
+  /** A bump commit on main whose tag never reached the remote: its tag is pushed again, not bumped past. */
+  private async pushTag(sha: string, version: string): Promise<void> {
+    const failed = this.file.retry;
+    if (failed?.sha === sha && this.now() - failed.at < RETRY_MS) return;
+    const why = await this.deps.repo.pushTag(sha, version);
+    if (why) {
+      const reason = `Could not push v${version} on ${short(sha)}: ${why}`;
+      const again = failed?.sha === sha && failed.reason === reason;
+      this.file.retry = { sha, at: this.now(), reason };
+      if (again) this.save();
+      else this.log("failed", `${reason}; trying again in ${RETRY_MS / 60_000} minutes`);
+      return;
+    }
+    this.file.retry = null;
+    this.file.gate = { sha, state: "skipped", reason: `${short(sha)} is v${version}`, at: this.now() };
+    this.published(sha, version, `Pushed v${version} again on ${short(sha)}: its tag had not reached GitHub`);
   }
 
   private async tag(sha: string): Promise<void> {
     const tagged = await this.deps.repo.tag(sha);
+    if (typeof tagged === "object" && "existing" in tagged) {
+      // Released by hand while the rule waited: that release stands, and this head is not bumped again.
+      this.file.retry = null;
+      this.file.gate = { sha, state: "skipped", reason: `${short(sha)} is ${tagged.existing}`, at: this.now() };
+      this.log("skipped", `${short(sha)} was tagged ${tagged.existing} meanwhile; nothing to release`);
+      return;
+    }
     if (typeof tagged === "string") {
       // Most often main moved under it, and the next head is gated and waited for afresh; else it is tried again later.
       const reason = `Could not tag ${short(sha)}: ${tagged}`;
@@ -354,15 +460,13 @@ export class ReleaseRule {
       return;
     }
     this.file.retry = null;
-    this.file.release = {
-      sha,
-      version: tagged.version,
-      taggedAt: this.now(),
-      state: "publishing",
-      reason: "Waiting for npm",
-      attempts: [],
-    };
-    this.log("ran", `Tagged v${tagged.version} on ${short(sha)}`, `https://github.com/${RELEASE_REPO}/releases/tag/v${tagged.version}`);
+    this.published(sha, tagged.version, `Tagged v${tagged.version} on ${short(sha)}`);
+  }
+
+  /** A tag is on the remote: the rollout waits for npm to have it. */
+  private published(sha: string, version: string, line: string): void {
+    this.file.release = { sha, version, taggedAt: this.now(), state: "publishing", reason: "Waiting for npm", attempts: [] };
+    this.log("ran", line, `https://github.com/${RELEASE_REPO}/releases/tag/v${version}`);
   }
 
   private async advance(release: ReleaseRecord): Promise<void> {
@@ -390,22 +494,16 @@ export class ReleaseRule {
       return;
     }
     release.state = "done";
-    release.reason = `Every machine runs v${release.version}`;
-    this.log("done", `v${release.version} is on ${release.attempts.filter((a) => a.state === "ok").map((a) => a.name).join(", ") || "no machine"}`);
+    release.reason = doneLine(release);
+    this.log("done", release.reason);
   }
 
-  /** This machine first, then the others by name; the offline and the excluded are passed over, as recorded. */
+  /** This machine first, then the others by name; one offline is waited for when its turn comes. */
   private rolloutOrder(): Attempt[] {
     const machines = this.deps.machines();
     const self = machines.filter((m) => m.self);
     const others = machines.filter((m) => !m.self).sort((a, b) => a.name.localeCompare(b.name));
-    return [...self, ...others].map((m) => ({
-      machine: m.id,
-      name: m.name,
-      self: m.self,
-      state: m.online ? "queued" : "skipped",
-      reason: m.online ? "Waiting its turn" : "Offline when the rollout began",
-    }));
+    return [...self, ...others].map((m) => ({ machine: m.id, name: m.name, self: m.self, state: "queued", reason: "Waiting its turn" }));
   }
 
   /** The attempt's outcome, or null while it is under way. */
@@ -415,7 +513,7 @@ export class ReleaseRule {
       Object.assign(attempt, { state: "updating", reason: "Updating", startedAt: this.now() });
       // Kept before the update starts: it ends by restarting this server.
       this.save();
-      const jobStartedAt = this.deps.updateSelf();
+      const jobStartedAt = this.deps.updateSelf(release.version);
       if (jobStartedAt === null) return this.end(attempt, "failed", "The update could not start");
       attempt.jobStartedAt = jobStartedAt;
       this.save();
@@ -444,18 +542,25 @@ export class ReleaseRule {
       return version === release.version ? this.end(attempt, "ok", `Healthy on v${version}`) : this.timeout(attempt, release, version);
     }
     if (!machine?.online) {
-      // It went away after the rollout began; it is not waited for.
-      return this.end(attempt, "skipped", "Offline when its turn came");
+      // After this server restarts every link to the fleet starts offline: a machine is given a while to reconnect.
+      if (attempt.offlineSince === undefined) {
+        Object.assign(attempt, { offlineSince: this.now(), reason: "Offline; waiting for it to reconnect" });
+        this.save();
+        return null;
+      }
+      if (this.now() - attempt.offlineSince < RECONNECT_MS) return null;
+      return this.end(attempt, "skipped", `Offline for ${RECONNECT_MS / 60_000} minutes when its turn came`);
     }
     Object.assign(attempt, { state: "updating", reason: "Updating", startedAt: this.now() });
     this.save();
-    const result = await this.deps.updateRemote(machine);
+    const result = await this.deps.updateRemote(machine, release.version);
     if (!result.ok) return this.end(attempt, "failed", result.line || "The update failed");
+    // Its server may still be coming back: health is read again each tick until the deadline.
     const version = await this.deps.health(machine);
-    if (version !== release.version) {
-      return this.end(attempt, "failed", `Updated, but it answers ${version ? `v${version}` : "as unhealthy"}`);
-    }
-    return this.end(attempt, "ok", `Healthy on v${version}`);
+    if (version === release.version) return this.end(attempt, "ok", `Healthy on v${version}`);
+    attempt.reason = "Updated; waiting for it to answer on the new version";
+    this.save();
+    return null;
   }
 
   /** Records the attempt's outcome (saved with its log line) and answers it. */
@@ -498,6 +603,15 @@ export class ReleaseRule {
 
 const HELD_REASON = `Paused: an issue labelled ${HOLD_LABEL} is open`;
 
+/** How a rollout that ran to its end left the fleet, naming every machine it passed over. */
+function doneLine(release: ReleaseRecord): string {
+  const names = (state: AttemptState) => release.attempts.filter((a) => a.state === state).map((a) => a.name);
+  const ok = names("ok");
+  const skipped = names("skipped");
+  const on = `v${release.version} is on ${ok.join(", ") || "no machine"}`;
+  return skipped.length > 0 ? `${on}; not updated: ${skipped.join(", ")}` : on;
+}
+
 function commitUrl(sha: string): string {
   return `https://github.com/${RELEASE_REPO}/commit/${sha}`;
 }
@@ -538,20 +652,33 @@ export const GATE_STEPS: NonNullable<GitRepoOptions["steps"]> = [
   { name: "build", cmd: "bun", args: ["run", "build"] },
 ];
 
+/** The only variables the gate's steps get from this server: what finds the tools and sets the locale. */
+const GATE_ENV_ALLOW = /^(PATH|LANG|LANGUAGE|LC_[A-Z]+|TZ|TERM|SHELL|USER|LOGNAME)$/;
+
 /**
- * What the gate's steps run with: a HOME of their own, and nothing that names
- * this server's tmux, sessions or settings, so a test that forgets to isolate
- * itself still cannot reach the live installation. Its tmux tests pass
- * `-L <name>` besides (CLAUDE.md), which is what isolates tmux.
+ * What the gate's steps run with: the few variables `GATE_ENV_ALLOW` lets
+ * through, so no token or key of this server's reaches code under test, and a
+ * `HOME` and `TMUX_TMPDIR` of their own under `dir`, so a test that forgets
+ * to isolate itself still cannot reach the live installation or its default
+ * tmux socket. Its tmux tests pass `-L <name>` besides (CLAUDE.md), which is
+ * what isolates tmux.
  */
-export function gateEnv(home: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function gateEnv(dir: string, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const home = join(dir, "home");
+  const tmux = join(dir, "tmux");
   mkdirSync(home, { recursive: true });
+  mkdirSync(tmux, { recursive: true, mode: 0o700 });
   const env: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(base)) {
-    if (/^(TMUX|TMUX_PANE|TMUX_TMPDIR|CLAUDECODE|CLAUDE_CODE_.*|CLAUDE_MUX_.*|MAESTRO_.*)$/.test(k)) continue;
-    env[k] = v;
-  }
-  return { ...env, HOME: home, CI: "1" };
+  for (const [k, v] of Object.entries(base)) if (GATE_ENV_ALLOW.test(k)) env[k] = v;
+  return { ...env, HOME: home, TMUX_TMPDIR: tmux, CI: "1" };
+}
+
+/** Output that says the network or the registry failed, not the code. */
+const NETWORK_ERROR = /\b(ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|socket hang up|network error|fetch failed|503 Service Unavailable|502 Bad Gateway)\b/i;
+
+/** Whether a failed step is the machinery's: an install, or anything the network broke. */
+export function isTransientFailure(step: string, output: string): boolean {
+  return step === "install" || NETWORK_ERROR.test(output);
 }
 
 /** The repository as a clone of its own under `dir`, each gate and tag in a fresh worktree. */
@@ -603,6 +730,8 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
       const at = await git(["rev-list", "-n", "1", lastTag]);
       if (!at.ok) return null;
       if (at.output.trim() === sha) return { lastTag, tagged: true, files: [] };
+      const bump = await bumpOf(sha);
+      if (bump) return { lastTag, tagged: false, files: [], bump };
       const diff = await git(["diff", "--name-only", `${lastTag}..${sha}`]);
       return diff.ok ? { lastTag, tagged: false, files: diff.output.split("\n").filter(Boolean) } : null;
     },
@@ -614,8 +743,8 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
         sha,
         async (tree) => {
           for (const step of steps) {
-            const res = await exec(step.cmd, step.args, tree, 20 * 60_000, gateEnv(join(opts.dir, "home")));
-            if (!res.ok) return { ok: false, step: step.name, output: res.output };
+            const res = await exec(step.cmd, step.args, tree, 20 * 60_000, gateEnv(join(opts.dir, "gate-env")));
+            if (!res.ok) return { ok: false, step: step.name, output: res.output, transient: isTransientFailure(step.name, res.output) };
           }
           return { ok: true };
         },
@@ -627,6 +756,10 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
       if (!(await sync())) return `could not fetch ${RELEASE_REPO}`;
       const tip = await git(["rev-parse", `origin/${branch}`]);
       if (!tip.ok || tip.output.trim() !== sha) return `${branch} is no longer at ${short(sha)}`;
+      // Someone released by hand while the rule waited: the fetch just brought their tag.
+      const existing = await tagOn(sha);
+      if (existing === undefined) return `could not read the tags on ${short(sha)}`;
+      if (existing) return { existing };
       return inWorktree<{ version: string } | string>(
         "tag",
         sha,
@@ -648,5 +781,42 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
         `could not check out ${sha}`
       );
     },
+
+    async pushTag(sha, version) {
+      if (!(await sync())) return `could not fetch ${RELEASE_REPO}`;
+      const tip = await git(["merge-base", "--is-ancestor", sha, `origin/${branch}`]);
+      if (!tip.ok) return `${short(sha)} is not on ${branch}`;
+      const tag = `v${version}`;
+      if (!(await git(["tag", "-f", "-m", version, tag, sha])).ok) return `could not make ${tag}`;
+      const pushed = await git(["push", "--quiet", "origin", `refs/tags/${tag}`]);
+      return pushed.ok ? null : `the tag could not be pushed: ${tail(pushed.output, 5)}`;
+    },
   };
+
+  /** The version tag on `sha` as the remote has it; null when there is none, undefined when it could not be read. */
+  async function tagOn(sha: string): Promise<string | null | undefined> {
+    const res = await git(["tag", "--points-at", sha, "--list", "v[0-9]*"]);
+    if (!res.ok) return undefined;
+    return res.output.split("\n").map((t) => t.trim()).find(Boolean) ?? null;
+  }
+
+  /**
+   * The version `sha` bumped to, when it is a bump commit (`npm version`'s:
+   * the subject is the version its package.json holds) whose tag the remote
+   * lacks, which is what a tag push that failed after its branch push leaves.
+   */
+  async function bumpOf(sha: string): Promise<string | null> {
+    const subject = await git(["log", "-1", "--format=%s", sha]);
+    const version = subject.ok ? subject.output.trim() : "";
+    if (!/^\d+\.\d+\.\d+$/.test(version)) return null;
+    const pkg = await git(["show", `${sha}:package.json`]);
+    try {
+      if (!pkg.ok || (JSON.parse(pkg.output) as { version?: string }).version !== version) return null;
+    } catch {
+      return null;
+    }
+    // The clone fetched with `--prune-tags`, so a tag here is one the remote has.
+    const tagged = await git(["rev-parse", "--verify", "--quiet", `refs/tags/v${version}`]);
+    return tagged.ok ? null : version;
+  }
 }

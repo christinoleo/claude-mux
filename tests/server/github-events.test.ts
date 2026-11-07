@@ -386,11 +386,13 @@ describe("EventPoller", () => {
     expect(p.branch("o/r")).toBeNull();
     await p.poll();
     expect(gh.queries[0]).toContain('holds: issues(states: OPEN, labels: ["release-hold"]) { totalCount }');
-    expect(p.branch("o/r")).toEqual({ head: "a1", held: false });
+    expect(p.branch("o/r")).toEqual({ head: "a1", held: false, readAt: now });
     gh.repos.get("o/r")!.holds = 1;
     gh.repos.get("o/r")!.head = "b2";
+    now += POLL_MS;
     await p.poll();
-    expect(p.branch("o/r")).toEqual({ head: "b2", held: true });
+    // When it was read rides along, so the rule can tell a read that stopped coming.
+    expect(p.branch("o/r")).toEqual({ head: "b2", held: true, readAt: now });
     updateProjectEvents("o/r", { enabled: false });
     await p.poll();
     expect(p.branch("o/r")).toBeNull();

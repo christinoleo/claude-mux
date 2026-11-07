@@ -25,7 +25,8 @@ export interface StepProgress {
 export type Answer = { status: number; body: Record<string, unknown> } | null;
 
 export interface UpdateIO {
-	request(url: string, method: 'GET' | 'POST'): Promise<Answer>;
+	/** `body` is sent as JSON. */
+	request(url: string, method: 'GET' | 'POST', body?: Record<string, unknown>): Promise<Answer>;
 	sleep(ms: number): Promise<void>;
 	now(): number;
 }
@@ -69,13 +70,15 @@ function jobOf(body: Record<string, unknown>): JobAnswer | null {
 
 /**
  * Update the machine whose API is at `base` ('' for the origin, `/fleet/<id>`
- * for another) and resolve with how it ended. Never rejects.
+ * for another) and resolve with how it ended. Never rejects. With `version`,
+ * the machine installs that version rather than npm's latest.
  */
 export async function updateMachine(
 	base: string,
 	onProgress: (p: StepProgress) => void,
 	io: UpdateIO,
-	timing: UpdateTiming = DEFAULT_TIMING
+	timing: UpdateTiming = DEFAULT_TIMING,
+	version?: string
 ): Promise<StepProgress> {
 	const url = `${base}/api/update`;
 	const report = (p: StepProgress) => {
@@ -83,10 +86,10 @@ export async function updateMachine(
 		return p;
 	};
 	const fail = (line: string, output = '') => report({ state: 'failed', line, output, version: null });
-	const ask = (method: 'GET' | 'POST') => io.request(url, method).catch((): Answer => null);
+	const ask = (method: 'GET' | 'POST', body?: Record<string, unknown>) => io.request(url, method, body).catch((): Answer => null);
 
 	report({ state: 'starting', line: 'Starting the update…', output: '', version: null });
-	const started = await ask('POST');
+	const started = await ask('POST', version ? { version } : undefined);
 	if (!started) return fail('Did not answer');
 	// The relay's own 404 (a machine it does not know) carries an `error`; a machine without the route does not.
 	if (started.status === 404 && typeof started.body.error !== 'string') {
@@ -160,9 +163,13 @@ export async function updateAll<T extends { id: string; origin: boolean }>(
 
 /** The browser's way of asking a machine: `fetch`, with anything but a JSON answer counted as no answer. */
 export const browserIO: UpdateIO = {
-	async request(url, method) {
+	async request(url, method, payload) {
 		try {
-			const res = await fetch(url, { method, cache: 'no-store' });
+			const res = await fetch(url, {
+				method,
+				cache: 'no-store',
+				...(payload ? { body: JSON.stringify(payload), headers: { 'content-type': 'application/json' } } : {})
+			});
 			const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 			return { status: res.status, body };
 		} catch {
