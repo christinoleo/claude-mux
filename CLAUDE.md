@@ -482,27 +482,31 @@ started one, in a tmux window `mw-<n>-<slug>` of the session
 and `MAESTRO_ISSUE`. `in-progress`, `needs-help`, `ready-for-human`, `hold` and
 `stop-at-pr` are never taken (`stop-at-pr` until christinoleo/ak-plugins#2
 lets a worker be trusted to stop at its PR). Before claiming, the queue checks
-that the project's root is a checkout of the repo (`checkoutProblem()`: tmux
-opens a missing directory in `$HOME`), that the state map still starts
+that the project's root is a checkout of the repo, under any of its remotes
+(`checkoutProblem()`: tmux opens a missing directory in `$HOME`), that the state map still starts
 sessions for it, and that GitHub's fresh read still says open,
 `ready-for-agent` and the same `updated_at` the poller judged readiness on.
 The poller drops its copy of an issue whose full read failed, empties its
-ready list when a read fails, and hands out none older than three minutes.
+ready list as it was when a read fails, and hands out none older than three
+minutes.
 Two machines settle a race on GitHub: each posts a claim comment carrying
 `<!-- claude-mux:claim <machine id> -->`, labels `in-progress` (a failed
 label deletes the claim), waits 3 s and reads the markers back until two
 reads agree, and the earliest claim since the last
 `<!-- claude-mux:release -->` wins; the loser deletes its own. A claim lapses
-only on a release, or once it is ten minutes older than one's own and its
-machine is gone from the fleet state (or is this machine itself); age alone
-never voids one. A claim it cannot read back is deleted with the label left
+only on a release, when it is this machine's own (it runs no worker there
+while it claims), or once it is ten minutes older than one's own and its
+machine is gone (unknown to the fleet state, or offline and unheard for ten
+minutes, so a restart's all-offline start voids nothing); age alone never
+voids one. Reads that never agree leave the claim unknown. A claim it cannot read back is deleted with the label left
 on, since a release could void the winner's. A worker is known by its
 window's id and the tmux server's pid, not its name, which a person may
 change; a window is killed only when the list just read holds that pair. A
 closed issue has its window killed and its worktree and `task/<n>` branch
 removed; a window gone while the issue is open is released once and asks for
-help the second time, and one whose issue waits on a person is released too,
-label left on. A start that fails three times running asks for help. `CLAUDE_MUX_WORKER_COMMAND` (with `{issue}`) replaces `claude` for a
+help the second time, and one whose issue waits on a person is released too
+(`in-progress` off, so clearing `needs-help` lets any machine take it again).
+A start that fails three times running asks for help. `CLAUDE_MUX_WORKER_COMMAND` (with `{issue}`) replaces `claude` for a
 test under a `HOME` of its own, with a `tmux` on `PATH` that adds `-L <name>`.
 The panes take their environment from that tmux server, not from the dev
 server, so a stand-in worker that writes a session JSON must pin `HOME`

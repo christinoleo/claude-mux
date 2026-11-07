@@ -86,6 +86,18 @@ function workerCommandOverride(): ((issue: number) => string) | undefined {
 	return template ? (issue) => template.replaceAll('{issue}', String(issue)) : undefined;
 }
 
+/**
+ * Whether the machine with this id is gone. The fleet state starts with every
+ * peer offline, so a peer heard from in the last `GONE_AFTER_MS` still counts
+ * as there: right after a restart its claims must stand.
+ */
+const GONE_AFTER_MS = 10 * 60_000;
+function machineGone(id: string): boolean {
+	const m = ensureFleetState().machine(id);
+	if (!m) return true;
+	return !m.online && Date.now() - (m.lastSeen ?? 0) > GONE_AFTER_MS;
+}
+
 /** The queue, started with the poller; null on a server that does not poll. */
 export function workerQueue(): WorkerQueue | null {
 	return g.__claudeMuxWorkerQueue ?? null;
@@ -111,9 +123,7 @@ export function startWorkerQueue(): WorkerQueue {
 		keptBy,
 		checkout: checkoutProblem,
 		wanted: (repo) => enabledProjects().get(repo)?.events['issue-ready'] === 'session',
-		machineGone: (id) => !ensureFleetState()
-			.snapshot()
-			.some((m) => m.id === id && m.online),
+		machineGone,
 		workerCommand: workerCommandOverride()
 	});
 	g.__claudeMuxWorkerQueue = queue;

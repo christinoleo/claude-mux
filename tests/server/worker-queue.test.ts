@@ -260,13 +260,18 @@ describe("winningClaim", () => {
     const stale = m(1, "<!-- claude-mux:claim a -->", T - CLAIM_WINDOW_MS - 1);
     const fresh = m(9, "<!-- claude-mux:claim b -->");
     expect(winningClaim([stale, fresh], 9)?.id).toBe(1);
-    expect(winningClaim([stale, fresh], 9, () => false)?.id).toBe(1);
-    expect(winningClaim([stale, fresh], 9, (c) => c.id === 1)?.id).toBe(9);
+    expect(winningClaim([stale, fresh], 9, { gone: () => false })?.id).toBe(1);
+    expect(winningClaim([stale, fresh], 9, { gone: (id) => id === "a" })?.id).toBe(9);
   });
 
   it("never lets a young claim lapse, even from a machine that looks gone", () => {
     const young = m(1, "<!-- claude-mux:claim a -->", T - 1000);
-    expect(winningClaim([young, m(9, "<!-- claude-mux:claim b -->")], 9, () => true)?.id).toBe(1);
+    expect(winningClaim([young, m(9, "<!-- claude-mux:claim b -->")], 9, { gone: () => true })?.id).toBe(1);
+  });
+
+  it("lets every other claim by this machine lapse, however young: it runs no worker on the issue", () => {
+    const left = m(1, "<!-- claude-mux:claim b -->", T - 1000);
+    expect(winningClaim([left, m(9, "<!-- claude-mux:claim b -->")], 9, { self: "b" })?.id).toBe(9);
   });
 
   it("knows nothing until its own claim can be read back", () => {
@@ -535,7 +540,9 @@ describe("WorkerQueue", () => {
       github.get(REPO, 4).labels.add("needs-help");
       m.tmux.windows.clear();
       await m.queue.tick();
-      expect(github.get(REPO, 4).labels.has("in-progress")).toBe(true);
+      // Released with in-progress off; needs-help alone keeps it out of the queue.
+      expect(github.get(REPO, 4).labels.has("in-progress")).toBe(false);
+      expect(github.get(REPO, 4).labels.has("needs-help")).toBe(true);
       expect(m.queue.status().workers).toEqual([]);
       expect(m.tmux.started).toHaveLength(1);
     });
@@ -988,7 +995,26 @@ describe("what review found in the queue (#213)", () => {
     m.tmux.windows.clear();
     await m.queue.tick();
     expect(releases(github)).toHaveLength(1);
-    expect(github.get(REPO, 1).labels.has("in-progress")).toBe(true);
+    // in-progress off: needs-help keeps it out of the queue until the person clears it, and then nothing does.
+    expect(github.get(REPO, 1).labels.has("in-progress")).toBe(false);
+    github.get(REPO, 1).labels.delete("needs-help");
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(2);
+  });
+
+  it("forgets failed starts of an issue that left the queue", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    let issues = [ready(REPO, 1)];
+    const real = new FakeTmux().runner();
+    const m = machine(github, () => issues, {
+      tmux: async (args) => (args[0] === "new-window" || args[0] === "new-session" ? { ok: false, stdout: "" } : real(args)),
+    });
+    await m.queue.tick();
+    expect(m.store.file.failedStarts).toEqual({ [`${REPO}#1`]: 1 });
+    issues = [];
+    await m.queue.tick();
+    expect(m.store.file.failedStarts).toEqual({});
   });
 });
 
@@ -1008,8 +1034,12 @@ describe("checkoutProblem", () => {
       git(repo, "remote", "add", "origin", "git@github.com:O/R.git");
       expect(await checkoutProblem(repo, "o/r")).toBeNull();
       expect(await checkoutProblem(repo, "o/other")).toMatch(/not a checkout of o\/other/);
+      // A project rooted in a subfolder of its repo, and a clone whose origin is a fork.
       mkdirSync(join(repo, "sub"));
-      expect(await checkoutProblem(join(repo, "sub"), "o/r")).toMatch(/inside another repository/);
+      expect(await checkoutProblem(join(repo, "sub"), "o/r")).toBeNull();
+      git(repo, "remote", "rename", "origin", "upstream");
+      git(repo, "remote", "add", "origin", "https://github.com/fork/r.git");
+      expect(await checkoutProblem(repo, "o/r")).toBeNull();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

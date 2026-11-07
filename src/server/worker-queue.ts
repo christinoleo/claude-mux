@@ -47,7 +47,7 @@
  */
 
 import { execFile } from "child_process";
-import { existsSync, readFileSync, realpathSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { CLAUDE_MUX_DIR } from "../utils/paths.js";
@@ -413,12 +413,17 @@ export function claimBody(machineId: string, machine: string): string {
 
 /**
  * The claim that stands against `mine`: the earliest posted since the last
- * release that has not lapsed. A claim more than `CLAIM_WINDOW_MS` before
- * `mine` lapses only when `lapsed` says so of it (its machine is gone); a
- * younger one always stands. Null when `mine` cannot be read back yet, since
- * then nothing is known.
+ * release that has not lapsed. Any other claim by `self` (this machine, which
+ * runs no worker on the issue while it claims) is left over and lapses. Any
+ * other claim more than `CLAIM_WINDOW_MS` before `mine` lapses only when
+ * `gone` says its machine is gone; a younger one always stands. Null when
+ * `mine` cannot be read back yet, since then nothing is known.
  */
-export function winningClaim(markers: readonly Marker[], mine: number, lapsed: (claim: Marker) => boolean = () => false): Marker | null {
+export function winningClaim(
+  markers: readonly Marker[],
+  mine: number,
+  { self = null, gone = () => false }: { self?: string | null; gone?: (machineId: string) => boolean } = {}
+): Marker | null {
   const sorted = [...markers].sort((a, b) => a.id - b.id);
   const own = sorted.find((m) => m.id === mine);
   if (!own) return null;
@@ -429,7 +434,13 @@ export function winningClaim(markers: readonly Marker[], mine: number, lapsed: (
   return (
     sorted
       .slice(since)
-      .find((m) => m.body.includes(CLAIM_MARK) && (m.id === mine || m.at >= own.at - CLAIM_WINDOW_MS || !lapsed(m))) ?? null
+      .find((m) => {
+        if (!m.body.includes(CLAIM_MARK)) return false;
+        if (m.id === mine) return true;
+        const by = claimant(m);
+        if (self !== null && by === self) return false;
+        return m.at >= own.at - CLAIM_WINDOW_MS || by === null || !gone(by);
+      }) ?? null
   );
 }
 
@@ -765,6 +776,9 @@ export class WorkerQueue {
       stillSeen[key] = seen[key] ?? this.now();
     }
     this.file.seen = stillSeen;
+    // A count of failed starts belongs to an issue still in the queue; one that left starts afresh.
+    const inQueue = new Set(ready.map(issueKey));
+    this.file.failedStarts = Object.fromEntries(Object.entries(this.file.failedStarts ?? {}).filter(([k]) => inQueue.has(k)));
 
     const waiting: WaitingIssue[] = [];
     const wait = (issue: ReadyIssue, why: string, kind: WaitKind) =>
@@ -833,11 +847,7 @@ export class WorkerQueue {
       await github.deleteComment(repo, mine);
       return { why: `Could not label it ${IN_PROGRESS}`, kind: "github" };
     }
-    // This machine runs no worker on the issue, so a claim of its own other than this one is left over; another machine's only once it is gone.
-    const lapsed = (m: Marker) => {
-      const by = claimant(m);
-      return by === this.deps.machineId || (by !== null && this.deps.machineGone(by));
-    };
+    const lapsed = { self: this.deps.machineId, gone: this.deps.machineGone };
     // GitHub's comment list can lag: a winner counts only once two reads in a row agree on it.
     let winner: Marker | null = null;
     let agreed = false;
@@ -848,7 +858,8 @@ export class WorkerQueue {
       agreed = !!found && !!winner && found.id === winner.id;
       winner = found;
     }
-    if (!agreed) winner = winner && winner.id !== mine ? winner : null;
+    // Reads that never agreed say nothing: deleting this claim while the other machine does the same would strand the issue.
+    if (!agreed) winner = null;
     if (!winner || winner.id !== mine) {
       await github.deleteComment(repo, mine);
       if (!winner) {
@@ -863,25 +874,21 @@ export class WorkerQueue {
 
     const started = await this.spawn(issue);
     const failed = (this.file.failedStarts ??= {});
+    const key = issueKey(issue);
     if (!started) {
-      const key = issueKey(issue);
       failed[key] = (failed[key] ?? 0) + 1;
       if (failed[key] < START_ATTEMPTS) {
         await this.release(issue, "the worker could not start");
         return { why: "The worker could not start", kind: "github" };
       }
       delete failed[key];
-      await github.addLabel(repo, number, NEEDS_HELP);
-      await this.release(
-        issue,
-        `the worker could not start ${START_ATTEMPTS} times running on **${this.deps.machine()}**, so it needs help`
-      );
+      await this.askForHelp(issue, `the worker could not start ${START_ATTEMPTS} times running`);
       return TAKEN_WHY[NEEDS_HELP];
     }
-    delete failed[issueKey(issue)];
+    delete failed[key];
     started.queuedAt = queuedAt;
     this.file.workers.push(started);
-    this.live.set(issueKey(started), { sessionId: null, memGiB: null, labels: [...now.labels, IN_PROGRESS] });
+    this.live.set(key, { sessionId: null, memGiB: null, labels: [...now.labels, IN_PROGRESS] });
     this.note(repo, number, `Started in ${started.target}`);
     this.save();
     return "started";
@@ -889,13 +896,18 @@ export class WorkerQueue {
 
   /**
    * Put an issue back in the queue: a release marker, so the claim before it
-   * never wins again, and its label off (unless `unlabel` is false, for a
-   * worker that asked for help and owns the label until a person is done).
+   * never wins again, and its label off.
    */
-  private async release(issue: { repo: string; number: number }, why: string, unlabel = true): Promise<void> {
+  private async release(issue: { repo: string; number: number }, why: string): Promise<void> {
     await this.deps.github.comment(issue.repo, issue.number, `${RELEASE_MARK}\nclaude-mux put this issue back in the queue: ${why}.`);
-    if (unlabel) await this.deps.github.removeLabel(issue.repo, issue.number, IN_PROGRESS);
+    await this.deps.github.removeLabel(issue.repo, issue.number, IN_PROGRESS);
     this.note(issue.repo, issue.number, `Put back: ${why}`);
+  }
+
+  /** Label an issue `needs-help` and put it back, saying what went wrong on this machine. */
+  private async askForHelp(issue: { repo: string; number: number }, what: string): Promise<void> {
+    await this.deps.github.addLabel(issue.repo, issue.number, NEEDS_HELP);
+    await this.release(issue, `${what} on **${this.deps.machine()}**, so it needs help`);
   }
 
   private async spawn(issue: ReadyIssue): Promise<WorkerRecord | null> {
@@ -928,9 +940,8 @@ export class WorkerQueue {
     for (const [i, w] of this.file.workers.entries()) {
       const key = issueKey(w);
       const now = issues[i];
-      const alive = windows?.has(windowKey(w)) ?? true;
-      // Ids repeat across tmux servers: a window is killed only when the list just read holds this one.
-      const killable = !!windows?.has(windowKey(w));
+      const listed = windows?.has(windowKey(w));
+      const alive = listed ?? true;
       if (!now) {
         keep.push(w);
         continue;
@@ -938,7 +949,8 @@ export class WorkerQueue {
       const live = this.live.get(key);
       this.live.set(key, { sessionId: live?.sessionId ?? null, memGiB: live?.memGiB ?? null, labels: now.labels });
       if (!now.open) {
-        if (killable) await this.deps.tmux(["kill-window", "-t", w.window]);
+        // Ids repeat across tmux servers: a window is killed only when the list just read holds this one.
+        if (listed) await this.deps.tmux(["kill-window", "-t", w.window]);
         await this.deps.git(w.root, ["worktree", "remove", "--force", `.worktree/${w.number}`]);
         await this.deps.git(w.root, ["branch", "-D", `task/${w.number}`]);
         this.file.retried = this.file.retried.filter((k) => k !== key);
@@ -953,15 +965,14 @@ export class WorkerQueue {
       // The window is gone and the issue still open.
       if (now.labels.includes(NEEDS_HELP) || now.labels.includes(READY_FOR_HUMAN)) {
         this.file.retried = this.file.retried.filter((k) => k !== key);
-        // Released, so that once the person is done any machine can claim it again.
-        await this.release(w, "its worker ended and the issue waits on a person", false);
+        // Released, so that once the person clears needs-help any machine can claim it again.
+        await this.release(w, "its worker ended and the issue waits on a person");
         this.ended(w, "help");
         continue;
       }
       if (this.file.retried.includes(key)) {
         this.file.retried = this.file.retried.filter((k) => k !== key);
-        await this.deps.github.addLabel(w.repo, w.number, NEEDS_HELP);
-        await this.release(w, `the worker disappeared twice without finishing on **${this.deps.machine()}**, so it needs help`);
+        await this.askForHelp(w, "the worker disappeared twice without finishing");
         this.ended(w, "lost");
         continue;
       }
@@ -1018,17 +1029,12 @@ export const realGit: GitRunner = async (cwd, args) => (await git(args, cwd)) !=
  */
 export async function checkoutProblem(root: string, repo: string): Promise<string | null> {
   if (!existsSync(root)) return `No checkout here: ${root} is missing`;
-  const top = await git(["rev-parse", "--show-toplevel"], root);
-  if (top === null) return `No checkout here: ${root} is not a git repository`;
-  let same = false;
-  try {
-    same = realpathSync(top.trim()) === realpathSync(root);
-  } catch {
-    // Unreadable: not the same.
-  }
-  if (!same) return `No checkout here: ${root} sits inside another repository`;
-  const url = await git(["remote", "get-url", "origin"], root);
-  if (!url || normaliseRemote(url) !== `github.com/${repo.toLowerCase()}`) return `No checkout here: ${root} is not a checkout of ${repo}`;
+  if ((await git(["rev-parse", "--show-toplevel"], root)) === null) return `No checkout here: ${root} is not a git repository`;
+  // Any remote will do: a clone whose origin is a fork still names the repo as upstream.
+  const remotes = (await git(["remote", "-v"], root)) ?? "";
+  const want = `github.com/${repo.toLowerCase()}`;
+  const urls = remotes.split("\n").map((l) => l.split(/\s+/)[1]).filter(Boolean);
+  if (!urls.some((u) => normaliseRemote(u) === want)) return `No checkout here: ${root} is not a checkout of ${repo}`;
   return null;
 }
 

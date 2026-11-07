@@ -108,6 +108,15 @@ export type GhRunner = (args: string[]) => Promise<boolean>;
 /** What someone other than Leo did to an issue marked ready. */
 export type StrangerAct = "labelled" | "unlabelled" | "commented" | "renamed" | "edited";
 
+/** How Needs you words each act. */
+const ACT_PHRASE: Record<StrangerAct, string> = {
+  labelled: "labelled",
+  unlabelled: "took a label off",
+  commented: "commented",
+  renamed: "renamed",
+  edited: "edited",
+};
+
 export type Readiness =
   | { state: "ready"; labeledAt: string }
   /** Someone else acted after the label, or applied it: Leo has to approve it again. */
@@ -425,7 +434,7 @@ export class EventPoller {
       url: a.url,
       kind: "approve" as const,
       since: a.at,
-      note: `${a.by === "someone" ? "Someone" : `@${a.by}`} ${a.what === "unlabelled" ? "took a label off" : a.what} it after it was marked ${READY_LABEL}`,
+      note: `${a.by === "someone" ? "Someone" : `@${a.by}`} ${ACT_PHRASE[a.what]} it after it was marked ${READY_LABEL}`,
     }));
   }
 
@@ -465,6 +474,7 @@ export class EventPoller {
   private async sweep(): Promise<void> {
     const before = this.approvalsKey();
     try {
+      // A read that failed keeps the last list, which `readyIssues()` refuses once it is old.
       if (await this.read()) for (const listener of this.sweepListeners) listener();
     } finally {
       if (this.approvalsKey() !== before) this.deps.onApprovals?.();
@@ -499,7 +509,6 @@ export class EventPoller {
     this.lastPollAt = this.now();
     if (!data) {
       this.lastError = "GitHub did not answer";
-      this.setReady([]);
       return false;
     }
     this.charge(data);
@@ -507,7 +516,6 @@ export class EventPoller {
     const viewer = (data.viewer as { login?: string } | undefined)?.login ?? null;
     if (!viewer) {
       this.lastError = "gh is not logged in";
-      this.setReady([]);
       return false;
     }
     this.viewer = viewer;

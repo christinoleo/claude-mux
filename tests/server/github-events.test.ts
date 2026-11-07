@@ -313,25 +313,26 @@ describe("EventPoller", () => {
     expect(p.approvalTickets()).toMatchObject([{ number: 5 }]);
   });
 
-  it("hands out no ready issues once a read fails, nor a list gone old", async () => {
+  it("refuses a ready list gone old while reads fail, and keeps it through one failure", async () => {
     gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
     updateProjectEvents("o/r", { enabled: true, root: "/p/r", events: { "issue-ready": "session" } });
     const p = poller();
     await p.poll();
     expect(p.readyIssues()).toHaveLength(1);
 
+    // One failure is not worth emptying the queue (and forgetting how long each issue waited)...
     gh.down = true;
     now += POLL_MS;
+    await p.poll();
+    expect(p.readyIssues()).toHaveLength(1);
+    // ...but a list no read has confirmed for a while is not trusted.
+    now += READY_MAX_AGE_MS;
     await p.poll();
     expect(p.readyIssues()).toEqual([]);
 
     gh.down = false;
-    now += POLL_MS;
     await p.poll();
     expect(p.readyIssues()).toHaveLength(1);
-    // No read since (the timer stopped, say): the list is not trusted.
-    now += READY_MAX_AGE_MS + 1;
-    expect(p.readyIssues()).toEqual([]);
   });
 
   it("records nothing for an event the map ignores, and finds it when the rule is turned on", async () => {
