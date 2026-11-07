@@ -229,8 +229,9 @@ function withoutLocal(opts: Partial<QueueDeps> & { name?: string; file?: unknown
 const REPO = "christinoleo/scratch";
 
 describe("parseSettingsPatch", () => {
-  it("takes the numbers within bounds, and no switch of its own", () => {
-    expect(parseSettingsPatch({ enabled: true, limit: 8, minFreeGiB: 2.5, maxPressure: 10 })).toEqual({
+  it("takes the numbers within bounds, and refuses the switch it no longer has", () => {
+    expect(parseSettingsPatch({ enabled: false })).toMatch(/machine-switch/);
+    expect(parseSettingsPatch({ limit: 8, minFreeGiB: 2.5, maxPressure: 10 })).toEqual({
       limit: 8,
       minFreeGiB: 2.5,
       maxPressure: 10,

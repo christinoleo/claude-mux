@@ -10,7 +10,7 @@ import {
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { startClaudeUpdater } from '$shared/server/claude-update.js';
 import { eventPoller } from '$shared/server/github-events.js';
-import { followMachineSwitch, machineOn } from '$shared/server/machine-switch.js';
+import { followMachineSwitch, settleMachineSwitch } from '$shared/server/machine-switch.js';
 import {
 	browserWsManager,
 	sessionsWsManager,
@@ -38,8 +38,8 @@ import { listenPort, MACHINE_ID } from '$lib/server/instance';
 // the moment the server starts rather than when the first page connects.
 // The fleet state likewise follows the other machines whether or not a page is open.
 export const init: ServerInit = () => {
-	// Read first, so a machine that had any of the old switches on takes its answer from them before anything rewrites their files.
-	machineOn();
+	// First, so a machine that had any of the old switches on takes its answer from them before anything rewrites their files.
+	settleMachineSwitch({ dev });
 	ensurePushMonitor();
 	ensureFleetState();
 	// It restarts live sessions, so a dev server beside the real one must not run it.

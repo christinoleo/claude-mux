@@ -6,11 +6,12 @@ import { tmpdir } from "os";
 const paths = vi.hoisted(() => ({ CLAUDE_DIR: "", CLAUDE_SETTINGS_PATH: "", CLAUDE_MUX_DIR: "" }));
 vi.mock("../../src/utils/paths.js", () => paths);
 
-const { machineOn, readMachineSwitch, setMachineSwitch, followMachineSwitch, MACHINE_OFF } = await import(
+const { machineOn, readMachineSwitch, setMachineSwitch, followMachineSwitch, settleMachineSwitch, MACHINE_OFF } = await import(
   "../../src/server/machine-switch.js"
 );
 const { setLiveText, readLiveText } = await import("../../src/server/live-text-switch.js");
 const { setDialogAnswers, readDialogAnswers } = await import("../../src/server/dialog-switch.js");
+const { setEventMapPath, updateProjectEvents } = await import("../../src/db/event-map-json.js");
 
 const PROD = { dev: false, port: 3456 };
 const DEV = { dev: true, port: 3434 };
@@ -73,6 +74,7 @@ describe("moving over from the old switches", () => {
   it("starts on where live text was on, and keeps it", () => {
     setLiveText(true, PROD);
     expect(machineOn()).toBe(true);
+    settleMachineSwitch(PROD);
     expect(JSON.parse(readFileSync(switchFile(), "utf-8"))).toEqual({ on: true });
     expect(hooks().liveText).toBe(true);
   });
@@ -87,9 +89,39 @@ describe("moving over from the old switches", () => {
     expect(machineOn()).toBe(true);
   });
 
+  it("starts on where a clock Trigger ran, since Triggers had no switch, but not for paused ones", () => {
+    const triggers = (paused: boolean) =>
+      writeFileSync(join(paths.CLAUDE_MUX_DIR, "triggers.json"), JSON.stringify({ triggers: [{ id: "t1", paused }], runs: [] }));
+    triggers(true);
+    expect(machineOn()).toBe(false);
+    triggers(false);
+    expect(machineOn()).toBe(true);
+  });
+
+  it("starts on where claude-mux's pushes went to the release rule", () => {
+    setEventMapPath(join(dir, "event-map.json"));
+    try {
+      updateProjectEvents("christinoleo/claude-mux", { enabled: true, root: "/p/cm", events: { push: "ignore" } });
+      expect(machineOn()).toBe(false);
+      updateProjectEvents("christinoleo/claude-mux", { events: { push: "rule" } });
+      expect(machineOn()).toBe(true);
+    } finally {
+      setEventMapPath(null);
+    }
+  });
+
+  it("is written down only by a server that may, and then once", () => {
+    setLiveText(true, PROD);
+    settleMachineSwitch(DEV);
+    expect(existsSync(switchFile())).toBe(false);
+    setLiveText(false, PROD);
+    expect(machineOn()).toBe(false);
+  });
+
   it("starts off where every old switch was off, and decides once", () => {
     writeFileSync(join(paths.CLAUDE_MUX_DIR, "worker-queue.json"), JSON.stringify({ settings: { enabled: false } }));
     expect(machineOn()).toBe(false);
+    settleMachineSwitch(PROD);
     // Written down: a hook added by hand later does not turn the machine on.
     setLiveText(true, PROD);
     expect(machineOn()).toBe(false);

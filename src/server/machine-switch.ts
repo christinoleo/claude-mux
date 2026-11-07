@@ -16,8 +16,12 @@ import { join } from "node:path";
 import { CLAUDE_MUX_DIR } from "../utils/paths.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import type { HookWriter } from "./hook-switch.js";
+import { enabledProjects } from "../db/event-map-json.js";
 import { followLiveTextPort, readLiveText, setLiveText } from "./live-text-switch.js";
 import { followDialogAnswersPort, readDialogAnswers, setDialogAnswers } from "./dialog-switch.js";
+
+/** The repo the release rule releases; `github-events.ts` imports this module, so it is spelled here too. */
+const RELEASE_REPO = "christinoleo/claude-mux";
 
 /** What every part says while the switch is off. */
 export const MACHINE_OFF = "Off on this machine";
@@ -29,36 +33,49 @@ const HOOKS = [
 
 const switchPath = () => join(CLAUDE_MUX_DIR, "machine-switch.json");
 
-/**
- * What the separate switches this one replaced said: the worker queue's own
- * (`enabled` in `worker-queue.json`) and the two hooks. Any of them on means on,
- * so a machine that had live text keeps it.
- */
-function legacyOn(): boolean {
+function readJson(path: string): unknown {
   try {
-    const raw = JSON.parse(readFileSync(join(CLAUDE_MUX_DIR, "worker-queue.json"), "utf-8")) as { settings?: { enabled?: unknown } };
-    if (raw.settings?.enabled === true) return true;
+    return JSON.parse(readFileSync(path, "utf-8"));
   } catch {
-    // No queue file: the queue was never switched on.
+    return null;
   }
-  return HOOKS.some((h) => h.read({ dev: false }).enabled);
 }
 
-/** Whether the switch is on. The first read on a machine takes it over from the old switches and writes it down. */
+/**
+ * What the machine did on its own before this switch: the worker queue's own
+ * switch (`enabled` in `worker-queue.json`), either hook, a clock Trigger not
+ * paused (Triggers had no switch, so one set up ran), or claude-mux's pushes
+ * given to the release rule. Any of them means on, so a machine that had live
+ * text keeps it and one that ran Triggers or released goes on doing so.
+ */
+function legacyOn(): boolean {
+  const queue = readJson(join(CLAUDE_MUX_DIR, "worker-queue.json")) as { settings?: { enabled?: unknown } } | null;
+  if (queue?.settings?.enabled === true) return true;
+  if (HOOKS.some((h) => h.read({ dev: false }).enabled)) return true;
+  const triggers = readJson(join(CLAUDE_MUX_DIR, "triggers.json")) as { triggers?: { paused?: unknown }[] } | null;
+  if (Array.isArray(triggers?.triggers) && triggers.triggers.some((t) => t && t.paused !== true)) return true;
+  return enabledProjects().get(RELEASE_REPO)?.events.push === "rule";
+}
+
+/** Whether the switch is on. A machine with no switch file yet answers what its old switches said (`settleMachineSwitch()`). */
 export function machineOn(): boolean {
+  const raw = readJson(switchPath()) as { on?: unknown } | null;
+  return typeof raw?.on === "boolean" ? raw.on : legacyOn();
+}
+
+/**
+ * At startup, on a server that runs the queue, before anything rewrites the
+ * old switches' files: write down what they said, once. Never throws.
+ */
+export function settleMachineSwitch({ dev }: Pick<HookWriter, "dev">): void {
+  if (!mayWrite(dev)) return;
+  const raw = readJson(switchPath()) as { on?: unknown } | null;
+  if (typeof raw?.on === "boolean") return;
   try {
-    const raw = JSON.parse(readFileSync(switchPath(), "utf-8")) as { on?: unknown };
-    if (typeof raw.on === "boolean") return raw.on;
-  } catch {
-    // Missing or torn: decided again below.
+    writeFileAtomic(switchPath(), JSON.stringify({ on: legacyOn() }, null, 2));
+  } catch (err) {
+    console.warn(`[machine-switch] could not write the switch: ${String(err)}`);
   }
-  const on = legacyOn();
-  try {
-    writeFileAtomic(switchPath(), JSON.stringify({ on }, null, 2));
-  } catch {
-    // Read again next time; the answer is the same.
-  }
-  return on;
 }
 
 /** A dev server may flip the file only under a HOME of its own, where it polls GitHub. */
@@ -82,7 +99,22 @@ export function readMachineSwitch({ dev }: Pick<HookWriter, "dev">): MachineSwit
  */
 export function setMachineSwitch(on: boolean, writer: HookWriter): boolean {
   if (!mayWrite(writer.dev)) return false;
-  if (!writer.dev) for (const h of HOOKS) h.set(on, writer);
+  if (!writer.dev) {
+    const before = HOOKS.map((h) => h.read(writer).enabled);
+    try {
+      for (const h of HOOKS) h.set(on, writer);
+    } catch (err) {
+      // One hook may be changed already: put them back as they were, as far as the file lets.
+      HOOKS.forEach((h, i) => {
+        try {
+          h.set(before[i], writer);
+        } catch {
+          // The same failure; nothing more to do.
+        }
+      });
+      throw err;
+    }
+  }
   writeFileAtomic(switchPath(), JSON.stringify({ on }, null, 2));
   return true;
 }

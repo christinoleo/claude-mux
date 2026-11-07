@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import type { QueueSettings, QueueStatus } from '$shared/server/worker-queue.js';
-	import { issueKey, machineSay, memorySplit } from '$lib/workers';
+	import { issueKey, machineIsOn, machineSay, memorySplit } from '$lib/workers';
 
 	/**
 	 * One machine as a strip of its memory (#201): other sessions and apps,
@@ -18,10 +18,14 @@
 		busy: boolean;
 		onOpen: (key: string) => void;
 		onChange: (patch: Partial<QueueSettings>) => void;
+		/** Whether this server may turn the machine's switch. */
+		switchable: boolean;
 		/** Turn the machine's switch: workers, Triggers, releases, live text and dashboard approvals. */
 		onTurn: (on: boolean) => void;
 	}
-	let { name, status, open, busy, onOpen, onChange, onTurn }: Props = $props();
+	let { name, status, open, busy, switchable, onOpen, onChange, onTurn }: Props = $props();
+	/** An older machine sends no `on`; its own switch is in its settings. */
+	const on = $derived(machineIsOn(status));
 
 	const split = $derived(memorySplit(status));
 	const say = $derived(machineSay(status));
@@ -98,13 +102,15 @@
 		<Button
 			variant="outline"
 			size="sm"
-			class={status.on ? '' : 'paused'}
-			aria-pressed={status.on}
-			disabled={busy}
-			title="Workers, Triggers, releases, live text and dashboard approvals on {name}. Nothing running is stopped."
-			onclick={() => onTurn(!status.on)}
+			class={on ? '' : 'paused'}
+			aria-pressed={on}
+			disabled={busy || !switchable}
+			title={switchable
+				? `Workers, Triggers, releases, live text and dashboard approvals on ${name}. Nothing running is stopped.`
+				: `This server does not turn ${name}’s switch`}
+			onclick={() => onTurn(!on)}
 		>
-			{status.on ? `Turn ${name} off` : `Turn ${name} on`}
+			{on ? `Turn ${name} off` : `Turn ${name} on`}
 		</Button>
 	</div>
 </article>

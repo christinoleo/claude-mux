@@ -2,6 +2,8 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { parseSettingsPatch } from '$shared/server/worker-queue.js';
+import { dev } from '$app/environment';
+import { readMachineSwitch } from '$shared/server/machine-switch.js';
 import { workerQueue } from '$lib/server/worker-queue.js';
 
 /**
@@ -12,7 +14,7 @@ import { workerQueue } from '$lib/server/worker-queue.js';
  */
 export const GET: RequestHandler = async () => {
 	const queue = workerQueue();
-	return json({ running: queue !== null, status: queue?.status() ?? null });
+	return json({ running: queue !== null, status: queue?.status() ?? null, switchable: readMachineSwitch({ dev }).switchable });
 };
 
 /** `{ limit?, minFreeGiB?, maxPressure? }`; the switch is `/api/machine-switch`. */

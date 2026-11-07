@@ -109,6 +109,8 @@ const BOUNDS: Record<keyof QueueSettings, [number, number]> = {
 export function parseSettingsPatch(raw: unknown): Partial<QueueSettings> | string {
   if (!raw || typeof raw !== "object") return "settings must be an object";
   const r = raw as Record<string, unknown>;
+  // The queue's own switch moved to the machine's (`/api/machine-switch`): a page that still sends it is told, not ignored.
+  if (r.enabled !== undefined) return "enabled moved to the machine's switch, /api/machine-switch";
   const patch: Partial<QueueSettings> = {};
   for (const [key, [min, max]] of Object.entries(BOUNDS) as [keyof typeof BOUNDS, [number, number]][]) {
     const v = r[key];

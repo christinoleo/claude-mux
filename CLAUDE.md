@@ -1295,10 +1295,14 @@ is stopped: workers and session Runs go on and are reaped as before, and an
 update under way finishes. Which projects are enabled and what each event does,
 the worker limit and the memory to keep free stay settings.
 
-The first read on a machine with no switch file takes it over from the old
-switches: on when the queue's own `enabled` was on in `worker-queue.json`, or
-either hook was in `~/.claude/settings.json`, and writes the answer down.
-`init` reads it before anything else runs. At startup a built server brings
+A machine with no switch file takes it over from what it did before: on when
+the queue's own `enabled` was on in `worker-queue.json`, either hook was in
+`~/.claude/settings.json`, a clock Trigger was not paused (Triggers had no
+switch), or claude-mux's push went to the release rule.
+`settleMachineSwitch()` writes that answer down first thing in `init`, on a
+server that runs the queue, before anything rewrites those files. `/api/queue`
+refuses the old `enabled` with a 400 rather than ignoring it, and the Workers
+panel reads an older machine's `settings.enabled` where it sends no `on`. At startup a built server brings
 the hooks in line (`followMachineSwitch()`): on adds a missing one and moves
 one on a dead port, off removes any left behind. A dev server reads the switch
 and never writes hooks; it flips the file only with `CLAUDE_MUX_EVENTS=1`

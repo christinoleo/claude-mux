@@ -63,6 +63,10 @@ describe("the Workers panel's numbers", () => {
   it("says when a machine is off, over its limit, or held by memory", () => {
     expect(machineSay(status({ running: 2 })).text).toBe("2 of 8 running, 8.0 GiB free of 16");
     expect(machineSay(status({ on: false, running: 1 }))).toEqual({ text: "Off: nothing new starts. 1 still running", held: true });
+    // An older machine sends no `on`, only its queue's own switch.
+    const older = (enabled: boolean) => status({ on: undefined, settings: { ...DEFAULT_SETTINGS, enabled } as typeof DEFAULT_SETTINGS });
+    expect(machineSay(older(true)).held).toBe(false);
+    expect(machineSay(older(false)).held).toBe(true);
     expect(machineSay(status({ running: 9 })).text).toMatch(/over a limit of 8.*until 1 finish/);
     expect(machineSay(status({ waiting: [waiting(1, "memory", "Held")] })).text).toMatch(/memory is holding 1 back/);
   });
