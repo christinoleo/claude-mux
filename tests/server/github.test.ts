@@ -99,12 +99,14 @@ describe("a pull request left for review", () => {
     expect(prs([issue({ number: 12, labels: [{ name: "stop-at-pr" }, { name: "hold" }] }), pr()])).toEqual([]);
     expect(prs([stopAtPr, pr({ labels: [{ name: "hold" }] })])).toEqual([]);
     expect(prs([stopAtPr, pr({ body: "Part of #12" })])).toEqual([]);
+    expect(prs([stopAtPr, pr({ draft: true })])).toEqual([]);
   });
 });
 
 describe("closedIssues", () => {
   it("reads GitHub's closing keywords, in this repo only", () => {
     expect(closedIssues("Closes #12. Also fixes: #13, resolved o/r#14 and fixes x/y#15", "o/r")).toEqual([12, 13, 14]);
+    expect(closedIssues("Resolves https://github.com/o/r/issues/16, fixes https://github.com/x/y/issues/17", "o/r")).toEqual([16]);
     expect(closedIssues("Part of #12, see #13", "o/r")).toEqual([]);
     expect(closedIssues(null, "o/r")).toEqual([]);
   });

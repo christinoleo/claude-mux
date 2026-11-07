@@ -51,6 +51,8 @@ export interface RawIssue {
 	labels: ({ name?: string } | string)[];
 	assignees?: unknown[] | null;
 	pull_request?: unknown;
+	/** Set on a pull request; a draft is not ready to merge. */
+	draft?: boolean;
 	issue_dependencies_summary?: { blocked_by?: number } | null;
 }
 
@@ -108,14 +110,17 @@ export function toIssueInfo(issue: RawIssue): IssueInfo {
 
 /**
  * The issues a pull request's body closes, by GitHub's closing keywords
- * (`Closes #12`, `fixes o/r#12`). A reference into another repo is left out.
+ * (`Closes #12`, `fixes o/r#12`, `resolves https://github.com/o/r/issues/12`).
+ * A reference into another repo is left out.
  */
 export function closedIssues(body: string | null | undefined, slug: string): number[] {
 	const out: number[] = [];
-	const re = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+([\w.-]+\/[\w.-]+)?#(\d+)\b/gi;
+	const re =
+		/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/|([\w.-]+\/[\w.-]+)?#)(\d+)\b/gi;
 	for (const m of (body ?? '').matchAll(re)) {
-		if (m[1] && m[1].toLowerCase() !== slug.toLowerCase()) continue;
-		out.push(Number(m[2]));
+		const repo = m[1] ?? m[2];
+		if (repo && repo.toLowerCase() !== slug.toLowerCase()) continue;
+		out.push(Number(m[3]));
 	}
 	return out;
 }
@@ -127,7 +132,7 @@ export function closedIssues(body: string | null | undefined, slug: string): num
  * resolves — open, nobody's claim, and no open blocker.
  *
  * The issues endpoint lists open pull requests too. A PR counts as waiting
- * when it closes an open issue labelled `stop-at-pr`; once it merges or
+ * when it is no draft and closes an open issue labelled `stop-at-pr`; once it merges or
  * closes it drops out of the open list, and out of here with it.
  */
 export function ticketsFromIssues(issues: RawIssue[], slug: string, gitRoot: string): InboxTicket[] {
@@ -144,7 +149,7 @@ export function ticketsFromIssues(issues: RawIssue[], slug: string, gitRoot: str
 		if (labels.includes(HOLD)) continue;
 		const base = { repo: slug, git_root: gitRoot, number: issue.number, title: issue.title, url: issue.html_url };
 		if (issue.pull_request) {
-			if (closedIssues(issue.body, slug).some((n) => stopAtPr.has(n))) {
+			if (!issue.draft && closedIssues(issue.body, slug).some((n) => stopAtPr.has(n))) {
 				out.push({ ...base, kind: 'pr', since: Date.parse(issue.created_at), note: null });
 			}
 			continue;

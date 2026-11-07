@@ -194,7 +194,17 @@
 				</button>
 			{:else if item.kind === 'pr'}
 				{@const t = item.ticket}
-				<a class="it" href={t.url} target="_blank" rel="noopener" title="Review on GitHub" onclick={(e) => openTicket(e, t)}>
+				{@const off = blockedReason(item.machine, clock.now)}
+				<!-- GitHub answers for an offline machine too, but its list may be stale: dimmed, still a link. -->
+				<a
+					class="it"
+					class:off={!!off}
+					href={t.url}
+					target="_blank"
+					rel="noopener"
+					title={off ?? 'Review on GitHub'}
+					onclick={(e) => openTicket(e, t)}
+				>
 					<span class="ic help"><iconify-icon icon={KIND_ICON.pr}></iconify-icon></span>
 					<span class="name">{t.title}</span>
 					<span class="when">{formatAgo(item.since, clock.now)}</span>
