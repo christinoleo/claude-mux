@@ -5,17 +5,18 @@ import { enabledProjects } from '$shared/db/event-map-json.js';
 import { RELEASE_REPO, eventPoller } from '$shared/server/github-events.js';
 import { readUpdateJob, startUpdate } from '$shared/server/self-update.js';
 import {
-	RELEASE_INCLUDE_KEY,
+	RELEASE_EXCLUDE_KEY,
 	RELEASE_TICK_MS,
 	ReleaseRule,
 	fileReleaseStore,
 	gitReleaseRepo,
 	realExec,
+	releaseExcludeList,
 	takesPart,
 	type ReleaseMachine
 } from '$shared/server/release.js';
-import { EXCLUSIVE_KEY, exclusiveList, nameList, placeName } from '$shared/worker-placement.js';
-import { lastLine, updateMachine, type UpdateIO } from '$lib/fleet-update';
+import { placeName } from '$shared/worker-placement.js';
+import { jsonInit, lastLine, updateMachine, type UpdateIO } from '$lib/fleet-update';
 import { MACHINE_ID } from '$lib/server/instance';
 import { machineUrl, selfName } from '$lib/server/discover';
 import { ensureFleetPrefs, ensureFleetState } from '$lib/server/fleet.js';
@@ -38,23 +39,27 @@ function releaseProject() {
 	return project && project.events.push === 'rule' ? project : null;
 }
 
-/** The machines that take part, with where each is reached. */
+/** The machines that take part, with where each is reached: none that `release:exclude` names, nor one whose name is unknown. */
 async function machines(): Promise<(ReleaseMachine & { url: string | null })[]> {
-	const prefs = ensureFleetPrefs().all();
-	const exclusive = exclusiveList(prefs[EXCLUSIVE_KEY]?.value);
-	const include = nameList(prefs[RELEASE_INCLUDE_KEY]?.value);
-	const self = { id: MACHINE_ID, name: placeName(selfName()), self: true, online: true, url: await machineUrl(MACHINE_ID) };
+	const exclude = releaseExcludeList(ensureFleetPrefs().all()[RELEASE_EXCLUDE_KEY]?.value);
+	const self = { id: MACHINE_ID, hostname: selfName(), self: true, online: true, url: await machineUrl(MACHINE_ID) };
 	const others = ensureFleetState()
 		.snapshot()
-		.map((m) => ({ id: m.id, name: placeName(m.hostname), self: false, online: m.online, url: m.url }));
-	return [self, ...others].filter((m) => takesPart(m.name, exclusive, include));
+		.map((m) => ({ id: m.id, hostname: m.hostname, self: false, online: m.online, url: m.url }));
+	return [self, ...others]
+		.filter((m) => takesPart(m.hostname, exclude, m.id))
+		.map(({ hostname, ...m }) => ({ ...m, name: placeName(hostname) }));
 }
 
 /** The server's way of asking a machine, the same answers the Machines view reads. */
 const serverIO: UpdateIO = {
-	async request(url, method) {
+	async request(url, method, payload) {
 		try {
-			const res = await fetch(url, { method, signal: AbortSignal.timeout(20_000) });
+			const res = await fetch(url, {
+				method,
+				signal: AbortSignal.timeout(20_000),
+				...jsonInit(payload)
+			});
 			const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 			return { status: res.status, body };
 		} catch {
@@ -99,23 +104,28 @@ export function startReleaseRule(): ReleaseRule {
 			const n = Number(/\/issues\/(\d+)/.exec(res.output)?.[1]);
 			return res.ok && n > 0 ? n : null;
 		},
+		async commentIssue(issue, body) {
+			const state = await run('gh', ['issue', 'view', String(issue), '--repo', RELEASE_REPO, '--json', 'state', '--jq', '.state']);
+			if (!state.ok || state.output.trim() !== 'OPEN') return false;
+			return (await run('gh', ['issue', 'comment', String(issue), '--repo', RELEASE_REPO, '--body', body])).ok;
+		},
 		async published(version) {
 			const res = await run('npm', ['view', `claude-mux@${version}`, 'version']);
 			return res.ok && res.output.split('\n').some((line) => line.trim() === version);
 		},
 		machines: () => known,
-		updateSelf() {
-			const { job } = startUpdate({ dir: UPDATE_DIR, fromVersion: VERSION });
+		updateSelf(version) {
+			const { job } = startUpdate({ dir: UPDATE_DIR, fromVersion: VERSION, target: version });
 			return job.startedAt;
 		},
 		selfJob() {
 			const job = readUpdateJob(UPDATE_DIR);
 			return job ? { startedAt: job.startedAt, state: job.state, line: lastLine(job.output) } : null;
 		},
-		async updateRemote(machine) {
+		async updateRemote(machine, version) {
 			const url = urlOf(machine.id);
 			if (!url) return { ok: false, line: 'No address known for it' };
-			const result = await updateMachine(url, () => {}, serverIO);
+			const result = await updateMachine(url, () => {}, serverIO, version);
 			return { ok: result.state === 'ok', line: result.line };
 		},
 		health: (machine) => health(urlOf(machine.id))

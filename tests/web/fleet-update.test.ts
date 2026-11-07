@@ -12,10 +12,12 @@ import {
 /** A machine that answers from a script: each GET takes the next answer, the last one repeating. */
 function scripted(post: Answer, gets: Answer[]) {
   const asked: string[] = [];
+  const bodies: (Record<string, unknown> | undefined)[] = [];
   let clock = 0;
   const io: UpdateIO = {
-    async request(url, method) {
+    async request(url, method, body) {
       asked.push(`${method} ${url}`);
+      if (method === "POST") bodies.push(body);
       if (method === "POST") return post;
       return gets.length > 1 ? gets.shift()! : gets[0];
     },
@@ -24,7 +26,7 @@ function scripted(post: Answer, gets: Answer[]) {
     },
     now: () => clock,
   };
-  return { io, asked };
+  return { io, asked, bodies };
 }
 
 const job = (state: string, output = "", extra: Record<string, unknown> = {}) => ({
@@ -62,6 +64,15 @@ describe("updateMachine", () => {
     expect(result).toMatchObject({ state: "ok", version: "0.31.0", line: "Update complete." });
     expect(seen).toEqual(["starting", "running", "restarting", "restarting", "ok"]);
     expect(asked[0]).toBe("POST /fleet/engage-id/api/update");
+  });
+
+  it("asks for the version it was given, and for npm's latest otherwise", async () => {
+    const given = scripted({ status: 202, body: job("running") }, [{ status: 200, body: { version: "0.31.2", ...job("ok", "done\n") } }]);
+    await updateMachine("/fleet/x", () => {}, given.io, "0.31.2");
+    expect(given.bodies).toEqual([{ version: "0.31.2" }]);
+    const latest = scripted({ status: 202, body: job("running") }, [{ status: 200, body: job("ok", "done\n") }]);
+    await updateMachine("/fleet/x", () => {}, latest.io);
+    expect(latest.bodies).toEqual([undefined]);
   });
 
   it("waits for the restart when the old server still answers after the update", async () => {
@@ -111,7 +122,7 @@ describe("updateMachine", () => {
 
   it("gives up on a machine that never comes back", async () => {
     const { io } = scripted({ status: 202, body: job("running") }, [null]);
-    const result = await updateMachine("", () => {}, io, { pollMs: 1_000, timeoutMs: 60_000 });
+    const result = await updateMachine("", () => {}, io, undefined, { pollMs: 1_000, timeoutMs: 60_000 });
     expect(result).toMatchObject({ state: "failed", line: "No result after 1 min" });
   });
 });

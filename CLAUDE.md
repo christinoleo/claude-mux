@@ -39,47 +39,67 @@ bun vitest run tests/db/sessions.test.ts
 
 ## Releasing
 
-Releases are fully automated. **Do not `npm publish` manually.**
+Releases are automatic: a merge to `main` releases itself and rolls out to
+the fleet. **Do not `npm version`, tag or `npm publish` by hand.** To keep a
+merge from going out, open an issue labelled `release-hold` first.
 
-```bash
-npm version minor    # bumps package.json + src/utils/version.ts, commits, tags vX.Y.Z
-git push origin main
-git push origin vX.Y.Z   # tag push triggers .github/workflows/release.yml
-```
+The release rule (`src/server/release.ts`, wired by
+`web/src/lib/server/release.ts`) acts on the one machine whose state map has
+`christinoleo/claude-mux` enabled with its push event set to the rule
+(`omarchy`), ticked after every read of GitHub and every 15 s, and keeps every
+step in `~/.claude-mux/release.json`. It acts only on a read of GitHub at most
+two poll intervals old (`STALE_READ_MS`), since an older one could miss a hold;
+while reads are stale it pauses as a hold does, deadlines included.
 
-The workflow builds CLI + web, publishes to npm via **OIDC trusted publishing** (no token, no MFA — the trust anchor is `christinoleo/claude-mux` + `release.yml` registered on npmjs.com), and creates a GitHub release. Publish runs as `npx -y npm@latest publish --access public --provenance` because the runner's bundled npm is too old for OIDC.
+Each new head is gated in a worktree of a clone of its own
+(`~/.claude-mux/release/repo`, never a checkout someone works in): `bun install
+--frozen-lockfile`, lint, tests, build. `gateEnv()` runs the steps on an
+allowlist of variables (`PATH`, locale, `TERM`, `SHELL`, `USER`), so no token
+reaches the code under test, with `HOME` and `TMUX_TMPDIR` set to directories
+of the gate's own. A failed fetch, checkout or install, or output naming a
+network error in its last lines, is the machinery's: tried again five minutes later, and filed
+only on the third failure. A failure files an issue with the output trimmed
+and scrubbed (`scrubOutput()`: secrets from the environment and token shapes
+taken out, the home directory written `~`), and while that issue stays open
+each later failure comments on it instead, until a head passes. A failed head is never gated
+again. A head whose commits since the last `v*` tag touch only docs (`*.md`,
+`docs/`, `LICENSE`), or that is the tag's own commit, releases nothing.
 
-After release, other machines update with: `claude-mux update`.
+Ten minutes after the head last moved, a head that passed gets `npm version
+patch`, the bump is pushed to `main` and then its tag, and
+`.github/workflows/release.yml` publishes it to npm through **OIDC trusted
+publishing** (no token, no MFA — the trust anchor is `christinoleo/claude-mux`
++ `release.yml` registered on npmjs.com; it runs `npx -y npm@latest publish
+--access public --provenance` because the runner's bundled npm is too old for
+OIDC) and creates a GitHub release. Right before bumping, the rule fetches and
+stops if the head already carries a `v*` tag, so a release made by hand
+meanwhile is not followed by a second one. A bump commit on `main` whose tag
+never reached the remote (the tag push failed after the branch push) has its
+tag pushed again rather than being bumped past: at once when the rule gated
+the commit it bumped, else after the gate and the wait like any merge; the clone fetches with
+`--prune-tags`, so a tag a failed push left behind is dropped.
 
-A merge to `main` releases itself, through the release rule
-(`src/server/release.ts`, wired by `web/src/lib/server/release.ts`). It acts on
-the one machine whose state map has `christinoleo/claude-mux` enabled with its
-push event set to the rule (`omarchy`), ticked after every read of GitHub and
-every 15 s, and keeps every step in `~/.claude-mux/release.json`. Each new head
-is gated in a worktree of a clone of its own (`~/.claude-mux/release/repo`,
-never a checkout someone works in): `bun install --frozen-lockfile`, lint,
-tests, build, run by `gateEnv()` under a `HOME` of its own with every `TMUX*`,
-`CLAUDE*` and `MAESTRO_*` variable dropped. A failure files an issue and that
-head is never gated again (a fetch or checkout that failed is the machinery's,
-not the code's, and is tried again five minutes later, as is a tag that could
-not be pushed; the clone fetches with `--prune-tags`, so a tag a failed push
-left behind is dropped); a
-head whose commits since the last `v*` tag touch only docs (`*.md`, `docs/`,
-`LICENSE`), or that is the tag's own commit, releases nothing. Ten minutes
-after the head last moved, a head that passed gets `npm version patch`, the
-bump is pushed to `main` and then its tag, and `release.yml` publishes as
-above. Once `npm view` has the version, this machine updates itself first
+Once `npm view` has the version, this machine updates itself first
 (`startUpdate()`, the Machines view's job) and must answer `/api/health` on the
 new version within 15 minutes; then every other machine the fleet state lists,
-by name, one at a time through its `/api/update`, as "Update all" does. Each
-machine gets one attempt per version; one offline when the rollout begins is
-passed over; a failure stops the rollout, files an issue and rolls nothing back.
-A machine in `queue:exclusive` (`engage` unless set) takes part only when the
-fleet preference `release:include` names it. An open issue labelled
-`release-hold` pauses all of it, and the time it stays open does not count
-against npm's or a machine's deadline: the poller's sweep reads the count with the
-branch head, at no extra cost. What the rule did shows as the Runs of
-claude-mux's push Trigger on `/triggers`.
+by name, one at a time through its `/api/update`. Every update is told the
+version (`claude-mux update --target <version>`, the `version` in the POST
+body), never npm's `latest`, and a machine's health is read again each tick
+until it answers on that version or the 15 minutes run out. `update --target`
+never downgrades, and a machine already on a newer version counts as updated. A machine offline
+when its turn comes is waited for three minutes (`RECONNECT_MS`), since the
+fleet's links start offline after this server's own restart, and then passed
+over; the closing line names every machine passed over. Each machine gets one
+attempt per version; a failure stops the rollout, files an issue and rolls
+nothing back. The fleet preference `release:exclude` lists the machines left
+out (`engage` while it was never set, so `engage` joins only by choice), and a
+machine whose name cannot be told is left out too. An open `release-hold`
+pauses all of it, and the time it stays open does not count against npm's or a
+machine's deadline: the poller's sweep reads the count with the branch head,
+at no extra cost. What the rule did shows as the Runs of claude-mux's push
+Trigger on `/triggers`.
+
+After a release other machines can also update by hand with `claude-mux update`.
 
 The published package installs only the root `dependencies`, so web packages
 belong in web `devDependencies`, where Vite bundles them into the server; a web

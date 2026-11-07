@@ -3,6 +3,7 @@ import { execSync, spawnSync } from "child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { compareVersions, isVersion } from "../server/self-update.js";
 import { VERSION } from "../utils/version.js";
 import { runSetup } from "../setup/index.js";
 import { terminate } from "../utils/pid.js";
@@ -189,18 +190,33 @@ function startProd(): void {
 export interface UpdateOptions {
   force?: boolean;
   skipRestart?: boolean;
+  /** The version to install, rather than npm's latest. */
+  target?: string;
+}
+
+/** What to install: the version asked for, else npm's latest; null when it cannot be told. */
+export function updateTarget(opts: Pick<UpdateOptions, "target">, latest: () => string | null): string | null {
+  if (opts.target !== undefined) return isVersion(opts.target) ? opts.target : null;
+  return latest();
 }
 
 export async function runUpdate(opts: UpdateOptions): Promise<void> {
   console.log(`Current version: ${VERSION}`);
-  const latest = getLatestVersion();
+  const latest = updateTarget(opts, getLatestVersion);
   if (!latest) {
-    console.error("Could not fetch latest version from npm. Check connectivity.");
+    console.error(opts.target !== undefined ? `Not a version: ${opts.target}` : "Could not fetch latest version from npm. Check connectivity.");
     process.exit(1);
   }
-  console.log(`Latest version:  ${latest}`);
+  console.log(opts.target !== undefined ? `Target version:  ${latest}` : `Latest version:  ${latest}`);
+
+  if (opts.target !== undefined && compareVersions(latest, VERSION) < 0 && !opts.force) {
+    // The release rule rolls out one version; a machine already past it keeps what it has.
+    console.log(`Already on ${VERSION}, newer than ${latest}; nothing to install. Use --force to downgrade.`);
+    return;
+  }
 
   if (latest === VERSION && !opts.force) {
+    // `fleet-update.ts` reads "Already on latest" as an update that had nothing to do.
     console.log("Already on latest. Use --force to reinstall.");
     return;
   }
@@ -263,6 +279,7 @@ export function createUpdateCommand(): Command {
     .description("Update claude-mux to the latest version via npm and re-sync hooks")
     .option("--force", "Reinstall even if already on latest")
     .option("--skip-restart", "Do not restart prod server after update")
+    .option("--target <version>", "Install this version rather than npm's latest")
     .action(async (opts: UpdateOptions) => {
       await runUpdate(opts);
       process.exit(0);
