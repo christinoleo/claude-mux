@@ -62,8 +62,6 @@
 	.terminal-view.nowrap {
 		white-space: pre;
 		word-break: normal;
-		font-size: inherit;
-		line-height: inherit;
 	}
 
 	/* ansi_up class-based colors */

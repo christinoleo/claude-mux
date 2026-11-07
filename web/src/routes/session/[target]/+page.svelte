@@ -1322,16 +1322,24 @@
 		return () => ro.disconnect();
 	});
 
-	async function postToPane(body: Record<string, unknown>) {
-		if (!target) return;
-		await fetch(`${api(target)}/send`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body)
-		});
+	/** Resolves whether the pane took it: a refused send (409, 502) or a dropped connection is false. */
+	async function postToPane(body: Record<string, unknown>): Promise<boolean> {
+		if (!target) return false;
+		try {
+			const res = await fetch(`${api(target)}/send`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			return res.ok;
+		} catch {
+			return false;
+		}
 	}
 
-	const sendKeys = (keys: string) => postToPane({ keys });
+	const sendKeys = async (keys: string): Promise<void> => {
+		await postToPane({ keys });
+	};
 
 	/** Types text into the pane as it is, with no Enter: a dialog's own text field. */
 	const sendPaneText = (text: string) => postToPane({ text, raw: true, answering: true });

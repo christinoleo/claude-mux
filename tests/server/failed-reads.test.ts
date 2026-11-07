@@ -118,6 +118,24 @@ describe("FailedReads", () => {
     expect(asked).toBe(1);
   });
 
+  it("keeps the coloured copy on the same rows as the plain one", () => {
+    const raw = RAW + "\n\u001b[0m\n\u001b[0m   \n";
+    tick(reads, { raw });
+    clock += FAIL_AFTER_MS;
+    const record = tick(reads, { raw })!;
+    expect(stripAnsi(record.ansi)).toBe(record.screen);
+  });
+
+  it("starts the wait again after a tick with no screen", () => {
+    tick(reads);
+    clock += FAIL_AFTER_MS - 1;
+    reads.forget("s1");
+    clock += 1;
+    expect(tick(reads)).toBeNull();
+    clock += FAIL_AFTER_MS;
+    expect(tick(reads)).not.toBeNull();
+  });
+
   it("forgets a session that left the poll", () => {
     tick(reads);
     reads.forgetExcept(new Set());

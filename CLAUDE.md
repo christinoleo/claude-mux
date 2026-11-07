@@ -203,6 +203,19 @@ the panel starts, and because that leaves the left column too narrow for a
 long label, the indented line under a preview row is joined to the label
 rather than read as a description.
 
+When the hooks say a session waits and nothing makes a card (no live question
+in the log, no rows `readPromptOptions()` could read, no hold, sign-in or
+rewind), the Transcript draws the terminal in its place: after 1.5 s
+`TranscriptView` shows `PaneDialogCard.svelte`, the foot of the pane with
+arrows, Enter, Esc and a text field, and the session page streams the terminal
+for it (`onWantScreen`) though the terminal view is not open. A "Terminal"
+button on the waiting row opens the same card over any card. The server keeps
+the screen that beat the readers: `FailedReads` (`src/server/failed-reads.ts`),
+fed by the poll, writes one record per dialog, after it has gone unread for
+2 s, to `~/.claude-mux/failed-reads/<ms>-<session id>.json` (the pane's foot,
+stripped and with colour, the state and the Claude Code version), keeping the
+newest hundred. Those files are what a reader is fixed from.
+
 A dialog of several questions draws a tab strip over them (`←  ☒ Fruit  ☐
 Color  ✔ Submit  →`), read as `tabs` with each question's `answered`, and
 ←/→ move between the tabs, answered or not. A tab gone back to marks the

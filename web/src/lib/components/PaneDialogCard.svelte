@@ -22,13 +22,14 @@
 		/** The pane's visible rows (ANSI), as the terminal stream sends them. */
 		screen: string[];
 		onKeys: (keys: string) => Promise<void> | void;
-		onText: (text: string) => Promise<void> | void;
+		/** Resolves false when the pane refused the text, so no Enter follows it. */
+		onText: (text: string) => Promise<boolean | void> | boolean | void;
 		/** Puts the terminal away again, when a person opened it over a card. */
 		onClose?: (() => void) | null;
 	} = $props();
 
-	/** Enough rows for any dialog Claude Code draws, few enough to fit a phone. */
-	const ROWS = 30;
+	/** Enough rows for the tallest question Claude Code draws; the box scrolls on a phone. */
+	const ROWS = 60;
 
 	const shown = $derived.by(() => {
 		let end = screen.length;
@@ -38,36 +39,57 @@
 
 	let draft = $state('');
 	let sending = $state(false);
+	let note = $state<string | null>(null);
 
-	async function press(keys: string) {
+	/** The dialog's keys, laid out as an inverted T beside Enter and Esc. */
+	const KEYS: { keys: string; area: string; variant: 'secondary' | 'warning' | 'ghost'; icon?: string; label?: string }[] = [
+		{ keys: 'Up', area: 'up', variant: 'secondary', icon: 'mdi:arrow-up' },
+		{ keys: 'Left', area: 'left', variant: 'secondary', icon: 'mdi:arrow-left' },
+		{ keys: 'Down', area: 'down', variant: 'secondary', icon: 'mdi:arrow-down' },
+		{ keys: 'Right', area: 'right', variant: 'secondary', icon: 'mdi:arrow-right' },
+		{ keys: 'Enter', area: 'enter', variant: 'warning', icon: 'mdi:keyboard-return', label: 'Enter' },
+		{ keys: 'Escape', area: 'esc', variant: 'ghost', label: 'Esc' }
+	];
+
+	/** One send at a time, so a double tap cannot answer twice. */
+	async function busy(fn: () => Promise<void> | void) {
 		if (sending) return;
 		sending = true;
 		try {
-			await onKeys(keys);
+			await fn();
 		} finally {
 			sending = false;
 		}
 	}
 
-	async function submit() {
+	const press = (keys: string) => busy(() => onKeys(keys));
+
+	function submit() {
 		const text = draft;
-		if (!text.trim() || sending) return;
-		sending = true;
-		try {
-			await onText(text);
+		if (!text.trim()) return;
+		return busy(async () => {
+			note = null;
+			// Enter after refused text would pick whatever row is highlighted.
+			if ((await onText(text)) === false) {
+				note = 'The terminal did not take that text. Nothing was sent.';
+				return;
+			}
 			await onKeys('Enter');
 			draft = '';
-		} finally {
-			sending = false;
-		}
+		});
 	}
 
 	let screenEl = $state<HTMLDivElement | null>(null);
 	// The dialog sits at the foot; a narrow screen scrolls sideways for the rest.
+	// It follows the foot only while the reader is there, not while they read above it.
+	let following = true;
 	$effect(() => {
 		shown;
-		if (screenEl) screenEl.scrollTop = screenEl.scrollHeight;
+		if (screenEl && following) screenEl.scrollTop = screenEl.scrollHeight;
 	});
+	function onScreenScroll() {
+		if (screenEl) following = screenEl.scrollHeight - screenEl.scrollTop - screenEl.clientHeight < 24;
+	}
 </script>
 
 <section class="pane-card" aria-label="Terminal">
@@ -83,7 +105,7 @@
 	{/if}
 
 	{#if shown.length}
-		<div class="screen" bind:this={screenEl}>
+		<div class="screen" bind:this={screenEl} onscroll={onScreenScroll}>
 			<TerminalView history={[]} historyStart={0} screen={shown} wrap={false} />
 		</div>
 	{:else}
@@ -91,22 +113,19 @@
 	{/if}
 
 	<div class="keys" role="group" aria-label="Keys">
-		<Button variant="secondary" size="sm" class="k-up" aria-label="Up" disabled={sending} onclick={() => void press('Up')}>
-			<iconify-icon icon="mdi:arrow-up"></iconify-icon>
-		</Button>
-		<Button variant="secondary" size="sm" class="k-left" aria-label="Left" disabled={sending} onclick={() => void press('Left')}>
-			<iconify-icon icon="mdi:arrow-left"></iconify-icon>
-		</Button>
-		<Button variant="secondary" size="sm" class="k-down" aria-label="Down" disabled={sending} onclick={() => void press('Down')}>
-			<iconify-icon icon="mdi:arrow-down"></iconify-icon>
-		</Button>
-		<Button variant="secondary" size="sm" class="k-right" aria-label="Right" disabled={sending} onclick={() => void press('Right')}>
-			<iconify-icon icon="mdi:arrow-right"></iconify-icon>
-		</Button>
-		<Button variant="warning" size="sm" class="k-enter" disabled={sending} onclick={() => void press('Enter')}>
-			<iconify-icon icon="mdi:keyboard-return"></iconify-icon>Enter
-		</Button>
-		<Button variant="ghost" size="sm" class="k-esc" disabled={sending} onclick={() => void press('Escape')}>Esc</Button>
+		{#each KEYS as k (k.keys)}
+			<Button
+				variant={k.variant}
+				size="sm"
+				class={k.label ? 'tall' : ''}
+				style="grid-area: {k.area}"
+				aria-label={k.label ?? k.keys}
+				disabled={sending}
+				onclick={() => void press(k.keys)}
+			>
+				{#if k.icon}<iconify-icon icon={k.icon}></iconify-icon>{/if}{k.label ?? ''}
+			</Button>
+		{/each}
 	</div>
 
 	<form
@@ -121,6 +140,7 @@
 			<iconify-icon icon="mdi:send"></iconify-icon>Send
 		</Button>
 	</form>
+	{#if note}<p class="muted">{note}</p>{/if}
 </section>
 
 <style>
@@ -164,14 +184,14 @@
 		max-height: 60vh;
 		overflow: auto;
 		background: #000;
-		color: #fff;
 		border-radius: 6px;
-		font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-		font-size: 11px;
-		line-height: 1.35;
 		/* The scroll belongs to the screen, not the transcript behind it. */
 		touch-action: pan-x pan-y;
 		overscroll-behavior: contain;
+	}
+	.screen :global(.terminal-view) {
+		font-size: 11px;
+		line-height: 1.35;
 	}
 	.keys {
 		display: grid;
@@ -182,24 +202,7 @@
 		gap: 6px;
 		margin-bottom: 10px;
 	}
-	.keys :global(.k-up) {
-		grid-area: up;
-	}
-	.keys :global(.k-left) {
-		grid-area: left;
-	}
-	.keys :global(.k-down) {
-		grid-area: down;
-	}
-	.keys :global(.k-right) {
-		grid-area: right;
-	}
-	.keys :global(.k-enter) {
-		grid-area: enter;
-		height: auto;
-	}
-	.keys :global(.k-esc) {
-		grid-area: esc;
+	.keys :global(.tall) {
 		height: auto;
 	}
 	.text-row {

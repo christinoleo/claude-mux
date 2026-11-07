@@ -28,6 +28,7 @@ import { readLoginScreen, type LoginScreen } from '../tmux/login.js';
 import { readRewindScreen, type RewindScreen } from '../tmux/rewind.js';
 import { processVersion, readClaudeUpdateStatus } from './claude-update.js';
 import { FailedReads } from './failed-reads.js';
+import { AWAITING_INPUT } from '../session-state.js';
 import { upgradeStatus } from './restart-claude.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
 import { peekContextPercent, peekTranscriptTitle } from '../transcript/context-peek.js';
@@ -511,17 +512,27 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 		// is open too, when a subagent's tool event has just called the session busy.
 		const paneChoice = stripped ? readPromptOptions(stripped, { declaredOnly: !isDialogState(s.state) && !dialogHolds.view(s.id) }) : null;
 		if (stripped) dialogHolds.paneRead(s.id, paneChoice !== null);
+		const hold = dialogHolds.view(s.id);
 		const paneLogin = stripped ? readLoginScreen(stripped) : null;
 		const paneRewind = stripped ? readRewindScreen(stripped) : null;
-		if (stripped && raw) {
+		if (!stripped || !raw) {
+			// A tick with no screen says nothing about the dialog; the wait starts again.
+			failedReads.forget(s.id);
+		} else {
 			failedReads.observe({
 				session_id: s.id,
 				tmux_target: s.tmux_target ?? null,
 				state: s.state,
 				current_action: s.current_action ?? null,
 				claudeVersion: () => (s.pid ? processVersion(s.pid) : null),
-				held: dialogHolds.view(s.id) !== null,
-				failing: isDialogState(s.state) && !paneChoice && !paneLogin && !paneRewind,
+				held: hold !== null,
+				// An MCP form (Elicitation) is no dialog any reader is meant to read.
+				failing:
+					isDialogState(s.state) &&
+					s.current_action !== AWAITING_INPUT &&
+					!paneChoice &&
+					!paneLogin &&
+					!paneRewind,
 				stripped,
 				raw
 			});
@@ -538,7 +549,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 			// The dialog's own numbered rows, so the composer can offer them as
 			// answers instead of making you drive arrows at a screen you can't see.
 			pane_choice: paneChoice,
-			dialog_hold: dialogHolds.view(s.id),
+			dialog_hold: hold,
 			// Claude Code says so only in its footer, which the transcript never sees.
 			pane_update: stripped ? readUpdateNotice(stripped) : null,
 			pane_login: paneLogin,

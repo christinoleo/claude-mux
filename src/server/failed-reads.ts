@@ -14,9 +14,9 @@ import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { CLAUDE_MUX_DIR } from "../utils/paths.js";
 
-export const FAILED_READS_DIR = join(CLAUDE_MUX_DIR, "failed-reads");
+const FAILED_READS_DIR = join(CLAUDE_MUX_DIR, "failed-reads");
 
-/** As long as the Transcript waits before it draws the terminal instead. */
+/** A little longer than the Transcript waits before it draws the terminal instead. */
 export const FAIL_AFTER_MS = 2000;
 const KEEP = 100;
 /** The foot of the pane, where every dialog Claude Code draws sits. */
@@ -51,10 +51,6 @@ export interface ReadObservation {
   raw: string;
 }
 
-function foot(text: string): string {
-  const lines = text.replace(/\s+$/, "").split("\n");
-  return lines.slice(-SCREEN_LINES).join("\n");
-}
 
 export class FailedReads {
   /** Per session: when the current failure began, and whether it was written. */
@@ -84,8 +80,7 @@ export class FailedReads {
       current_action: o.current_action,
       claude_version: o.claudeVersion(),
       held: o.held,
-      screen: foot(o.stripped),
-      ansi: foot(o.raw),
+      ...foot(o.stripped, o.raw),
     };
     try {
       this.write(record, now);
@@ -95,6 +90,11 @@ export class FailedReads {
     }
     console.log(`[failed-reads] no reader found the ${o.state} dialog in ${o.tmux_target ?? o.session_id}`);
     return record;
+  }
+
+  /** Starts the wait again for a session whose screen could not be read this tick. */
+  forget(sessionId: string): void {
+    this.open.delete(sessionId);
   }
 
   /** Sessions gone from the poll take their episode with them. */
@@ -110,4 +110,19 @@ export class FailedReads {
       .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
     for (const f of files.slice(0, Math.max(0, files.length - KEEP))) unlinkSync(join(this.dir, f));
   }
+}
+
+/**
+ * The pane's foot, the same rows in both copies. Trimming the coloured copy on
+ * its own would keep blank rows that still carry an escape code, and shift it.
+ */
+function foot(stripped: string, raw: string): { screen: string; ansi: string } {
+  const lines = stripped.split("\n");
+  let end = lines.length;
+  while (end > 0 && !lines[end - 1].trim()) end--;
+  const start = Math.max(0, end - SCREEN_LINES);
+  return {
+    screen: lines.slice(start, end).join("\n"),
+    ansi: raw.split("\n").slice(start, end).join("\n"),
+  };
 }

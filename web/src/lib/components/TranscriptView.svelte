@@ -104,7 +104,7 @@
 		/** Sends a tmux key sequence (space-separated) to answer a dialog. */
 		onSendKeys?: (keys: string) => Promise<void> | void;
 		/** Types text into the pane as-is, for a dialog's free-text row or notes. */
-		onSendPaneText?: (text: string) => Promise<void> | void;
+		onSendPaneText?: (text: string) => Promise<boolean | void> | boolean | void;
 		/** Subagent work, keyed by the Task tool_use id that spawned it. */
 		subagents?: Record<string, SubagentPayload>;
 		/** A reader opened an agent's card: fetch everything it ran and reported. */
@@ -441,27 +441,28 @@
 	const noCard = $derived(
 		canAnswer && !dialogClosed && !liveAskId && !footDialog && !holdCard && !paneLogin && !paneRewind
 	);
-	let noCardLong = $state(false);
+	/** No card has come for `TERMINAL_AFTER_MS`, so the terminal stands in. */
+	let terminalFallback = $state(false);
 	$effect(() => {
-		if (!noCard) {
-			noCardLong = false;
-			return;
-		}
-		const timer = setTimeout(() => (noCardLong = true), TERMINAL_AFTER_MS);
+		terminalFallback = false;
+		if (!noCard || !onWantScreen) return;
+		const timer = setTimeout(() => (terminalFallback = true), TERMINAL_AFTER_MS);
 		return () => clearTimeout(timer);
 	});
 	/** A person opened the terminal over a card, for what the card does not offer. */
 	let terminalAsked = $state(false);
 	$effect(() => {
-		if (!canAnswer) terminalAsked = false;
+		// Asked for one dialog, not for the next.
+		dialogKey;
+		terminalAsked = false;
 	});
-	const terminalFallback = $derived(onWantScreen != null && noCard && noCardLong);
-	const showTerminal = $derived(onWantScreen != null && canAnswer && (terminalFallback || terminalAsked));
-	// The screen is asked for the moment a card is missing, so it is there when the wait runs out.
+	const showTerminal = $derived(terminalFallback || (terminalAsked && canAnswer && onWantScreen != null));
+	// The screen is streamed only while the terminal is drawn: most cards land
+	// within a poll, and asking sooner would attach the terminal for every dialog.
 	$effect(() => {
-		onWantScreen?.(noCard || showTerminal);
+		onWantScreen?.(showTerminal);
+		return () => onWantScreen?.(false);
 	});
-	$effect(() => () => onWantScreen?.(false));
 
 	/**
 	 * The turns claude-mux delivered from its queue or as a steer, by entry id.
@@ -838,7 +839,9 @@
 					permission={sessionState === 'permission'}
 					closed={entry.id !== liveAskId || dialogClosed}
 					onKeys={(keys) => onSendKeys?.(keys)}
-					onText={(text) => onSendPaneText?.(text)}
+					onText={async (text) => {
+						await onSendPaneText?.(text);
+					}}
 					onSubmitted={() => (submitted = entry.id)}
 					{dictateTarget}
 				/>
@@ -1079,7 +1082,9 @@
 			choice={paneChoice}
 			permission={sessionState === 'permission'}
 			onKeys={(keys) => onSendKeys?.(keys)}
-			onText={(text) => onSendPaneText?.(text)}
+			onText={async (text) => {
+				await onSendPaneText?.(text);
+			}}
 			{dictateTarget}
 		/>
 	{/if}
@@ -1088,7 +1093,9 @@
 		<LoginCard
 			login={paneLogin}
 			onKeys={(keys) => onSendKeys?.(keys)}
-			onText={(text) => onSendPaneText?.(text)}
+			onText={async (text) => {
+				await onSendPaneText?.(text);
+			}}
 		/>
 	{/if}
 
