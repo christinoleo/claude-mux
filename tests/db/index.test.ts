@@ -9,7 +9,9 @@ import {
   setSessionsDir,
 } from "../../src/db/index.js";
 
-const testDir = join(tmpdir(), `claude-watch-index-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+// The sessions dir sits in a folder of its own: the stores beside it (event map, settings, visits) are found from its parent.
+const testRoot = join(tmpdir(), `claude-watch-index-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+const testDir = join(testRoot, "sessions");
 
 describe("db/index (JSON files)", () => {
   beforeEach(() => {
@@ -19,8 +21,8 @@ describe("db/index (JSON files)", () => {
 
   afterEach(() => {
     setSessionsDir(null); // Reset to default
-    if (existsSync(testDir)) {
-      rmSync(testDir, { recursive: true });
+    if (existsSync(testRoot)) {
+      rmSync(testRoot, { recursive: true });
     }
   });
 
