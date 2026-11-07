@@ -96,6 +96,7 @@ interface Session {
   /** Set when the maestro daemon started this session: its role and issue. */
   maestro_role?: string | null;
   maestro_issue?: number | null;
+  run_id?: string | null;
   subagents?: Subagent[];
   /** Agent calls not yet matched to a SubagentStart; see takeAgentCall. */
   agent_calls?: AgentCall[];
@@ -522,10 +523,16 @@ function handleSessionStart(input: HookInput): void {
  * its environment, and the hook inherits Claude Code's environment, so the
  * session can say which issue it is working without anyone asking GitHub.
  */
-function maestroFields(): Pick<Session, "maestro_role" | "maestro_issue"> {
+function maestroFields(): Pick<Session, "maestro_role" | "maestro_issue" | "run_id"> {
   const role = process.env.MAESTRO_ROLE || null;
   const issue = Number.parseInt(process.env.MAESTRO_ISSUE ?? "", 10);
-  return { maestro_role: role, maestro_issue: role && Number.isFinite(issue) ? issue : null };
+  // A Trigger's Run (src/server/triggers.ts) names itself the same way, so the server can find and end it.
+  const run = process.env.CLAUDE_MUX_RUN;
+  return {
+    maestro_role: role,
+    maestro_issue: role && Number.isFinite(issue) ? issue : null,
+    run_id: run && /^[a-z0-9-]+$/.test(run) ? run : null,
+  };
 }
 
 /**

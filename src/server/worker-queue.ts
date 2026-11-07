@@ -337,6 +337,19 @@ function takenBy(labels: readonly string[]): string | null {
   return Object.entries(TAKEN_WHY).find(([label]) => labels.includes(label))?.[1] ?? null;
 }
 
+/** Why the machine's limit or memory brake holds a start back now, or null when one may go ahead. */
+function limitHold(settings: QueueSettings, running: number, memory: MemoryReading): string | null {
+  if (running >= settings.limit) return `At the limit: ${running} of ${settings.limit} running`;
+  const free = memory.availableGiB;
+  if (free !== null && free < settings.minFreeGiB) {
+    return `Held: ${free.toFixed(1)} GiB free, under ${settings.minFreeGiB} GiB`;
+  }
+  if (memory.pressure !== null && memory.pressure > settings.maxPressure) {
+    return `Held: memory pressure ${memory.pressure.toFixed(1)}%, over ${settings.maxPressure}%`;
+  }
+  return null;
+}
+
 export class WorkerQueue {
   private file: QueueFile;
   private readonly now: () => number;
@@ -374,6 +387,18 @@ export class WorkerQueue {
       lastTickAt: this.lastTickAt,
       lastError: this.lastError,
     };
+  }
+
+  /**
+   * Whether a session started by something other than the queue (a Trigger's
+   * Run) may start now, under the same limit and memory brake. The switch is
+   * left out: it says whether this machine takes issues off GitHub, and a
+   * Trigger was set up on this machine on purpose. `starting` counts sessions
+   * already started whose hooks have not reported yet.
+   */
+  room(starting = 0): string | null {
+    const running = Math.max(this.runningCount, this.deps.liveWorkers().length) + starting;
+    return limitHold(this.file.settings, running, this.deps.memory());
   }
 
   /** Reap and start now. A tick already under way is not doubled: one more follows it. */
@@ -435,17 +460,8 @@ export class WorkerQueue {
     this.memoryNow = memory;
     let free = memory.availableGiB;
 
-    const holdNow = (): string | null => {
-      if (!settings.enabled) return "Off on this machine";
-      if (running >= settings.limit) return `At the limit: ${running} of ${settings.limit} running`;
-      if (free !== null && free < settings.minFreeGiB) {
-        return `Held: ${free.toFixed(1)} GiB free, under ${settings.minFreeGiB} GiB`;
-      }
-      if (memory.pressure !== null && memory.pressure > settings.maxPressure) {
-        return `Held: memory pressure ${memory.pressure.toFixed(1)}%, over ${settings.maxPressure}%`;
-      }
-      return null;
-    };
+    const holdNow = (): string | null =>
+      settings.enabled ? limitHold(settings, running, { ...memory, availableGiB: free }) : "Off on this machine";
 
     const waiting: WaitingIssue[] = [];
     const wait = (issue: ReadyIssue, why: string) =>

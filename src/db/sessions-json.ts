@@ -106,6 +106,8 @@ export interface Session {
   maestro_role?: string | null;
   /** The GitHub issue a maestro worker owns. */
   maestro_issue?: number | null;
+  /** Set by the hook when a Trigger's Run started the session (`CLAUDE_MUX_RUN`). */
+  run_id?: string | null;
   /** Subagents running now, those done in the last hour, and those failed in the last day. */
   subagents?: Subagent[];
 }
