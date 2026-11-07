@@ -51,6 +51,30 @@ The workflow builds CLI + web, publishes to npm via **OIDC trusted publishing** 
 
 After release, other machines update with: `claude-mux update`.
 
+A merge to `main` releases itself, through the release rule
+(`src/server/release.ts`, wired by `web/src/lib/server/release.ts`). It acts on
+the one machine whose state map has `christinoleo/claude-mux` enabled with its
+push event set to the rule (`omarchy`), ticked after every read of GitHub and
+every 15 s, and keeps every step in `~/.claude-mux/release.json`. Each new head
+is gated in a worktree of a clone of its own (`~/.claude-mux/release/repo`,
+never a checkout someone works in): `bun install --frozen-lockfile`, lint,
+tests, build. A failure files an issue and that head is never gated again; a
+head whose commits since the last `v*` tag touch only docs (`*.md`, `docs/`,
+`LICENSE`), or that is the tag's own commit, releases nothing. Ten minutes
+after the head last moved, a head that passed gets `npm version patch`, the
+bump is pushed to `main` and then its tag, and `release.yml` publishes as
+above. Once `npm view` has the version, this machine updates itself first
+(`startUpdate()`, the Machines view's job) and must answer `/api/health` on the
+new version within 15 minutes; then every other machine the fleet state lists,
+by name, one at a time through its `/api/update`, as "Update all" does. Each
+machine gets one attempt per version; one offline when the rollout begins is
+passed over; a failure stops the rollout, files an issue and rolls nothing back.
+A machine in `queue:exclusive` (`engage` unless set) takes part only when the
+fleet preference `release:include` names it. An open issue labelled
+`release-hold` pauses all of it: the poller's sweep reads the count with the
+branch head, at no extra cost. What the rule did shows as the Runs of
+claude-mux's push Trigger on `/triggers`.
+
 The published package installs only the root `dependencies`, so web packages
 belong in web `devDependencies`, where Vite bundles them into the server; a web
 `dependencies` entry stays a bare import and fails on every host but this one

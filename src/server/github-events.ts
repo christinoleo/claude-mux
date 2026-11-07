@@ -36,6 +36,10 @@ import { enabledProjects, type EventAction, type EventKind, type ProjectEventMap
 import type { InboxTicket } from "../types/ws-messages.js";
 
 export const READY_LABEL = "ready-for-agent";
+/** An open issue with this label pauses the release rule (`src/server/release.ts`). */
+export const HOLD_LABEL = "release-hold";
+/** The project whose pushes the release rule takes, when its push event is set to the rule. */
+export const RELEASE_REPO = "christinoleo/claude-mux";
 /** How often GitHub is read: the delay #180 measured as costing about 60 points an hour. */
 export const POLL_MS = 60_000;
 /** How long the points spent are summed over, for the screen. */
@@ -80,6 +84,8 @@ interface SweepRepo {
   issues: {
     nodes: ({ number: number; updatedAt: string; issueDependenciesSummary?: { blockedBy: number } | null } | null)[];
   };
+  /** Open issues labelled `release-hold`: read for every project, since it costs nothing more. */
+  holds?: { totalCount: number } | null;
 }
 
 interface RateLimit {
@@ -172,6 +178,7 @@ export function sweepQuery(slugs: string[]): string {
     issues(states: OPEN, labels: [${str(READY_LABEL)}], first: ${READY_PAGE}, orderBy: { field: UPDATED_AT, direction: DESC }) {
       nodes { number updatedAt issueDependenciesSummary { blockedBy } }
     }
+    holds: issues(states: OPEN, labels: [${str(HOLD_LABEL)}]) { totalCount }
   }`;
   });
   return `query {\n  viewer { login }\n  rateLimit { cost remaining resetAt }\n  ${repos.join("\n  ")}\n}`;
@@ -292,6 +299,11 @@ export interface ReadyIssue {
   blockedBy: number;
 }
 
+export interface BranchState {
+  head: string;
+  held: boolean;
+}
+
 export interface PollStatus {
   viewer: string | null;
   lastPollAt: number | null;
@@ -310,6 +322,7 @@ export class EventPoller {
   private details = new Map<string, IssueDetail>();
   private approvals = new Map<string, Approval>();
   private ready: ReadyIssue[] = [];
+  private branches = new Map<string, BranchState>();
   private sweepListeners = new Set<() => void>();
   private spent: { at: number; cost: number }[] = [];
   private remaining: number | null = null;
@@ -376,6 +389,11 @@ export class EventPoller {
     return this.ready;
   }
 
+  /** A project's default branch head and whether a hold is open, as the last read that reached it found them. */
+  branch(slug: string): BranchState | null {
+    return this.branches.get(slug) ?? null;
+  }
+
   /** Called after every read of GitHub that got an answer. Returns the unsubscribe. */
   onSweep(listener: () => void): () => void {
     this.sweepListeners.add(listener);
@@ -424,7 +442,12 @@ export class EventPoller {
   }
 
   private record(event: Omit<SeenEvent, "at" | "outcome">): void {
-    const outcome = event.action === "rule" ? "Recorded as seen" : "Queued for a worker";
+    const outcome =
+      event.action !== "rule"
+        ? "Queued for a worker"
+        : event.kind === "push" && event.repo === RELEASE_REPO
+          ? "Handed to the release rule"
+          : "Recorded as seen";
     this.file.log = [{ ...event, at: this.now(), outcome }, ...this.file.log].slice(0, LOG_LIMIT);
   }
 
@@ -449,6 +472,7 @@ export class EventPoller {
     for (const slug of Object.keys(this.file.repos)) {
       if (!projects.has(slug)) {
         delete this.file.repos[slug];
+        this.branches.delete(slug);
         this.deps.store.save(this.file);
       }
     }
@@ -499,6 +523,7 @@ export class EventPoller {
       listed.set(slug, numbers);
 
       const head = repo.defaultBranchRef?.target ?? null;
+      if (head) this.branches.set(slug, { head: head.oid, held: (repo.holds?.totalCount ?? 0) > 0 });
       if (head && head.oid !== cursor.head) {
         if (cursor.head !== null) {
           const action = projects.get(slug)!.events.push;

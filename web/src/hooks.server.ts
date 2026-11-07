@@ -22,6 +22,7 @@ import { ensurePushMonitor } from '$lib/server/push.js';
 import { ensureFleetState, relayGate } from '$lib/server/fleet.js';
 import { startWorkerQueue } from '$lib/server/worker-queue.js';
 import { startScheduler } from '$lib/server/triggers.js';
+import { startReleaseRule } from '$lib/server/release.js';
 import {
 	admitRelay,
 	FORWARDED_HEADER,
@@ -50,6 +51,8 @@ export const init: ServerInit = () => {
 		startWorkerQueue();
 		// Triggers start sessions too, through the queue's limit, so the same terms hold.
 		startScheduler();
+		// A push to claude-mux itself, where the state map gives it to the rule, releases it.
+		startReleaseRule();
 	}
 	void followLiveTextPort({ dev, port: listenPort() });
 	void followDialogAnswersPort({ dev, port: listenPort() });
