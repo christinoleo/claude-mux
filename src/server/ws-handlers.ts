@@ -81,6 +81,7 @@ import { getQueue, getDeliveries } from './message-queue.js';
 import { getSettings, isClaudeMuxSessionName } from '../db/settings-json.js';
 import type { ChangesInfo, DeliveryInfo, IssueInfo, QueuedMessageInfo, SessionsWsMessage, SystemStatsMessage, UpgradeStatus } from '../types/ws-messages.js';
 import { inboxTickets, issueFor, watchSessionRepos } from './github.js';
+import { runningEventPoller } from './github-events.js';
 import { projectReports } from './project-icons.js';
 import { pluginReader } from './plugins.js';
 import { PastSessionIndex, withoutLive } from '../transcript/past-sessions.js';
@@ -1016,13 +1017,17 @@ export class SessionsWsManager {
 			// Its Claude Code marketplaces and plugins, for the fleet to keep in step.
 			plugins: pluginReader().current(),
 			settings: getSettings(),
-			inbox: inboxTickets(
-				new Set(
-					sessions
-						.filter((s) => s.pane_alive && s.maestro_issue && s.git_root)
-						.map((s) => `${s.git_root}#${s.maestro_issue}`)
-				)
-			),
+			inbox: [
+				...inboxTickets(
+					new Set(
+						sessions
+							.filter((s) => s.pane_alive && s.maestro_issue && s.git_root)
+							.map((s) => `${s.git_root}#${s.maestro_issue}`)
+					)
+				),
+				// Issues someone else touched after Leo marked them ready (the state map's poller).
+				...(runningEventPoller()?.approvalTickets() ?? [])
+			],
 			timestamp: Date.now()
 		};
 	}

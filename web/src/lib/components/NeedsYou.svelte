@@ -12,7 +12,7 @@
 	 */
 	import { formatAgo } from '$lib/format';
 	import { clock } from '$lib/stores/clock.svelte';
-	import { blockedReason, type Machine } from '$lib/stores/fleet.svelte';
+	import { apiBase, blockedReason, type Machine } from '$lib/stores/fleet.svelte';
 	import { asking, getSessionDisplayName, needsHelp, type Session } from '$lib/stores/sessions.svelte';
 	import type { InboxTicket } from '$shared/types/ws-messages.js';
 	import SessionStateIndicator from '$lib/components/SessionStateIndicator.svelte';
@@ -37,7 +37,8 @@
 	type Waiting =
 		| { kind: 'session'; key: string; machine: Machine; session: Session; since: number }
 		| { kind: 'help'; key: string; machine: Machine; ticket: InboxTicket; session: Session | null; since: number }
-		| { kind: 'pr'; key: string; machine: Machine; ticket: InboxTicket; since: number };
+		| { kind: 'pr'; key: string; machine: Machine; ticket: InboxTicket; since: number }
+		| { kind: 'approve'; key: string; machine: Machine; ticket: InboxTicket; since: number };
 
 	interface Ready {
 		key: string;
@@ -59,6 +60,10 @@
 					out.push({ kind: 'pr', key: `${host}/p/${t.repo}#${t.number}`, machine, ticket: t, since: t.since });
 					continue;
 				}
+				if (t.kind === 'approve') {
+					out.push({ kind: 'approve', key: `${host}/a/${t.repo}#${t.number}`, machine, ticket: t, since: t.since });
+					continue;
+				}
 				if (t.kind !== 'needs-help') continue;
 				const session =
 					machine.sessions.find(
@@ -76,7 +81,7 @@
 		const out: Ready[] = [];
 		for (const machine of machines) {
 			for (const t of machine.inbox) {
-				if (t.kind === 'needs-help' || t.kind === 'pr') continue;
+				if (t.kind === 'needs-help' || t.kind === 'pr' || t.kind === 'approve') continue;
 				out.push({ key: `${machine.server.hostname}/t/${t.repo}#${t.number}`, machine, ticket: t });
 			}
 		}
@@ -146,9 +151,33 @@
 		else window.open(item.ticket.url, '_blank', 'noopener');
 	}
 
+	/**
+	 * Someone else touched an issue after Leo marked it ready, so nothing starts
+	 * on it until he says so: the machine that reads it puts the label back
+	 * under his name. Keyed by item; holds the error when the approval failed.
+	 */
+	let approving = $state<Record<string, string | null>>({});
+
+	async function approve(item: Extract<Waiting, { kind: 'approve' }>) {
+		approving[item.key] = null;
+		const res = await fetch(`${apiBase(item.machine)}/api/events/approve`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ repo: item.ticket.repo, number: item.ticket.number })
+		}).catch(() => null);
+		if (res?.ok) {
+			// The answer comes after GitHub was read again, with the broadcast that drops the item.
+			delete approving[item.key];
+			return;
+		}
+		const body = (await res?.json().catch(() => null)) as { error?: string } | null | undefined;
+		approving[item.key] = body?.error ?? 'Did not answer';
+	}
+
 	const KIND_ICON: Record<InboxTicket['kind'], string> = {
 		'needs-help': 'mdi:hand-back-right-outline',
 		pr: 'mdi:source-pull',
+		approve: 'mdi:account-alert-outline',
 		grilling: 'mdi:signpost-outline',
 		prototype: 'mdi:shape-outline'
 	};
@@ -214,6 +243,30 @@
 							>{/if}
 					</span>
 				</a>
+			{:else if item.kind === 'approve'}
+				{@const t = item.ticket}
+				{@const off = blockedReason(item.machine, clock.now)}
+				{@const err = approving[item.key]}
+				<div class="it ticket" class:off={!!off}>
+					<span class="ic help"><iconify-icon icon={KIND_ICON.approve}></iconify-icon></span>
+					<a class="name" href={t.url} target="_blank" rel="noopener" title="Open on GitHub" onclick={(e) => openTicket(e, t)}
+						>{t.title}</a
+					>
+					<button
+						type="button"
+						class="start"
+						title={off ?? 'Mark it ready again under your name, so it is taken as it now reads'}
+						disabled={!!off || err === null}
+						onclick={() => approve(item)}
+					>
+						{err === null ? 'Approving…' : 'Approve'}
+					</button>
+					<span class="sub note">
+						<span class="num">#{t.number}</span>{err ?? t.note}{#if multiHost}<span class="host"
+								>{item.machine.server.hostname}</span
+							>{/if}
+					</span>
+				</div>
 			{:else}
 				{@const t = item.ticket}
 				{@const off = blockedReason(item.machine, clock.now)}
