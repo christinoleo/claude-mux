@@ -28,8 +28,10 @@
 	import DiffBadge from '$lib/components/DiffBadge.svelte';
 	import { PANES } from '$lib/side-panel/panes';
 	import SubagentRow from '$lib/components/SubagentRow.svelte';
-	import { agentView, childSummary, type AgentView } from '$shared/subagents.js';
-	import { CREW_FOLD_ABOVE, crewView, nestWorkers, type WorkerRow } from '$shared/sidebar-workers.js';
+	import { agentRowsShown, agentView, childSummary, type AgentView } from '$shared/subagents.js';
+	import { CREW_FOLD_ABOVE, nestWorkers, workerGroupView, type WorkerRow } from '$shared/sidebar-workers.js';
+	import { agentsFoldKey, workersFoldKey } from '$shared/sidebar-folds.js';
+	import { folds } from '$lib/stores/folds.svelte';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { attachmentsStore } from '$lib/stores/attachments.svelte';
@@ -206,6 +208,18 @@
 		return ref ? localRef(ref, fleetStore.servers(), selfName()) : null;
 	});
 
+	/** The subagent on the page (`/session/<target>/agent/<id>`), under the session `current` names. */
+	const currentAgent = $derived.by((): string | null => {
+		const rest = parseSessionPath($page.url.pathname)?.rest ?? '';
+		const match = /^\/agent\/([^/]+)$/.exec(rest);
+		if (!match) return null;
+		try {
+			return decodeURIComponent(match[1]);
+		} catch {
+			return null;
+		}
+	});
+
 	/** Whether a machine's session is the one on the page. */
 	function isCurrent(machine: Machine, tmuxTarget: string | null): boolean {
 		if (!current || !tmuxTarget || current.target !== tmuxTarget) return false;
@@ -249,12 +263,13 @@
 	}
 
 	/**
-	 * The chip under a row: what hangs off it ("1 worker · 2 agents"), else
-	 * the path under a named session; a title made of the path needs none.
+	 * The chip under a row: its subagents ("1 agent · 4 done"), else the path
+	 * under a named session; a title made of the path needs none. A master's
+	 * workers are counted by their own group's header.
 	 */
 	function rowWhere(row: Row, agents: AgentView): string | null {
 		if (row.orchestrator) return 'orch';
-		const children = childSummary(row.workers ?? 0, agents);
+		const children = childSummary(agents);
 		if (children) return children;
 		return !row.worker && row.session.display_name && row.rel ? row.rel : null;
 	}
@@ -263,11 +278,23 @@
 		return sessionPath(refOf(machine, target), `/agent/${encodeURIComponent(agentId)}`);
 	}
 
-	/** Per place, whether its masterless workers were opened (true) or folded (false) by hand. */
-	let crewOpen = $state<Record<string, boolean>>({});
+	/**
+	 * Whether a group of workers starts open: always where the rows were
+	 * already chosen (Active, the filter's results), and in a project's own
+	 * list until the group grows past `CREW_FOLD_ABOVE`.
+	 */
+	function workersOpenByDefault(size: number, extras: boolean): boolean {
+		return !extras || size <= CREW_FOLD_ABOVE;
+	}
 
-	function crewFolded(key: string, size: number): boolean {
-		return !(crewOpen[key] ?? size <= CREW_FOLD_ABOVE);
+	/**
+	 * Each master's workers among `rows`. The filter can keep a worker and drop
+	 * its master; such a worker is in no list here and stands on its own.
+	 */
+	function workersByMaster(rows: Row[]): Map<Session, Row[]> {
+		const byMaster = new Map<Session, Row[]>(rows.filter((r) => r.workers).map((r) => [r.session, []]));
+		for (const r of rows) if (r.under) byMaster.get(r.under)?.push(r);
+		return byMaster;
 	}
 
 	function rowsFor(sessions: Session[], root: string): Row[] {
@@ -949,17 +976,15 @@
 		<!-- A worker hangs off its master on a solid violet thread, and its own
 		     subagents ride inside that thread. -->
 		<div class="thread worker">{@render rowWithAgents(machine, row, marked, offline)}</div>
-		<!-- A master's own subagents come after its workers, as in the design. -->
-		{#if row.trailing}{@render agentThread(machine, row.trailing, agentsOf(row.trailing))}{/if}
 	{:else}
 		{@render rowWithAgents(machine, row, marked, offline)}
 	{/if}
 {/snippet}
 
-{#snippet agentThread(machine: Machine, s: Session, agents: AgentView)}
-	{#if agents.rows.length > 0 && s.tmux_target}
+{#snippet agentThread(machine: Machine, s: Session, agents: AgentView['rows'])}
+	{#if agents.length > 0 && s.tmux_target}
 		<div class="thread agents">
-			{#each agents.rows as agent (agent.id)}
+			{#each agents as agent (agent.id)}
 				{@const href = agentHref(machine, s.tmux_target, agent.id)}
 				<SubagentRow
 					{agent}
@@ -979,11 +1004,19 @@
 	{@const s = row.session}
 	{@const agents = agentsOf(s)}
 	{@const isActive = isCurrent(machine, s.tmux_target)}
+	{@const foldKey = agentsFoldKey(s.id)}
+	{@const agentsOpen = folds.isOpen(foldKey, false)}
+	<!-- Subagents start folded behind the row's tally; a failed one not yet
+	     opened, or the one on screen, stays out. -->
+	{@const shownAgents = agentRowsShown(agents, agentsOpen, (a) =>
+		a.state === 'failed' || (isActive && a.id === currentAgent)
+	)}
 	{@const draftKey = s.tmux_target && !isActive ? formatRef(refOf(machine, s.tmux_target)) : null}
 	<SessionRow
 		session={s}
 		title={rowTitle(row)}
 		where={rowWhere(row, agents)}
+		fold={shownAgents.foldable && childSummary(agents) ? { open: agentsOpen, toggle: () => folds.toggle(foldKey, false) } : null}
 		href={sessionPath(refOf(machine, s.tmux_target ?? ''))}
 		hint={(machine.local ? 'Double-click or long-press to rename' : `On ${machine.server.hostname}`) + (canDrag ? ' · ⌥-click or drag to open side by side' : '')}
 		active={isActive}
@@ -1017,7 +1050,35 @@
 	>
 		{#snippet meta()}<DiffBadge changes={s.changes} />{/snippet}
 	</SessionRow>
-	{#if !row.workers}{@render agentThread(machine, s, agents)}{/if}
+	{@render agentThread(machine, s, shownAgents.rows)}
+{/snippet}
+
+{#snippet workerGroup(place: Place, key: string, workers: Row[], underMaster: boolean, marked: boolean, extras: boolean, offline: string | null)}
+	{@const byDefault = workersOpenByDefault(workers.length, extras)}
+	{@const folded = !folds.isOpen(key, byDefault)}
+	{@const view = workerGroupView(
+		workers,
+		folded,
+		(r) => wantsHuman(r.session),
+		(r) => wantsHuman(r.session) || isCurrent(place.machine, r.session.tmux_target)
+	)}
+	<!-- A group of workers, a master's or the masterless ones, under one
+	     header that folds it; folded, it still shows any that want a person. -->
+	<button
+		type="button"
+		class="crew"
+		class:under={underMaster}
+		aria-expanded={!folded}
+		onclick={() => folds.toggle(key, byDefault)}
+	>
+		<iconify-icon class="chev" class:open={!folded} icon="mdi:chevron-right"></iconify-icon>
+		<span class="n">{workers.length}</span>
+		{workers.length === 1 ? 'worker' : 'workers'}
+		{#if folded}<span class="sum">{view.summary}</span>{/if}
+	</button>
+	{#each view.shown as row (row.session.id)}
+		{@render sessionRow(place.machine, row, marked, offline)}
+	{/each}
 {/snippet}
 
 {#snippet paneRow(machine: Machine, pane: PlainPane, marked: boolean, offline: string | null)}
@@ -1050,38 +1111,20 @@
 {#snippet placeRows(place: Place, marked: boolean, extras: boolean)}
 	{@const offline = blockedReason(place.machine, clock.now)}
 	{@const crew = place.rows.filter((r) => r.crew)}
-	<!-- Only a project's own list folds: Active and the filter's results already chose these rows. -->
-	{@const folded = extras && crewFolded(place.key, crew.length)}
-	{@const crewShown = crewView(
-		crew,
-		folded,
-		(r) => wantsHuman(r.session),
-		(r) => wantsHuman(r.session) || isCurrent(place.machine, r.session.tmux_target)
-	)}
+	{@const byMaster = workersByMaster(place.rows)}
 	<!-- An offline machine's rows stay, dimmed and out of reach, until it answers
 	     again; so do those of one too old for this machine, until it is updated. -->
 	<div class="place" class:off={!!offline} inert={!!offline}>
-		{#each place.rows.filter((r) => !r.crew) as row (row.session.id)}
+		{#each place.rows.filter((r) => !r.crew && !(r.under && byMaster.has(r.under))) as row (row.session.id)}
+			{@const workers = byMaster.get(row.session) ?? []}
 			{@render sessionRow(place.machine, row, marked, offline)}
+			{#if workers.length > 0}
+				{@render workerGroup(place, workersFoldKey(row.session.id), workers, true, marked, extras, offline)}
+			{/if}
 		{/each}
 		{#if crew.length > 0}
-			<!-- Workers with no master to hang off (the queue's, or a daemon's
-			     that has gone) gather under one header, folded once there are many. -->
-			<button
-				type="button"
-				class="crew"
-				aria-expanded={!folded}
-				disabled={!extras}
-				onclick={() => (crewOpen = { ...crewOpen, [place.key]: folded })}
-			>
-				{#if extras}<iconify-icon class="chev" class:open={!folded} icon="mdi:chevron-right"></iconify-icon>{/if}
-				<span class="n">{crew.length}</span>
-				{crew.length === 1 ? 'worker' : 'workers'}
-				{#if folded}<span class="sum">{crewShown.summary}</span>{/if}
-			</button>
-			{#each crewShown.shown as row (row.session.id)}
-				{@render sessionRow(place.machine, row, marked, offline)}
-			{/each}
+			<!-- Workers with no master to hang off (the queue's, or a daemon's that has gone). -->
+			{@render workerGroup(place, workersFoldKey(place.key), crew, false, marked, extras, offline)}
 		{/if}
 		{#if extras}
 			{#each place.panes as pane (pane.target)}
@@ -2007,7 +2050,7 @@
 		color: var(--muted);
 	}
 
-	/* a group's one-line header: masterless workers, and closed sessions, folded */
+	/* a group's one-line header: workers, and closed sessions, folded */
 	.crew,
 	.dead {
 		display: flex;
@@ -2031,11 +2074,20 @@
 		text-align: left;
 		cursor: pointer;
 	}
-	.crew:not(:disabled):hover {
+	.crew:hover {
 		color: var(--muted);
 	}
-	.crew:disabled {
-		cursor: default;
+	/* A master's workers: the header starts their thread, under the master. */
+	.crew.under {
+		width: auto;
+		margin: 0 0 0 13px;
+		padding-left: 9px;
+		border-left: 1px solid color-mix(in oklab, #4c3a8a 80%, transparent);
+	}
+	@media (hover: none) {
+		.crew {
+			min-height: 32px;
+		}
 	}
 	.crew .sum {
 		margin-left: auto;

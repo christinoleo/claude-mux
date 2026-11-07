@@ -30,17 +30,31 @@ export function agentView(agents: Subagent[] | undefined, now: number, opened: R
   return { rows, running, folded };
 }
 
-/** The parent's tally: "1 worker · 2 agents", "3 agents done"; null when there is nothing to say. */
-export function childSummary(workers: number, view: AgentView): string | null {
+/** The parent's tally: "2 agents", "1 agent · 3 done"; null when there is nothing to say. */
+export function childSummary(view: AgentView): string | null {
   const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
   const parts: string[] = [];
-  if (workers) parts.push(count(workers, "worker"));
   if (view.running) parts.push(count(view.running, "agent"));
-  if (view.folded) parts.push(`${count(view.folded, "agent")} done`);
+  if (view.folded) parts.push(view.running ? `${view.folded} done` : `${count(view.folded, "agent")} done`);
   return parts.length ? parts.join(" · ") : null;
 }
 
 /** The agent type as a chip says it: "general-purpose" is just "general". */
 export function agentTypeLabel(type: string): string {
   return type.replace(/-purpose$/, "");
+}
+
+/**
+ * The rows a session's subagents draw under it. They start folded behind the
+ * parent's tally, which opens them; folded, a row a person should still see
+ * (`pinned`: a failed one not yet opened, the one on screen) stays.
+ * `foldable` says whether the tally hides anything at all.
+ */
+export function agentRowsShown(
+  view: AgentView,
+  open: boolean,
+  pinned: (agent: Subagent) => boolean
+): { rows: Subagent[]; foldable: boolean } {
+  const foldable = view.rows.some((agent) => !pinned(agent));
+  return { rows: open || !foldable ? view.rows : view.rows.filter(pinned), foldable };
 }

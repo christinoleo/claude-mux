@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crewView, nestWorkers, type WorkerRow } from "../src/sidebar-workers.js";
+import { nestWorkers, workerGroupView, type WorkerRow } from "../src/sidebar-workers.js";
 
 interface S {
   id: string;
@@ -20,7 +20,7 @@ const shape = (rows: WorkerRow<S>[]) =>
     id: r.session.id,
     worker: r.worker ?? false,
     workers: r.workers,
-    trailing: r.trailing?.id,
+    under: r.under?.id,
     crew: r.crew ?? false,
   }));
 
@@ -38,10 +38,10 @@ describe("nestWorkers", () => {
       row(session("w1", "proj:2.0", 7)),
     ];
     expect(shape(nestWorkers(rows))).toEqual([
-      { id: "other", worker: false, workers: undefined, trailing: undefined, crew: false },
-      { id: "master", worker: false, workers: 2, trailing: undefined, crew: false },
-      { id: "w1", worker: true, workers: undefined, trailing: undefined, crew: false },
-      { id: "w2", worker: true, workers: undefined, trailing: "master", crew: false },
+      { id: "other", worker: false, workers: undefined, under: undefined, crew: false },
+      { id: "master", worker: false, workers: 2, under: undefined, crew: false },
+      { id: "w1", worker: true, workers: undefined, under: "master", crew: false },
+      { id: "w2", worker: true, workers: undefined, under: "master", crew: false },
     ]);
   });
 
@@ -51,8 +51,8 @@ describe("nestWorkers", () => {
       row(session("plain", "main:1.0")),
     ];
     expect(shape(nestWorkers(rows))).toEqual([
-      { id: "plain", worker: false, workers: undefined, trailing: undefined, crew: false },
-      { id: "w", worker: true, workers: undefined, trailing: undefined, crew: true },
+      { id: "plain", worker: false, workers: undefined, under: undefined, crew: false },
+      { id: "w", worker: true, workers: undefined, under: undefined, crew: true },
     ]);
   });
 
@@ -75,17 +75,17 @@ describe("nestWorkers", () => {
       row(session("q1", "queue-proj:1.0", 6)),
     ];
     expect(shape(nestWorkers(rows))).toEqual([
-      { id: "master", worker: false, workers: 1, trailing: undefined, crew: false },
-      { id: "d1", worker: true, workers: undefined, trailing: "master", crew: false },
-      { id: "q1", worker: true, workers: undefined, trailing: undefined, crew: true },
+      { id: "master", worker: false, workers: 1, under: undefined, crew: false },
+      { id: "d1", worker: true, workers: undefined, under: "master", crew: false },
+      { id: "q1", worker: true, workers: undefined, under: undefined, crew: true },
     ]);
   });
 
   it("never finds a master in the queue's own tmux session", () => {
     const rows = [row(session("someone", "queue-app:9.0")), row(session("q", "queue-app:1.0", 3))];
     expect(shape(nestWorkers(rows))).toEqual([
-      { id: "someone", worker: false, workers: undefined, trailing: undefined, crew: false },
-      { id: "q", worker: true, workers: undefined, trailing: undefined, crew: true },
+      { id: "someone", worker: false, workers: undefined, under: undefined, crew: false },
+      { id: "q", worker: true, workers: undefined, under: undefined, crew: true },
     ]);
   });
 
@@ -95,13 +95,13 @@ describe("nestWorkers", () => {
       row(session("q", "queue-app:1.0", 3)),
     ];
     expect(shape(nestWorkers(rows))).toEqual([
-      { id: "orch", worker: false, workers: undefined, trailing: undefined, crew: false },
-      { id: "q", worker: true, workers: undefined, trailing: undefined, crew: true },
+      { id: "orch", worker: false, workers: undefined, under: undefined, crew: false },
+      { id: "q", worker: true, workers: undefined, under: undefined, crew: true },
     ]);
   });
 });
 
-describe("crewView", () => {
+describe("workerGroupView", () => {
   const crew = [
     row({ ...session("a", "queue-app:1.0", 1), state: "busy" }),
     row({ ...session("b", "queue-app:2.0", 2), state: "busy" }),
@@ -112,11 +112,11 @@ describe("crewView", () => {
   const pinned = (r: WorkerRow<S>) => wants(r) || r.session.id === "d";
 
   it("shows every worker, and says nothing, while open", () => {
-    expect(crewView(crew, false, wants, pinned)).toEqual({ shown: crew, summary: "" });
+    expect(workerGroupView(crew, false, wants, pinned)).toEqual({ shown: crew, summary: "" });
   });
 
   it("keeps the pinned workers and sums up the group while folded", () => {
-    const { shown, summary } = crewView(crew, true, wants, pinned);
+    const { shown, summary } = workerGroupView(crew, true, wants, pinned);
     expect(shown.map((r) => r.session.id)).toEqual(["c", "d"]);
     expect(summary).toBe("2 working · 1 wants you");
   });
