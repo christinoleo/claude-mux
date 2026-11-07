@@ -9,6 +9,7 @@ import {
 } from '$shared/server/ws-handlers.js';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { startClaudeUpdater } from '$shared/server/claude-update.js';
+import { eventPoller } from '$shared/server/github-events.js';
 import { followDialogAnswersPort } from '$shared/server/dialog-switch.js';
 import { followLiveTextPort } from '$shared/server/live-text-switch.js';
 import {
@@ -39,6 +40,9 @@ export const init: ServerInit = () => {
 	ensureFleetState();
 	// It restarts live sessions, so a dev server beside the real one must not run it.
 	if (!dev) startClaudeUpdater();
+	// What GitHub's events start will one day be sessions, so a dev server beside
+	// the real one reads them only when told to, under a HOME of its own.
+	if (!dev || process.env.CLAUDE_MUX_EVENTS === '1') eventPoller(() => sessionsWsManager.broadcastNow()).start();
 	void followLiveTextPort({ dev, port: listenPort() });
 	void followDialogAnswersPort({ dev, port: listenPort() });
 };

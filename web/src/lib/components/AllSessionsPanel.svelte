@@ -943,6 +943,7 @@
 	/** The rare actions, behind the menu; the same list feeds the chord menu. */
 	const menuActions: ChordAction[] = $derived([
 		{ label: 'Usage', icon: 'mdi:chart-line', run: () => void goto('/usage') },
+		{ label: 'Events', icon: 'mdi:github', run: () => void goto('/events') },
 		{ label: 'Close Chrome', icon: 'mdi:google-chrome', run: () => void closeChrome() },
 		{ label: 'Refresh', icon: 'mdi:refresh', run: () => location.reload() },
 		{

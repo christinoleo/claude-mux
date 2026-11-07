@@ -134,9 +134,11 @@ const InboxTicketSchema = z.object({
 	url: z.string(),
 	/**
 	 * A maestro worker asking for a decision, a pull request a `stop-at-pr`
-	 * worker left to be merged, or a wayfinder ticket only a person resolves.
+	 * worker left to be merged, a wayfinder ticket only a person resolves, or
+	 * an issue someone else touched after Leo marked it ready, which waits for
+	 * him to approve it again (`src/server/github-events.ts`).
 	 */
-	kind: z.enum(['needs-help', 'pr', 'grilling', 'prototype']),
+	kind: z.enum(['needs-help', 'pr', 'grilling', 'prototype', 'approve']),
 	/** When it started waiting, as near as GitHub says: the last update, or when it was filed or opened. */
 	since: z.number(),
 	/** The worker's latest comment, first paragraph — what it needs. */

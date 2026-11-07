@@ -406,6 +406,28 @@ whatever arrived since it was folded. `src/transcript/grilling.ts` reads
 a grilling round (`❓ **Qn**` … `➡️`) out of Claude's last reply, so the
 transcript can draw it as a form and write the reply.
 
+What claude-mux acts on when GitHub changes is a separate reader,
+`src/server/github-events.ts` (map #177). The state map
+(`src/db/event-map-json.ts`, `~/.claude-mux/event-map.json`) lists the
+GitHub projects a machine holds, all off until enabled on the Events screen
+(`/events`, one tab per machine, `GET`/`POST /api/events`), and says for each
+event (`issue-ready`, `push`) ignore, rule or session; the rule only records
+that the event was seen, and session waits for the worker queue. Once a
+minute `EventPoller` sends one GraphQL query for every enabled project (the
+default branch's head and its open `ready-for-agent` issues, 1 point however
+many), and a second only for issues whose `updatedAt` moved, to read their
+labels, comments, renames and edits with who made each. State is read, not
+the events feed, so a read that failed or a server that was down loses
+nothing; `~/.claude-mux/events.json` keeps each project's head and the keys
+of the events recorded, so nothing fires twice. `readiness()` holds Leo's
+rule: the latest `ready-for-agent` is the `gh` account's own and nobody but
+that account acted after it (his agents share his token; a Bot is not
+trusted, since a stranger can set one off). Anything else rides the inbox as
+kind `approve`, and Needs you's Approve (`POST /api/events/approve`) takes the
+label off and puts it back under his name; the poller's `onApprovals` has the
+sessions socket broadcast whenever that list changes. Only a built server polls; a dev
+server does with `CLAUDE_MUX_EVENTS=1`, under a `HOME` of its own.
+
 ### 7. What a session changed
 
 Two sources, both served by `GET /api/sessions/<id>/changes?source=session|git`
