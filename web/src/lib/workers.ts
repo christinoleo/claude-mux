@@ -41,7 +41,7 @@ export function machineSay(status: QueueStatus): { text: string; held: boolean }
 	const free = memory.availableGiB;
 	const freeText =
 		free !== null ? `${free.toFixed(1)} GiB free${memory.totalGiB ? ` of ${Math.round(memory.totalGiB)}` : ''}` : 'free memory unknown';
-	if (!settings.enabled) return { text: `Starts paused. ${running} still running`, held: true };
+	if (!status.on) return { text: `Off: nothing new starts. ${running} still running`, held: true };
 	if (running > settings.limit) {
 		return {
 			text: `${running} running over a limit of ${settings.limit}. None is stopped; nothing new starts until ${running - settings.limit} finish`,

@@ -19,6 +19,7 @@ import {
 	type LiveWorker
 } from '$shared/server/worker-queue.js';
 import { EXCLUSIVE_KEY, exclusiveList, nameList, placeName, placementKey } from '$shared/worker-placement.js';
+import { machineOn } from '$shared/server/machine-switch.js';
 import { MACHINE_ID } from '$lib/server/instance';
 import { selfName } from '$lib/server/discover';
 import { ensureFleetPrefs, ensureFleetState } from '$lib/server/fleet.js';
@@ -108,6 +109,7 @@ export function startWorkerQueue(): WorkerQueue {
 	const poller = eventPoller();
 	const queue = new WorkerQueue({
 		store: fileQueueStore(),
+		on: machineOn,
 		machine: selfName,
 		machineId: MACHINE_ID,
 		ready: () => poller.readyIssues(),

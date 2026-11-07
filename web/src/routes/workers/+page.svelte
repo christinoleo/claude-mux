@@ -88,6 +88,15 @@
 		} else errors[machineKey(m)] = res.error;
 	}
 
+	/** The machine's one switch (`src/server/machine-switch.ts`), the same one the Machines view turns. */
+	async function turn(m: Machine, on: boolean) {
+		const res = await post<{ on: boolean }>(m, '/api/machine-switch', { on });
+		if (res.ok) {
+			errors[machineKey(m)] = null;
+			await readQueue(m);
+		} else errors[machineKey(m)] = res.error;
+	}
+
 	async function stop(m: Machine, w: WorkerView) {
 		if (!confirm(`Stop the worker on #${w.number}? Its issue goes on hold, and its worktree is kept.`)) return;
 		said = null;
@@ -213,6 +222,7 @@
 					busy={busy[key] === true}
 					onOpen={(k) => (open = open === k ? null : k)}
 					onChange={(patch) => void change(m, patch)}
+					onTurn={(on) => void turn(m, on)}
 				/>
 			{:else}
 				<p class="machine-note"><b>{machineName(m)}</b> · Reading…</p>

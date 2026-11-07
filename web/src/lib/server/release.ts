@@ -16,6 +16,7 @@ import {
 	type ReleaseMachine
 } from '$shared/server/release.js';
 import { placeName } from '$shared/worker-placement.js';
+import { machineOn } from '$shared/server/machine-switch.js';
 import { jsonInit, lastLine, updateMachine, type UpdateIO } from '$lib/fleet-update';
 import { MACHINE_ID } from '$lib/server/instance';
 import { machineUrl, selfName } from '$lib/server/discover';
@@ -128,7 +129,8 @@ export function startReleaseRule(): ReleaseRule {
 			const result = await updateMachine(url, () => {}, serverIO, version);
 			return { ok: result.state === 'ok', line: result.line };
 		},
-		health: (machine) => health(urlOf(machine.id))
+		health: (machine) => health(urlOf(machine.id)),
+		on: machineOn
 	});
 	const tick = async () => {
 		if (!releaseProject()) return;

@@ -35,6 +35,7 @@ import { shellQuote } from "../utils/shell.js";
 import { listWindows, openWindow, slug, type TmuxRunner } from "./worker-queue.js";
 import { STOP_AT_PR } from "./github.js";
 import { RELEASE_REPO } from "./github-events.js";
+import { MACHINE_OFF } from "./machine-switch.js";
 import { isDialogState } from "../tmux/pane.js";
 import { DAY_NAMES, UNITS, UNIT_MS, type Schedule, type Unit } from "../trigger-schedule.js";
 
@@ -317,6 +318,8 @@ export interface SchedulerDeps {
   tmux: TmuxRunner;
   /** Where each session Run's exit code is written, `<run id>.exit`. */
   exitDir: string;
+  /** The machine's switch (`machine-switch.ts`): off, every firing is skipped. */
+  on: () => boolean;
   /** The worker queue's word on whether a session may start now: null for yes, else why not. */
   room: (starting: number) => string | null;
   sessions: () => RunSession[];
@@ -450,6 +453,7 @@ export class Scheduler {
 
   private fireDue(): boolean {
     const now = this.now();
+    const on = this.deps.on();
     let changed = false;
     for (const trigger of this.file.triggers) {
       if (trigger.next === null) continue;
@@ -468,6 +472,8 @@ export class Scheduler {
       const passed = firingsBetween(trigger.when, due, now, trigger.createdAt);
       if (now - due > GRACE_MS) {
         this.record(trigger, due, "skipped", "Missed while the server was down", passed);
+      } else if (!on) {
+        this.record(trigger, due, "skipped", MACHINE_OFF, passed);
       } else {
         if (trigger.what === "rule") this.record(trigger, due, "ran", "Recorded");
         else this.fireSession(trigger, due);
@@ -818,7 +824,7 @@ export function eventTriggers(sources: EventSources): TriggerView[] {
         .filter((e) => e.repo === project.repo && e.kind === kind)
         .map((e) => ({
           at: e.at,
-          status: "ran" as const,
+          status: e.outcome === MACHINE_OFF ? ("skipped" as const) : ("ran" as const),
           reason: e.outcome,
           link: { kind: "github" as const, href: e.url, label: e.title },
         }));

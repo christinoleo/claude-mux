@@ -7,7 +7,8 @@
 	 * One machine as a strip of its memory (#201): other sessions and apps,
 	 * then each worker as wide as the memory it holds, then what is free, and
 	 * a line where the free memory to keep starts. Under it, the limit, the
-	 * memory to keep and the pause switch.
+	 * memory to keep and the machine's one switch, the same one the Machines
+	 * view turns.
 	 */
 	interface Props {
 		name: string;
@@ -17,8 +18,10 @@
 		busy: boolean;
 		onOpen: (key: string) => void;
 		onChange: (patch: Partial<QueueSettings>) => void;
+		/** Turn the machine's switch: workers, Triggers, releases, live text and dashboard approvals. */
+		onTurn: (on: boolean) => void;
 	}
-	let { name, status, open, busy, onOpen, onChange }: Props = $props();
+	let { name, status, open, busy, onOpen, onChange, onTurn }: Props = $props();
 
 	const split = $derived(memorySplit(status));
 	const say = $derived(machineSay(status));
@@ -95,12 +98,13 @@
 		<Button
 			variant="outline"
 			size="sm"
-			class={s.enabled ? '' : 'paused'}
-			aria-pressed={!s.enabled}
+			class={status.on ? '' : 'paused'}
+			aria-pressed={status.on}
 			disabled={busy}
-			onclick={() => onChange({ enabled: !s.enabled })}
+			title="Workers, Triggers, releases, live text and dashboard approvals on {name}. Nothing running is stopped."
+			onclick={() => onTurn(!status.on)}
 		>
-			{s.enabled ? 'Pause new starts' : 'Resume starts'}
+			{status.on ? `Turn ${name} off` : `Turn ${name} on`}
 		</Button>
 	</div>
 </article>

@@ -40,7 +40,7 @@
  * marker is posted whenever this queue puts an issue back or its worker ends
  * with the issue still open.
  *
- * The switch is per machine and off at first, so this coexists with the
+ * The machine's switch (`machine-switch.ts`) is off at first, so this coexists with the
  * per-repo daemons until each project moves over. A project still run by a
  * daemon should not also start sessions here: the daemon claims by label
  * alone and posts no marker.
@@ -59,6 +59,7 @@ import { normaliseRemote } from "../fleet-projects.js";
 import { HOLD, NEEDS_HELP, STOP_AT_PR } from "./github.js";
 import { git } from "./git.js";
 import { placeName } from "../worker-placement.js";
+import { MACHINE_OFF } from "./machine-switch.js";
 
 export const IN_PROGRESS = "in-progress";
 export const READY_FOR_HUMAN = "ready-for-human";
@@ -88,8 +89,6 @@ export const RELEASE_MARK = "<!-- claude-mux:release -->";
 // ── settings ────────────────────────────────────────────────────────────────
 
 export interface QueueSettings {
-  /** Whether this machine starts workers at all. */
-  enabled: boolean;
   /** How many workers may run here at once. */
   limit: number;
   /** A start is held while MemAvailable is under this. */
@@ -98,9 +97,9 @@ export interface QueueSettings {
   maxPressure: number;
 }
 
-export const DEFAULT_SETTINGS: QueueSettings = { enabled: false, limit: 8, minFreeGiB: 2.5, maxPressure: 10 };
+export const DEFAULT_SETTINGS: QueueSettings = { limit: 8, minFreeGiB: 2.5, maxPressure: 10 };
 
-const BOUNDS: Record<Exclude<keyof QueueSettings, "enabled">, [number, number]> = {
+const BOUNDS: Record<keyof QueueSettings, [number, number]> = {
   limit: [0, 64],
   minFreeGiB: [0, 256],
   maxPressure: [0, 100],
@@ -111,10 +110,6 @@ export function parseSettingsPatch(raw: unknown): Partial<QueueSettings> | strin
   if (!raw || typeof raw !== "object") return "settings must be an object";
   const r = raw as Record<string, unknown>;
   const patch: Partial<QueueSettings> = {};
-  if (r.enabled !== undefined) {
-    if (typeof r.enabled !== "boolean") return "enabled must be true or false";
-    patch.enabled = r.enabled;
-  }
   for (const [key, [min, max]] of Object.entries(BOUNDS) as [keyof typeof BOUNDS, [number, number]][]) {
     const v = r[key];
     if (v === undefined) continue;
@@ -241,7 +236,7 @@ export function fileQueueStore(path: string = join(CLAUDE_MUX_DIR, "worker-queue
       try {
         raw = JSON.parse(readFileSync(path, "utf-8")) as Partial<QueueFile>;
       } catch {
-        // Missing or torn: off, and nothing started.
+        // Missing or torn: nothing started.
       }
       const settings = { ...DEFAULT_SETTINGS };
       const patch = parseSettingsPatch(raw.settings ?? {});
@@ -341,6 +336,8 @@ export function countsAgainstLimit(s: { maestro_role?: string | null; run_id?: s
 
 export interface QueueDeps {
   store: QueueStore;
+  /** The machine's switch (`machine-switch.ts`): off, nothing new starts. */
+  on: () => boolean;
   /** This machine's name, as placement lists it. */
   machine: () => string;
   /** This machine's id, written into its claims. */
@@ -394,6 +391,8 @@ export interface WaitingIssue {
 
 export interface QueueStatus {
   machine: string;
+  /** The machine's switch, which the panel shows beside the limit. */
+  on: boolean;
   settings: QueueSettings;
   running: number;
   memory: MemoryReading;
@@ -571,6 +570,7 @@ export class WorkerQueue {
   status(): QueueStatus {
     return {
       machine: this.deps.machine(),
+      on: this.deps.on(),
       settings: this.file.settings,
       running: this.runningCount,
       memory: this.memoryNow,
@@ -595,9 +595,8 @@ export class WorkerQueue {
 
   /**
    * Whether a session started by something other than the queue (a Trigger's
-   * Run) may start now, under the same limit and memory brake. The switch is
-   * left out: it says whether this machine takes issues off GitHub, and a
-   * Trigger was set up on this machine on purpose. `starting` counts sessions
+   * Run) may start now, under the same limit and memory brake. The machine's
+   * switch is the scheduler's to check. `starting` counts sessions
    * already started whose hooks have not reported yet.
    */
   room(starting = 0): string | null {
@@ -764,7 +763,7 @@ export class WorkerQueue {
 
     // Read afresh for each start, since the one before it counts against the memory.
     const holdNow = (): { why: string; kind: WaitKind } | null =>
-      settings.enabled ? limitHold(settings, running, this.freeAfterStarts(memory)) : { why: "Off on this machine", kind: "off" };
+      this.deps.on() ? limitHold(settings, running, this.freeAfterStarts(memory)) : { why: MACHINE_OFF, kind: "off" };
 
     const ready = this.deps.ready();
     const seen = this.file.seen ?? {};

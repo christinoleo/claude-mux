@@ -48,6 +48,8 @@ class World {
   store = memoryStore();
   head = A;
   held = false;
+  /** The machine's switch. */
+  on = true;
   version = "1.0.0";
   /** What changed since the last tag, by sha. */
   changes = new Map<string, { lastTag: string | null; tagged: boolean; files: string[] } | null>();
@@ -91,6 +93,7 @@ class World {
       store: this.store,
       now: () => this.now,
       github: () => ({ head: this.head, held: this.held, readAt: this.readAt ?? this.now }),
+      on: () => this.on,
       repo: {
         changes: async (sha) => (this.changes.has(sha) ? this.changes.get(sha)! : { lastTag: `v${this.version}`, tagged: false, files: ["src/x.ts"] }),
         gate: async (sha) => {
@@ -292,6 +295,34 @@ describe("release rule", () => {
     await ticks(rule, 3);
     expect(w.remoteUpdates).toEqual([]);
     w.held = false;
+    await ticks(rule, 3);
+    expect(w.remoteUpdates).toEqual(["beta", "distilo-1"]);
+  });
+
+  it("starts nothing while the machine's switch is off, leaves an update under way alone, and goes on once it is on", async () => {
+    w.on = false;
+    const rule = w.rule();
+    w.now += SETTLE_MS;
+    await ticks(rule, 3);
+    expect(w.gated).toEqual([]);
+    expect(rule.state().log.filter((l) => l.reason === "Paused: off on this machine")).toHaveLength(1);
+
+    w.on = true;
+    await rule.tick();
+    w.now += SETTLE_MS;
+    await rule.tick();
+    expect(w.tagged).toEqual([A]);
+    w.npm.add("1.0.1");
+    await rule.tick();
+    expect(w.selfStarts).toBe(1);
+
+    // Off mid-rollout: this machine's update runs on, and no other machine starts.
+    w.on = false;
+    w.selfComesBack();
+    await ticks(rule, 3);
+    expect(w.remoteUpdates).toEqual([]);
+    expect(w.selfStarts).toBe(1);
+    w.on = true;
     await ticks(rule, 3);
     expect(w.remoteUpdates).toEqual(["beta", "distilo-1"]);
   });

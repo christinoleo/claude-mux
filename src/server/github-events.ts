@@ -33,6 +33,7 @@ import { dirname, join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { getSessionsDir } from "../db/sessions-json.js";
 import { enabledProjects, type EventAction, type EventKind, type ProjectEventMap } from "../db/event-map-json.js";
+import { MACHINE_OFF, machineOn } from "./machine-switch.js";
 import type { InboxTicket } from "../types/ws-messages.js";
 
 export const READY_LABEL = "ready-for-agent";
@@ -285,6 +286,8 @@ export interface PollerDeps {
   now?: () => number;
   /** Told whenever the issues waiting for approval change, so Needs you hears at once. */
   onApprovals?: () => void;
+  /** The machine's switch (`machine-switch.ts`): off, an event is recorded as skipped. Absent, on. */
+  on?: () => boolean;
 }
 
 export interface Approval {
@@ -465,7 +468,9 @@ export class EventPoller {
 
   private record(event: Omit<SeenEvent, "at" | "outcome">): void {
     const outcome =
-      event.action !== "rule"
+      this.deps.on?.() === false
+        ? MACHINE_OFF
+        : event.action !== "rule"
         ? "Queued for a worker"
         : event.kind === "push" && event.repo === RELEASE_REPO
           ? "Handed to the release rule"
@@ -683,6 +688,7 @@ export function eventPoller(onApprovals?: () => void): EventPoller {
       store: fileEventStore(),
       projects: () => enabledProjects(),
       onApprovals,
+      on: machineOn,
     });
   }
   return g.__claudeMuxEventPoller;

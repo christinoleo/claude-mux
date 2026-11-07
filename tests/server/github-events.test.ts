@@ -244,6 +244,14 @@ describe("EventPoller", () => {
     expect(p.log()).toHaveLength(1);
   });
 
+  it("records an event seen while the machine's switch is off as off, and still reads it", async () => {
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), now: () => now, on: () => false });
+    await p.poll();
+    expect(p.log()).toMatchObject([{ kind: "issue-ready", repo: "o/r", outcome: "Off on this machine" }]);
+  });
+
   it("hands the worker queue the ready issues of projects that start a session, with labels and blockers", async () => {
     const issue = detail(5, [labeled("2026-11-07T11:00:00Z")]);
     issue.labels = { nodes: [{ name: "ready-for-agent" }, { name: "stop-at-pr" }] };
