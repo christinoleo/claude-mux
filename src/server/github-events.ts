@@ -21,9 +21,10 @@
  * again, which re-applies the label under his name. A push is the default
  * branch's head moving; the first read after enabling only notes where it is.
  *
- * What each event does comes from the map. This ticket has one action, the
- * rule that records that the event was seen; `session` waits for the worker
- * queue and is recorded as not started.
+ * What each event does comes from the map. The rule records that the event
+ * was seen. `session` on an issue puts it in `readyIssues()`, which the worker
+ * queue (`src/server/worker-queue.ts`) reads after every sweep and starts a
+ * worker from when this machine has room.
  */
 
 import { execFile } from "child_process";
@@ -68,13 +69,17 @@ export interface IssueDetail {
   url: string;
   updatedAt: string;
   timelineItems: { nodes: (TimelineNode | null)[] };
+  /** Read with the rest; a change of label moves `updatedAt`, so it is never stale. */
+  labels?: { nodes: ({ name: string } | null)[] } | null;
   userContentEdits?: { nodes: ({ editedAt: string; editor?: Actor | null } | null)[] } | null;
 }
 
 interface SweepRepo {
   nameWithOwner: string;
   defaultBranchRef: { name: string; target: { oid: string; messageHeadline?: string } | null } | null;
-  issues: { nodes: ({ number: number; updatedAt: string } | null)[] };
+  issues: {
+    nodes: ({ number: number; updatedAt: string; issueDependenciesSummary?: { blockedBy: number } | null } | null)[];
+  };
 }
 
 interface RateLimit {
@@ -165,7 +170,7 @@ export function sweepQuery(slugs: string[]): string {
     nameWithOwner
     defaultBranchRef { name target { oid ... on Commit { messageHeadline } } }
     issues(states: OPEN, labels: [${str(READY_LABEL)}], first: ${READY_PAGE}, orderBy: { field: UPDATED_AT, direction: DESC }) {
-      nodes { number updatedAt }
+      nodes { number updatedAt issueDependenciesSummary { blockedBy } }
     }
   }`;
   });
@@ -181,6 +186,7 @@ export function detailQuery(wanted: { slug: string; number: number }[]): string 
     return `d${i}: repository(owner: ${str(owner)}, name: ${str(name)}) {
     issue(number: ${number}) {
       number title url updatedAt
+      labels(first: 30) { nodes { name } }
       timelineItems(itemTypes: [LABELED_EVENT, RENAMED_TITLE_EVENT, ISSUE_COMMENT], last: 100) {
         nodes {
           __typename
@@ -271,6 +277,21 @@ export interface Approval {
   at: number;
 }
 
+/**
+ * An issue Leo marked ready in a project whose `issue-ready` starts a
+ * session: what the worker queue (`src/server/worker-queue.ts`) chooses from.
+ */
+export interface ReadyIssue {
+  repo: string;
+  root: string;
+  number: number;
+  title: string;
+  url: string;
+  labels: string[];
+  /** How many of its blockers are still open. */
+  blockedBy: number;
+}
+
 export interface PollStatus {
   viewer: string | null;
   lastPollAt: number | null;
@@ -288,6 +309,8 @@ export class EventPoller {
   /** Each issue as last read in full, by `slug#n`. */
   private details = new Map<string, IssueDetail>();
   private approvals = new Map<string, Approval>();
+  private ready: ReadyIssue[] = [];
+  private sweepListeners = new Set<() => void>();
   private spent: { at: number; cost: number }[] = [];
   private remaining: number | null = null;
   private lastPollAt: number | null = null;
@@ -348,6 +371,17 @@ export class EventPoller {
     };
   }
 
+  /** The ready issues whose project starts a session for them, as the last read found them. */
+  readyIssues(): ReadyIssue[] {
+    return this.ready;
+  }
+
+  /** Called after every read of GitHub that got an answer. Returns the unsubscribe. */
+  onSweep(listener: () => void): () => void {
+    this.sweepListeners.add(listener);
+    return () => this.sweepListeners.delete(listener);
+  }
+
   log(): SeenEvent[] {
     return this.file.log;
   }
@@ -390,15 +424,14 @@ export class EventPoller {
   }
 
   private record(event: Omit<SeenEvent, "at" | "outcome">): void {
-    const outcome =
-      event.action === "rule" ? "Recorded as seen" : "Not started: sessions come with the worker queue";
+    const outcome = event.action === "rule" ? "Recorded as seen" : "Queued for a worker";
     this.file.log = [{ ...event, at: this.now(), outcome }, ...this.file.log].slice(0, LOG_LIMIT);
   }
 
   private async sweep(): Promise<void> {
     const before = this.approvalsKey();
     try {
-      await this.read();
+      if (await this.read()) for (const listener of this.sweepListeners) listener();
     } finally {
       if (this.approvalsKey() !== before) this.deps.onApprovals?.();
     }
@@ -408,7 +441,8 @@ export class EventPoller {
     return JSON.stringify([...this.approvals.values()]);
   }
 
-  private async read(): Promise<void> {
+  /** True when GitHub answered, so what it holds is current. */
+  private async read(): Promise<boolean> {
     const projects = this.deps.projects();
     // A project turned off forgets where it was: turned on again, its branch
     // head is noted afresh rather than taken for a push.
@@ -421,26 +455,30 @@ export class EventPoller {
     const slugs = [...projects.keys()];
     // Approvals belong to enabled projects only.
     for (const [key, a] of this.approvals) if (!projects.has(a.repo)) this.approvals.delete(key);
-    if (slugs.length === 0) return;
+    if (slugs.length === 0) {
+      this.ready = [];
+      return true;
+    }
 
     const data = await this.deps.graphql(sweepQuery(slugs));
     this.lastPollAt = this.now();
     if (!data) {
       this.lastError = "GitHub did not answer";
-      return;
+      return false;
     }
     this.charge(data);
     this.lastError = null;
     const viewer = (data.viewer as { login?: string } | undefined)?.login ?? null;
     if (!viewer) {
       this.lastError = "gh is not logged in";
-      return;
+      return false;
     }
     this.viewer = viewer;
 
     let dirty = false;
     const stale: { slug: string; number: number }[] = [];
     const listed = new Map<string, number[]>();
+    const blocked = new Map<string, number>();
     slugs.forEach((slug, i) => {
       const repo = data[`r${i}`] as SweepRepo | null | undefined;
       if (!repo) {
@@ -454,6 +492,7 @@ export class EventPoller {
       for (const issue of repo.issues.nodes) {
         if (!issue) continue;
         numbers.push(issue.number);
+        blocked.set(`${slug}#${issue.number}`, issue.issueDependenciesSummary?.blockedBy ?? 0);
         const have = this.details.get(`${slug}#${issue.number}`);
         if (!have || have.updatedAt !== issue.updatedAt) stale.push({ slug, number: issue.number });
       }
@@ -490,6 +529,7 @@ export class EventPoller {
       }
     }
 
+    const ready: ReadyIssue[] = [];
     for (const [slug, numbers] of listed) {
       const cursor = this.file.repos[slug];
       const project = projects.get(slug)!;
@@ -506,24 +546,35 @@ export class EventPoller {
           keep.push(...cursor.seen.filter((k) => k.startsWith(`${slug}#${number}@`)));
           continue;
         }
-        const ready = readiness(issue, viewer);
+        const readyState = readiness(issue, viewer);
         const id = `${slug}#${number}`;
-        if (ready.state === "approve") {
+        if (readyState.state === "approve") {
           this.approvals.set(id, {
             repo: slug,
             root: project.root,
             number,
             title: issue.title,
             url: issue.url,
-            by: ready.by,
-            what: ready.what,
-            at: Date.parse(ready.at),
+            by: readyState.by,
+            what: readyState.what,
+            at: Date.parse(readyState.at),
           });
           continue;
         }
         this.approvals.delete(id);
-        if (ready.state !== "ready") continue;
-        const key = `${id}@${ready.labeledAt}`;
+        if (readyState.state !== "ready") continue;
+        if (action === "session") {
+          ready.push({
+            repo: slug,
+            root: project.root,
+            number,
+            title: issue.title,
+            url: issue.url,
+            labels: (issue.labels?.nodes ?? []).flatMap((l) => (l ? [l.name] : [])),
+            blockedBy: blocked.get(id) ?? 0,
+          });
+        }
+        const key = `${id}@${readyState.labeledAt}`;
         // An ignored event is not marked seen, so turning the rule on later finds it.
         if (action === "ignore") continue;
         keep.push(key);
@@ -536,7 +587,9 @@ export class EventPoller {
       cursor.seen = keep;
     }
 
+    this.ready = ready.sort((a, b) => a.repo.localeCompare(b.repo) || a.number - b.number);
     if (dirty) this.deps.store.save(this.file);
+    return true;
   }
 }
 

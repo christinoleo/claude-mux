@@ -139,7 +139,13 @@ class FakeGithub {
         ? {
             nameWithOwner: `${m[2]}/${m[3]}`,
             defaultBranchRef: { name: "main", target: { oid: repo.head, messageHeadline: `commit ${repo.head}` } },
-            issues: { nodes: repo.issues.map((i) => ({ number: i.number, updatedAt: i.updatedAt })) },
+            issues: {
+              nodes: repo.issues.map((i) => ({
+                number: i.number,
+                updatedAt: i.updatedAt,
+                issueDependenciesSummary: { blockedBy: this.blocked.get(i.number) ?? 0 },
+              })),
+            },
           }
         : null;
     }
@@ -149,6 +155,9 @@ class FakeGithub {
     }
     return data;
   };
+
+  /** Open blockers by issue number. */
+  blocked = new Map<number, number>();
 
   gh = async (args: string[]): Promise<boolean> => {
     this.labelCalls.push(args);
@@ -209,6 +218,38 @@ describe("EventPoller", () => {
     now += POLL_MS;
     await p.poll();
     expect(p.log()).toHaveLength(1);
+  });
+
+  it("hands the worker queue the ready issues of projects that start a session, with labels and blockers", async () => {
+    const issue = detail(5, [labeled("2026-11-07T11:00:00Z")]);
+    issue.labels = { nodes: [{ name: "ready-for-agent" }, { name: "stop-at-pr" }] };
+    gh.repos.get("o/r")!.issues = [issue, detail(6, [labeled("2026-11-07T11:00:00Z", STRANGER)])];
+    gh.blocked.set(5, 1);
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    const p = poller();
+    let sweeps = 0;
+    p.onSweep(() => sweeps++);
+    await p.poll();
+    // The rule only records it.
+    expect(p.readyIssues()).toEqual([]);
+    expect(sweeps).toBe(1);
+
+    updateProjectEvents("o/r", { events: { "issue-ready": "session" } });
+    now += POLL_MS;
+    await p.poll();
+    expect(p.readyIssues()).toEqual([
+      {
+        repo: "o/r",
+        root: "/p/r",
+        number: 5,
+        title: "Issue 5",
+        url: "https://github.com/o/r/issues/5",
+        labels: ["ready-for-agent", "stop-at-pr"],
+        blockedBy: 1,
+      },
+    ]);
+    // A stranger's label never reaches the queue.
+    expect(p.readyIssues().some((i) => i.number === 6)).toBe(false);
   });
 
   it("records nothing for an event the map ignores, and finds it when the rule is turned on", async () => {

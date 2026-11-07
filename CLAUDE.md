@@ -428,6 +428,42 @@ label off and puts it back under his name; the poller's `onApprovals` has the
 sessions socket broadcast whenever that list changes. Only a built server polls; a dev
 server does with `CLAUDE_MUX_EVENTS=1`, under a `HOME` of its own.
 
+An issue whose project says `session` goes to the worker queue
+(`src/server/worker-queue.ts`, started beside the poller by
+`web/src/lib/server/worker-queue.ts`), which replaces a maestro daemon per
+repo. The poller's `readyIssues()` holds those issues with their labels and
+open blockers, and after every sweep (`onSweep`) the queue reaps its own
+workers and starts more while the machine has room. Its switch, limit and
+brake are per machine, in `~/.claude-mux/worker-queue.json`, set from the
+Events screen's Workers section (`GET`/`POST /api/queue`): off at first,
+8 at once, a start held under 2.5 GiB of MemAvailable or over 10% `full
+avg60` memory pressure, and each start in one sweep counted as 1.4 GiB gone
+from the free memory it read. Nothing running is ever stopped. The limit
+counts every live worker session on the machine, a daemon's too. Where a
+project's workers may run is a fleet preference (`src/worker-placement.ts`):
+`placement:<owner/name>` lists machine names, any machine holding a checkout
+when it lists none, and `queue:exclusive` (`engage` while unset) names the
+machines whose projects run only there, which every other machine checks
+against the fleet state's project reports. A worker starts as the daemon
+started one, in a tmux window `mw-<n>-<slug>` of the session
+`queue-<repo name>` at the project's root, running `claude
+--model opus --dangerously-skip-permissions '/ak:maestro-worker <n>'` with
+`MAESTRO_ROLE`
+and `MAESTRO_ISSUE` (and `MAESTRO_STOP_AT_PR=1` plus a line in the prompt for
+`stop-at-pr`). `in-progress`, `needs-help`, `ready-for-human` and `hold` are
+never taken. Two machines settle a race on GitHub: each posts a claim comment
+carrying `<!-- claude-mux:claim <machine id> -->`, labels `in-progress`, waits
+3 s and reads the markers back, and the earliest claim since the last
+`<!-- claude-mux:release -->`, no more than ten minutes older than its own,
+wins; the loser deletes its own. A claim it cannot read back is deleted with
+the label left on, since a release could void the winner's. A worker is known
+by its window's id, name and the tmux server's pid together, since ids repeat
+after tmux restarts. A closed issue
+has its window killed and its worktree and `task/<n>` branch removed; a window
+gone while the issue is open is released once and asks for help the second
+time. `CLAUDE_MUX_WORKER_COMMAND` (with `{issue}`) replaces `claude` for a
+test under a `HOME` of its own, with a `tmux` on `PATH` that adds `-L <name>`.
+
 ### 7. What a session changed
 
 Two sources, both served by `GET /api/sessions/<id>/changes?source=session|git`

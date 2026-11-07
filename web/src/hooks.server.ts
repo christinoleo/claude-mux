@@ -20,6 +20,7 @@ import {
 } from '$lib/server/ws-managers.js';
 import { ensurePushMonitor } from '$lib/server/push.js';
 import { ensureFleetState, relayGate } from '$lib/server/fleet.js';
+import { startWorkerQueue } from '$lib/server/worker-queue.js';
 import {
 	admitRelay,
 	FORWARDED_HEADER,
@@ -40,9 +41,13 @@ export const init: ServerInit = () => {
 	ensureFleetState();
 	// It restarts live sessions, so a dev server beside the real one must not run it.
 	if (!dev) startClaudeUpdater();
-	// What GitHub's events start will one day be sessions, so a dev server beside
-	// the real one reads them only when told to, under a HOME of its own.
-	if (!dev || process.env.CLAUDE_MUX_EVENTS === '1') eventPoller(() => sessionsWsManager.broadcastNow()).start();
+	// What GitHub's events start are sessions, so a dev server beside the real
+	// one reads them only when told to, under a HOME of its own.
+	if (!dev || process.env.CLAUDE_MUX_EVENTS === '1') {
+		eventPoller(() => sessionsWsManager.broadcastNow()).start();
+		// Off on every machine until switched on; it runs after each read of GitHub.
+		startWorkerQueue();
+	}
 	void followLiveTextPort({ dev, port: listenPort() });
 	void followDialogAnswersPort({ dev, port: listenPort() });
 };

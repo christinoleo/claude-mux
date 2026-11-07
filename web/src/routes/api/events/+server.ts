@@ -59,8 +59,10 @@ export const POST: RequestHandler = async ({ request }) => {
 			if (!isEventKind(kind) || !isEventAction(action)) {
 				return json({ error: `Unknown event or action: ${kind}` }, { status: 400 });
 			}
-			// Sessions come with the worker queue; until then nothing may ask for one.
-			if (action === 'session') return json({ error: 'Starting a session is not available yet' }, { status: 409 });
+			// A push has no session to start yet; an issue's goes to the worker queue.
+			if (action === 'session' && kind !== 'issue-ready') {
+				return json({ error: 'Only an issue marked ready can start a session' }, { status: 409 });
+			}
 			events[kind] = action;
 		}
 	}

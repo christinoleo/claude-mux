@@ -33,11 +33,11 @@ const HITL_LABELS: Record<string, InboxTicket['kind']> = {
 	'wayfinder:grilling': 'grilling',
 	'wayfinder:prototype': 'prototype'
 };
-const NEEDS_HELP = 'needs-help';
+export const NEEDS_HELP = 'needs-help';
 /** maestro's "open the PR and end": the PR it leaves waits on a person to merge it. */
-const STOP_AT_PR = 'stop-at-pr';
+export const STOP_AT_PR = 'stop-at-pr';
 /** maestro's "not the daemon's": a person's task or the master's own, never a worker's call. */
-const HOLD = 'hold';
+export const HOLD = 'hold';
 
 /** The slice of GitHub's REST issue object this module reads. */
 export interface RawIssue {
