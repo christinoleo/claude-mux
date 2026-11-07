@@ -945,6 +945,7 @@
 		{ label: 'Usage', icon: 'mdi:chart-line', run: () => void goto('/usage') },
 		{ label: 'Events', icon: 'mdi:github', run: () => void goto('/events') },
 		{ label: 'Triggers', icon: 'mdi:clock-outline', run: () => void goto('/triggers') },
+		{ label: 'Workers', icon: 'mdi:account-hard-hat-outline', run: () => void goto('/workers') },
 		{ label: 'Close Chrome', icon: 'mdi:google-chrome', run: () => void closeChrome() },
 		{ label: 'Refresh', icon: 'mdi:refresh', run: () => location.reload() },
 		{

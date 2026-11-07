@@ -1,8 +1,14 @@
-import { getAllSessions, isSessionDead } from '$shared/db/sessions-json.js';
+import { existsSync } from 'fs';
+import { getAllSessions, isSessionDead, type Session } from '$shared/db/sessions-json.js';
 import { eventPoller } from '$shared/server/github-events.js';
+import { loadRateTable } from '$shared/usage/rate-table.js';
+import { SpendMeter } from '$shared/usage/session-spend.js';
+import { resolveTranscriptPath } from '$shared/transcript/tailer.js';
 import {
 	WorkerQueue,
+	fileHistoryStore,
 	fileQueueStore,
+	measureTrees,
 	readMemory,
 	realGit,
 	realGithub,
@@ -24,10 +30,36 @@ import { ensureFleetPrefs, ensureFleetState } from '$lib/server/fleet.js';
 
 const g = globalThis as typeof globalThis & { __claudeMuxWorkerQueue?: WorkerQueue };
 
+const spendMeter = new SpendMeter(async () => (await loadRateTable()).table);
+/**
+ * Each worker session's transcript once found. Until its file exists only the
+ * path the hooks recorded is tried, since the fallback scans every project
+ * directory and this runs on every pass.
+ */
+const transcripts = new Map<string, string>();
+
+function transcriptOf(s: Session): string | null {
+	const known = transcripts.get(s.id);
+	if (known) return known;
+	if (s.transcript_path && !existsSync(s.transcript_path)) return null;
+	const found = s.cwd ? resolveTranscriptPath(s, s.id) : (s.transcript_path ?? null);
+	if (found) transcripts.set(s.id, found);
+	return found;
+}
+
 function liveWorkers(): LiveWorker[] {
-	return getAllSessions()
+	const live = getAllSessions()
 		.filter((s) => countsAgainstLimit(s) && !isSessionDead(s))
-		.map((s) => ({ issue: s.maestro_issue ?? null, cwd: s.cwd ?? null }));
+		.map((s) => ({
+			issue: s.maestro_issue ?? null,
+			cwd: s.cwd ?? null,
+			id: s.id,
+			pid: s.pid,
+			transcript: transcriptOf(s)
+		}));
+	spendMeter.keepOnly(live.flatMap((s) => (s.transcript ? [s.transcript] : [])));
+	for (const id of transcripts.keys()) if (!live.some((s) => s.id === id)) transcripts.delete(id);
+	return live;
 }
 
 /** The name of another machine that keeps its projects and holds `repo`, or null. */
@@ -69,6 +101,9 @@ export function startWorkerQueue(): WorkerQueue {
 		tmux: realTmux,
 		git: realGit,
 		memory: readMemory,
+		measure: measureTrees,
+		spend: (transcript) => spendMeter.spend(transcript),
+		history: fileHistoryStore(),
 		liveWorkers,
 		placement: (repo) => nameList(ensureFleetPrefs().all()[placementKey(repo)]?.value),
 		keptBy,

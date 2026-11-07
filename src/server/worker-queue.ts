@@ -44,6 +44,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { CLAUDE_MUX_DIR } from "../utils/paths.js";
+import { readProcessTable, type ProcessRow } from "../utils/processes.js";
 import { shellQuote } from "../utils/shell.js";
 import { tmuxServerRunning } from "../tmux/server.js";
 import type { ReadyIssue } from "./github-events.js";
@@ -132,6 +133,68 @@ export interface WorkerRecord {
   /** Where it was started, `session:name`, for the screen. */
   target: string;
   startedAt: number;
+  /** When the queue first saw the issue ready; absent on a record from before the history. */
+  queuedAt?: number | null;
+  /** The most its session's processes held at once, in GiB. */
+  peakGiB?: number | null;
+  /** What its transcripts cost so far, subagents' too. */
+  spendUsd?: number | null;
+}
+
+/** How a worker ended. */
+export type RunResult = "merged" | "closed" | "help" | "lost" | "stopped";
+
+/** A worker that ended, as the history keeps it (#201). */
+export interface WorkerRun {
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  machine: string;
+  queuedAt: number | null;
+  startedAt: number;
+  endedAt: number;
+  result: RunResult;
+  peakGiB: number | null;
+  spendUsd: number | null;
+}
+
+/** How long the history keeps a run: the longest period the screen shows. */
+export const HISTORY_DAYS = 90;
+const DAY_MS = 86_400_000;
+
+export interface HistoryStore {
+  load(): WorkerRun[];
+  append(run: WorkerRun): void;
+}
+
+/**
+ * The runs in `worker-history.json`, kept for `HISTORY_DAYS` and written only
+ * when one ends. Only this process writes the file, so it is read once.
+ */
+export function fileHistoryStore(
+  path: string = join(CLAUDE_MUX_DIR, "worker-history.json"),
+  now: () => number = Date.now
+): HistoryStore {
+  let runs: WorkerRun[] | null = null;
+  const load = (): WorkerRun[] => {
+    if (runs) return runs;
+    try {
+      const raw = JSON.parse(readFileSync(path, "utf-8")) as { runs?: unknown };
+      runs = Array.isArray(raw.runs) ? (raw.runs as WorkerRun[]) : [];
+    } catch {
+      runs = [];
+    }
+    return runs;
+  };
+  return {
+    load,
+    append(run) {
+      const since = now() - (HISTORY_DAYS + 1) * DAY_MS;
+      runs = [...load().filter((r) => r.endedAt >= since), run];
+      writeFileAtomic(path, JSON.stringify({ v: 1, runs }));
+    },
+  };
 }
 
 export interface QueueEvent {
@@ -148,6 +211,8 @@ export interface QueueFile {
   /** Issues put back once after their worker vanished: the second time asks for help. */
   retried: string[];
   log: QueueEvent[];
+  /** When each issue now in the queue was first seen there, by `repo#n`: what a run's wait is counted from. */
+  seen?: Record<string, number>;
 }
 
 export interface QueueStore {
@@ -173,6 +238,7 @@ export function fileQueueStore(path: string = join(CLAUDE_MUX_DIR, "worker-queue
         workers: Array.isArray(raw.workers) ? raw.workers : [],
         retried: Array.isArray(raw.retried) ? raw.retried : [],
         log: Array.isArray(raw.log) ? raw.log : [],
+        seen: raw.seen && typeof raw.seen === "object" ? raw.seen : {},
       };
     },
     save(file) {
@@ -186,6 +252,8 @@ export function fileQueueStore(path: string = join(CLAUDE_MUX_DIR, "worker-queue
 export interface IssueNow {
   open: boolean;
   labels: string[];
+  /** GitHub's `state_reason` once closed: `completed` or `not_planned`. */
+  reason?: string | null;
 }
 
 export interface Marker {
@@ -213,6 +281,8 @@ export type TmuxRunner = (args: string[]) => Promise<{ ok: boolean; stdout: stri
 export type GitRunner = (cwd: string, args: string[]) => Promise<boolean>;
 
 export interface MemoryReading {
+  /** MemTotal, in GiB; null where it cannot be read. */
+  totalGiB?: number | null;
   /** MemAvailable, in GiB; null where it cannot be read. */
   availableGiB: number | null;
   /** `full avg60` from `/proc/pressure/memory`, in percent; null where there is none. */
@@ -223,6 +293,28 @@ export interface MemoryReading {
 export interface LiveWorker {
   issue: number | null;
   cwd: string | null;
+  /** The session's id, which the page finds it by in its machine's broadcast. */
+  id?: string;
+  /** Claude Code's pid: its process tree is the worker's memory. */
+  pid?: number | null;
+  transcript?: string | null;
+}
+
+/** A running worker as the screen shows it: its record, and what its session holds now. */
+export interface WorkerView extends WorkerRecord {
+  sessionId: string | null;
+  memGiB: number | null;
+  /** Whether it waits on a person: its issue is `needs-help`. */
+  wants: boolean;
+  stopAtPr: boolean;
+}
+
+/** A live worker session this queue did not start (a daemon's), which counts against the limit. */
+export interface OtherWorker {
+  issue: number | null;
+  cwd: string | null;
+  sessionId: string | null;
+  memGiB: number | null;
 }
 
 /** Whether a session counts against the machine's limit: a worker's, or a Trigger's Run. */
@@ -246,11 +338,24 @@ export interface QueueDeps {
   placement: (repo: string) => string[] | null;
   /** The name of a machine that keeps its projects and holds this one, other than this machine; null for none. */
   keptBy: (repo: string) => string | null;
+  /** Each process tree's resident memory in GiB, by its root pid; missing where it could not be read. */
+  measure?: (pids: number[]) => Promise<Map<number, number>>;
+  /** What a session's transcripts cost so far. */
+  spend?: (transcript: string) => Promise<number | null>;
+  /** Where ended runs are kept; none in a test that does not ask. */
+  history?: HistoryStore;
   /** The command a worker runs, issue number given; the environment is put before it. */
   workerCommand?: (issue: number, stopAtPr: boolean) => string;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
+
+/**
+ * What kind of thing an issue waits for, so the screen can say it plainly.
+ * `running` (a worker owns it or asked for help) and `closed` are not waiting
+ * at all, and the screen leaves them out of the queue.
+ */
+export type WaitKind = "slot" | "memory" | "blocked" | "taken" | "running" | "closed" | "placed" | "off" | "github";
 
 /** Why a ready issue is not running here, for the screen. */
 export interface WaitingIssue {
@@ -259,6 +364,9 @@ export interface WaitingIssue {
   title: string;
   url: string;
   why: string;
+  kind: WaitKind;
+  /** When the queue first saw it ready. */
+  since: number | null;
 }
 
 export interface QueueStatus {
@@ -268,7 +376,8 @@ export interface QueueStatus {
   memory: MemoryReading;
   /** Why no start goes ahead now, null when one would. */
   hold: string | null;
-  workers: WorkerRecord[];
+  workers: WorkerView[];
+  others: OtherWorker[];
   waiting: WaitingIssue[];
   log: QueueEvent[];
   lastTickAt: number | null;
@@ -356,30 +465,37 @@ export function queueSessionName(repo: string): string {
 }
 
 /** The labels that keep an issue from being taken, each with why, for the screen. */
-const TAKEN_WHY: Record<string, string> = {
-  [IN_PROGRESS]: "A worker owns it",
-  [NEEDS_HELP]: "Its worker asked for help",
-  [READY_FOR_HUMAN]: "A person's task",
-  [HOLD]: "On hold",
+const TAKEN_WHY: Record<string, { why: string; kind: WaitKind }> = {
+  [IN_PROGRESS]: { why: "A worker owns it", kind: "running" },
+  [NEEDS_HELP]: { why: "Its worker asked for help", kind: "running" },
+  [READY_FOR_HUMAN]: { why: "A person's task", kind: "taken" },
+  [HOLD]: { why: "On hold", kind: "taken" },
 };
 
 /** Why a label keeps an issue from being taken, or null. */
-function takenBy(labels: readonly string[]): string | null {
+function takenBy(labels: readonly string[]): { why: string; kind: WaitKind } | null {
   return Object.entries(TAKEN_WHY).find(([label]) => labels.includes(label))?.[1] ?? null;
 }
 
 /** Why the machine's limit or memory brake holds a start back now, or null when one may go ahead. */
-function limitHold(settings: QueueSettings, running: number, memory: MemoryReading): string | null {
-  if (running >= settings.limit) return `At the limit: ${running} of ${settings.limit} running`;
+function limitHold(settings: QueueSettings, running: number, memory: MemoryReading): { why: string; kind: WaitKind } | null {
+  if (running >= settings.limit) return { why: `At the limit: ${running} of ${settings.limit} running`, kind: "slot" };
   const free = memory.availableGiB;
   if (free !== null && free < settings.minFreeGiB) {
-    return `Held: ${free.toFixed(1)} GiB free, under ${settings.minFreeGiB} GiB`;
+    return { why: `Held: ${free.toFixed(1)} GiB free, under ${settings.minFreeGiB} GiB`, kind: "memory" };
   }
   if (memory.pressure !== null && memory.pressure > settings.maxPressure) {
-    return `Held: memory pressure ${memory.pressure.toFixed(1)}%, over ${settings.maxPressure}%`;
+    return { why: `Held: memory pressure ${memory.pressure.toFixed(1)}%, over ${settings.maxPressure}%`, kind: "memory" };
   }
   return null;
 }
+
+/** How a run that ended with its issue closed is counted: closed as not planned is no merge. */
+function closedResult(now: IssueNow): RunResult {
+  return now.reason === "not_planned" ? "closed" : "merged";
+}
+
+const issueKey = (i: { repo: string; number: number }) => `${i.repo}#${i.number}`;
 
 export class WorkerQueue {
   private file: QueueFile;
@@ -393,6 +509,9 @@ export class WorkerQueue {
   private runningCount = 0;
   private lastTickAt: number | null = null;
   private lastError: string | null = null;
+  /** What each of this queue's workers holds now, by `repo#n`, read on every pass. */
+  private live = new Map<string, { sessionId: string | null; memGiB: number | null; labels: string[] }>();
+  private others: OtherWorker[] = [];
 
   constructor(private readonly deps: QueueDeps) {
     this.now = deps.now ?? Date.now;
@@ -412,7 +531,17 @@ export class WorkerQueue {
       running: this.runningCount,
       memory: this.memoryNow,
       hold: this.hold,
-      workers: this.file.workers,
+      workers: this.file.workers.map((w) => {
+        const live = this.live.get(issueKey(w));
+        return {
+          ...w,
+          sessionId: live?.sessionId ?? null,
+          memGiB: live?.memGiB ?? null,
+          wants: live?.labels.includes(NEEDS_HELP) ?? false,
+          stopAtPr: live?.labels.includes(STOP_AT_PR) ?? false,
+        };
+      }),
+      others: this.others,
       waiting: this.waiting,
       log: this.file.log,
       lastTickAt: this.lastTickAt,
@@ -429,7 +558,14 @@ export class WorkerQueue {
    */
   room(starting = 0): string | null {
     const running = Math.max(this.runningCount, this.deps.liveWorkers().length) + starting;
-    return limitHold(this.file.settings, running, this.deps.memory());
+    return limitHold(this.file.settings, running, this.deps.memory())?.why ?? null;
+  }
+
+  /** The runs that ended in the last `days` days, newest first. */
+  history(days: number): WorkerRun[] {
+    // A day over: the page cuts by calendar day, from the start of the oldest one.
+    const since = this.now() - (days + 1) * DAY_MS;
+    return (this.deps.history?.load() ?? []).filter((r) => r.endedAt >= since).sort((a, b) => b.endedAt - a.endedAt);
   }
 
   /** Reap and start now. A tick already under way is not doubled: one more follows it. */
@@ -453,12 +589,68 @@ export class WorkerQueue {
     return this.running;
   }
 
+  /**
+   * Stop one of this queue's workers by hand: its window is killed, and the
+   * issue is put back with `hold` on it, so no machine takes it again until
+   * a person lifts that. The worktree stays, since it may hold work not pushed.
+   * Answers null, or why it could not.
+   */
+  async stop(repo: string, number: number): Promise<string | null> {
+    // Under the pass's own lock: a pass must not reap or claim this worker while it is being stopped.
+    while (this.running) await this.running;
+    let answer: string | null = null;
+    this.running = this.stopNow(repo, number)
+      .then((a) => void (answer = a))
+      .finally(() => {
+        this.running = null;
+        if (this.again) void this.tick();
+      });
+    await this.running;
+    return answer;
+  }
+
+  private async stopNow(repo: string, number: number): Promise<string | null> {
+    const w = this.file.workers.find((r) => r.repo === repo && r.number === number);
+    if (!w) return "No worker of this machine's queue runs on that issue";
+    const windows = await this.windows();
+    // Window ids repeat after tmux restarts: kill only the window known to be this worker's.
+    if (!windows) return "tmux did not say which windows are open; nothing was stopped";
+    if (windows.has(windowKey(w))) {
+      const killed = await this.deps.tmux(["kill-window", "-t", w.window]);
+      if (!killed.ok) return "tmux could not close the worker's window; nothing was stopped";
+    }
+    this.file.workers = this.file.workers.filter((r) => r !== w);
+    await this.deps.github.addLabel(repo, number, HOLD);
+    await this.release(w, `stopped by hand on ${this.deps.machine()}; its worktree .worktree/${number} is left as it was, and ${HOLD} keeps it out of the queue`);
+    this.ended(w, "stopped");
+    this.save();
+    return null;
+  }
+
   private note(repo: string, number: number, what: string): void {
     this.file.log = [{ at: this.now(), repo, number, what }, ...this.file.log].slice(0, LOG_LIMIT);
   }
 
   private save(): void {
     this.deps.store.save(this.file);
+  }
+
+  /** Record a worker's end in the history and forget what its session held. */
+  private ended(w: WorkerRecord, result: RunResult): void {
+    this.live.delete(issueKey(w));
+    this.deps.history?.append({
+      repo: w.repo,
+      number: w.number,
+      title: w.title,
+      url: w.url,
+      machine: this.deps.machine(),
+      queuedAt: w.queuedAt ?? null,
+      startedAt: w.startedAt,
+      endedAt: this.now(),
+      result,
+      peakGiB: w.peakGiB ?? null,
+      spendUsd: w.spendUsd ?? null,
+    });
   }
 
   /** The windows tmux has open, as `windowKey()`; null when tmux could not say (then nothing counts as vanished). */
@@ -468,6 +660,31 @@ export class WorkerQueue {
     return listWindows(this.deps.tmux);
   }
 
+  /** Read what each live worker session holds: its memory, its spend, and for this queue's, its peak. */
+  private async measure(alive: WorkerRecord[], sessions: LiveWorker[]): Promise<void> {
+    const owner = (s: LiveWorker) => alive.find((w) => s.issue === w.number && !!s.cwd && s.cwd.startsWith(w.root));
+    const pids = sessions.map((s) => s.pid).filter((p): p is number => typeof p === "number" && p > 0);
+    const mem = pids.length && this.deps.measure ? await this.deps.measure(pids).catch(() => new Map<number, number>()) : new Map<number, number>();
+    const memOf = (s: LiveWorker) => (s.pid ? (mem.get(s.pid) ?? null) : null);
+    const others: OtherWorker[] = [];
+    for (const s of sessions) {
+      const w = owner(s);
+      if (!w) {
+        others.push({ issue: s.issue, cwd: s.cwd, sessionId: s.id ?? null, memGiB: memOf(s) });
+        continue;
+      }
+      const memGiB = memOf(s);
+      const live = this.live.get(issueKey(w));
+      this.live.set(issueKey(w), { sessionId: s.id ?? null, memGiB, labels: live?.labels ?? [] });
+      if (memGiB !== null) w.peakGiB = Math.max(w.peakGiB ?? 0, memGiB);
+      if (s.transcript && this.deps.spend) {
+        const spent = await this.deps.spend(s.transcript).catch(() => null);
+        if (spent !== null) w.spendUsd = spent;
+      }
+    }
+    this.others = others;
+  }
+
   private async pass(): Promise<void> {
     this.lastTickAt = this.now();
     this.lastError = null;
@@ -475,10 +692,13 @@ export class WorkerQueue {
     await this.reap(windows);
 
     const alive = this.file.workers.filter((w) => windows?.has(windowKey(w)) ?? true);
-    const others = this.deps
-      .liveWorkers()
-      .filter((s) => !alive.some((w) => s.issue === w.number && !!s.cwd && s.cwd.startsWith(w.root)));
-    let running = alive.length + others.length;
+    const sessions = this.deps.liveWorkers();
+    for (const w of this.file.workers) {
+      const live = this.live.get(issueKey(w));
+      if (live) live.sessionId = live.memGiB = null;
+    }
+    await this.measure(alive, sessions);
+    let running = alive.length + this.others.length;
     this.runningCount = running;
 
     const { settings } = this.file;
@@ -486,65 +706,76 @@ export class WorkerQueue {
     this.memoryNow = memory;
     let free = memory.availableGiB;
 
-    const holdNow = (): string | null =>
-      settings.enabled ? limitHold(settings, running, { ...memory, availableGiB: free }) : "Off on this machine";
+    const holdNow = (): { why: string; kind: WaitKind } | null =>
+      settings.enabled ? limitHold(settings, running, { ...memory, availableGiB: free }) : { why: "Off on this machine", kind: "off" };
+
+    const ready = this.deps.ready();
+    const seen = this.file.seen ?? {};
+    const stillSeen: Record<string, number> = {};
+    // An issue waits only while nothing owns it: a worker's, a retried or a held issue starts its wait again when it comes back.
+    for (const issue of ready) {
+      const key = issueKey(issue);
+      if (takenBy(issue.labels) || this.file.workers.some((w) => issueKey(w) === key)) continue;
+      stillSeen[key] = seen[key] ?? this.now();
+    }
+    this.file.seen = stillSeen;
 
     const waiting: WaitingIssue[] = [];
-    const wait = (issue: ReadyIssue, why: string) =>
-      waiting.push({ repo: issue.repo, number: issue.number, title: issue.title, url: issue.url, why });
+    const wait = (issue: ReadyIssue, why: string, kind: WaitKind) =>
+      waiting.push({ repo: issue.repo, number: issue.number, title: issue.title, url: issue.url, why, kind, since: stillSeen[issueKey(issue)] ?? null });
 
     const here = placeName(this.deps.machine());
-    for (const issue of this.deps.ready()) {
+    for (const issue of ready) {
       if (this.file.workers.some((w) => w.repo === issue.repo && w.number === issue.number)) continue;
       const taken = takenBy(issue.labels);
       if (taken) {
-        wait(issue, taken);
+        wait(issue, taken.why, taken.kind);
         continue;
       }
       if (issue.blockedBy > 0) {
-        wait(issue, issue.blockedBy === 1 ? "Blocked by an open issue" : `Blocked by ${issue.blockedBy} open issues`);
+        wait(issue, issue.blockedBy === 1 ? "Blocked by an open issue" : `Blocked by ${issue.blockedBy} open issues`, "blocked");
         continue;
       }
       const kept = this.deps.keptBy(issue.repo);
       if (kept) {
-        wait(issue, `Runs only on ${kept}`);
+        wait(issue, `Runs only on ${kept}`, "placed");
         continue;
       }
       const placed = this.deps.placement(issue.repo);
       if (placed && !placed.includes(here)) {
-        wait(issue, `Placed on ${placed.join(", ")}`);
+        wait(issue, `Placed on ${placed.join(", ")}`, "placed");
         continue;
       }
       const hold = holdNow();
       if (hold) {
-        wait(issue, hold);
+        wait(issue, hold.why, hold.kind);
         continue;
       }
-      const outcome = await this.claim(issue);
+      const outcome = await this.claim(issue, stillSeen[issueKey(issue)] ?? null);
       if (outcome === "started") {
         running++;
         if (free !== null) free -= WORKER_ESTIMATE_GIB;
-      } else if (outcome) wait(issue, outcome);
+      } else if (outcome) wait(issue, outcome.why, outcome.kind);
     }
     this.runningCount = running;
-    this.hold = holdNow();
+    this.hold = holdNow()?.why ?? null;
     this.waiting = waiting;
     this.save();
   }
 
   /** Take one issue: "started", or why not (null when GitHub already says it is taken). */
-  private async claim(issue: ReadyIssue): Promise<"started" | string | null> {
+  private async claim(issue: ReadyIssue, queuedAt: number | null): Promise<"started" | { why: string; kind: WaitKind } | null> {
     const { github } = this.deps;
     const { repo, number } = issue;
     const now = await github.issue(repo, number);
-    if (!now) return "GitHub did not answer";
+    if (!now) return { why: "GitHub did not answer", kind: "github" };
     // The sweep's labels may be a minute old; this read is not.
-    if (!now.open) return "Closed";
+    if (!now.open) return { why: "Closed", kind: "closed" };
     const taken = takenBy(now.labels);
     if (taken) return taken;
 
     const mine = await github.comment(repo, number, claimBody(this.deps.machineId, this.deps.machine()));
-    if (mine === null) return "Could not comment on it";
+    if (mine === null) return { why: "Could not comment on it", kind: "github" };
     await github.addLabel(repo, number, IN_PROGRESS);
     let winner: Marker | null = null;
     for (let read = 0; read < MARKER_READS && !winner; read++) {
@@ -558,7 +789,7 @@ export class WorkerQueue {
         // Who won is unknown. Releasing could void another machine's claim and start a
         // second worker, so the label stays, and a person looks.
         this.note(repo, number, `Could not read its claims back: left ${IN_PROGRESS} on it, check that a worker runs`);
-        return "Could not read its claims";
+        return { why: "Could not read its claims", kind: "github" };
       }
       this.note(repo, number, `Another machine claimed it (${claimant(winner) ?? "unknown"})`);
       return TAKEN_WHY[IN_PROGRESS];
@@ -567,9 +798,11 @@ export class WorkerQueue {
     const started = await this.spawn(issue, now.labels.includes(STOP_AT_PR));
     if (!started) {
       await this.release(issue, "Worker could not start");
-      return "The worker could not start";
+      return { why: "The worker could not start", kind: "github" };
     }
+    started.queuedAt = queuedAt;
     this.file.workers.push(started);
+    this.live.set(issueKey(started), { sessionId: null, memGiB: null, labels: [...now.labels, IN_PROGRESS] });
     this.note(repo, number, `Started in ${started.target}`);
     this.save();
     return "started";
@@ -610,19 +843,22 @@ export class WorkerQueue {
     const keep: WorkerRecord[] = [];
     const issues = await Promise.all(this.file.workers.map((w) => this.deps.github.issue(w.repo, w.number)));
     for (const [i, w] of this.file.workers.entries()) {
-      const key = `${w.repo}#${w.number}`;
+      const key = issueKey(w);
       const now = issues[i];
       const alive = windows?.has(windowKey(w)) ?? true;
       if (!now) {
         keep.push(w);
         continue;
       }
+      const live = this.live.get(key);
+      this.live.set(key, { sessionId: live?.sessionId ?? null, memGiB: live?.memGiB ?? null, labels: now.labels });
       if (!now.open) {
         if (alive) await this.deps.tmux(["kill-window", "-t", w.window]);
         await this.deps.git(w.root, ["worktree", "remove", "--force", `.worktree/${w.number}`]);
         await this.deps.git(w.root, ["branch", "-D", `task/${w.number}`]);
         this.file.retried = this.file.retried.filter((k) => k !== key);
         this.note(w.repo, w.number, "Closed: worker ended and its worktree removed");
+        this.ended(w, closedResult(now));
         continue;
       }
       if (alive) {
@@ -633,6 +869,7 @@ export class WorkerQueue {
       if (now.labels.includes(NEEDS_HELP) || now.labels.includes(READY_FOR_HUMAN)) {
         this.file.retried = this.file.retried.filter((k) => k !== key);
         this.note(w.repo, w.number, "Worker ended; the issue waits on a person");
+        this.ended(w, "help");
         continue;
       }
       if (this.file.retried.includes(key)) {
@@ -645,10 +882,13 @@ export class WorkerQueue {
           `claude-mux on **${this.deps.machine()}**: needs help. The worker disappeared twice without finishing.`
         );
         this.note(w.repo, w.number, "Worker disappeared twice: asked for help");
+        this.ended(w, "lost");
         continue;
       }
       this.file.retried.push(key);
       await this.release(w, "its worker disappeared, trying once more");
+      // Not a finished run: the issue goes back and its retry is the run that counts.
+      this.live.delete(key);
     }
     if (keep.length !== this.file.workers.length) {
       this.file.workers = keep;
@@ -695,11 +935,11 @@ const gh = (args: string[]) => run("gh", args);
 
 export const realGithub: QueueGithub = {
   async issue(repo, number) {
-    const res = await gh(["api", `repos/${repo}/issues/${number}`, "--jq", "{state, labels: [.labels[].name]}"]);
+    const res = await gh(["api", `repos/${repo}/issues/${number}`, "--jq", "{state, state_reason, labels: [.labels[].name]}"]);
     if (!res.ok) return null;
     try {
-      const raw = JSON.parse(res.stdout) as { state: string; labels: string[] };
-      return { open: raw.state === "open", labels: raw.labels };
+      const raw = JSON.parse(res.stdout) as { state: string; state_reason: string | null; labels: string[] };
+      return { open: raw.state === "open", labels: raw.labels, reason: raw.state_reason };
     } catch {
       return null;
     }
@@ -745,10 +985,14 @@ export const realGithub: QueueGithub = {
 
 /** MemAvailable and `full avg60` memory pressure, read from `/proc`; nulls off Linux. */
 export function readMemory(): MemoryReading {
+  let totalGiB: number | null = null;
   let availableGiB: number | null = null;
   let pressure: number | null = null;
   try {
-    const m = /^MemAvailable:\s+(\d+)\s+kB/m.exec(readFileSync("/proc/meminfo", "utf-8"));
+    const info = readFileSync("/proc/meminfo", "utf-8");
+    const total = /^MemTotal:\s+(\d+)\s+kB/m.exec(info);
+    if (total) totalGiB = Number(total[1]) / 1024 / 1024;
+    const m = /^MemAvailable:\s+(\d+)\s+kB/m.exec(info);
     if (m) availableGiB = Number(m[1]) / 1024 / 1024;
   } catch {
     // Not Linux.
@@ -759,5 +1003,31 @@ export function readMemory(): MemoryReading {
   } catch {
     // No PSI in this kernel.
   }
-  return { availableGiB, pressure };
+  return { totalGiB, availableGiB, pressure };
+}
+
+/** Resident memory per process tree, by root pid, in GiB, from one process table. */
+export function sumTrees(rows: ProcessRow[], roots: readonly number[]): Map<number, number> {
+  const byPid = new Map(rows.map((r) => [r.pid, r]));
+  const children = new Map<number, ProcessRow[]>();
+  for (const r of rows) children.set(r.ppid, [...(children.get(r.ppid) ?? []), r]);
+  const out = new Map<number, number>();
+  for (const root of roots) {
+    const self = byPid.get(root);
+    if (!self) continue;
+    let kb = 0;
+    const stack = [self];
+    while (stack.length) {
+      const r = stack.pop()!;
+      kb += r.rssKb ?? 0;
+      stack.push(...(children.get(r.pid) ?? []));
+    }
+    out.set(root, kb / 1024 / 1024);
+  }
+  return out;
+}
+
+export async function measureTrees(roots: number[]): Promise<Map<number, number>> {
+  const rows = await readProcessTable();
+  return rows ? sumTrees(rows, roots) : new Map();
 }
