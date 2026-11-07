@@ -30,11 +30,14 @@ beforeEach(() => {
   mkdirSync(paths.CLAUDE_DIR);
   mkdirSync(paths.CLAUDE_MUX_DIR);
   writeFileSync(paths.CLAUDE_SETTINGS_PATH, JSON.stringify(OTHERS));
+  // The event map finds its file from the sessions directory, not from the mocked paths.
+  setEventMapPath(join(paths.CLAUDE_MUX_DIR, "event-map.json"));
   delete process.env.CLAUDE_MUX_EVENTS;
 });
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+  setEventMapPath(null);
   delete process.env.CLAUDE_MUX_EVENTS;
 });
 
@@ -99,15 +102,10 @@ describe("moving over from the old switches", () => {
   });
 
   it("starts on where claude-mux's pushes went to the release rule", () => {
-    setEventMapPath(join(dir, "event-map.json"));
-    try {
-      updateProjectEvents("christinoleo/claude-mux", { enabled: true, root: "/p/cm", events: { push: "ignore" } });
-      expect(machineOn()).toBe(false);
-      updateProjectEvents("christinoleo/claude-mux", { events: { push: "rule" } });
-      expect(machineOn()).toBe(true);
-    } finally {
-      setEventMapPath(null);
-    }
+    updateProjectEvents("christinoleo/claude-mux", { enabled: true, root: "/p/cm", events: { push: "ignore" } });
+    expect(machineOn()).toBe(false);
+    updateProjectEvents("christinoleo/claude-mux", { events: { push: "rule" } });
+    expect(machineOn()).toBe(true);
   });
 
   it("is written down only by a server that may, and then once", () => {

@@ -13,6 +13,7 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["tests/**/*.test.{ts,tsx}"],
+    setupFiles: ["tests/setup-home.ts"],
     coverage: {
       provider: "istanbul",
       reporter: ["text", "json", "html"],
