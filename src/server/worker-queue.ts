@@ -60,6 +60,7 @@ import { HOLD, NEEDS_HELP, STOP_AT_PR } from "./github.js";
 import { git } from "./git.js";
 import { placeName } from "../worker-placement.js";
 import { MACHINE_OFF } from "./machine-switch.js";
+import { isWorker } from "../sidebar-workers.js";
 
 export const IN_PROGRESS = "in-progress";
 export const READY_FOR_HUMAN = "ready-for-human";
@@ -333,7 +334,7 @@ export interface OtherWorker {
 
 /** Whether a session counts against the machine's limit: a worker's, or a Trigger's Run. */
 export function countsAgainstLimit(s: { maestro_role?: string | null; run_id?: string | null }): boolean {
-  return s.maestro_role === "worker" || !!s.run_id;
+  return isWorker(s) || !!s.run_id;
 }
 
 export interface QueueDeps {
