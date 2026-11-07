@@ -440,8 +440,13 @@ the list once it merges or closes), and the wayfinder `grilling`/`prototype`
 tickets that are open, unassigned and unblocked. Anything labelled `hold` (maestro's "not the daemon's") is left out. Where `gh` is missing or logged out, both stay
 empty.
 
-The sidebar nests a worker under the session that runs its daemon (the one
-non-worker in the same tmux session) and names it after its issue. Two kinds
+The sidebar knows a worker by `maestro_role: 'worker'` and names it after its
+issue (`nestWorkers()` in `src/sidebar-workers.ts`). One a daemon started sits
+under the session that runs the daemon (the one non-worker in the same tmux
+session); one with no such session, as every worker the queue starts in
+`queue-<repo>`, joins its place's other masterless workers at the end of the
+list under a "N workers" header, folded once there are more than three
+(`CREW_FOLD_ABOVE`) in a project's own list, a folded header still showing any that want a person or is open; Active and the filter's results never fold it. A `queue-*` tmux session never holds a master. Two kinds
 of child hang off a row and must read differently: a worker (a whole session)
 on a solid violet thread with a terminal tile and an issue chip, and a
 subagent (`SubagentRow.svelte`, no pane of its own) on a dashed teal thread

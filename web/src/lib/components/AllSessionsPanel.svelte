@@ -29,6 +29,7 @@
 	import { PANES } from '$lib/side-panel/panes';
 	import SubagentRow from '$lib/components/SubagentRow.svelte';
 	import { agentView, childSummary, type AgentView } from '$shared/subagents.js';
+	import { CREW_FOLD_ABOVE, crewView, nestWorkers, type WorkerRow } from '$shared/sidebar-workers.js';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { draftsStore } from '$lib/stores/drafts.svelte';
 	import { attachmentsStore } from '$lib/stores/attachments.svelte';
@@ -146,17 +147,9 @@
 	// ── the model: one card per project, across machines ────────────────────
 
 	/** A live session in a project card, with where it sits under the root. */
-	interface Row {
-		session: Session;
+	interface Row extends WorkerRow<Session> {
 		/** `web/` when the session runs below the project root; null at the root. */
 		rel: string | null;
-		orchestrator: boolean;
-		/** A maestro worker, drawn under the session that runs its daemon. */
-		worker?: boolean;
-		/** On that session's row: how many workers sit under it. */
-		workers?: number;
-		/** On the last of those workers: its master, whose own subagents follow the workers. */
-		trailing?: Session;
 	}
 
 	/** Where one machine holds a project, and what runs there. */
@@ -270,42 +263,11 @@
 		return sessionPath(refOf(machine, target), `/agent/${encodeURIComponent(agentId)}`);
 	}
 
-	/** The tmux session a pane belongs to: `main` of `main:2.0`. */
-	function tmuxSessionOf(s: Session): string | null {
-		return s.tmux_target?.split(':')[0] ?? null;
-	}
+	/** Per place, whether its masterless workers were opened (true) or folded (false) by hand. */
+	let crewOpen = $state<Record<string, boolean>>({});
 
-	/**
-	 * The maestro daemon opens each worker as a window of the tmux session the
-	 * master runs in, so a worker's master is the one non-worker session there.
-	 * Workers move up under it; one whose master is gone stays where it was.
-	 */
-	function nestWorkers(rows: Row[]): Row[] {
-		const workersOf = new Map<Row, Row[]>();
-		const placed = new Set<Row>();
-		for (const row of rows) {
-			if (row.session.maestro_role !== 'worker') continue;
-			const home = tmuxSessionOf(row.session);
-			const master = rows.find(
-				(r) => r !== row && !r.orchestrator && r.session.maestro_role !== 'worker' && tmuxSessionOf(r.session) === home
-			);
-			if (!master) continue;
-			row.worker = true;
-			workersOf.set(master, [...(workersOf.get(master) ?? []), row]);
-			placed.add(row);
-		}
-		if (placed.size === 0) return rows;
-		const out: Row[] = [];
-		for (const row of rows) {
-			if (placed.has(row)) continue;
-			const workers = workersOf.get(row);
-			out.push(workers ? { ...row, workers: workers.length } : row);
-			if (workers) {
-				workers.sort((a, b) => (a.session.maestro_issue ?? 0) - (b.session.maestro_issue ?? 0));
-				out.push(...workers.slice(0, -1), { ...workers.at(-1)!, trailing: row.session });
-			}
-		}
-		return out;
+	function crewFolded(key: string, size: number): boolean {
+		return !(crewOpen[key] ?? size <= CREW_FOLD_ABOVE);
 	}
 
 	function rowsFor(sessions: Session[], root: string): Row[] {
@@ -1087,12 +1049,40 @@
 
 {#snippet placeRows(place: Place, marked: boolean, extras: boolean)}
 	{@const offline = blockedReason(place.machine, clock.now)}
+	{@const crew = place.rows.filter((r) => r.crew)}
+	<!-- Only a project's own list folds: Active and the filter's results already chose these rows. -->
+	{@const folded = extras && crewFolded(place.key, crew.length)}
+	{@const crewShown = crewView(
+		crew,
+		folded,
+		(r) => wantsHuman(r.session),
+		(r) => wantsHuman(r.session) || isCurrent(place.machine, r.session.tmux_target)
+	)}
 	<!-- An offline machine's rows stay, dimmed and out of reach, until it answers
 	     again; so do those of one too old for this machine, until it is updated. -->
 	<div class="place" class:off={!!offline} inert={!!offline}>
-		{#each place.rows as row (row.session.id)}
+		{#each place.rows.filter((r) => !r.crew) as row (row.session.id)}
 			{@render sessionRow(place.machine, row, marked, offline)}
 		{/each}
+		{#if crew.length > 0}
+			<!-- Workers with no master to hang off (the queue's, or a daemon's
+			     that has gone) gather under one header, folded once there are many. -->
+			<button
+				type="button"
+				class="crew"
+				aria-expanded={!folded}
+				disabled={!extras}
+				onclick={() => (crewOpen = { ...crewOpen, [place.key]: folded })}
+			>
+				{#if extras}<iconify-icon class="chev" class:open={!folded} icon="mdi:chevron-right"></iconify-icon>{/if}
+				<span class="n">{crew.length}</span>
+				{crew.length === 1 ? 'worker' : 'workers'}
+				{#if folded}<span class="sum">{crewShown.summary}</span>{/if}
+			</button>
+			{#each crewShown.shown as row (row.session.id)}
+				{@render sessionRow(place.machine, row, marked, offline)}
+			{/each}
+		{/if}
 		{#if extras}
 			{#each place.panes as pane (pane.target)}
 				{@render paneRow(place.machine, pane, marked, offline)}
@@ -2017,7 +2007,8 @@
 		color: var(--muted);
 	}
 
-	/* closed sessions, folded */
+	/* a group's one-line header: masterless workers, and closed sessions, folded */
+	.crew,
 	.dead {
 		display: flex;
 		align-items: center;
@@ -2026,8 +2017,28 @@
 		font-size: 11.5px;
 		color: var(--dim);
 	}
+	.crew .n,
 	.dead .n {
 		font-family: var(--font-mono);
+	}
+	.crew {
+		width: 100%;
+		margin-top: 2px;
+		border: 0;
+		background: none;
+		font: inherit;
+		font-size: 11.5px;
+		text-align: left;
+		cursor: pointer;
+	}
+	.crew:not(:disabled):hover {
+		color: var(--muted);
+	}
+	.crew:disabled {
+		cursor: default;
+	}
+	.crew .sum {
+		margin-left: auto;
 	}
 	.sweep {
 		margin-left: auto;
