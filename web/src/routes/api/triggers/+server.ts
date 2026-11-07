@@ -7,6 +7,7 @@ import { runningEventPoller } from '$shared/server/github-events.js';
 import { clockTriggerView, eventTriggers, parseTriggerInput } from '$shared/server/triggers.js';
 import { workerQueue } from '$lib/server/worker-queue.js';
 import { scheduler, schedulerFor } from '$lib/server/triggers.js';
+import { releaseRule } from '$lib/server/release.js';
 
 /**
  * This machine's Triggers (`src/server/triggers.ts`): its clock Triggers with
@@ -21,7 +22,8 @@ function snapshot(projects = eventProjectRows(projectReports(getSavedProjects())
 	const events = eventTriggers({
 		projects,
 		seen: runningEventPoller()?.log() ?? [],
-		queue: workerQueue()?.status().log ?? []
+		queue: workerQueue()?.status().log ?? [],
+		release: releaseRule()?.state().log ?? []
 	});
 	return {
 		running: s !== null,

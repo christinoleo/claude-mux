@@ -466,6 +466,23 @@ describe("Scheduler", () => {
 });
 
 describe("event Triggers", () => {
+  it("shows what the release rule did as Runs of claude-mux's push, and nowhere else", () => {
+    const release = [{ at: 9, status: "failed" as const, reason: "abc1234: test failed; filed #5", url: "https://github.com/christinoleo/claude-mux/issues/5" }];
+    const views = eventTriggers({
+      projects: [
+        { repo: "christinoleo/claude-mux", root: "/p/cm", enabled: true, events: { "issue-ready": "ignore", push: "rule" } },
+        { repo: "u/a", root: "/p/a", enabled: true, events: { "issue-ready": "ignore", push: "rule" } },
+      ],
+      seen: [],
+      queue: [],
+      release,
+    });
+    expect(views[0].runs).toEqual([
+      { at: 9, status: "failed", reason: "abc1234: test failed; filed #5", link: { kind: "github", href: release[0].url, label: "GitHub" } },
+    ]);
+    expect(views[1].runs).toEqual([]);
+  });
+
   it("lists each enabled project's events that are not ignored, with their Runs", () => {
     const views = eventTriggers({
       projects: [

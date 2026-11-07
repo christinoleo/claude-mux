@@ -33,6 +33,7 @@ import { writeFileAtomic } from "../utils/atomic-write.js";
 import { shellQuote } from "../utils/shell.js";
 import { listWindows, openWindow, slug, type TmuxRunner } from "./worker-queue.js";
 import { STOP_AT_PR } from "./github.js";
+import { RELEASE_REPO } from "./github-events.js";
 import { DAY_NAMES, UNITS, UNIT_MS, type Schedule, type Unit } from "../trigger-schedule.js";
 
 // ── schedules ────────────────────────────────────────────────────────────────
@@ -673,6 +674,8 @@ export interface EventSources {
   projects: readonly { repo: string; root: string; enabled: boolean; events: Record<string, "ignore" | "rule" | "session"> }[];
   seen: readonly { at: number; repo: string; kind: string; action: string; outcome: string; title: string; url: string }[];
   queue: readonly { at: number; repo: string; number: number; what: string }[];
+  /** What the release rule did (`src/server/release.ts`), shown as Runs of claude-mux's push. */
+  release?: readonly { at: number; status: RunStatus; reason: string; url?: string }[];
 }
 
 const EVENT_NAMES: Record<string, string> = { "issue-ready": "Issue marked ready", push: "Push to the default branch" };
@@ -715,6 +718,11 @@ export function eventTriggers(sources: EventSources): TriggerView[] {
             reason: q.what,
             link: { kind: "github", href: `https://github.com/${q.repo}/issues/${q.number}`, label: `#${q.number}` },
           });
+        }
+      }
+      if (kind === "push" && action === "rule" && project.repo === RELEASE_REPO) {
+        for (const r of sources.release ?? []) {
+          runs.push({ at: r.at, status: r.status, reason: r.reason, link: r.url ? { kind: "github", href: r.url, label: "GitHub" } : null });
         }
       }
       runs.sort((a, b) => b.at - a.at);

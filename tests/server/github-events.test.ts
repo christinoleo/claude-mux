@@ -124,7 +124,7 @@ describe("readiness", () => {
 
 /** A fake GitHub: per repo a head and the ready issues, each with its full detail. */
 class FakeGithub {
-  repos = new Map<string, { head: string; issues: IssueDetail[] }>();
+  repos = new Map<string, { head: string; issues: IssueDetail[]; holds?: number }>();
   queries: string[] = [];
   down = false;
   labelCalls: string[][] = [];
@@ -139,6 +139,7 @@ class FakeGithub {
         ? {
             nameWithOwner: `${m[2]}/${m[3]}`,
             defaultBranchRef: { name: "main", target: { oid: repo.head, messageHeadline: `commit ${repo.head}` } },
+            holds: { totalCount: repo.holds ?? 0 },
             issues: {
               nodes: repo.issues.map((i) => ({
                 number: i.number,
@@ -377,6 +378,22 @@ describe("EventPoller", () => {
     gh.repos.get("o/r")!.head = "b2";
     await p.poll();
     expect(p.log()).toMatchObject([{ kind: "push", key: "o/r@b2", title: "main: commit b2" }]);
+  });
+
+  it("hands the release rule the branch head and whether a release-hold is open", async () => {
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    const p = poller();
+    expect(p.branch("o/r")).toBeNull();
+    await p.poll();
+    expect(gh.queries[0]).toContain('holds: issues(states: OPEN, labels: ["release-hold"]) { totalCount }');
+    expect(p.branch("o/r")).toEqual({ head: "a1", held: false });
+    gh.repos.get("o/r")!.holds = 1;
+    gh.repos.get("o/r")!.head = "b2";
+    await p.poll();
+    expect(p.branch("o/r")).toEqual({ head: "b2", held: true });
+    updateProjectEvents("o/r", { enabled: false });
+    await p.poll();
+    expect(p.branch("o/r")).toBeNull();
   });
 
   it("finds an event lost to a failed read on the next one", async () => {
