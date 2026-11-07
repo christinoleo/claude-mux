@@ -3,7 +3,7 @@ import { json } from '@sveltejs/kit';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { getAllSessions, isSessionDead } from '$shared/db/sessions-json.js';
 import { CLAUDE_MUX_DIR } from '$shared/utils/paths.js';
-import { capturePaneContentAsync, isPaneShowingIdlePrompt, readPaneHold, stripAnsi } from '$shared/tmux/pane.js';
+import { capturePaneContentAsync, isPaneReadyForCommand, readTypedText } from '$shared/tmux/pane.js';
 import { Scheduler, fileTriggerStore, type RunSession } from '$shared/server/triggers.js';
 import { realTmux } from '$shared/server/worker-queue.js';
 import { shellQuote } from '$shared/utils/shell.js';
@@ -70,7 +70,8 @@ export function startScheduler(): Scheduler {
 		},
 		sessions: runSessions,
 		capture: (window) => capturePaneContentAsync(window, true),
-		atPrompt: (raw) => isPaneShowingIdlePrompt(stripAnsi(raw)) && readPaneHold(raw) === null,
+		atPrompt: isPaneReadyForCommand,
+		typed: readTypedText,
 		runCommand: runCommandOverride()
 	});
 	g.__claudeMuxScheduler = s;

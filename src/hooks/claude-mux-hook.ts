@@ -377,25 +377,17 @@ function getClaudePid(): number {
     for (let i = 0; i < 10; i++) {
       if (pid <= 1) break;
 
-      const psOutput = execSync(`ps -p ${pid} -o ppid=,comm=,args=`, {
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      }).trim();
+      const ps = processInfo(pid);
+      debugLog(`getClaudePid: level ${i}, pid=${pid}, ps output: ${ps?.line}`);
+      if (!ps) break;
 
-      debugLog(`getClaudePid: level ${i}, pid=${pid}, ps output: ${psOutput}`);
-
-      const isClaudeCode =
-        psOutput.includes("claude") && !psOutput.includes("claude-mux");
-
-      if (isClaudeCode) {
+      if (isClaudeProcess(ps.line)) {
         debugLog(`getClaudePid: found Claude at pid=${pid}`);
         return pid;
       }
 
-      const ppid = parseInt(psOutput.split(/\s+/)[0], 10);
-      if (isNaN(ppid) || ppid <= 1) break;
-
-      pid = ppid;
+      if (ps.ppid <= 1) break;
+      pid = ps.ppid;
     }
   } catch (e) {
     debugLog(`getClaudePid: error - ${e}`);
@@ -494,6 +486,7 @@ function handleSessionStart(input: HookInput): void {
   deleteSessionsByPid(pid, input.session_id);
 
   const gitRoot = getGitRoot(input.cwd);
+  const launch = launchFields(pid);
 
   lockSession(input.session_id, () => {
     const existing = readSession(input.session_id);
@@ -512,7 +505,9 @@ function handleSessionStart(input: HookInput): void {
       display_name: keepName ? (existing?.display_name ?? null) : null,
       last_update: Date.now(),
       linked_to: linkedTo ?? existing?.linked_to ?? null,
-      ...launchFields(),
+      ...launch,
+      // A Run's session keeps its id across compact, clear and resume, whatever this hook could read.
+      run_id: launch.run_id ?? existing?.run_id ?? null,
     };
     writeSession(session);
   });
@@ -525,15 +520,49 @@ function handleSessionStart(input: HookInput): void {
  * working without anyone asking GitHub; a Trigger's Run (src/server/triggers.ts)
  * sets CLAUDE_MUX_RUN, so the server can find and end it.
  */
-function launchFields(): Pick<Session, "maestro_role" | "maestro_issue" | "run_id"> {
+function launchFields(claudePid = getClaudePid()): Pick<Session, "maestro_role" | "maestro_issue" | "run_id"> {
   const role = process.env.MAESTRO_ROLE || null;
   const issue = Number.parseInt(process.env.MAESTRO_ISSUE ?? "", 10);
   const run = process.env.CLAUDE_MUX_RUN;
   return {
     maestro_role: role,
     maestro_issue: role && Number.isFinite(issue) ? issue : null,
-    run_id: run && /^[a-z0-9-]+$/.test(run) ? run : null,
+    run_id: run && /^[a-z0-9-]+$/.test(run) && startedByRun(claudePid) ? run : null,
   };
+}
+
+/**
+ * Whether this claude is the one a Run's shell started. Everything that claude
+ * starts inherits CLAUDE_MUX_RUN, a nested claude among them, so the Run's
+ * shell names itself in CLAUDE_MUX_RUN_SH and the claude counts only when that
+ * shell is reached going up from it with no other claude in between.
+ */
+function startedByRun(claude: number): boolean {
+  const shell = Number.parseInt(process.env.CLAUDE_MUX_RUN_SH ?? "", 10);
+  if (!Number.isInteger(shell) || shell <= 1 || claude <= 1) return false;
+  for (let pid = claude, i = 0; i < 10; i++) {
+    const ps = processInfo(pid);
+    if (!ps || ps.ppid <= 1) return false;
+    // `timeout`, the shell's own child, names claude in its arguments, and is no claude.
+    if (pid !== claude && ps.comm !== "timeout" && isClaudeProcess(ps.line)) return false;
+    if (ps.ppid === shell) return true;
+    pid = ps.ppid;
+  }
+  return false;
+}
+
+function processInfo(pid: number): { ppid: number; comm: string; line: string } | null {
+  try {
+    const line = execSync(`ps -p ${pid} -o ppid=,comm=,args=`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    const [ppid, comm = ""] = line.split(/\s+/);
+    return Number.isFinite(Number(ppid)) ? { ppid: Number(ppid), comm, line } : null;
+  } catch {
+    return null;
+  }
+}
+
+function isClaudeProcess(psLine: string): boolean {
+  return psLine.includes("claude") && !psLine.includes("claude-mux");
 }
 
 /**
@@ -547,6 +576,8 @@ function changeSession(input: HookInput, change: (session: Session) => void, { t
   const exists = existsSync(getSessionPath(input.session_id));
   const tmuxTarget = tmux || !exists ? getTmuxTarget() : null;
   const fresh = exists ? null : newSession(input, tmuxTarget);
+  // `ps` runs here, never under the lock.
+  const launch = exists && readSession(input.session_id)?.maestro_role === undefined ? launchFields() : null;
   lockSession(input.session_id, () => {
     // Gone since the check above: the session ended, and must not come back.
     const session = readSession(input.session_id) ?? fresh;
@@ -554,7 +585,7 @@ function changeSession(input: HookInput, change: (session: Session) => void, { t
     // Sessions written before this field existed, and resumed sessions whose
     // file moved, pick it up on their next event.
     if (input.transcript_path) session.transcript_path = input.transcript_path;
-    if (session.maestro_role === undefined) Object.assign(session, launchFields());
+    if (session.maestro_role === undefined && launch) Object.assign(session, launch);
     session.tmux_target = tmuxTarget ?? session.tmux_target;
     holdForTest();
     change(session);
@@ -581,10 +612,11 @@ function newSession(input: HookInput, tmuxTarget: string | null): Session {
   }
 
   const gitRoot = getGitRoot(input.cwd);
+  const pid = getClaudePid();
   return {
     v: SCHEMA_VERSION,
     id: input.session_id,
-    pid: getClaudePid(),
+    pid,
     cwd: input.cwd,
     transcript_path: input.transcript_path ?? null,
     git_root: gitRoot,
@@ -594,7 +626,7 @@ function newSession(input: HookInput, tmuxTarget: string | null): Session {
     prompt_text: null,
     last_update: Date.now(),
     linked_to: linkedTo,
-    ...launchFields(),
+    ...launchFields(pid),
   };
 }
 

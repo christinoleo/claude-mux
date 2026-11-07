@@ -318,8 +318,23 @@ export function readPaneHold(raw: string): PaneHold | null {
   const clean = stripAnsi(raw);
   if (isPaneShowingSpinner(clean) || isBangRunning(clean)) return "working";
   if (isDialogDrawn(clean)) return "dialog";
+  return readTypedText(raw) ? "typed" : null;
+}
+
+/** What a person or a key typed into the prompt box, trimmed; null when it holds nothing typed. Needs a capture with colour. */
+export function readTypedText(raw: string): string | null {
   const box = readPromptBox(raw);
-  return box?.kind === "typed" && box.text.trim() ? "typed" : null;
+  return box?.kind === "typed" && box.text.trim() ? box.text.trim() : null;
+}
+
+/**
+ * Whether a command typed into the pane now would run as a command and nothing
+ * else: the prompt drawn and idle, nothing holding it (`readPaneHold()`), and
+ * the box proven to hold nothing of a person's (`isPromptBoxClear()`), which
+ * also catches a draft `readPromptBox()` bails on. Needs a capture with colour.
+ */
+export function isPaneReadyForCommand(raw: string): boolean {
+  return isPaneShowingIdlePrompt(stripAnsi(raw)) && readPaneHold(raw) === null && isPromptBoxClear(raw);
 }
 
 /**

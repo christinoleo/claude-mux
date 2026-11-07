@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { isPaneReadyForCommand } from "../../src/tmux/pane.js";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -113,6 +114,20 @@ describe("schedules", () => {
     expect(nextFiring(once, T0 + 3_600_000, T0)).toBeNull();
   });
 
+  it("every N days keeps its local time across a change of summer time", () => {
+    // Whatever this machine's zone, the firings land at the anchor's local hour.
+    const anchor = new Date(2026, 2, 1, 9, 0).getTime();
+    const daily = { type: "every" as const, n: 1, unit: "day" as const };
+    let at = anchor;
+    for (let i = 0; i < 300; i++) {
+      at = nextFiring(daily, at, anchor)!;
+      const d = new Date(at);
+      expect([d.getHours(), d.getMinutes()]).toEqual([9, 0]);
+    }
+    expect(new Date(at)).toEqual(new Date(2026, 2, 301, 9, 0));
+    expect(new Date(nextFiring({ type: "every", n: 3, unit: "day" }, anchor + 4 * 86_400_000, anchor)!)).toEqual(new Date(2026, 2, 7, 9, 0));
+  });
+
   it("counts the firings in a stretch", () => {
     expect(firingsBetween({ type: "every", n: 1, unit: "minute" }, T0, T0 + 10 * 60_000, T0)).toBe(11);
     expect(firingsBetween({ type: "weekly", days: [1, 3], time: "09:00" }, T0, T0 + 7 * 86_400_000, T0)).toBe(3);
@@ -175,6 +190,7 @@ describe("Scheduler", () => {
       sessions: () => sessions,
       capture: async () => screen,
       atPrompt: (s) => s.trim() === "❯",
+      typed: (s) => s.replace(/^❯/, "").trim() || null,
       now: () => now,
     });
   }
@@ -284,7 +300,7 @@ describe("Scheduler", () => {
     screen = "❯ ";
     now += RUN_CHECK_MS;
     await s.tick();
-    expect(tmux.sent.map((a) => a.at(-1))).toEqual(["/exit", "Enter"]);
+    expect(tmux.sent.map((a) => a.at(-1))).toEqual(["Escape", "/exit", "Enter"]);
 
     // The pane exits 0 and closes.
     writeFileSync(join(dir, `${run.id}.exit`), "0\n");
@@ -317,7 +333,7 @@ describe("Scheduler", () => {
     sessions = [{ id: "sess-1", runId: run.id, target: null, state: "idle", turnCompletedAt: now + 1, backgroundTasks: 0 }];
     now += RUN_CHECK_MS;
     await s.tick();
-    expect(tmux.sent).toHaveLength(2);
+    expect(tmux.sent).toHaveLength(3);
     now += CLOSE_WAIT_MS + RUN_CHECK_MS;
     await s.tick();
     expect(tmux.killed).toEqual(["@1"]);
@@ -375,6 +391,7 @@ describe("Scheduler", () => {
       sessions: () => [],
       capture: async () => "",
       atPrompt: () => false,
+      typed: () => null,
       now: () => now,
     });
     const first = s.create(session({ name: "First" }));
@@ -395,6 +412,7 @@ describe("Scheduler", () => {
       sessions: () => [],
       capture: async () => "",
       atPrompt: () => false,
+      typed: () => null,
       now: () => now,
     });
     expect(() => s.create(rule())).toThrow("disk full");
@@ -414,7 +432,7 @@ describe("Scheduler", () => {
     await second.tick();
     const runs = second.runs(t.id);
     expect(runs.map((r) => r.status)).toEqual(["skipped", "ran"]);
-    expect(runs[0].reason).toBe("Missed 10 firings while the server was down");
+    expect(runs[0]).toMatchObject({ reason: "Missed while the server was down", count: 10 });
     // And it carries on from now, not from where it stopped.
     expect(second.triggers()[0].next).toBe(T0 + 12 * 60_000);
   });
@@ -462,6 +480,159 @@ describe("Scheduler", () => {
     await s.tick();
     expect(s.runs(t.id)).toHaveLength(0);
     expect(s.triggers()[0].next).toBe(T0 + 11 * 60_000);
+  });
+
+  it("has the firing on disk before the window opens, so a restart opens nothing twice and a once does not fire again", async () => {
+    let seen: TriggersFile | null = null;
+    const s = new Scheduler({
+      store,
+      tmux: async (args) => {
+        if (args[0] === "new-window" || args[0] === "new-session") seen = JSON.parse(JSON.stringify(store.file));
+        return tmux.runner(args);
+      },
+      exitDir: dir,
+      room: () => null,
+      sessions: () => [],
+      capture: async () => "",
+      atPrompt: () => false,
+      typed: () => null,
+      now: () => now,
+    });
+    const t = s.create(session({ when: { type: "once", at: T0 + 60_000 } }));
+    now += 60_000;
+    await s.tick();
+    expect(seen).not.toBeNull();
+    expect(seen!.triggers[0].next).toBeNull();
+    expect(seen!.runs[0]).toMatchObject({ trigger: t.id, status: "running" });
+    expect(seen!.runs[0].window).toBeUndefined();
+    expect(store.file!.runs[0].window).toBeDefined();
+
+    // The server stops right there: on restart the Run fails, and nothing fires again.
+    store.file = seen;
+    const after = scheduler();
+    now += 1_000;
+    await after.tick();
+    expect(after.runs(t.id)).toHaveLength(1);
+    expect(after.runs(t.id)[0]).toMatchObject({ status: "failed" });
+    expect(tmux.windows.size).toBe(1);
+  });
+
+  it("counts again from now after the clock ran ahead and came back", async () => {
+    // Created while the clock read a day ahead.
+    now = T0 + 86_400_000;
+    const first = scheduler();
+    const t = first.create(rule({ when: { type: "every", n: 1, unit: "hour" } }));
+    expect(t.next).toBe(T0 + 86_400_000 + 3_600_000);
+    now = T0;
+    const s = scheduler();
+    await s.tick();
+    expect(s.triggers()[0].next).toBe(T0 + 3_600_000);
+    expect(s.triggers()[0].createdAt).toBe(T0);
+    now += 3_600_000;
+    await s.tick();
+    expect(s.runs(t.id).map((r) => r.status)).toEqual(["ran"]);
+  });
+
+  it("counts a weekly Trigger again from now when its next firing is further off than a week", async () => {
+    const s = scheduler();
+    const t = s.create(rule({ when: { type: "weekly", days: [1], time: "09:01" } }));
+    t.next = T0 + 30 * 86_400_000;
+    await s.tick();
+    expect(new Date(s.triggers()[0].next!)).toEqual(new Date(2026, 10, 9, 9, 1));
+  });
+
+  it("does not type /exit into a box holding a draft, and sends Enter again when /exit stays in the box", async () => {
+    const s = scheduler();
+    const t = s.create(session());
+    now += 3_600_000;
+    await s.tick();
+    const [run] = s.runs(t.id);
+    sessions = [{ id: "sess-1", runId: run.id, target: null, state: "idle", turnCompletedAt: now + 1, backgroundTasks: 0 }];
+    screen = "❯ /exit";
+    now += RUN_CHECK_MS;
+    await s.tick();
+    // Something is typed: the scheduler's atPrompt says no.
+    expect(tmux.sent).toHaveLength(0);
+    screen = "❯ ";
+    now += RUN_CHECK_MS;
+    await s.tick();
+    expect(tmux.sent.map((a) => a.at(-1))).toEqual(["Escape", "/exit", "Enter"]);
+    // The Enter was folded into the text: `/exit` still sits in the box.
+    screen = "❯ /exit";
+    now += RUN_CHECK_MS;
+    await s.tick();
+    expect(tmux.sent.map((a) => a.at(-1))).toEqual(["Escape", "/exit", "Enter", "Enter"]);
+    // Only once.
+    now += RUN_CHECK_MS;
+    await s.tick();
+    expect(tmux.sent).toHaveLength(4);
+  });
+
+  it("counts skips for the same reason as one entry, and keeps the Runs that ran", async () => {
+    const s = scheduler();
+    const t = s.create(session({ when: { type: "every", n: 1, unit: "minute" }, limitMinutes: 600 }));
+    now += 60_000;
+    await s.tick();
+    for (let i = 0; i < RUNS_KEPT + 20; i++) {
+      now += 60_000;
+      await s.tick();
+    }
+    const runs = s.runs(t.id);
+    expect(runs.map((r) => [r.status, r.count])).toEqual([
+      ["skipped", RUNS_KEPT + 20],
+      ["running", undefined],
+    ]);
+    expect(runs[0].at).toBe(now);
+  });
+
+  it("keeps the Runs that ran apart from a long run of skips", async () => {
+    const first = scheduler();
+    const t = first.create(rule({ when: { type: "every", n: 1, unit: "minute" } }));
+    // One Run that ran, under skips for reasons that differ each time.
+    store.file!.runs = [
+      ...Array.from({ length: RUNS_KEPT + 5 }, (_, i) => ({ id: `r-s${i}`, trigger: t.id, at: T0 - i, status: "skipped" as const, reason: `Held ${i}` })),
+      { id: "r-ran", trigger: t.id, at: T0 - 1_000, status: "ran" as const, reason: "Recorded" },
+    ];
+    const s = scheduler();
+    now += 60_000;
+    await s.tick();
+    const runs = s.runs(t.id);
+    expect(runs.filter((r) => r.status === "skipped")).toHaveLength(RUNS_KEPT);
+    expect(runs.filter((r) => r.status === "ran").map((r) => r.id)).toEqual([expect.any(String), "r-ran"]);
+  });
+
+  it("records the firings a tick that ran long passed", async () => {
+    const s = scheduler();
+    const t = s.create(rule());
+    now += 4_000;
+    await s.tick();
+    expect(s.runs(t.id).map((r) => [r.status, r.reason])).toEqual([
+      ["skipped", "Missed while a tick ran late"],
+      ["ran", "Recorded"],
+    ]);
+    expect(s.runs(t.id)[0].count).toBe(3);
+    expect(t.next).toBe(now + 1_000);
+    // Slow again: counted into the same entry, the Runs that ran between left as they are.
+    now += 3_000;
+    await s.tick();
+    expect(s.runs(t.id).map((r) => [r.status, r.count])).toEqual([
+      ["ran", undefined],
+      ["skipped", 5],
+      ["ran", undefined],
+    ]);
+  });
+
+  it("records a paused once Trigger whose date passed", async () => {
+    const s = scheduler();
+    const t = s.create(rule({ when: { type: "once", at: T0 + 60_000 } }));
+    s.setPaused(t.id, true);
+    now += 2 * 60_000;
+    await s.tick();
+    expect(s.runs(t.id).map((r) => [r.status, r.reason])).toEqual([["skipped", "Paused at its date"]]);
+    await s.tick();
+    expect(s.runs(t.id)).toHaveLength(1);
+    s.setPaused(t.id, false);
+    expect(s.triggers()[0].next).toBeNull();
   });
 });
 
@@ -512,5 +683,19 @@ describe("event Triggers", () => {
     expect(views[1].runs).toEqual([
       { at: 3, status: "ran", reason: "Recorded as seen", link: { kind: "github", href: "https://github.com/u/a/commit/abc", label: "abc1234 fix" } },
     ]);
+  });
+});
+
+describe("isPaneReadyForCommand", () => {
+  const SEP = "─".repeat(80);
+  const pane = (box: string[]) => ["  earlier output", SEP, ...box, SEP, "  ⏵⏵ bypass permissions on (shift+tab to cycle)"].join("\n");
+
+  it("takes an empty prompt", () => {
+    expect(isPaneReadyForCommand(pane(["❯  "]))).toBe(true);
+  });
+
+  it("refuses a box holding a draft, even one the box reader bails on", () => {
+    expect(isPaneReadyForCommand(pane(["❯ fix the tests"]))).toBe(false);
+    expect(isPaneReadyForCommand(pane(["❯ steps", "  1. run it"]))).toBe(false);
   });
 });

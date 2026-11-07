@@ -554,9 +554,17 @@ with `hold` so no machine starts it again, and leaves its worktree.
 Triggers (`src/server/triggers.ts`, the `/triggers` screen, `GET`/`POST
 /api/triggers` and `PATCH`/`DELETE /api/triggers/<id>`) are when plus what,
 per machine (GLOSSARY.md). Clock Triggers live in `~/.claude-mux/triggers.json`
-with their Runs (the latest 50 each): every N seconds, minutes, hours or
-days counted from the Trigger's creation, chosen weekdays at a local time,
-or once. No cron. `Scheduler` ticks every second beside the poller (built
+with their Runs (the latest 50 each, and apart from them the latest 50
+skips; a skip for the same reason as the one before it is that entry
+counted again): every N seconds, minutes or hours counted from the
+Trigger's creation, every N days stepped in local time so a daily Trigger
+keeps its hour across summer time, chosen weekdays at a local time, or once.
+No cron. A creation date in the future or a next firing further off than the
+schedule ever waits (a clock that ran ahead) is counted again from now; a
+paused `once` whose date passes is recorded as skipped; firings a long tick
+passed are recorded as one skip. A firing is saved, with its Run running and
+no window, before any window opens, so a restart fails that Run rather than
+opening it twice. `Scheduler` ticks every second beside the poller (built
 server, or a dev server with `CLAUDE_MUX_EVENTS=1`). A firing more than a
 minute late is one the server was down for: skipped and recorded with the
 count, never made up. A rule fires at any interval and only records the Run.
@@ -568,10 +576,15 @@ project's root, running `env CLAUDE_MUX_RUN=<run id> sh -c 'timeout
 --foreground -k 10 <limit> claude --dangerously-skip-permissions <prompt>;
 echo $? > ~/.claude-mux/runs/<run id>.exit'` (#165: the limit must live in
 the pane, and plain `timeout` never draws). The hook records `run_id`, and
-such a session counts against the worker limit. Once its hooks say the turn
-ended and the pane shows an empty prompt, `/exit` is typed (never into a
-dialog, whose default Enter would answer it); a pane still open 30 s later,
-or a minute past its limit, is killed. The exit file tells how it ended:
+such a session counts against the worker limit, but only for the claude the
+Run's shell started: the shell names itself in `CLAUDE_MUX_RUN_SH`, and a
+claude with another claude between it and that shell (one a Bash call
+started) inherited the id and is not the Run. Once its hooks say the turn
+ended and the pane is ready for a command (`isPaneReadyForCommand()`: idle
+prompt, no hold, a box proven clear), Escape and then `/exit` are typed (never
+into a dialog, whose default Enter would answer it, or behind a draft); a box
+still holding `/exit` a check later gets one more Enter, and a pane still open
+30 s later, or a minute past its limit, is killed. The exit file tells how it ended:
 0 done, 124 timed out. Event Triggers are not stored: `eventTriggers()`
 lists one per enabled project and event the state map does not ignore, with
 the poller's log and, for issues that start a session, the queue's log as
