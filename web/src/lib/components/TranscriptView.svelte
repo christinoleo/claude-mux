@@ -10,6 +10,7 @@
 	import DialogCard from '$lib/components/DialogCard.svelte';
 	import DialogHoldCard from '$lib/components/DialogHoldCard.svelte';
 	import LoginCard from '$lib/components/LoginCard.svelte';
+	import PaneDialogCard from '$lib/components/PaneDialogCard.svelte';
 	import RewindCard from '$lib/components/RewindCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { LIVE_ENTRY_PREFIX } from '$lib/stores/transcript.svelte';
@@ -25,6 +26,7 @@
 	import { foldRewound } from '$shared/transcript/forks.js';
 	import { formatSpinnerElapsed } from '$lib/format';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Button } from '$lib/components/ui/button';
 	import {
 		parseGrillRound,
 		composeGrillReply,
@@ -49,6 +51,8 @@
 		dialogHold = null,
 		paneLogin = null,
 		paneRewind = null,
+		paneScreen = [],
+		onWantScreen,
 		onRewind,
 		subagents = {},
 		onLoadSubagent,
@@ -91,6 +95,10 @@
 		paneLogin?: LoginScreen;
 		/** Claude Code's rewind dialog, which only the pane shows. */
 		paneRewind?: RewindScreen;
+		/** The pane's visible rows (ANSI), streamed only while `onWantScreen` last said true. */
+		paneScreen?: string[];
+		/** Asks the page for the pane's screen (true) or lets it go (false); without it no terminal is drawn here. */
+		onWantScreen?: (want: boolean) => void;
 		/** Works the rewind dialog; without it prompts offer no rewind. Resolves false when it failed. */
 		onRewind?: (action: RewindAction) => Promise<boolean>;
 		/** Sends a tmux key sequence (space-separated) to answer a dialog. */
@@ -422,6 +430,38 @@
 	});
 	/** The pane's dialog at the foot, when it is not the live question's. */
 	const footDialog = $derived(liveAskId === null && paneChoice !== null && !holdCard);
+
+	// ── when no card can be built ────────────────────────────────────────
+	// The hooks say the session waits, and nothing on its screen made a card.
+	// After a beat (the card usually lands on the next poll) the terminal is
+	// drawn here instead, so the dialog can still be answered from a phone.
+
+	/** How long a dialog may go without a card before the terminal stands in; under the 2s promised. */
+	const TERMINAL_AFTER_MS = 1500;
+	const noCard = $derived(
+		canAnswer && !dialogClosed && !liveAskId && !footDialog && !holdCard && !paneLogin && !paneRewind
+	);
+	let noCardLong = $state(false);
+	$effect(() => {
+		if (!noCard) {
+			noCardLong = false;
+			return;
+		}
+		const timer = setTimeout(() => (noCardLong = true), TERMINAL_AFTER_MS);
+		return () => clearTimeout(timer);
+	});
+	/** A person opened the terminal over a card, for what the card does not offer. */
+	let terminalAsked = $state(false);
+	$effect(() => {
+		if (!canAnswer) terminalAsked = false;
+	});
+	const terminalFallback = $derived(onWantScreen != null && noCard && noCardLong);
+	const showTerminal = $derived(onWantScreen != null && canAnswer && (terminalFallback || terminalAsked));
+	// The screen is asked for the moment a card is missing, so it is there when the wait runs out.
+	$effect(() => {
+		onWantScreen?.(noCard || showTerminal);
+	});
+	$effect(() => () => onWantScreen?.(false));
 
 	/**
 	 * The turns claude-mux delivered from its queue or as a steer, by entry id.
@@ -1056,6 +1096,15 @@
 		<RewindCard screen={paneRewind} {onRewind} />
 	{/if}
 
+	{#if showTerminal}
+		<PaneDialogCard
+			screen={paneScreen}
+			onKeys={(keys) => onSendKeys?.(keys)}
+			onText={(text) => onSendPaneText?.(text)}
+			onClose={terminalFallback ? null : () => (terminalAsked = false)}
+		/>
+	{/if}
+
 	<!-- Live status: driven by hooks, which fire the instant a tool starts;
 	     the JSONL itself is written in batches and lags by seconds. -->
 	{#if sessionState === 'busy'}
@@ -1088,6 +1137,8 @@
 			<span class="live-text">
 				{#if dialogClosed}
 					Answer sent — waiting for Claude to carry on
+				{:else if terminalFallback}
+					Waiting for your answer — answer in the terminal above ↑
 				{:else if liveAskId || footDialog || holdCard}
 					Waiting for your answer — answer in the card above ↑
 				{:else if state === 'permission'}
@@ -1096,6 +1147,11 @@
 					Question incoming… answer here when it appears, or in the terminal view
 				{/if}
 			</span>
+			{#if onWantScreen && !showTerminal && !dialogClosed}
+				<Button variant="ghost" size="sm" class="ml-auto h-7 px-2 text-xs" onclick={() => (terminalAsked = true)}>
+					<iconify-icon icon="mdi:console"></iconify-icon>Terminal
+				</Button>
+			{/if}
 		</div>
 	{/if}
 

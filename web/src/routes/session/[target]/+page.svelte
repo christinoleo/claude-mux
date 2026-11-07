@@ -965,8 +965,11 @@
 	// Drive the terminal store from view state. setTarget owns WS, output,
 	// and history reset together; only attach when target is confirmed alive
 	// and the raw mirror is the active view.
+	/** The transcript is drawing the terminal in place of a dialog card it could not build. */
+	let transcriptWantsScreen = $state(false);
 	$effect(() => {
-		terminalStore.setTarget(isAlive && viewMode === 'terminal' ? target : null, base, route.address);
+		const streaming = viewMode === 'terminal' || transcriptWantsScreen;
+		terminalStore.setTarget(isAlive && streaming ? target : null, base, route.address);
 	});
 
 	// Same contract for the transcript store, keyed by session id.
@@ -1116,7 +1119,7 @@
 		// Near the top: fetch an older chunk and keep the viewport anchored on the
 		// same content (history only ever grows at the ends, so the distance from
 		// the bottom is a stable anchor).
-		if (scrollTop < 200 && !hasSelection && !terminalStore.historyAtStart) {
+		if (viewMode === 'terminal' && scrollTop < 200 && !hasSelection && !terminalStore.historyAtStart) {
 			const pending = terminalStore.requestMoreHistory();
 			if (pending) holdPlaceThrough(pending);
 		}
@@ -2645,6 +2648,8 @@
 						dialogHold={currentSession?.dialog_hold ?? null}
 						paneLogin={currentSession?.pane_login ?? null}
 						paneRewind={currentSession?.pane_rewind ?? null}
+						paneScreen={terminalStore.screen}
+						onWantScreen={(want) => (transcriptWantsScreen = want)}
 						onRewind={rewind}
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={sendKeys}

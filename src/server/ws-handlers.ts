@@ -26,7 +26,8 @@ import type { PaneActivity, PromptChoice, UpdateNotice } from '../tmux/pane.js';
 import { wantsWidening, widenDetachedWindow } from '../tmux/geometry.js';
 import { readLoginScreen, type LoginScreen } from '../tmux/login.js';
 import { readRewindScreen, type RewindScreen } from '../tmux/rewind.js';
-import { readClaudeUpdateStatus } from './claude-update.js';
+import { processVersion, readClaudeUpdateStatus } from './claude-update.js';
+import { FailedReads } from './failed-reads.js';
 import { upgradeStatus } from './restart-claude.js';
 import { getSavedProjects, saveProjects } from '../db/projects-json.js';
 import { peekContextPercent, peekTranscriptTitle } from '../transcript/context-peek.js';
@@ -375,6 +376,8 @@ const wideningNow = new Set<string>();
 const rcSeen = new Set<string>();
 /** False on the first poll, which only primes `rcSeen` with what already runs. */
 let rcPrimed = false;
+/** Dialogs the hooks announced that no reader could find on screen, kept so the reader can be fixed. */
+const failedReads = new FailedReads();
 
 /**
  * The transcript title each session was last seen to carry, so a name is
@@ -490,6 +493,7 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 		void answerRemoteControlDialog(s.tmux_target, content, rcUrl);
 	}
 
+	failedReads.forgetExcept(new Set(sessions.map((s) => s.id)));
 	const visits = getVisits();
 	const autoUpdateFailed = settings.autoUpdateClaude && readClaudeUpdateStatus()?.state === 'failed';
 	const enrichedSessions = sessions.map((s) => {
@@ -507,6 +511,21 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 		// is open too, when a subagent's tool event has just called the session busy.
 		const paneChoice = stripped ? readPromptOptions(stripped, { declaredOnly: !isDialogState(s.state) && !dialogHolds.view(s.id) }) : null;
 		if (stripped) dialogHolds.paneRead(s.id, paneChoice !== null);
+		const paneLogin = stripped ? readLoginScreen(stripped) : null;
+		const paneRewind = stripped ? readRewindScreen(stripped) : null;
+		if (stripped && raw) {
+			failedReads.observe({
+				session_id: s.id,
+				tmux_target: s.tmux_target ?? null,
+				state: s.state,
+				current_action: s.current_action ?? null,
+				claudeVersion: () => (s.pid ? processVersion(s.pid) : null),
+				held: dialogHolds.view(s.id) !== null,
+				failing: isDialogState(s.state) && !paneChoice && !paneLogin && !paneRewind,
+				stripped,
+				raw
+			});
+		}
 		const enriched: Session & LivePaneFields = {
 			...s,
 			pane_title: paneTitle,
@@ -522,8 +541,8 @@ async function readSessionsAndPanes(): Promise<{ sessions: (Session & LivePaneFi
 			dialog_hold: dialogHolds.view(s.id),
 			// Claude Code says so only in its footer, which the transcript never sees.
 			pane_update: stripped ? readUpdateNotice(stripped) : null,
-			pane_login: stripped ? readLoginScreen(stripped) : null,
-			pane_rewind: stripped ? readRewindScreen(stripped) : null,
+			pane_login: paneLogin,
+			pane_rewind: paneRewind,
 			auto_update_failed: autoUpdateFailed,
 			upgrade: upgradeStatus(s.id),
 			// The spinner says more than the hooks do: what runs, for how long,
