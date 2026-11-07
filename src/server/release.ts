@@ -38,7 +38,7 @@ import { join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { HOLD_LABEL, POLL_MS, RELEASE_REPO } from "./github-events.js";
 import { nameList, placeName } from "../worker-placement.js";
-import { isVersion } from "./self-update.js";
+import { compareVersions, isVersion } from "./self-update.js";
 
 /** How long after the last merge a release waits, so a burst of merges goes out as one. */
 export const SETTLE_MS = 10 * 60_000;
@@ -118,7 +118,7 @@ export interface ReleaseFile {
   v: 1;
   /** The branch head as last read, and when the rule first saw it. */
   head: { sha: string; seenAt: number } | null;
-  /** Since when a hold has been open, while one is. */
+  /** Since when the rule has been paused, by an open hold or by a read of GitHub gone stale. */
   heldAt?: number | null;
   /** A tag that failed, or a gate the machinery could not run, tried again only after `RETRY_MS`. */
   retry?: { sha: string; at: number; reason: string; tries?: number } | null;
@@ -169,17 +169,24 @@ export function fileReleaseStore(path: string): ReleaseStore {
 /** `transient` when the machinery failed (a fetch, a checkout), not the code: tried again later, not filed. */
 export type GateResult = { ok: true } | { ok: false; step: string; output: string; transient?: boolean };
 
+/** A bump commit (`npm version`'s) on the default branch: the version it bumped to, and the commit it bumped. */
+export interface Bump {
+  version: string;
+  parent: string;
+}
+
 /** The repository, as the rule acts on it. Each answers null (or a string, for a tag) when it could not. */
 export interface ReleaseRepo {
   /**
    * What changed between the last version tag and `sha`; `tagged` when `sha` is that tag's commit,
-   * and `bump` the version when `sha` is a bump commit whose tag never reached the remote.
+   * and `bump` the version and parent when `sha` is a bump commit whose tag never reached the remote.
    */
-  changes(sha: string): Promise<{ lastTag: string | null; tagged: boolean; files: string[]; bump?: string | null } | null>;
+  changes(sha: string): Promise<{ lastTag: string | null; tagged: boolean; files: string[]; bump?: Bump | null } | null>;
   gate(sha: string): Promise<GateResult>;
   /**
    * Bump a patch on `sha`, push it to the default branch and push its tag. The version, why it could not,
-   * or `existing`, the tag someone else already put on `sha`.
+   * or `existing`, the tag someone else already put on `sha`. A bump commit whose tag never reached the
+   * remote has that tag pushed instead of a second bump.
    */
   tag(sha: string): Promise<{ version: string } | { existing: string } | string>;
   /** Push the tag `v<version>` on `sha`, a bump commit already on the default branch. Null, or why it could not. */
@@ -229,11 +236,13 @@ export function releaseExcludeList(value: unknown): string[] {
 /**
  * Whether a machine takes part in the rollout: every machine does but those
  * `release:exclude` names, and one whose name cannot be told, which might be
- * one of them. `hostname` as the fleet reports it.
+ * one of them. `hostname` as the fleet reports it; the fleet state stands the
+ * machine's `id` in for a hostname it never learned, which tells nothing either.
  */
-export function takesPart(hostname: string | null | undefined, exclude: readonly string[]): boolean {
+export function takesPart(hostname: string | null | undefined, exclude: readonly string[], id?: string): boolean {
   const name = placeName(hostname ?? "");
-  return name !== "" && name !== "localhost" && !exclude.includes(name);
+  if (name === "" || name === "localhost" || (id !== undefined && name === placeName(id))) return false;
+  return !exclude.includes(name);
 }
 
 function short(sha: string): string {
@@ -265,8 +274,8 @@ const ISSUE_OUTPUT_CHARS = 6_000;
  * the home directory written as `~`.
  */
 export function scrubOutput(text: string, env: NodeJS.ProcessEnv = process.env): string {
+  // Redacted before it is cut, so a cut cannot leave part of a secret unmatched.
   let out = tail(text);
-  if (out.length > ISSUE_OUTPUT_CHARS) out = `…${out.slice(-ISSUE_OUTPUT_CHARS)}`;
   const values = Object.entries(env)
     .filter(([k, v]) => SECRET_NAME.test(k) && typeof v === "string" && v.length >= 6)
     .map(([, v]) => v as string)
@@ -274,6 +283,7 @@ export function scrubOutput(text: string, env: NodeJS.ProcessEnv = process.env):
   for (const v of values) out = out.split(v).join("[redacted]");
   for (const shape of SECRET_SHAPES) out = out.replace(shape, "[redacted]");
   if (env.HOME && env.HOME.length > 1) out = out.split(env.HOME).join("~");
+  if (out.length > ISSUE_OUTPUT_CHARS) out = `…${out.slice(-ISSUE_OUTPUT_CHARS)}`;
   return out.replace(/```/g, "`\u200b``");
 }
 
@@ -301,9 +311,10 @@ export class ReleaseRule {
   tick(): Promise<void> {
     if (this.ticking) return this.ticking;
     this.ticking = (async () => {
+      // Cleared first, so a step that records why it is stuck without throwing is heard.
+      this.lastError = null;
       try {
         await this.step();
-        this.lastError = null;
       } catch (err) {
         this.lastError = (err as Error).message;
       } finally {
@@ -319,6 +330,11 @@ export class ReleaseRule {
     const now = this.now();
     // A read that stopped coming may have missed a hold opened since: nothing is done on it.
     if (now - github.readAt > STALE_READ_MS) {
+      // Paused as a hold pauses it, so the deadlines under way are not spent waiting for GitHub.
+      if (this.file.heldAt == null) {
+        this.file.heldAt = now;
+        this.save();
+      }
       throw new Error(`GitHub was last read ${Math.round((now - github.readAt) / 60_000)} minutes ago; waiting for a fresh read`);
     }
     if (this.file.head?.sha !== github.head) {
@@ -374,8 +390,11 @@ export class ReleaseRule {
       this.lastError = `could not read what changed up to ${short(sha)}`;
       return;
     }
-    if (changes.bump) {
-      await this.pushTag(sha, changes.bump);
+    // Its tag is pushed at once only when this rule gated the commit it bumped; any other bump is gated
+    // and waited for like a merge, and `tag()` then pushes its tag rather than bumping again.
+    const bump = changes.bump;
+    if (bump && this.file.gate?.sha === bump.parent && this.file.gate.state === "passed") {
+      await this.pushTag(sha, bump.version);
       return;
     }
     const skip = changes.tagged
@@ -393,6 +412,7 @@ export class ReleaseRule {
     const result = await this.deps.repo.gate(sha);
     // A newer head that came while it ran is gated on the next tick; this answer still stands for its own.
     if (result.ok) {
+      this.file.gateIssue = null;
       this.file.gate = { sha, state: "passed", reason: "Lint, tests and build passed", at: this.now() };
       this.log("ran", `${short(sha)} passed lint, tests and build`, commitUrl(sha));
       return;
@@ -523,7 +543,7 @@ export class ReleaseRule {
     if (ours?.state === "failed") return this.end(attempt, "failed", ours.line || "The update failed");
     if (ours?.state === "running") return this.timeout(attempt, release);
     const version = await this.deps.health(machine);
-    if (version === release.version) return this.end(attempt, "ok", `Healthy on v${version}`);
+    if (runs(version, release.version)) return this.end(attempt, "ok", `Healthy on v${version}`);
     return this.timeout(attempt, release, version);
   }
 
@@ -538,7 +558,7 @@ export class ReleaseRule {
       // This server stopped while that machine updated: its one attempt is judged by where it is now,
       // given the same while to come back as this machine's own update.
       const version = machine ? await this.deps.health(machine) : null;
-      return version === release.version ? this.end(attempt, "ok", `Healthy on v${version}`) : this.timeout(attempt, release, version);
+      return runs(version, release.version) ? this.end(attempt, "ok", `Healthy on v${version}`) : this.timeout(attempt, release, version);
     }
     if (!machine?.online) {
       // After this server restarts every link to the fleet starts offline: a machine is given a while to reconnect.
@@ -556,7 +576,7 @@ export class ReleaseRule {
     if (!result.ok) return this.end(attempt, "failed", result.line || "The update failed");
     // Its server may still be coming back: health is read again each tick until the deadline.
     const version = await this.deps.health(machine);
-    if (version === release.version) return this.end(attempt, "ok", `Healthy on v${version}`);
+    if (runs(version, release.version)) return this.end(attempt, "ok", `Healthy on v${version}`);
     attempt.reason = "Updated; waiting for it to answer on the new version";
     this.save();
     return null;
@@ -601,6 +621,11 @@ export class ReleaseRule {
 }
 
 const HELD_REASON = `Paused: an issue labelled ${HOLD_LABEL} is open`;
+
+/** Whether a machine answering `version` runs `target`: that version or a newer one, which `update` never downgrades. */
+function runs(version: string | null, target: string): boolean {
+  return version !== null && compareVersions(version, target) >= 0;
+}
 
 /** How a rollout that ran to its end left the fleet, naming every machine it passed over. */
 function doneLine(release: ReleaseRecord): string {
@@ -675,9 +700,13 @@ export function gateEnv(dir: string, base: NodeJS.ProcessEnv = process.env): Nod
 /** Output that says the network or the registry failed, not the code. */
 const NETWORK_ERROR = /\b(ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|socket hang up|network error|fetch failed|503 Service Unavailable|502 Bad Gateway)\b/i;
 
-/** Whether a failed step is the machinery's: an install, or anything the network broke. */
+/**
+ * Whether a failed step is the machinery's: an install, or a step whose last
+ * lines blame the network. Only the last lines: this repo's tests print
+ * ECONNREFUSED on their way to passing, and a real failure must not pass for one.
+ */
 export function isTransientFailure(step: string, output: string): boolean {
-  return step === "install" || NETWORK_ERROR.test(output);
+  return step === "install" || NETWORK_ERROR.test(tail(output, 3));
 }
 
 /** The repository as a clone of its own under `dir`, each gate and tag in a fresh worktree. */
@@ -760,6 +789,11 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
       const existing = await tagOn(sha);
       if (existing === undefined) return `could not read the tags on ${short(sha)}`;
       if (existing) return { existing };
+      const bump = await bumpOf(sha);
+      if (bump) {
+        const why = await pushExistingTag(sha, bump.version);
+        return why ?? { version: bump.version };
+      }
       return inWorktree<{ version: string } | string>(
         "tag",
         sha,
@@ -784,14 +818,20 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
 
     async pushTag(sha, version) {
       if (!(await sync())) return `could not fetch ${RELEASE_REPO}`;
-      const tip = await git(["merge-base", "--is-ancestor", sha, `origin/${branch}`]);
-      if (!tip.ok) return `${short(sha)} is not on ${branch}`;
-      const tag = `v${version}`;
-      if (!(await git(["tag", "-f", "-m", version, tag, sha])).ok) return `could not make ${tag}`;
-      const pushed = await git(["push", "--quiet", "origin", `refs/tags/${tag}`]);
-      return pushed.ok ? null : `the tag could not be pushed: ${tail(pushed.output, 5)}`;
+      return pushExistingTag(sha, version);
     },
   };
+
+  /** Tag `sha`, already on the default branch, as `v<version>` and push the tag. Null, or why it could not. */
+  async function pushExistingTag(sha: string, version: string): Promise<string | null> {
+    const on = await git(["merge-base", "--is-ancestor", sha, `origin/${branch}`]);
+    if (!on.ok) return `${short(sha)} is not on ${branch}`;
+    const tag = `v${version}`;
+    // Annotated with the version as its message, as `npm version` makes it.
+    if (!(await git(["tag", "-f", "-m", version, tag, sha])).ok) return `could not make ${tag}`;
+    const pushed = await git(["push", "--quiet", "origin", `refs/tags/${tag}`]);
+    return pushed.ok ? null : `the tag could not be pushed: ${tail(pushed.output, 5)}`;
+  }
 
   /** The version tag on `sha` as the remote has it; null when there is none, undefined when it could not be read. */
   async function tagOn(sha: string): Promise<string | null | undefined> {
@@ -805,7 +845,7 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
    * the subject is the version its package.json holds) whose tag the remote
    * lacks, which is what a tag push that failed after its branch push leaves.
    */
-  async function bumpOf(sha: string): Promise<string | null> {
+  async function bumpOf(sha: string): Promise<Bump | null> {
     const subject = await git(["log", "-1", "--format=%s", sha]);
     const version = subject.ok ? subject.output.trim() : "";
     if (!isVersion(version)) return null;
@@ -817,6 +857,8 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
     }
     // The clone fetched with `--prune-tags`, so a tag here is one the remote has.
     const tagged = await git(["rev-parse", "--verify", "--quiet", `refs/tags/v${version}`]);
-    return tagged.ok ? null : version;
+    if (tagged.ok) return null;
+    const parent = await git(["rev-parse", `${sha}^`]);
+    return parent.ok ? { version, parent: parent.output.trim() } : null;
   }
 }

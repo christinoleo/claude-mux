@@ -126,6 +126,17 @@ export function isVersion(v: string): boolean {
   return /^\d+\.\d+\.\d+$/.test(v);
 }
 
+/** `a` against `b` as release versions: negative when older, 0 when the same, positive when newer. */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
 export interface StartUpdateOptions {
   dir: string;
   fromVersion: string;

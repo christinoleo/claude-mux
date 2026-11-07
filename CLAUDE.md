@@ -48,7 +48,8 @@ The release rule (`src/server/release.ts`, wired by
 `christinoleo/claude-mux` enabled with its push event set to the rule
 (`omarchy`), ticked after every read of GitHub and every 15 s, and keeps every
 step in `~/.claude-mux/release.json`. It acts only on a read of GitHub at most
-two poll intervals old (`STALE_READ_MS`), since an older one could miss a hold.
+two poll intervals old (`STALE_READ_MS`), since an older one could miss a hold;
+while reads are stale it pauses as a hold does, deadlines included.
 
 Each new head is gated in a worktree of a clone of its own
 (`~/.claude-mux/release/repo`, never a checkout someone works in): `bun install
@@ -56,11 +57,11 @@ Each new head is gated in a worktree of a clone of its own
 allowlist of variables (`PATH`, locale, `TERM`, `SHELL`, `USER`), so no token
 reaches the code under test, with `HOME` and `TMUX_TMPDIR` set to directories
 of the gate's own. A failed fetch, checkout or install, or output naming a
-network error, is the machinery's: tried again five minutes later, and filed
+network error in its last lines, is the machinery's: tried again five minutes later, and filed
 only on the third failure. A failure files an issue with the output trimmed
 and scrubbed (`scrubOutput()`: secrets from the environment and token shapes
 taken out, the home directory written `~`), and while that issue stays open
-each later failure comments on it instead. A failed head is never gated
+each later failure comments on it instead, until a head passes. A failed head is never gated
 again. A head whose commits since the last `v*` tag touch only docs (`*.md`,
 `docs/`, `LICENSE`), or that is the tag's own commit, releases nothing.
 
@@ -74,7 +75,8 @@ OIDC) and creates a GitHub release. Right before bumping, the rule fetches and
 stops if the head already carries a `v*` tag, so a release made by hand
 meanwhile is not followed by a second one. A bump commit on `main` whose tag
 never reached the remote (the tag push failed after the branch push) has its
-tag pushed again rather than being bumped past; the clone fetches with
+tag pushed again rather than being bumped past: at once when the rule gated
+the commit it bumped, else after the gate and the wait like any merge; the clone fetches with
 `--prune-tags`, so a tag a failed push left behind is dropped.
 
 Once `npm view` has the version, this machine updates itself first
@@ -83,7 +85,8 @@ new version within 15 minutes; then every other machine the fleet state lists,
 by name, one at a time through its `/api/update`. Every update is told the
 version (`claude-mux update --target <version>`, the `version` in the POST
 body), never npm's `latest`, and a machine's health is read again each tick
-until it answers on that version or the 15 minutes run out. A machine offline
+until it answers on that version or the 15 minutes run out. `update --target`
+never downgrades, and a machine already on a newer version counts as updated. A machine offline
 when its turn comes is waited for three minutes (`RECONNECT_MS`), since the
 fleet's links start offline after this server's own restart, and then passed
 over; the closing line names every machine passed over. Each machine gets one

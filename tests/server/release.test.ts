@@ -493,14 +493,78 @@ describe("release rule", () => {
     expect(w.tagged).toEqual([A]);
   });
 
-  it("pushes the tag of a bump commit that reached main without it, rather than bumping again", async () => {
-    w.changes.set(A, { lastTag: "v1.0.0", tagged: false, files: [], bump: "1.0.1" });
+  it("pushes the tag of its own bump commit that reached main without it, rather than bumping again", async () => {
     const rule = w.rule();
     await rule.tick();
-    expect(w.pushedTags).toEqual([{ sha: A, version: "1.0.1" }]);
-    expect(w.gated).toEqual([]);
+    expect(rule.state().gate).toMatchObject({ sha: A, state: "passed" });
+    // Its tag push failed after the bump B landed on main.
+    w.head = B;
+    w.changes.set(B, { lastTag: "v1.0.0", tagged: false, files: ["package.json"], bump: { version: "1.0.1", parent: A } });
+    await rule.tick();
+    expect(w.pushedTags).toEqual([{ sha: B, version: "1.0.1" }]);
+    expect(w.gated).toEqual([A]);
     expect(w.tagged).toEqual([]);
-    expect(rule.state().release).toMatchObject({ sha: A, version: "1.0.1", state: "publishing" });
+    expect(rule.state().release).toMatchObject({ sha: B, version: "1.0.1", state: "publishing" });
+  });
+
+  it("gates a bump commit it did not gate the parent of, and waits for it like any merge", async () => {
+    w.changes.set(A, { lastTag: "v1.0.0", tagged: false, files: ["package.json"], bump: { version: "1.0.1", parent: B } });
+    const rule = w.rule();
+    await rule.tick();
+    expect(w.pushedTags).toEqual([]);
+    expect(w.gated).toEqual([A]);
+    await rule.tick();
+    expect(w.tagged).toEqual([]);
+  });
+
+  it("does not count a stale read of GitHub against npm's deadline", async () => {
+    const rule = w.rule();
+    await rule.tick();
+    w.now += SETTLE_MS;
+    await rule.tick();
+    expect(rule.state().release).toMatchObject({ state: "publishing" });
+    w.readAt = w.now;
+    w.now += PUBLISH_DEADLINE_MS;
+    await ticks(rule, 2);
+    w.readAt = null;
+    await rule.tick();
+    expect(rule.state().release).toMatchObject({ state: "publishing" });
+    expect(w.issues).toEqual([]);
+  });
+
+  it("keeps why it is stuck when a step says so without failing", async () => {
+    w.changes.set(A, null);
+    const rule = w.rule();
+    await rule.tick();
+    expect(rule.lastError).toMatch(/could not read what changed/);
+  });
+
+  it("files a new issue for a failure after main was fixed, though the old one is still open", async () => {
+    w.gates.set(A, { ok: false, step: "test", output: "1 failed" });
+    const rule = w.rule();
+    await rule.tick();
+    w.head = B;
+    await rule.tick();
+    expect(rule.state().gate).toMatchObject({ sha: B, state: "passed" });
+    w.head = "d".repeat(40);
+    w.gates.set(w.head, { ok: false, step: "build", output: "boom" });
+    await rule.tick();
+    expect(w.issues).toHaveLength(2);
+    expect(w.comments).toEqual([]);
+  });
+
+  it("counts a machine already past the version as updated", async () => {
+    w.versions.set("beta-id", "1.0.5");
+    w.slowRestarts.set("beta-id", 99);
+    const rule = w.rule();
+    await rule.tick();
+    w.now += SETTLE_MS;
+    await rule.tick();
+    w.npm.add("1.0.1");
+    await rule.tick();
+    w.selfComesBack();
+    await ticks(rule, 4);
+    expect(rule.state().release!.attempts[1]).toMatchObject({ name: "beta", state: "ok", reason: "Healthy on v1.0.5" });
   });
 
   it("comments on the open gate-failure issue instead of filing one per merge, and files anew once it is closed", async () => {
@@ -686,12 +750,17 @@ describe("what takes part and what counts as docs", () => {
     expect(out).not.toContain("line 0\n");
     expect(out.length).toBeLessThan(6_100);
     expect(out).not.toContain("```");
+    // A secret where the cut falls is still taken out whole.
+    const cut = scrubOutput(`${"z".repeat(5990)} ${token}`, env);
+    expect(cut).not.toMatch(/x{10}/);
   });
 
   it("counts an install or a network error as the machinery's, not the code's", () => {
     expect(isTransientFailure("install", "error: lockfile had changes")).toBe(true);
     expect(isTransientFailure("test", "getaddrinfo EAI_AGAIN registry.npmjs.org")).toBe(true);
     expect(isTransientFailure("test", "FAIL tests/x.test.ts")).toBe(false);
+    // Tests here print ECONNREFUSED on their way to passing; only the last lines count.
+    expect(isTransientFailure("test", "connect ECONNREFUSED 127.0.0.1:1\n".repeat(3) + "FAIL tests/x.test.ts\n1 failed\nexit 1")).toBe(false);
   });
 
   it("leaves out engage unless chosen, and any machine whose name cannot be told", () => {
@@ -705,6 +774,9 @@ describe("what takes part and what counts as docs", () => {
     expect(takesPart("", exclude)).toBe(false);
     expect(takesPart(undefined, exclude)).toBe(false);
     expect(takesPart("localhost", exclude)).toBe(false);
+    // The fleet state stands a machine's id in for a hostname it never learned.
+    expect(takesPart("3f2a9c1e-uuid", exclude, "3f2a9c1e-uuid")).toBe(false);
+    expect(takesPart("beta", exclude, "3f2a9c1e-uuid")).toBe(true);
   });
 
   it("counts markdown, docs/ and the licence as docs", () => {

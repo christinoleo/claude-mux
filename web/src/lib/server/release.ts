@@ -47,7 +47,7 @@ async function machines(): Promise<(ReleaseMachine & { url: string | null })[]> 
 		.snapshot()
 		.map((m) => ({ id: m.id, hostname: m.hostname, self: false, online: m.online, url: m.url }));
 	return [self, ...others]
-		.filter((m) => takesPart(m.hostname, exclude))
+		.filter((m) => takesPart(m.hostname, exclude, m.id))
 		.map(({ hostname, ...m }) => ({ ...m, name: placeName(hostname) }));
 }
 

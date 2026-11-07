@@ -3,7 +3,7 @@ import { execSync, spawnSync } from "child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { isVersion } from "../server/self-update.js";
+import { compareVersions, isVersion } from "../server/self-update.js";
 import { VERSION } from "../utils/version.js";
 import { runSetup } from "../setup/index.js";
 import { terminate } from "../utils/pid.js";
@@ -208,6 +208,12 @@ export async function runUpdate(opts: UpdateOptions): Promise<void> {
     process.exit(1);
   }
   console.log(opts.target !== undefined ? `Target version:  ${latest}` : `Latest version:  ${latest}`);
+
+  if (opts.target !== undefined && compareVersions(latest, VERSION) < 0 && !opts.force) {
+    // The release rule rolls out one version; a machine already past it keeps what it has.
+    console.log(`Already on ${VERSION}, newer than ${latest}; nothing to install. Use --force to downgrade.`);
+    return;
+  }
 
   if (latest === VERSION && !opts.force) {
     // `fleet-update.ts` reads "Already on latest" as an update that had nothing to do.

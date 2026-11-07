@@ -40,7 +40,7 @@ export interface UpdateTiming {
 /** How long a machine that finished its update may keep answering with the old version. */
 const RESTART_GRACE_MS = 30_000;
 /** What `claude-mux update` prints when it installs nothing and restarts nothing. */
-const NOTHING_TO_DO = /Already on latest|skipping restart/;
+const NOTHING_TO_DO = /Already on latest|newer than [0-9.]+; nothing to install|skipping restart/;
 
 export const DEFAULT_TIMING: UpdateTiming = { pollMs: 1_500, timeoutMs: 10 * 60_000 };
 

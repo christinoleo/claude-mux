@@ -210,8 +210,9 @@ describe("release dry run on a scratch repo", () => {
     git(seed, "push", "-q", "origin", "HEAD:main");
     const bump = git(seed, "rev-parse", "HEAD");
     const changes = await repo.changes(bump);
-    expect(changes).toMatchObject({ bump: "7.0.1" });
-    expect(await repo.pushTag(bump, "7.0.1")).toBeNull();
+    expect(changes).toMatchObject({ bump: { version: "7.0.1", parent: git(seed, "rev-parse", "HEAD^") } });
+    // Asked to tag it, the rule pushes its tag rather than bumping to 7.0.2.
+    expect(await repo.tag(bump)).toEqual({ version: "7.0.1" });
     expect(git(remote, "rev-list", "-n", "1", "v7.0.1")).toBe(bump);
     expect(git(remote, "rev-parse", "main")).toBe(bump);
     // Once tagged, it is the tag's own commit.
