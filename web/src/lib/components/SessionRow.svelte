@@ -22,7 +22,11 @@
 	 *
 	 * A maestro worker is a session too, but it reads as one of its master's
 	 * children: a terminal tile where the state dot was, its issue as a chip,
-	 * and the state moved down beside what it is doing.
+	 * and always a second line that starts "worker", with the state moved
+	 * down beside what it is doing.
+	 *
+	 * With `fold`, the chip that counts the row's subagents is a button that
+	 * opens and closes them.
 	 */
 	import type { Snippet } from 'svelte';
 	import SessionStateIndicator from './SessionStateIndicator.svelte';
@@ -39,6 +43,8 @@
 		title: string;
 		/** The path chip under the title; null when the title already says it. */
 		where: string | null;
+		/** When `where` counts subagents the list folds: whether they show, and the tap that flips it. */
+		fold?: { open: boolean; toggle: () => void } | null;
 		href: string;
 		hint: string;
 		active: boolean;
@@ -72,6 +78,7 @@
 		session: s,
 		title,
 		where,
+		fold = null,
 		href,
 		hint,
 		active,
@@ -100,7 +107,7 @@
 	const running = $derived(s.state === 'busy' && s.turn_started_at != null);
 	/** Line 2 only when it says something; a quiet row is one line. */
 	const showSub = $derived(
-		wants || s.state === 'busy' || !!offline || active || tag !== null || !!draft || staged > 0
+		worker || wants || s.state === 'busy' || !!offline || active || tag !== null || !!draft || staged > 0
 	);
 	const canMarkUnread = $derived(!!onmarkunread && s.state === 'idle' && !!s.turn_completed_at && !isUnread(s));
 
@@ -118,6 +125,25 @@
 		running ? formatSpinnerElapsed(Math.max(0, Math.floor((clock.now - s.turn_started_at!) / 1000))) : null
 	);
 </script>
+
+{#snippet whereChip(text: string)}
+	{#if fold}
+		<!-- Inside the row's link, so the tap must not also open the session. -->
+		<button
+			type="button"
+			class="path fold"
+			aria-expanded={fold.open}
+			title={fold.open ? 'Hide subagents' : 'Show subagents'}
+			onclick={(e) => { e.preventDefault(); e.stopPropagation(); fold?.toggle(); }}
+			onmousedown={(e) => e.stopPropagation()}
+			ontouchstart={(e) => e.stopPropagation()}
+			ondblclick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+			ondragstart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+		><iconify-icon class="chev" class:open={fold.open} icon="mdi:chevron-right"></iconify-icon>{text}</button>
+	{:else}
+		<span class="path" title={s.cwd}>{text}</span>
+	{/if}
+{/snippet}
 
 <ContextMenu.Root>
 <ContextMenu.Trigger disabled={menu.length === 0}>
@@ -172,7 +198,7 @@
 			<span class="when">{formatAgo(shown === 'done' ? s.turn_completed_at : s.last_update, clock.now)}</span>
 		{/if}
 		{@render meta?.()}
-		{#if !showSub && where}<span class="path" title={s.cwd}>{where}</span>{/if}
+		{#if !showSub && where}{@render whereChip(where)}{/if}
 		{#if machine}<span class="mach" style="--m:{machine.color}" title={machine.name}>{machine.letter}</span>{/if}
 	</span>
 	{#if s.context_pct !== null && s.context_pct !== undefined}
@@ -219,16 +245,19 @@
 		{#if worker}
 			<span class="wst"><SessionStateIndicator state={shown} size="sm" title={s.current_action} /></span>
 		{/if}
-		{#if offline}
-			{offline} · was {shown}
-		{:else if draft}
-			<iconify-icon icon="mdi:pencil-outline"></iconify-icon>{draft}
-		{:else if worker}
-			{['worker', shown, s.current_action].filter(Boolean).join(' · ')}
-		{:else}
-			{s.current_action || (shown === 'done' ? 'done' : s.state)}
-		{/if}
-		{#if !draft && where}<span class="path" title={s.cwd}>{where}</span>{/if}
+		<!-- The text gives way to the chip, which must stay whole to be tapped. -->
+		<span class="txt">
+			{#if offline}
+				{offline} · was {shown}
+			{:else if draft}
+				<iconify-icon icon="mdi:pencil-outline"></iconify-icon>{draft}
+			{:else if worker}
+				{[wants && s.maestro_issue ? `worker #${s.maestro_issue}` : 'worker', shown, s.current_action].filter(Boolean).join(' · ')}
+			{:else}
+				{s.current_action || (shown === 'done' ? 'done' : s.state)}
+			{/if}
+		</span>
+		{#if where && (fold || !draft)}{@render whereChip(where)}{/if}
 	</span>
 	{/if}
 </a>
@@ -340,6 +369,44 @@
 		margin-left: 6px;
 		flex-shrink: 0;
 	}
+	/* The subagent tally as a toggle: the chip, with room around it for a thumb. */
+	.path.fold {
+		position: relative;
+		border: 0;
+		font: inherit;
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--muted);
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		vertical-align: 1px;
+		padding: 0 5px 0 2px;
+	}
+	.path.fold::before {
+		content: '';
+		position: absolute;
+		inset: -8px -4px;
+	}
+	.row.cur .path {
+		background: var(--surface-2);
+	}
+	.path.fold:hover {
+		color: var(--text);
+	}
+	.path.fold .chev {
+		font-size: 12px;
+		margin: 0;
+		transition: transform 0.12s;
+	}
+	.path.fold .chev.open {
+		transform: rotate(90deg);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.path.fold .chev {
+			transition: none;
+		}
+	}
 	.meta {
 		display: flex;
 		align-items: center;
@@ -410,14 +477,24 @@
 	}
 	.sub {
 		grid-column: 2 / 5;
+		display: flex;
+		align-items: center;
 		min-width: 0;
 		overflow: hidden;
-		text-overflow: ellipsis;
 		white-space: nowrap;
 		font-family: var(--font-mono);
 		font-size: 11px;
 		color: var(--dim);
 		margin-top: 1px;
+	}
+	.sub .txt {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.sub .wst,
+	.sub .staged {
+		flex-shrink: 0;
 	}
 	.sub.draft {
 		color: var(--amber);

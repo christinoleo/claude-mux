@@ -7,6 +7,8 @@
  * and the worker is drawn under it. The worker queue (`queue-<repo>`) and a
  * daemon that has gone leave workers with no master: those are drawn
  * together after the place's other sessions, under a header of their own.
+ * A master's workers sit under the same kind of header, below the master, so
+ * either group folds the same way (`workerGroupView()`).
  */
 
 export interface WorkerSession {
@@ -23,13 +25,13 @@ export interface WorkerRow<S extends WorkerSession = WorkerSession> {
   worker?: boolean;
   /** On a master's row: how many workers sit under it. */
   workers?: number;
-  /** On the last of a master's workers: the master, whose own subagents follow the workers. */
-  trailing?: S;
+  /** On a master's worker: the master it sits under. */
+  under?: S;
   /** A worker with no master, one of the group drawn together at the end of its place. */
   crew?: boolean;
 }
 
-/** A group bigger than this starts folded, so a busy queue does not flood the list. */
+/** A group bigger than this starts folded in a project's list, so a busy queue does not flood it. */
 export const CREW_FOLD_ABOVE = 3;
 
 export function isWorker(s: WorkerSession): boolean {
@@ -79,19 +81,18 @@ export function nestWorkers<S extends WorkerSession, R extends WorkerRow<S>>(row
       continue;
     }
     out.push({ ...row, workers: workers.length });
-    out.push(...workers.sort(byIssue).map((w) => ({ ...w, worker: true })));
-    out.at(-1)!.trailing = row.session;
+    out.push(...workers.sort(byIssue).map((w) => ({ ...w, worker: true, under: row.session })));
   }
   out.push(...loose.sort(byIssue).map((w) => ({ ...w, worker: true, crew: true })));
   return out;
 }
 
 /**
- * What a group of masterless workers draws. Folded, it keeps the rows a
- * person should still see (`pinned`: one that wants them, the one on screen)
- * and says the rest in a line: "2 working · 1 wants you".
+ * What a group of workers draws, a master's or the masterless ones. Folded,
+ * it keeps the rows a person should still see (`pinned`: one that wants
+ * them, the one on screen) and says the rest in a line: "2 working · 1 wants you".
  */
-export function crewView<R extends WorkerRow>(
+export function workerGroupView<R extends WorkerRow>(
   crew: R[],
   folded: boolean,
   wants: (r: R) => boolean,

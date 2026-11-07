@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { agentView, childSummary, agentTypeLabel } from "../src/subagents.js";
+import { agentRowsShown, agentView, childSummary, agentTypeLabel } from "../src/subagents.js";
 import type { Subagent } from "../src/db/sessions-json.js";
 
 const NOW = 1_000_000_000;
@@ -44,10 +44,38 @@ describe("agentView", () => {
 
 describe("childSummary", () => {
   it("reads like the design's status line", () => {
-    expect(childSummary(1, { rows: [], running: 2, folded: 0 })).toBe("1 worker · 2 agents");
-    expect(childSummary(0, { rows: [], running: 0, folded: 3 })).toBe("3 agents done");
-    expect(childSummary(2, { rows: [], running: 1, folded: 1 })).toBe("2 workers · 1 agent · 1 agent done");
-    expect(childSummary(0, { rows: [], running: 0, folded: 0 })).toBeNull();
+    expect(childSummary({ rows: [], running: 2, folded: 0 })).toBe("2 agents");
+    expect(childSummary({ rows: [], running: 0, folded: 3 })).toBe("3 agents done");
+    expect(childSummary({ rows: [], running: 1, folded: 4 })).toBe("1 agent · 4 done");
+    expect(childSummary({ rows: [], running: 0, folded: 0 })).toBeNull();
+  });
+});
+
+describe("agentRowsShown", () => {
+  const view = agentView(
+    [agent("a", "running", null, 1), agent("b", "running", null, 2), agent("bad", "failed", 1_000, 3)],
+    NOW,
+    new Set()
+  );
+  const failed = (a: Subagent) => a.state === "failed";
+
+  it("starts folded, keeping only the rows a person should still see", () => {
+    expect(agentRowsShown(view, false, failed)).toEqual({ rows: [view.rows[2]], foldable: true });
+  });
+
+  it("opens to every row, and folds back", () => {
+    expect(agentRowsShown(view, true, failed).rows.map((a) => a.id)).toEqual(["a", "b", "bad"]);
+    expect(agentRowsShown(view, false, failed).rows.map((a) => a.id)).toEqual(["bad"]);
+  });
+
+  it("has nothing to fold for a row with no subagents", () => {
+    const none = agentView(undefined, NOW, new Set());
+    expect(agentRowsShown(none, false, failed)).toEqual({ rows: [], foldable: false });
+  });
+
+  it("has nothing to fold when every row is pinned", () => {
+    const onlyFailed = agentView([agent("bad", "failed", 1_000)], NOW, new Set());
+    expect(agentRowsShown(onlyFailed, false, failed)).toEqual({ rows: onlyFailed.rows, foldable: false });
   });
 });
 

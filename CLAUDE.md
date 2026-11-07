@@ -141,8 +141,11 @@ arrive under the parent's session id with `agent_id` set, and the latest one
 rides on the agent as `current_tool`. Finished agents stay an hour and failed
 ones a day: the sidebar (`agentView()` in `src/subagents.ts`) draws a row only for
 a running agent and folds a finished one into the parent's count the moment it
-ends ("3 agents done"), while a failed one keeps its red row until it is opened from
-this browser.
+ends ("1 agent · 3 done"), while a failed one keeps its red row until it is opened from
+this browser. The rows start folded behind that count, which is a button on the
+parent's row opening and closing them (`agentRowsShown()`); folded, a failed row
+and the agent on screen still show. What was opened is kept per row for the
+visit (`folds`, `web/src/lib/stores/folds.svelte.ts`), not across a reload.
 
 A background agent's call returns at once, so its `PostToolUse` and its
 `SubagentStart` run in two hook processes within milliseconds, and each reads,
@@ -443,10 +446,14 @@ empty.
 The sidebar knows a worker by `maestro_role: 'worker'` and names it after its
 issue (`nestWorkers()` in `src/sidebar-workers.ts`). One a daemon started sits
 under the session that runs the daemon (the one non-worker in the same tmux
-session); one with no such session, as every worker the queue starts in
-`queue-<repo>`, joins its place's other masterless workers at the end of the
-list under a "N workers" header, folded once there are more than three
-(`CREW_FOLD_ABOVE`) in a project's own list, a folded header still showing any that want a person or is open; Active and the filter's results never fold it. A `queue-*` tmux session never holds a master. Two kinds
+session), below a "N workers" header of its own; one with no such session, as
+every worker the queue starts in `queue-<repo>`, joins its place's other
+masterless workers at the end of the list under the same kind of header. Either
+header folds its group with a tap, anywhere; it starts folded only in a
+project's own list and only once there are more than three (`CREW_FOLD_ABOVE`),
+and folded it still shows any worker that wants a person or is open
+(`workerGroupView()`). A worker's row always has a second line starting
+"worker". A `queue-*` tmux session never holds a master. Two kinds
 of child hang off a row and must read differently: a worker (a whole session)
 on a solid violet thread with a terminal tile and an issue chip, and a
 subagent (`SubagentRow.svelte`, no pane of its own) on a dashed teal thread
