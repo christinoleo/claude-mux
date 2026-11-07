@@ -10,8 +10,7 @@ import {
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { startClaudeUpdater } from '$shared/server/claude-update.js';
 import { eventPoller } from '$shared/server/github-events.js';
-import { followDialogAnswersPort } from '$shared/server/dialog-switch.js';
-import { followLiveTextPort } from '$shared/server/live-text-switch.js';
+import { followMachineSwitch, settleMachineSwitch } from '$shared/server/machine-switch.js';
 import {
 	browserWsManager,
 	sessionsWsManager,
@@ -39,6 +38,8 @@ import { listenPort, MACHINE_ID } from '$lib/server/instance';
 // the moment the server starts rather than when the first page connects.
 // The fleet state likewise follows the other machines whether or not a page is open.
 export const init: ServerInit = () => {
+	// First, so a machine that had any of the old switches on takes its answer from them before anything rewrites their files.
+	settleMachineSwitch({ dev });
 	ensurePushMonitor();
 	ensureFleetState();
 	// It restarts live sessions, so a dev server beside the real one must not run it.
@@ -47,15 +48,15 @@ export const init: ServerInit = () => {
 	// one reads them only when told to, under a HOME of its own.
 	if (!dev || process.env.CLAUDE_MUX_EVENTS === '1') {
 		eventPoller(() => sessionsWsManager.broadcastNow()).start();
-		// Off on every machine until switched on; it runs after each read of GitHub.
+		// Behind the machine's switch, off until turned on; it runs after each read of GitHub.
 		startWorkerQueue();
 		// Triggers start sessions too, through the queue's limit, so the same terms hold.
 		startScheduler();
 		// A push to claude-mux itself, where the state map gives it to the rule, releases it.
 		startReleaseRule();
 	}
-	void followLiveTextPort({ dev, port: listenPort() });
-	void followDialogAnswersPort({ dev, port: listenPort() });
+	// Live text and dashboard approvals are hooks, kept in line with the machine's switch.
+	void followMachineSwitch({ dev, port: listenPort() });
 };
 
 /**

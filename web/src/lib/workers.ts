@@ -35,13 +35,19 @@ export function memorySplit(status: QueueStatus): MemorySplit | null {
 	return { total, other: Math.max(0, total - free - inWorkers), workers, free: Math.max(0, free) };
 }
 
+/** Whether the machine's switch is on; an older machine sends no `on`, only its queue's own `enabled`. */
+export function machineIsOn(status: QueueStatus): boolean {
+	const sent = status as { on?: boolean; settings: { enabled?: boolean } };
+	return sent.on ?? sent.settings.enabled === true;
+}
+
 /** What the machine's line under its name says, and whether it is a hold. */
 export function machineSay(status: QueueStatus): { text: string; held: boolean } {
 	const { settings, running, memory } = status;
 	const free = memory.availableGiB;
 	const freeText =
 		free !== null ? `${free.toFixed(1)} GiB free${memory.totalGiB ? ` of ${Math.round(memory.totalGiB)}` : ''}` : 'free memory unknown';
-	if (!settings.enabled) return { text: `Starts paused. ${running} still running`, held: true };
+	if (!machineIsOn(status)) return { text: `Off: nothing new starts. ${running} still running`, held: true };
 	if (running > settings.limit) {
 		return {
 			text: `${running} running over a limit of ${settings.limit}. None is stopped; nothing new starts until ${running - settings.limit} finish`,

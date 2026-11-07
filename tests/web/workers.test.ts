@@ -5,7 +5,8 @@ import { DEFAULT_SETTINGS, type QueueStatus, type WaitingIssue, type WorkerRun }
 function status(extra: Partial<QueueStatus> = {}): QueueStatus {
   return {
     machine: "omarchy",
-    settings: { ...DEFAULT_SETTINGS, enabled: true },
+    on: true,
+    settings: { ...DEFAULT_SETTINGS },
     running: 0,
     memory: { totalGiB: 16, availableGiB: 8, pressure: 0 },
     hold: null,
@@ -59,9 +60,13 @@ describe("the Workers panel's numbers", () => {
     expect(memorySplit(status({ memory: { availableGiB: 8, pressure: 0 } }))).toBeNull();
   });
 
-  it("says when a machine is paused, over its limit, or held by memory", () => {
+  it("says when a machine is off, over its limit, or held by memory", () => {
     expect(machineSay(status({ running: 2 })).text).toBe("2 of 8 running, 8.0 GiB free of 16");
-    expect(machineSay(status({ settings: { ...DEFAULT_SETTINGS } })).held).toBe(true);
+    expect(machineSay(status({ on: false, running: 1 }))).toEqual({ text: "Off: nothing new starts. 1 still running", held: true });
+    // An older machine sends no `on`, only its queue's own switch.
+    const older = (enabled: boolean) => status({ on: undefined, settings: { ...DEFAULT_SETTINGS, enabled } as typeof DEFAULT_SETTINGS });
+    expect(machineSay(older(true)).held).toBe(false);
+    expect(machineSay(older(false)).held).toBe(true);
     expect(machineSay(status({ running: 9 })).text).toMatch(/over a limit of 8.*until 1 finish/);
     expect(machineSay(status({ waiting: [waiting(1, "memory", "Held")] })).text).toMatch(/memory is holding 1 back/);
   });

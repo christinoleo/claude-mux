@@ -37,6 +37,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { HOLD_LABEL, POLL_MS, RELEASE_REPO } from "./github-events.js";
+import { MACHINE_OFF } from "./machine-switch.js";
 import { nameList, placeName } from "../worker-placement.js";
 import { compareVersions, isVersion } from "./self-update.js";
 
@@ -220,6 +221,8 @@ export interface ReleaseDeps {
   updateRemote: (machine: ReleaseMachine, version: string) => Promise<{ ok: boolean; line: string }>;
   /** A machine's version as its health check answers it; null when it does not answer as healthy. */
   health: (machine: ReleaseMachine) => Promise<string | null>;
+  /** The machine's switch (`machine-switch.ts`): off pauses the rule as a hold does. */
+  on: () => boolean;
   now?: () => number;
 }
 
@@ -341,9 +344,11 @@ export class ReleaseRule {
       this.file.head = { sha: github.head, seenAt: now };
       this.save();
     }
-    if (github.held) {
+    // A machine switched off starts nothing: no gate, no tag, no update. One already running ends on its own.
+    const paused = github.held ? HELD_REASON : !this.deps.on() ? OFF_REASON : null;
+    if (paused) {
       this.file.heldAt ??= now;
-      if (this.file.log[0]?.reason !== HELD_REASON) this.log("skipped", HELD_REASON);
+      if (this.file.log[0]?.reason !== paused) this.log("skipped", paused);
       return;
     }
     if (this.file.heldAt != null) this.resume(now - this.file.heldAt);
@@ -621,6 +626,7 @@ export class ReleaseRule {
 }
 
 const HELD_REASON = `Paused: an issue labelled ${HOLD_LABEL} is open`;
+const OFF_REASON = `Paused: ${MACHINE_OFF.toLowerCase()}`;
 
 /** Whether a machine answering `version` runs `target`: that version or a newer one, which `update` never downgrades. */
 function runs(version: string | null, target: string): boolean {

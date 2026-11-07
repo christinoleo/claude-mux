@@ -2,20 +2,22 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { parseSettingsPatch } from '$shared/server/worker-queue.js';
+import { dev } from '$app/environment';
+import { readMachineSwitch } from '$shared/server/machine-switch.js';
 import { workerQueue } from '$lib/server/worker-queue.js';
 
 /**
- * This machine's worker queue (`src/server/worker-queue.ts`): its switch, its
- * limit and memory brake, the workers it started and why each ready issue
+ * This machine's worker queue (`src/server/worker-queue.ts`): whether the
+ * machine's switch is on, its limit and memory brake, the workers it started and why each ready issue
  * waits. `running` is false on a server that does not poll GitHub (a dev
  * server not told to), which starts nothing.
  */
 export const GET: RequestHandler = async () => {
 	const queue = workerQueue();
-	return json({ running: queue !== null, status: queue?.status() ?? null });
+	return json({ running: queue !== null, status: queue?.status() ?? null, switchable: readMachineSwitch({ dev }).switchable });
 };
 
-/** `{ enabled?, limit?, minFreeGiB?, maxPressure? }`. */
+/** `{ limit?, minFreeGiB?, maxPressure? }`; the switch is `/api/machine-switch`. */
 export const POST: RequestHandler = async ({ request }) => {
 	// This decides whether sessions start on this machine: only its own page, or a peer's relay, may ask.
 	if (!pageOriginAllowed(request.headers.get('origin'), request.headers.get('host'))) {

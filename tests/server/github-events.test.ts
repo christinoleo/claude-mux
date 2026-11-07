@@ -222,7 +222,7 @@ describe("EventPoller", () => {
   });
 
   function poller(): EventPoller {
-    return new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), now: () => now });
+    return new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), now: () => now, on: () => true });
   }
 
   it("reads nothing for a project until it is enabled, then records its ready issue as seen", async () => {
@@ -242,6 +242,14 @@ describe("EventPoller", () => {
     now += POLL_MS;
     await p.poll();
     expect(p.log()).toHaveLength(1);
+  });
+
+  it("records an event seen while the machine's switch is off as off, and still reads it", async () => {
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), now: () => now, on: () => false });
+    await p.poll();
+    expect(p.log()).toMatchObject([{ kind: "issue-ready", repo: "o/r", outcome: "Off on this machine" }]);
   });
 
   it("hands the worker queue the ready issues of projects that start a session, with labels and blockers", async () => {
@@ -365,7 +373,7 @@ describe("EventPoller", () => {
       }
       return true;
     };
-    const approver = new EventPoller({ graphql: gh.graphql, gh: (a) => gh.gh(a), store, projects: () => enabledProjects(), now: () => now });
+    const approver = new EventPoller({ graphql: gh.graphql, gh: (a) => gh.gh(a), store, projects: () => enabledProjects(), now: () => now, on: () => true });
     await approver.poll();
     expect(await approver.approve("o/r", 5)).toBe("approved");
     await approver.poll();
@@ -398,6 +406,7 @@ describe("EventPoller", () => {
       },
       store,
       projects: () => enabledProjects(),
+      on: () => true,
     });
     await p.poll();
     expect(await p.approve("o/r", 5)).toBe("approved");
@@ -408,6 +417,7 @@ describe("EventPoller", () => {
       gh: async (args) => args[2] === "DELETE",
       store,
       projects: () => enabledProjects(),
+      on: () => true,
     });
     await never.poll();
     expect(await never.approve("o/r", 5)).toBe("label-lost");
@@ -416,7 +426,7 @@ describe("EventPoller", () => {
   it("tells its listener when the issues waiting for approval change, and only then", async () => {
     updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
     let told = 0;
-    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), onApprovals: () => told++ });
+    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), onApprovals: () => told++, on: () => true });
     await p.poll();
     expect(told).toBe(0);
     gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z", STRANGER)])];
@@ -512,7 +522,7 @@ describe("EventPoller", () => {
     updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
     const file = fileEventStore(join(dir, "events.json"));
     gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
-    await new EventPoller({ graphql: gh.graphql, gh: gh.gh, store: file, projects: () => enabledProjects() }).poll();
+    await new EventPoller({ graphql: gh.graphql, gh: gh.gh, store: file, projects: () => enabledProjects(), on: () => true }).poll();
     expect(file.load().log).toHaveLength(1);
     expect(file.load().repos["o/r"]).toEqual({ head: "a1", seen: ["o/r#5@2026-11-07T11:00:00Z"] });
   });

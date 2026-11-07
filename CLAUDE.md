@@ -93,7 +93,7 @@ over; the closing line names every machine passed over. Each machine gets one
 attempt per version; a failure stops the rollout, files an issue and rolls
 nothing back. The fleet preference `release:exclude` lists the machines left
 out (`engage` while it was never set, so `engage` joins only by choice), and a
-machine whose name cannot be told is left out too. An open `release-hold`
+machine whose name cannot be told is left out too. The machine's switch turned off (§14) pauses it the same way. An open `release-hold`
 pauses all of it, and the time it stays open does not count against npm's or a
 machine's deadline: the poller's sweep reads the count with the branch head,
 at no extra cost. What the rule did shows as the Runs of claude-mux's push
@@ -406,11 +406,10 @@ terminal's screen, so the route only stores and answers. It refuses any request
 with an `Origin` and any unknown `session_id`. Without the hook the Transcript
 behaves as it always did.
 
-The hook gets there by a switch per machine on the Machines view (`GET`/`POST
-/api/live-text`, `src/server/live-text-switch.ts`), off at first. The entry being
-in `~/.claude/settings.json` is the switch's whole state. Only a built server
+The hook is there while the machine's switch is on (see "The machine's switch"
+below; `src/server/live-text-switch.ts` holds the entry). Only a built server
 writes it, with its own port, and moves it at startup if the port changed and
-nothing answers on the old one; a dev server answers 409. `setup` recognises its own hooks by their command, so it
+nothing answers on the old one. `setup` recognises its own hooks by their command, so it
 passes this one by. Claude Code 2.1.316 notices the change within about 2 seconds,
 so sessions already open follow the switch without a restart.
 
@@ -483,10 +482,10 @@ An issue whose project says `session` goes to the worker queue
 `web/src/lib/server/worker-queue.ts`), which replaces a maestro daemon per
 repo. The poller's `readyIssues()` holds those issues with their labels and
 open blockers, and after every sweep (`onSweep`) the queue reaps its own
-workers and starts more while the machine has room. Its switch, limit and
-brake are per machine, in `~/.claude-mux/worker-queue.json`, set from the
-Workers panel (`/workers`, `GET`/`POST /api/queue`): off at first,
-8 at once, a start held under 2.5 GiB of MemAvailable or over 10% `full
+workers and starts more while the machine has room and its switch is on (see
+"The machine's switch" below). Its limit and brake are per machine, in
+`~/.claude-mux/worker-queue.json`, set from the Workers panel (`/workers`,
+`GET`/`POST /api/queue`): 8 at once, a start held under 2.5 GiB of MemAvailable or over 10% `full
 avg60` memory pressure, and each worker started here in the last ten
 minutes counted as 1.4 GiB gone from the free memory it read. Nothing running is ever stopped. The limit
 counts every live worker session on the machine, a daemon's too. Where a
@@ -536,8 +535,8 @@ into the real `~/.claude-mux/sessions`.
 The Workers panel (`/workers`, #201) is the queue's screen, one view over every
 machine: each machine as a strip of its memory (`memorySplit()` in
 `web/src/lib/workers.ts`: MemTotal less MemAvailable, cut into its workers),
-with the limit, the memory to keep free, the pressure ceiling and the switch
-("Pause new starts"); the workers running, with what each does, its memory,
+with the limit, the memory to keep free, the pressure ceiling and the
+machine's switch ("Turn <machine> off"); the workers running, with what each does, its memory,
 spend and worktree, Open session, Open issue and Stop; the queue, each issue
 once across machines with the reason that says most (`WaitKind`); and the
 history. On every pass the queue measures each live worker session's process
@@ -569,8 +568,9 @@ server, or a dev server with `CLAUDE_MUX_EVENTS=1`). A firing more than a
 minute late is one the server was down for: skipped and recorded with the
 count, never made up. A rule fires at any interval and only records the Run.
 A session fires at most once a minute, never while its last Run still goes,
-and only when `WorkerQueue.room()` (the queue's limit and memory brake, not
-its switch) lets it; otherwise the Run is skipped with that reason. A Run
+and only when `WorkerQueue.room()` (the queue's limit and memory brake) lets
+it; otherwise the Run is skipped with that reason. While the machine's switch
+is off every firing, rule or session, is skipped as "Off on this machine". A Run
 starts as a window `run-<name>` in the tmux session `runs-<folder>` at the
 project's root, running `env CLAUDE_MUX_RUN=<run id> sh -c 'timeout
 --foreground -k 10 <limit> claude --dangerously-skip-permissions <prompt>;
@@ -1271,14 +1271,42 @@ Bun closes a connection after ten silent seconds, so `serve` lifts that for this
 one route (`server.timeout(request, 0)`). The Vite dev server has no such limit,
 which makes a hold that dies at ten seconds a bug only a built server shows.
 
-The switch is `GET`/`POST /api/dialog-answers` on the Machines view, off at first,
-on the same terms as live text (`src/server/hook-switch.ts` is both): the entries
-in `~/.claude/settings.json` are its whole state, only a built server writes them,
-and they follow the server's port. It adds the `http` hold on `PermissionRequest`,
+The hooks are there while the machine's switch is on, on the same terms as live
+text (`src/server/hook-switch.ts` is both): only a built server writes them, and
+they follow the server's port. The switch adds the `http` hold on `PermissionRequest`,
 and on `PostToolUse`, `PostToolUseFailure` and `Stop` a `curl` to
 `/api/hooks/dialog/ended`: those fire for every tool in every session, an `http`
 hook would print `connect ECONNREFUSED` in the terminal on each while the server is
 down, and the route does not read the request unless something is held.
+
+### 14. The machine's switch
+
+Everything claude-mux does on a machine on its own sits behind one switch per
+machine (#219, `src/server/machine-switch.ts`), off at first: the worker
+queue's starts, session and rule Triggers, the release rule, live text and
+dashboard approvals. `GET`/`POST /api/machine-switch` (`{ on }`) turns it, from
+the Machines view and from each machine's strip on the Workers panel, through
+the relay for another machine. Its state is `~/.claude-mux/machine-switch.json`.
+Turning it on adds the `MessageDisplay` and `PermissionRequest` hooks with this
+server's port; off removes them, and the queue, the scheduler and the poller
+record what they pass over as "Off on this machine", while the release rule
+pauses as `release-hold` pauses it, deadlines included. Nothing already running
+is stopped: workers and session Runs go on and are reaped as before, and an
+update under way finishes. Which projects are enabled and what each event does,
+the worker limit and the memory to keep free stay settings.
+
+A machine with no switch file takes it over from what it did before: on when
+the queue's own `enabled` was on in `worker-queue.json`, either hook was in
+`~/.claude/settings.json`, a clock Trigger was not paused (Triggers had no
+switch), or claude-mux's push went to the release rule.
+`settleMachineSwitch()` writes that answer down first thing in `init`, on a
+server that runs the queue, before anything rewrites those files. `/api/queue`
+refuses the old `enabled` with a 400 rather than ignoring it, and the Workers
+panel reads an older machine's `settings.enabled` where it sends no `on`. At startup a built server brings
+the hooks in line (`followMachineSwitch()`): on adds a missing one and moves
+one on a dead port, off removes any left behind. A dev server reads the switch
+and never writes hooks; it flips the file only with `CLAUDE_MUX_EVENTS=1`
+under a `HOME` of its own, else answers 409.
 
 ## Key Data Flow
 

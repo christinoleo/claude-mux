@@ -32,6 +32,8 @@
 	interface MachineQueue {
 		running: boolean;
 		status: QueueStatus | null;
+		/** Whether this server may turn the machine's switch; absent from an older machine. */
+		switchable?: boolean;
 	}
 
 	const machines = $derived(fleetStore.machines.filter((m) => m.server.id || m.local));
@@ -83,8 +85,17 @@
 	async function change(m: Machine, patch: Partial<QueueSettings>) {
 		const res = await post<MachineQueue>(m, '/api/queue', patch);
 		if (res.ok) {
-			queues[machineKey(m)] = res.body;
+			queues[machineKey(m)] = { ...queues[machineKey(m)], ...res.body };
 			errors[machineKey(m)] = null;
+		} else errors[machineKey(m)] = res.error;
+	}
+
+	/** The machine's one switch (`src/server/machine-switch.ts`), the same one the Machines view turns. */
+	async function turn(m: Machine, on: boolean) {
+		const res = await post<{ on: boolean }>(m, '/api/machine-switch', { on });
+		if (res.ok) {
+			errors[machineKey(m)] = null;
+			await readQueue(m);
 		} else errors[machineKey(m)] = res.error;
 	}
 
@@ -93,7 +104,7 @@
 		said = null;
 		const res = await post<{ status?: QueueStatus }>(m, '/api/queue/stop', { repo: w.repo, number: w.number });
 		if (res.ok && res.body.status) {
-			queues[machineKey(m)] = { running: true, status: res.body.status };
+			queues[machineKey(m)] = { ...queues[machineKey(m)], running: true, status: res.body.status };
 			open = null;
 			void readHistory(m);
 		} else said = { key: issueKey(w), text: res.ok ? 'Did not answer' : res.error };
@@ -213,6 +224,8 @@
 					busy={busy[key] === true}
 					onOpen={(k) => (open = open === k ? null : k)}
 					onChange={(patch) => void change(m, patch)}
+					switchable={q.switchable === true}
+					onTurn={(on) => void turn(m, on)}
 				/>
 			{:else}
 				<p class="machine-note"><b>{machineName(m)}</b> · Reading…</p>

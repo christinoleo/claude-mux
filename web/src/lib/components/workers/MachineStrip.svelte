@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import type { QueueSettings, QueueStatus } from '$shared/server/worker-queue.js';
-	import { issueKey, machineSay, memorySplit } from '$lib/workers';
+	import { issueKey, machineIsOn, machineSay, memorySplit } from '$lib/workers';
 
 	/**
 	 * One machine as a strip of its memory (#201): other sessions and apps,
 	 * then each worker as wide as the memory it holds, then what is free, and
 	 * a line where the free memory to keep starts. Under it, the limit, the
-	 * memory to keep and the pause switch.
+	 * memory to keep and the machine's one switch, the same one the Machines
+	 * view turns.
 	 */
 	interface Props {
 		name: string;
@@ -17,8 +18,14 @@
 		busy: boolean;
 		onOpen: (key: string) => void;
 		onChange: (patch: Partial<QueueSettings>) => void;
+		/** Whether this server may turn the machine's switch. */
+		switchable: boolean;
+		/** Turn the machine's switch: workers, Triggers, releases, live text and dashboard approvals. */
+		onTurn: (on: boolean) => void;
 	}
-	let { name, status, open, busy, onOpen, onChange }: Props = $props();
+	let { name, status, open, busy, switchable, onOpen, onChange, onTurn }: Props = $props();
+	/** An older machine sends no `on`; its own switch is in its settings. */
+	const on = $derived(machineIsOn(status));
 
 	const split = $derived(memorySplit(status));
 	const say = $derived(machineSay(status));
@@ -95,12 +102,15 @@
 		<Button
 			variant="outline"
 			size="sm"
-			class={s.enabled ? '' : 'paused'}
-			aria-pressed={!s.enabled}
-			disabled={busy}
-			onclick={() => onChange({ enabled: !s.enabled })}
+			class={on ? '' : 'paused'}
+			aria-pressed={on}
+			disabled={busy || !switchable}
+			title={switchable
+				? `Workers, Triggers, releases, live text and dashboard approvals on ${name}. Nothing running is stopped.`
+				: `This server does not turn ${name}’s switch`}
+			onclick={() => onTurn(!on)}
 		>
-			{s.enabled ? 'Pause new starts' : 'Resume starts'}
+			{on ? `Turn ${name} off` : `Turn ${name} on`}
 		</Button>
 	</div>
 </article>

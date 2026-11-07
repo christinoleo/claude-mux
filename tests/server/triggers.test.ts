@@ -168,6 +168,7 @@ describe("Scheduler", () => {
   let store: ReturnType<typeof memoryStore>;
   let sessions: RunSession[];
   let room: string | null;
+  let on: boolean;
   let screen: string;
 
   beforeEach(() => {
@@ -177,6 +178,7 @@ describe("Scheduler", () => {
     store = memoryStore();
     sessions = [];
     room = null;
+    on = true;
     screen = "❯ ";
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
@@ -186,6 +188,7 @@ describe("Scheduler", () => {
       store,
       tmux: tmux.runner,
       exitDir: dir,
+      on: () => on,
       room: () => room,
       sessions: () => sessions,
       capture: async () => screen,
@@ -276,6 +279,45 @@ describe("Scheduler", () => {
     await s.tick();
     expect(s.runs(t.id)[0]).toMatchObject({ status: "skipped", reason: "At the limit: 8 of 8 running" });
     expect(tmux.windows.size).toBe(0);
+  });
+
+  it("skips rule and session firings while the machine's switch is off, counting them as one entry", async () => {
+    const s = scheduler();
+    const r = s.create(rule());
+    const t = s.create(session());
+    on = false;
+    for (let i = 0; i < 3; i++) {
+      now += 1_000;
+      await s.tick();
+    }
+    expect(s.runs(r.id)).toMatchObject([{ status: "skipped", reason: "Off on this machine", count: 3 }]);
+    now = T0 + 3_600_000;
+    await s.tick();
+    expect(s.runs(t.id)).toMatchObject([{ status: "skipped", reason: "Off on this machine" }]);
+    expect(tmux.windows.size).toBe(0);
+
+    on = true;
+    now += 1_000;
+    await s.tick();
+    expect(s.runs(r.id)[0]).toMatchObject({ status: "ran" });
+  });
+
+  it("leaves a session Run going when the switch goes off, and still closes it when it ends", async () => {
+    const s = scheduler();
+    const t = s.create(session());
+    now += 3_600_000;
+    await s.tick();
+    const [run] = s.runs(t.id);
+    on = false;
+    sessions = [{ id: "sess-1", runId: run.id, target: "runs-scratch:1.0", state: "busy", turnCompletedAt: null, backgroundTasks: 0 }];
+    now += RUN_CHECK_MS;
+    await s.tick();
+    expect(tmux.killed).toEqual([]);
+    expect(s.runs(t.id)[0]).toMatchObject({ status: "running", sessionId: "sess-1" });
+    sessions[0] = { ...sessions[0], state: "idle", turnCompletedAt: now };
+    now += RUN_CHECK_MS;
+    await s.tick();
+    expect(tmux.sent.map((a) => a.at(-1))).toEqual(["Escape", "/exit", "Enter"]);
   });
 
   it("closes a Run whose turn ended at an empty prompt, and records it done", async () => {
@@ -387,6 +429,7 @@ describe("Scheduler", () => {
         return tmux.runner(args);
       },
       exitDir: dir,
+      on: () => true,
       room: () => null,
       sessions: () => [],
       capture: async () => "",
@@ -408,6 +451,7 @@ describe("Scheduler", () => {
       store: { load: () => ({ v: 1, triggers: [], runs: [] }), save: () => { throw new Error("disk full"); } },
       tmux: tmux.runner,
       exitDir: dir,
+      on: () => true,
       room: () => null,
       sessions: () => [],
       capture: async () => "",
@@ -491,6 +535,7 @@ describe("Scheduler", () => {
         return tmux.runner(args);
       },
       exitDir: dir,
+      on: () => true,
       room: () => null,
       sessions: () => [],
       capture: async () => "",
@@ -652,6 +697,15 @@ describe("event Triggers", () => {
       { at: 9, status: "failed", reason: "abc1234: test failed; filed #5", link: { kind: "github", href: release[0].url, label: "GitHub" } },
     ]);
     expect(views[1].runs).toEqual([]);
+  });
+
+  it("shows an event the poller saw while the machine was off as skipped", () => {
+    const [view] = eventTriggers({
+      projects: [{ repo: "u/a", root: "/p/a", enabled: true, events: { "issue-ready": "ignore", push: "rule" } }],
+      seen: [{ at: 3, repo: "u/a", kind: "push", action: "rule", outcome: "Off on this machine", skipped: true, title: "abc1234 fix", url: "u" }],
+      queue: [],
+    });
+    expect(view.runs.map((r) => [r.status, r.reason])).toEqual([["skipped", "Off on this machine"]]);
   });
 
   it("lists each enabled project's events that are not ignored, with their Runs", () => {

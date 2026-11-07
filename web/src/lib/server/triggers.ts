@@ -7,6 +7,7 @@ import { capturePaneContentAsync, isPaneReadyForCommand, readTypedText } from '$
 import { Scheduler, fileTriggerStore, type RunSession } from '$shared/server/triggers.js';
 import { realTmux } from '$shared/server/worker-queue.js';
 import { shellQuote } from '$shared/utils/shell.js';
+import { machineOn } from '$shared/server/machine-switch.js';
 import { workerQueue } from '$lib/server/worker-queue.js';
 
 /**
@@ -63,6 +64,7 @@ export function startScheduler(): Scheduler {
 		store: fileTriggerStore(join(CLAUDE_MUX_DIR, 'triggers.json')),
 		tmux: realTmux,
 		exitDir: join(CLAUDE_MUX_DIR, 'runs'),
+		on: machineOn,
 		// null is the queue's "yes", so it cannot stand for a missing queue too.
 		room: (starting) => {
 			const queue = workerQueue();

@@ -103,6 +103,7 @@ describe("release dry run on a scratch repo", () => {
         },
       },
       now: () => now,
+      on: () => true,
       github: () => ({ head, held: false, readAt: now }),
       fileIssue: async (title) => {
         issues.push(title);

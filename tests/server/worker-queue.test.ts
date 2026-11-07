@@ -147,7 +147,7 @@ class FakeTmux {
 
 function memoryStore(file?: Partial<QueueFile>): QueueStore & { file: QueueFile } {
   const store = {
-    file: { v: 1 as const, settings: { ...DEFAULT_SETTINGS, enabled: true }, workers: [], retried: [], log: [], ...file },
+    file: { v: 1 as const, settings: { ...DEFAULT_SETTINGS }, workers: [], retried: [], log: [], ...file },
     load() {
       return structuredClone(store.file);
     },
@@ -190,6 +190,7 @@ function machine(
   const git: string[][] = [];
   const queue = new WorkerQueue({
     store,
+    on: () => true,
     machine: () => opts.name ?? "omarchy",
     machineId: `id-${opts.name ?? "omarchy"}`,
     ready: () =>
@@ -228,20 +229,19 @@ function withoutLocal(opts: Partial<QueueDeps> & { name?: string; file?: unknown
 const REPO = "christinoleo/scratch";
 
 describe("parseSettingsPatch", () => {
-  it("takes the switch and the numbers within bounds", () => {
-    expect(parseSettingsPatch({ enabled: true, limit: 8, minFreeGiB: 2.5, maxPressure: 10 })).toEqual({
-      enabled: true,
+  it("takes the numbers within bounds, and refuses the switch it no longer has", () => {
+    expect(parseSettingsPatch({ enabled: false })).toMatch(/machine-switch/);
+    expect(parseSettingsPatch({ limit: 8, minFreeGiB: 2.5, maxPressure: 10 })).toEqual({
       limit: 8,
       minFreeGiB: 2.5,
       maxPressure: 10,
     });
     expect(parseSettingsPatch({ limit: 2.5 })).toBe("limit must be a whole number");
     expect(parseSettingsPatch({ limit: -1 })).toMatch(/limit must be/);
-    expect(parseSettingsPatch({ enabled: "yes" })).toMatch(/enabled/);
   });
 
-  it("is off by default, with 8 workers and a 2.5 GiB floor", () => {
-    expect(DEFAULT_SETTINGS).toEqual({ enabled: false, limit: 8, minFreeGiB: 2.5, maxPressure: 10 });
+  it("is 8 workers and a 2.5 GiB floor by default", () => {
+    expect(DEFAULT_SETTINGS).toEqual({ limit: 8, minFreeGiB: 2.5, maxPressure: 10 });
   });
 });
 
@@ -283,10 +283,32 @@ describe("WorkerQueue", () => {
   it("starts nothing while the machine's switch is off", async () => {
     const github = new FakeGithub();
     github.add(REPO, 1);
-    const m = machine(github, () => [ready(REPO, 1)], { file: { settings: { ...DEFAULT_SETTINGS } } });
+    const m = machine(github, () => [ready(REPO, 1)], { on: () => false });
     await m.queue.tick();
     expect(m.tmux.started).toHaveLength(0);
+    expect(m.queue.status().on).toBe(false);
     expect(m.queue.status().waiting).toMatchObject([{ number: 1, why: "Off on this machine" }]);
+  });
+
+  it("stops nothing already running when the switch goes off, and starts no more", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    github.add(REPO, 2);
+    let on = true;
+    let issues = [ready(REPO, 1)];
+    const m = machine(github, () => issues, { on: () => on });
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(1);
+    on = false;
+    issues = [ready(REPO, 1), ready(REPO, 2)];
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(1);
+    expect(m.tmux.killed).toEqual([]);
+    expect(m.queue.status().workers).toMatchObject([{ number: 1 }]);
+    expect(m.queue.status().waiting).toMatchObject([{ number: 2, kind: "off" }]);
+    on = true;
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(2);
   });
 
   it("answers a Trigger's Run by the same limit and memory brake, whatever the switch says", async () => {
@@ -294,7 +316,7 @@ describe("WorkerQueue", () => {
     const live: LiveWorker[] = Array.from({ length: 7 }, () => ({ issue: null, cwd: "/p" }));
     let free = 20;
     const m = machine(github, () => [], {
-      file: { settings: { ...DEFAULT_SETTINGS } },
+      on: () => false,
       live,
       memory: () => ({ availableGiB: free, pressure: 0 }),
     });
@@ -381,7 +403,7 @@ describe("WorkerQueue", () => {
       const github = new FakeGithub();
       for (const n of [1, 2, 3, 4]) github.add(REPO, n);
       const m = machine(github, () => [1, 2, 3, 4].map((n) => ready(REPO, n)), {
-        file: { settings: { ...DEFAULT_SETTINGS, enabled: true, limit: 3 } },
+        file: { settings: { ...DEFAULT_SETTINGS, limit: 3 } },
         // A daemon's worker on another repo counts too.
         live: [{ issue: 50, cwd: "/home/leo/Projects/other" }],
       });
@@ -402,7 +424,7 @@ describe("WorkerQueue", () => {
       let issues = [ready(REPO, 1)];
       const live: LiveWorker[] = [];
       const m = machine(github, () => issues, {
-        file: { settings: { ...DEFAULT_SETTINGS, enabled: true, limit: 2 } },
+        file: { settings: { ...DEFAULT_SETTINGS, limit: 2 } },
         liveWorkers: () => live,
       });
       await m.queue.tick();
@@ -727,8 +749,9 @@ describe("the history (#201)", () => {
     github.add(REPO, 5);
     const live: LiveWorker[] = [];
     let mem = 1.1;
+    let on = false;
     const m = clocked(github, () => [ready(REPO, 5)], {
-      file: { settings: { ...DEFAULT_SETTINGS, enabled: false } },
+      on: () => on,
       liveWorkers: () => live,
       measure: async (pids) => new Map(pids.map((p) => [p, mem])),
       spend: async () => 2.5,
@@ -736,7 +759,7 @@ describe("the history (#201)", () => {
     await m.queue.tick(); // seen, but off
     expect(m.queue.status().waiting).toMatchObject([{ number: 5, kind: "off", since: T0 }]);
     m.advance(10 * 60_000);
-    m.queue.update({ enabled: true });
+    on = true;
     await m.queue.tick();
     live.push({ issue: 5, cwd: "/home/leo/Projects/scratch/.worktree/5", id: "sess-5", pid: 900, transcript: "/t/5.jsonl" });
     mem = 2.3;
@@ -821,7 +844,7 @@ describe("the history (#201)", () => {
     const github = new FakeGithub();
     for (const n of [1, 2, 3]) github.add(REPO, n);
     const m = clocked(github, () => [ready(REPO, 1), ready(REPO, 2, { blockedBy: 1 }), ready(REPO, 3)], {
-      file: { settings: { ...DEFAULT_SETTINGS, enabled: true, limit: 1 } },
+      file: { settings: { ...DEFAULT_SETTINGS, limit: 1 } },
     });
     await m.queue.tick();
     expect(m.queue.status().waiting.map((w) => w.kind)).toEqual(["blocked", "slot"]);
