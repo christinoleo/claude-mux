@@ -2,11 +2,9 @@
 	import { onMount, untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { Input } from '$lib/components/ui/input';
 	import { Toggle } from '$lib/components/ui/toggle';
 	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
 	import { nameList, placeName, placementKey } from '$shared/worker-placement.js';
-	import type { QueueSettings, QueueStatus } from '$shared/server/worker-queue.js';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { clock } from '$lib/stores/clock.svelte';
 	import { formatAgo } from '$lib/format';
@@ -18,8 +16,7 @@
 	 * The state map, one tab per machine (#183): the GitHub projects the
 	 * machine holds, all off until enabled, and for each enabled one what an
 	 * event does. Below, what the machine's poller has seen and what reading
-	 * GitHub has cost it, and its worker queue (#200): the switch, limit and
-	 * memory brake, the workers it started and why each ready issue waits.
+	 * GitHub has cost it; its worker queue is on the Workers panel.
 	 * Everything is read from and written to the machine itself, through the
 	 * relay for another one, except where a project's workers may run, which
 	 * is a fleet preference and the same on every tab.
@@ -43,50 +40,6 @@
 		{ action: 'rule', label: 'Rule', title: 'Record that it was seen' },
 		{ action: 'session', label: 'Session', title: 'Start a worker from the queue' }
 	];
-
-	interface MachineQueue {
-		running: boolean;
-		status: QueueStatus | null;
-	}
-	let queues = $state<Record<string, MachineQueue>>({});
-	let queueErrors = $state<Record<string, string | null>>({});
-
-	async function readQueue(m: Machine) {
-		const key = machineKey(m);
-		const res = await fetch(`${apiBase(m)}/api/queue`).catch(() => null);
-		if (!res?.ok) {
-			queueErrors[key] = res?.status === 404 ? 'This machine runs a claude-mux without the worker queue' : 'Did not answer';
-			return;
-		}
-		queueErrors[key] = null;
-		queues[key] = (await res.json()) as MachineQueue;
-	}
-
-	async function changeQueue(m: Machine, patch: Partial<QueueSettings>) {
-		const key = machineKey(m);
-		saving[`${key}/queue`] = true;
-		try {
-			const res = await fetch(`${apiBase(m)}/api/queue`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(patch)
-			}).catch(() => null);
-			const body = (await res?.json().catch(() => null)) as (MachineQueue & { error?: string }) | null | undefined;
-			if (res?.ok && body) {
-				queues[key] = body;
-				queueErrors[key] = null;
-			} else queueErrors[key] = body?.error ?? 'Did not answer';
-		} finally {
-			saving[`${key}/queue`] = false;
-		}
-	}
-
-	/** A number field's value, sent once it leaves the field and only when it is a number. */
-	function numberChange(m: Machine, field: 'limit' | 'minFreeGiB' | 'maxPressure', raw: string) {
-		const value = Number(raw);
-		if (raw.trim() === '' || !Number.isFinite(value)) return;
-		void changeQueue(m, { [field]: value });
-	}
 
 	/** Where a project's workers may run: the machines its list names, every one when it names none. */
 	function placement(repo: string): string[] | null {
@@ -151,7 +104,6 @@
 			untrack(() => {
 				if (!current) return;
 				void read(current);
-				void readQueue(current);
 			});
 		readCurrent();
 		const timer = setInterval(readCurrent, 15_000);
@@ -169,12 +121,6 @@
 	}
 
 	const KIND_LABEL: Record<EventKind, string> = { 'issue-ready': 'ready', push: 'push' };
-
-	function memoryLine(q: QueueStatus): string {
-		const free = q.memory.availableGiB !== null ? `${q.memory.availableGiB.toFixed(1)} GiB free` : 'free memory unknown';
-		const pressure = q.memory.pressure !== null ? `, pressure ${q.memory.pressure.toFixed(1)}%` : '';
-		return `${q.running} of ${q.settings.limit} running · ${free}${pressure}`;
-	}
 </script>
 
 <svelte:head><title>Events · claude-mux</title></svelte:head>
@@ -274,109 +220,12 @@
 				</ul>
 			</section>
 
-			{@const q = queues[key]}
 			<section>
 				<h2>Workers</h2>
-				{#if queueErrors[key]}
-					<p class="error" role="status">{queueErrors[key]}</p>
-				{:else if !q}
-					<p class="quiet">Reading…</p>
-				{:else if !q.running || !q.status}
-					<p class="quiet">This server starts no workers (it does not read GitHub).</p>
-				{:else}
-					{@const st = q.status}
-					{@const busy = saving[`${key}/queue`] === true}
-					<div class="row1">
-						<Checkbox
-							checked={st.settings.enabled}
-							disabled={busy}
-							aria-label="Start workers on {machineName(current)}"
-							onCheckedChange={(on) => void changeQueue(current, { enabled: on === true })}
-						/>
-						<span class="repo">Start workers on {machineName(current)}</span>
-					</div>
-					<div class="settings">
-						<label>
-							<span>At most</span>
-							<Input
-								type="number"
-								min="0"
-								max="64"
-								step="1"
-								value={String(st.settings.limit)}
-								disabled={busy}
-								onchange={(ev) => numberChange(current, 'limit', ev.currentTarget.value)}
-							/>
-							<span>at once</span>
-						</label>
-						<label>
-							<span>Hold a start under</span>
-							<Input
-								type="number"
-								min="0"
-								step="0.5"
-								value={String(st.settings.minFreeGiB)}
-								disabled={busy}
-								onchange={(ev) => numberChange(current, 'minFreeGiB', ev.currentTarget.value)}
-							/>
-							<span>GiB free</span>
-						</label>
-						<label>
-							<span>or over</span>
-							<Input
-								type="number"
-								min="0"
-								max="100"
-								step="1"
-								value={String(st.settings.maxPressure)}
-								disabled={busy}
-								onchange={(ev) => numberChange(current, 'maxPressure', ev.currentTarget.value)}
-							/>
-							<span>% memory pressure</span>
-						</label>
-					</div>
-					<p class="status">
-						{memoryLine(st)}{st.hold ? ` · ${st.hold}` : ''}{st.lastError ? ` · Last pass: ${st.lastError}` : ''}
-					</p>
-					{#if st.workers.length > 0}
-						<ul class="log">
-							{#each st.workers as w (w.repo + w.number)}
-								<li>
-									<span class="kind issue-ready">running</span>
-									<a href={w.url} target="_blank" rel="noopener">#{w.number} {w.title}</a>
-									<span class="when">{formatAgo(w.startedAt, clock.now)}</span>
-									<span class="sub">{w.repo} · {w.target}</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-					{#if st.waiting.length > 0}
-						<h2>Waiting</h2>
-						<ul class="log">
-							{#each st.waiting as w (w.repo + w.number)}
-								<li>
-									<span class="kind">queued</span>
-									<a href={w.url} target="_blank" rel="noopener">#{w.number} {w.title}</a>
-									<span class="when"></span>
-									<span class="sub">{w.repo} · {w.why}</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-					{#if st.log.length > 0}
-						<h2>Queue log</h2>
-						<ul class="log">
-							{#each st.log.slice(0, 20) as ev (ev.at + ev.repo + ev.number + ev.what)}
-								<li>
-									<span class="kind">#{ev.number}</span>
-									<span class="what">{ev.what}</span>
-									<span class="when">{formatAgo(ev.at, clock.now)}</span>
-									<span class="sub">{ev.repo}</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				{/if}
+				<p class="quiet">
+					Each machine's limit, the memory it keeps free, the workers running and the queue are on
+					<a href="/workers">Workers</a>.
+				</p>
 			</section>
 
 			<section>
@@ -520,32 +369,10 @@
 		color: var(--ink-dim);
 		font-size: 12px;
 	}
-	.what {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
 	.any {
 		align-self: center;
 		padding: 0 6px;
 		color: var(--ink-dim);
-	}
-	.settings {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px 16px;
-		margin: 10px 0 0 26px;
-	}
-	.settings label {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		color: var(--ink-muted);
-	}
-	.settings :global(input) {
-		width: 5.5em;
-		height: 28px;
 	}
 	.choices {
 		flex-wrap: wrap;

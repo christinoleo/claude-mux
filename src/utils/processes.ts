@@ -3,14 +3,14 @@ import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
 
-/** One row of the process table: who started it and the words it was started with. */
-export type ProcessRow = { pid: number; ppid: number; args: string };
+/** One row of the process table: who started it, the words it was started with, and its resident memory in kB. */
+export type ProcessRow = { pid: number; ppid: number; args: string; rssKb?: number };
 
 /** The whole process table from `ps`, or null when it cannot be read. */
 export async function readProcessTable(): Promise<ProcessRow[] | null> {
   let out: string;
   try {
-    ({ stdout: out } = await execFileAsync("ps", ["-A", "-o", "pid=,ppid=,args="], {
+    ({ stdout: out } = await execFileAsync("ps", ["-A", "-o", "pid=,ppid=,rss=,args="], {
       encoding: "utf-8",
       timeout: 2_000,
       maxBuffer: 16 * 1024 * 1024,
@@ -20,8 +20,8 @@ export async function readProcessTable(): Promise<ProcessRow[] | null> {
   }
   const rows: ProcessRow[] = [];
   for (const line of out.split("\n")) {
-    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
-    if (match) rows.push({ pid: Number(match[1]), ppid: Number(match[2]), args: match[3] });
+    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (match) rows.push({ pid: Number(match[1]), ppid: Number(match[2]), rssKb: Number(match[3]), args: match[4] });
   }
   return rows;
 }

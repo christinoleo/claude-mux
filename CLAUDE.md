@@ -435,7 +435,7 @@ repo. The poller's `readyIssues()` holds those issues with their labels and
 open blockers, and after every sweep (`onSweep`) the queue reaps its own
 workers and starts more while the machine has room. Its switch, limit and
 brake are per machine, in `~/.claude-mux/worker-queue.json`, set from the
-Events screen's Workers section (`GET`/`POST /api/queue`): off at first,
+Workers panel (`/workers`, `GET`/`POST /api/queue`): off at first,
 8 at once, a start held under 2.5 GiB of MemAvailable or over 10% `full
 avg60` memory pressure, and each start in one sweep counted as 1.4 GiB gone
 from the free memory it read. Nothing running is ever stopped. The limit
@@ -463,6 +463,28 @@ has its window killed and its worktree and `task/<n>` branch removed; a window
 gone while the issue is open is released once and asks for help the second
 time. `CLAUDE_MUX_WORKER_COMMAND` (with `{issue}`) replaces `claude` for a
 test under a `HOME` of its own, with a `tmux` on `PATH` that adds `-L <name>`.
+The panes take their environment from that tmux server, not from the dev
+server, so a stand-in worker that writes a session JSON must pin `HOME`
+itself (and the tmux server's global `HOME` should be set), or it writes
+into the real `~/.claude-mux/sessions`.
+
+The Workers panel (`/workers`, #201) is the queue's screen, one view over every
+machine: each machine as a strip of its memory (`memorySplit()` in
+`web/src/lib/workers.ts`: MemTotal less MemAvailable, cut into its workers),
+with the limit, the memory to keep free, the pressure ceiling and the switch
+("Pause new starts"); the workers running, with what each does, its memory,
+spend and worktree, Open session, Open issue and Stop; the queue, each issue
+once across machines with the reason that says most (`WaitKind`); and the
+history. On every pass the queue measures each live worker session's process
+tree (`readProcessTable()` with RSS) and prices its transcript and its
+subagents' (`SpendMeter`, `src/usage/session-spend.ts`, reading each file only
+from where it last stopped), and keeps the worker's peak. When a worker ends
+it appends a `WorkerRun` (merged, closed, help, lost or stopped; when it was
+first seen ready, started and ended; peak; spend) to
+`~/.claude-mux/worker-history.json`, kept for 90 days and served by `GET
+/api/queue/history`; the page buckets it per day for 7, 30 or 90 days. `POST
+/api/queue/stop` kills one of this machine's workers, puts its issue back
+with `hold` so no machine starts it again, and leaves its worktree.
 
 Triggers (`src/server/triggers.ts`, the `/triggers` screen, `GET`/`POST
 /api/triggers` and `PATCH`/`DELETE /api/triggers/<id>`) are when plus what,

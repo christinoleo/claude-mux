@@ -6,7 +6,10 @@ import {
   CLAIM_WINDOW_MS,
   parseSettingsPatch,
   winningClaim,
+  sumTrees,
+  type HistoryStore,
   type LiveWorker,
+  type WorkerRun,
   type Marker,
   type MemoryReading,
   type QueueDeps,
@@ -627,3 +630,154 @@ describe("placement preferences", () => {
   });
 });
 
+
+function memoryHistory(): HistoryStore & { runs: WorkerRun[] } {
+  const h = {
+    runs: [] as WorkerRun[],
+    load: () => structuredClone(h.runs),
+    append: (run: WorkerRun) => void h.runs.push(run),
+  };
+  return h;
+}
+
+describe("the history (#201)", () => {
+  const T0 = Date.parse("2026-11-07T12:00:00Z");
+
+  function clocked(github: FakeGithub, issues: () => ReadyIssue[], extra: Parameters<typeof machine>[2] = {}) {
+    let t = T0;
+    const history = memoryHistory();
+    const m = machine(github, issues, { now: () => t, history, ...extra });
+    return { ...m, history, advance: (ms: number) => (t += ms) };
+  }
+
+  it("keeps a merged run with how long it waited, its peak memory and its spend", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 5);
+    const live: LiveWorker[] = [];
+    let mem = 1.1;
+    const m = clocked(github, () => [ready(REPO, 5)], {
+      file: { settings: { ...DEFAULT_SETTINGS, enabled: false } },
+      liveWorkers: () => live,
+      measure: async (pids) => new Map(pids.map((p) => [p, mem])),
+      spend: async () => 2.5,
+    });
+    await m.queue.tick(); // seen, but off
+    expect(m.queue.status().waiting).toMatchObject([{ number: 5, kind: "off", since: T0 }]);
+    m.advance(10 * 60_000);
+    m.queue.update({ enabled: true });
+    await m.queue.tick();
+    live.push({ issue: 5, cwd: "/home/leo/Projects/scratch/.worktree/5", id: "sess-5", pid: 900, transcript: "/t/5.jsonl" });
+    mem = 2.3;
+    await m.queue.tick();
+    mem = 1.4;
+    await m.queue.tick();
+    expect(m.queue.status().workers).toMatchObject([{ number: 5, sessionId: "sess-5", memGiB: 1.4, peakGiB: 2.3, spendUsd: 2.5 }]);
+
+    m.advance(30 * 60_000);
+    github.get(REPO, 5).open = false;
+    await m.queue.tick();
+    expect(m.history.runs).toEqual([
+      expect.objectContaining({
+        number: 5,
+        result: "merged",
+        queuedAt: T0,
+        startedAt: T0 + 10 * 60_000,
+        endedAt: T0 + 40 * 60_000,
+        peakGiB: 2.3,
+        spendUsd: 2.5,
+        machine: "omarchy",
+      }),
+    ]);
+    expect(m.queue.history(7)).toHaveLength(1);
+  });
+
+  it("counts a worker that vanished as lost, and one that asked for help as help", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 1);
+    github.add(REPO, 2);
+    const m = clocked(github, () => [ready(REPO, 1), ready(REPO, 2)]);
+    await m.queue.tick();
+    github.get(REPO, 2).labels.add("needs-help");
+    await m.queue.tick();
+    expect(m.queue.status().workers.find((w) => w.number === 2)?.wants).toBe(true);
+    m.advance(60 * 60_000);
+    m.tmux.windows.clear();
+    await m.queue.tick();
+    // #1 went back and started again: its first run is no finished run, and the retry's wait starts now.
+    expect(m.history.runs.map((r) => [r.number, r.result])).toEqual([[2, "help"]]);
+    expect(m.queue.status().workers.find((w) => w.number === 1)?.queuedAt).toBe(T0 + 60 * 60_000);
+    m.tmux.windows.clear();
+    await m.queue.tick();
+    expect(m.history.runs.map((r) => [r.number, r.result]).sort()).toEqual([
+      [1, "lost"],
+      [2, "help"],
+    ]);
+  });
+
+  it("stops nothing when tmux cannot close the worker's window", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 4);
+    const m = clocked(github, () => [ready(REPO, 4)]);
+    await m.queue.tick();
+    const runner = m.tmux.runner();
+    (m.queue as unknown as { deps: QueueDeps }).deps.tmux = async (args) =>
+      args[0] === "kill-window" ? { ok: false, stdout: "" } : runner(args);
+    expect(await m.queue.stop(REPO, 4)).toMatch(/could not close/);
+    expect(m.queue.status().workers).toHaveLength(1);
+    expect(github.get(REPO, 4).labels.has("hold")).toBe(false);
+  });
+
+  it("stops a worker by hand: its window killed, the issue on hold and out of the queue", async () => {
+    const github = new FakeGithub();
+    github.add(REPO, 3);
+    const m = clocked(github, () => [ready(REPO, 3)]);
+    await m.queue.tick();
+    expect(await m.queue.stop(REPO, 3)).toBeNull();
+    expect(m.tmux.killed).toEqual(["@1"]);
+    const labels = github.get(REPO, 3).labels;
+    expect(labels.has("hold")).toBe(true);
+    expect(labels.has("in-progress")).toBe(false);
+    expect(github.comments.at(-1)!.body).toContain(RELEASE_MARK);
+    expect(m.history.runs).toMatchObject([{ number: 3, result: "stopped" }]);
+    await m.queue.tick();
+    expect(m.tmux.started).toHaveLength(1);
+    expect(m.queue.status().waiting).toMatchObject([{ number: 3, why: "On hold", kind: "taken" }]);
+    expect(await m.queue.stop(REPO, 3)).toMatch(/No worker/);
+  });
+
+  it("says what each queued issue waits for", async () => {
+    const github = new FakeGithub();
+    for (const n of [1, 2, 3]) github.add(REPO, n);
+    const m = clocked(github, () => [ready(REPO, 1), ready(REPO, 2, { blockedBy: 1 }), ready(REPO, 3)], {
+      file: { settings: { ...DEFAULT_SETTINGS, enabled: true, limit: 1 } },
+    });
+    await m.queue.tick();
+    expect(m.queue.status().waiting.map((w) => w.kind)).toEqual(["blocked", "slot"]);
+  });
+
+  it("lists a daemon's worker beside the queue's own, with its memory", async () => {
+    const github = new FakeGithub();
+    const m = clocked(github, () => [], {
+      liveWorkers: () => [{ issue: 50, cwd: "/elsewhere", id: "d", pid: 7 }],
+      measure: async () => new Map([[7, 1.2]]),
+    });
+    await m.queue.tick();
+    expect(m.queue.status().others).toEqual([{ issue: 50, cwd: "/elsewhere", sessionId: "d", memGiB: 1.2 }]);
+  });
+});
+
+describe("sumTrees", () => {
+  it("adds up each root's descendants, in GiB", () => {
+    const rows = [
+      [1, 0, 100],
+      [10, 1, 1048576],
+      [11, 10, 524288],
+      [12, 11, 524288],
+      [20, 1, 1024],
+    ].map(([pid, ppid, rssKb]) => ({ pid, ppid, rssKb, args: "x" }));
+    const out = sumTrees(rows, [10, 20, 99]);
+    expect(out.get(10)).toBe(2);
+    expect(out.get(20)).toBeCloseTo(1 / 1024);
+    expect(out.has(99)).toBe(false);
+  });
+});
