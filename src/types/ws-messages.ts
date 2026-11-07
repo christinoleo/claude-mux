@@ -132,9 +132,12 @@ const InboxTicketSchema = z.object({
 	number: z.number(),
 	title: z.string(),
 	url: z.string(),
-	/** A maestro worker asking for a decision, or a wayfinder ticket only a person resolves. */
-	kind: z.enum(['needs-help', 'grilling', 'prototype']),
-	/** When it started waiting, as near as GitHub says: the last update, or when it was filed. */
+	/**
+	 * A maestro worker asking for a decision, a pull request a `stop-at-pr`
+	 * worker left to be merged, or a wayfinder ticket only a person resolves.
+	 */
+	kind: z.enum(['needs-help', 'pr', 'grilling', 'prototype']),
+	/** When it started waiting, as near as GitHub says: the last update, or when it was filed or opened. */
 	since: z.number(),
 	/** The worker's latest comment, first paragraph — what it needs. */
 	note: z.string().nullable()
@@ -307,7 +310,7 @@ const ProjectsField = z.array(z.string()).optional();
 const SettingsField = z.object({ autoRemoteControl: z.boolean() }).partial().optional();
 
 /** Tickets on GitHub waiting on a person, for the repos this machine's sessions are in. */
-const InboxField = z.array(InboxTicketSchema).optional();
+const InboxField = eachOf(InboxTicketSchema).optional();
 
 /** What each project is matched across machines by, and its icon (`src/fleet-projects.ts`); absent on older servers. */
 const ProjectReportsField = z.array(ProjectReportSchema).optional();

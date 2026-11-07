@@ -6,7 +6,10 @@
  * (`in-progress`, `needs-help`), and wayfinder charts a map of decision
  * tickets (`wayfinder:grilling`, `wayfinder:prototype`, …) that a person has
  * to sit down and resolve. Both are questions a person answers, so both
- * belong next to the sessions that are waiting for one.
+ * belong next to the sessions that are waiting for one. So is a pull request
+ * a worker opened and left for review: an issue labelled `stop-at-pr` tells
+ * its worker to open the PR and end rather than merge, and the PR waits on a
+ * person until it merges or closes.
  *
  * Everything here is read through the `gh` CLI, in the repo's own checkout,
  * so it rides whatever auth the user already has and does nothing where `gh`
@@ -31,6 +34,8 @@ const HITL_LABELS: Record<string, InboxTicket['kind']> = {
 	'wayfinder:prototype': 'prototype'
 };
 const NEEDS_HELP = 'needs-help';
+/** maestro's "open the PR and end": the PR it leaves waits on a person to merge it. */
+const STOP_AT_PR = 'stop-at-pr';
 /** maestro's "not the daemon's": a person's task or the master's own, never a worker's call. */
 const HOLD = 'hold';
 
@@ -40,11 +45,14 @@ export interface RawIssue {
 	title: string;
 	state: string;
 	html_url: string;
+	body?: string | null;
 	created_at: string;
 	updated_at: string;
 	labels: ({ name?: string } | string)[];
 	assignees?: unknown[] | null;
 	pull_request?: unknown;
+	/** Set on a pull request; a draft is not ready to merge. */
+	draft?: boolean;
 	issue_dependencies_summary?: { blocked_by?: number } | null;
 }
 
@@ -101,18 +109,51 @@ export function toIssueInfo(issue: RawIssue): IssueInfo {
 }
 
 /**
+ * The issues a pull request's body closes, by GitHub's closing keywords
+ * (`Closes #12`, `fixes o/r#12`, `resolves https://github.com/o/r/issues/12`).
+ * A reference into another repo is left out.
+ */
+export function closedIssues(body: string | null | undefined, slug: string): number[] {
+	const out: number[] = [];
+	const re =
+		/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/|([\w.-]+\/[\w.-]+)?#)(\d+)\b/gi;
+	for (const m of (body ?? '').matchAll(re)) {
+		const repo = m[1] ?? m[2];
+		if (repo && repo.toLowerCase() !== slug.toLowerCase()) continue;
+		out.push(Number(m[3]));
+	}
+	return out;
+}
+
+/**
  * The tickets in a repo's open issues that are waiting on a person: a maestro
- * worker's call for a decision, and the wayfinder tickets on the frontier
- * that only a live conversation resolves — open, nobody's claim, and no open
- * blocker. Pull requests share the endpoint and are skipped.
+ * worker's call for a decision, a pull request a worker left for review, and
+ * the wayfinder tickets on the frontier that only a live conversation
+ * resolves — open, nobody's claim, and no open blocker.
+ *
+ * The issues endpoint lists open pull requests too. A PR counts as waiting
+ * when it is no draft and closes an open issue labelled `stop-at-pr`; once it merges or
+ * closes it drops out of the open list, and out of here with it.
  */
 export function ticketsFromIssues(issues: RawIssue[], slug: string, gitRoot: string): InboxTicket[] {
 	const out: InboxTicket[] = [];
+	const stopAtPr = new Set<number>();
 	for (const issue of issues) {
 		if (issue.pull_request || issue.state !== 'open') continue;
 		const labels = labelNames(issue);
+		if (labels.includes(STOP_AT_PR) && !labels.includes(HOLD)) stopAtPr.add(issue.number);
+	}
+	for (const issue of issues) {
+		if (issue.state !== 'open') continue;
+		const labels = labelNames(issue);
 		if (labels.includes(HOLD)) continue;
 		const base = { repo: slug, git_root: gitRoot, number: issue.number, title: issue.title, url: issue.html_url };
+		if (issue.pull_request) {
+			if (!issue.draft && closedIssues(issue.body, slug).some((n) => stopAtPr.has(n))) {
+				out.push({ ...base, kind: 'pr', since: Date.parse(issue.created_at), note: null });
+			}
+			continue;
+		}
 		if (labels.includes(NEEDS_HELP)) {
 			out.push({ ...base, kind: 'needs-help', since: Date.parse(issue.updated_at), note: null });
 			continue;

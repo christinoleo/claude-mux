@@ -371,8 +371,11 @@ poll's own time: the issue each worker owns rides the broadcast as the live
 field `issue`, and the tickets that want a person ride it as `inbox`. Those are
 a worker's `needs-help` while that worker's session is still alive (a
 `needs-help` with no live worker was parked by hand, and nobody waits on it),
-and the wayfinder `grilling`/`prototype` tickets that are open, unassigned and
-unblocked. Anything labelled `hold` (maestro's "not the daemon's") is left out. Where `gh` is missing or logged out, both stay
+the open pull requests whose body closes (`Closes #n`) an open issue labelled
+`stop-at-pr`, which a worker opens and leaves for a person to merge (the
+issues endpoint lists open PRs, so this costs no extra read, and a PR leaves
+the list once it merges or closes), and the wayfinder `grilling`/`prototype`
+tickets that are open, unassigned and unblocked. Anything labelled `hold` (maestro's "not the daemon's") is left out. Where `gh` is missing or logged out, both stay
 empty.
 
 The sidebar nests a worker under the session that runs its daemon (the one
@@ -383,7 +386,7 @@ subagent (`SubagentRow.svelte`, no pane of its own) on a dashed teal thread
 with a diamond and its agent type, linking to `/session/<target>/agent/<id>`.
 A worker's subagents ride inside the worker's thread.
 `NeedsYou.svelte` lists everything waiting on a person, oldest wait first:
-dialogs in panes, workers asking for help, then wayfinder tickets with a Start
+dialogs in panes, workers asking for help and PRs to merge, then wayfinder tickets with a Start
 button that opens a session on the ticket. Its header folds the list away
 (per device, in browser storage) and keeps the count, adding "+N new" for
 whatever arrived since it was folded. `src/transcript/grilling.ts` reads
