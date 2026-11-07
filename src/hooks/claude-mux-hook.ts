@@ -512,21 +512,22 @@ function handleSessionStart(input: HookInput): void {
       display_name: keepName ? (existing?.display_name ?? null) : null,
       last_update: Date.now(),
       linked_to: linkedTo ?? existing?.linked_to ?? null,
-      ...maestroFields(),
+      ...launchFields(),
     };
     writeSession(session);
   });
 }
 
 /**
- * The maestro daemon starts each worker with MAESTRO_ROLE and MAESTRO_ISSUE in
- * its environment, and the hook inherits Claude Code's environment, so the
- * session can say which issue it is working without anyone asking GitHub.
+ * What whoever started the session put in its environment, which the hook
+ * inherits from Claude Code. The maestro daemon starts each worker with
+ * MAESTRO_ROLE and MAESTRO_ISSUE, so the session can say which issue it is
+ * working without anyone asking GitHub; a Trigger's Run (src/server/triggers.ts)
+ * sets CLAUDE_MUX_RUN, so the server can find and end it.
  */
-function maestroFields(): Pick<Session, "maestro_role" | "maestro_issue" | "run_id"> {
+function launchFields(): Pick<Session, "maestro_role" | "maestro_issue" | "run_id"> {
   const role = process.env.MAESTRO_ROLE || null;
   const issue = Number.parseInt(process.env.MAESTRO_ISSUE ?? "", 10);
-  // A Trigger's Run (src/server/triggers.ts) names itself the same way, so the server can find and end it.
   const run = process.env.CLAUDE_MUX_RUN;
   return {
     maestro_role: role,
@@ -553,7 +554,7 @@ function changeSession(input: HookInput, change: (session: Session) => void, { t
     // Sessions written before this field existed, and resumed sessions whose
     // file moved, pick it up on their next event.
     if (input.transcript_path) session.transcript_path = input.transcript_path;
-    if (session.maestro_role === undefined) Object.assign(session, maestroFields());
+    if (session.maestro_role === undefined) Object.assign(session, launchFields());
     session.tmux_target = tmuxTarget ?? session.tmux_target;
     holdForTest();
     change(session);
@@ -593,7 +594,7 @@ function newSession(input: HookInput, tmuxTarget: string | null): Session {
     prompt_text: null,
     last_update: Date.now(),
     linked_to: linkedTo,
-    ...maestroFields(),
+    ...launchFields(),
   };
 }
 

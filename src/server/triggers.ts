@@ -31,20 +31,13 @@ import { readFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { shellQuote } from "../utils/shell.js";
-import type { TmuxRunner } from "./worker-queue.js";
+import { listWindows, openWindow, slug, type TmuxRunner } from "./worker-queue.js";
 import { STOP_AT_PR } from "./github.js";
+import { DAY_NAMES, UNITS, UNIT_MS, type Schedule, type Unit } from "../trigger-schedule.js";
 
 // ── schedules ────────────────────────────────────────────────────────────────
 
-export const UNITS = ["second", "minute", "hour", "day"] as const;
-export type Unit = (typeof UNITS)[number];
-const UNIT_MS: Record<Unit, number> = { second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000 };
-
-export type Schedule =
-  | { type: "every"; n: number; unit: Unit }
-  /** Days as `Date.getDay()` numbers, Sunday 0; the time is this machine's local time. */
-  | { type: "weekly"; days: number[]; time: string }
-  | { type: "once"; at: number };
+export { UNITS, type Unit, type Schedule } from "../trigger-schedule.js";
 
 function parseTime(time: string): [number, number] | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(time);
@@ -112,7 +105,7 @@ export function firingsBetween(schedule: Schedule, from: number, to: number, anc
 
 // ── what is kept ─────────────────────────────────────────────────────────────
 
-export const TRIGGER_ACTIONS = ["rule", "session"] as const;
+const TRIGGER_ACTIONS = ["rule", "session"] as const;
 export type TriggerAction = (typeof TRIGGER_ACTIONS)[number];
 
 export interface ClockTrigger {
@@ -199,10 +192,10 @@ export const GRACE_MS = 60_000;
 /** How long a pane may stay open after `/exit` before it is killed. */
 export const CLOSE_WAIT_MS = 30_000;
 /** How far past its limit a pane may stay open before it is killed, should `timeout` itself have failed. */
-export const LIMIT_SLACK_MS = 60_000;
+const LIMIT_SLACK_MS = 60_000;
 /** How often running session Runs are looked at. */
 export const RUN_CHECK_MS = 5_000;
-export const DEFAULT_LIMIT_MINUTES = 45;
+const DEFAULT_LIMIT_MINUTES = 45;
 
 // ── the new-trigger form ─────────────────────────────────────────────────────
 
@@ -258,7 +251,7 @@ export function runPrompt(trigger: Pick<ClockTrigger, "prompt" | "stopAtPr" | "n
   return lines.join("\n");
 }
 
-export function defaultRunCommand(prompt: string): string {
+function defaultRunCommand(prompt: string): string {
   return `claude --dangerously-skip-permissions ${shellQuote(prompt)}`;
 }
 
@@ -289,22 +282,14 @@ export interface SchedulerDeps {
   atPrompt: (screen: string) => boolean;
   /** The command a session Run runs, given its prompt; `CLAUDE_MUX_RUN_COMMAND` for a test. */
   runCommand?: (prompt: string) => string;
-  /** Told after anything a screen shows changed. */
-  onChange?: () => void;
   now?: () => number;
 }
-
-const WINDOW_FORMAT = "#{pid} #{window_id} #{window_name}";
 
 function newId(prefix: string, now: number): string {
   return `${prefix}-${now.toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function slug(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24).replace(/-$/, "") || "task";
-}
-
-export function runSessionName(root: string): string {
+function runSessionName(root: string): string {
   return `runs-${(root.split("/").filter(Boolean).at(-1) ?? "home").replace(/[^A-Za-z0-9_-]/g, "-")}`;
 }
 
@@ -355,7 +340,6 @@ export class Scheduler {
     const trigger: ClockTrigger = {
       id: newId("t", now),
       ...input,
-      root: input.what === "session" ? input.root : input.root ?? null,
       paused: false,
       createdAt: now,
       next: nextFiring(input.when, now, now),
@@ -390,13 +374,14 @@ export class Scheduler {
     if (this.ticking) return this.ticking;
     this.ticking = (async () => {
       try {
-        const changed = this.fireDue();
+        let changed = this.fireDue();
         const now = this.now();
         const watch = this.file.runs.some((r) => r.status === "running");
         if (watch && now - this.lastRunCheck >= RUN_CHECK_MS) {
           this.lastRunCheck = now;
-          await this.checkRuns();
-        } else if (changed) this.save();
+          changed = (await this.checkRuns()) || changed;
+        }
+        if (changed) this.save();
         // Spawning is async; fireDue only queued the starts.
         await this.startQueued();
       } finally {
@@ -435,9 +420,8 @@ export class Scheduler {
       return;
     }
     const sessions = this.deps.sessions();
-    const starting =
-      this.file.runs.filter((r) => r.status === "running" && !sessions.some((s) => s.runId === r.id)).length +
-      this.queued.length;
+    // Started, or about to be, with no hook reported yet: the queue cannot see these.
+    const starting = this.file.runs.filter((r) => r.status === "running" && !sessions.some((s) => s.runId === r.id)).length;
     const hold = this.deps.room(starting);
     if (hold) {
       this.record(trigger, due, "skipped", hold);
@@ -474,30 +458,15 @@ export class Scheduler {
       return null;
     }
     const session = runSessionName(trigger.root);
-    const name = `run-${slug(trigger.name)}`;
+    const name = `run-${slug(trigger.name, 24) || "task"}`;
     const command = (this.deps.runCommand ?? defaultRunCommand)(runPrompt(trigger));
     const seconds = trigger.limitMinutes * 60;
     // `--foreground`: plain `timeout` takes claude out of the terminal's foreground group and it never draws (#165).
     const inner = `timeout --foreground -k 10 ${seconds} ${command}; echo $? > ${shellQuote(this.exitFile(run))}`;
     // A claude-mux started from a Claude session would pass CLAUDECODE on, and claude refuses to start nested.
     const full = `env -u CLAUDECODE CLAUDE_MUX_RUN=${run.id} sh -c ${shellQuote(inner)}`;
-    const has = await this.deps.tmux(["has-session", "-t", `=${session}`]);
-    const args = has.ok
-      ? ["new-window", "-d", "-P", "-F", WINDOW_FORMAT, "-t", `=${session}:`, "-n", name, "-c", trigger.root, full]
-      : ["new-session", "-d", "-P", "-F", WINDOW_FORMAT, "-s", session, "-n", name, "-c", trigger.root, full];
-    const res = await this.deps.tmux(args);
-    const window = res.stdout.trim().split("\n")[0];
-    if (!res.ok || !window.split(" ")[1]?.startsWith("@")) return null;
-    return { window, target: `${session}:${name}` };
-  }
-
-  /** The windows tmux has open; null when tmux could not say, and then nothing counts as ended. */
-  private async windows(): Promise<Set<string> | null> {
-    const res = await this.deps.tmux(["list-windows", "-a", "-F", WINDOW_FORMAT]);
-    if (!res.ok) {
-      return /no server running|No such file or directory|Connection refused/.test(res.stdout) ? new Set() : null;
-    }
-    return new Set(res.stdout.split("\n").map((l) => l.trim()).filter(Boolean));
+    const window = await openWindow(this.deps.tmux, session, name, trigger.root, full);
+    return window ? { window, target: `${session}:${name}` } : null;
   }
 
   private exitCode(run: Run): number | null {
@@ -516,12 +485,13 @@ export class Scheduler {
     if (code === 124 || code === 137) {
       run.status = "timed-out";
       run.reason = limitMinutes ? `Stopped at its ${limitMinutes}-minute limit` : "Stopped at its time limit";
-    } else if (code === 0) {
-      run.status = "done";
-      run.reason = run.closingAt ? "Finished, and the session was closed" : "The session exited";
-    } else if (code === null) {
-      run.status = "ended";
-      run.reason = run.closingAt ? "Finished, and the session was closed" : "The session's pane was closed";
+    } else if (code === 0 || code === null) {
+      run.status = code === 0 ? "done" : "ended";
+      run.reason = run.closingAt
+        ? "Finished, and the session was closed"
+        : code === 0
+          ? "The session exited"
+          : "The session's pane was closed";
     } else {
       run.status = "failed";
       run.reason = `The session exited with code ${code}`;
@@ -529,23 +499,28 @@ export class Scheduler {
     rmSync(this.exitFile(run), { force: true });
   }
 
-  private async checkRuns(): Promise<void> {
-    const windows = await this.windows();
+  /** Whether anything about a Run changed, and so needs saving. */
+  private async checkRuns(): Promise<boolean> {
+    const windows = await listWindows(this.deps.tmux);
     const sessions = this.deps.sessions();
     const now = this.now();
+    let changed = false;
     for (const run of this.file.runs) {
       if (run.status !== "running" || !run.window) continue;
       const trigger = this.file.triggers.find((t) => t.id === run.trigger) ?? null;
       const session = sessions.find((s) => s.runId === run.id);
       if (session) {
+        const pane = session.target ?? run.pane;
+        if (run.sessionId !== session.id || run.pane !== pane) changed = true;
         run.sessionId = session.id;
-        run.pane = session.target ?? run.pane;
-      }
-      if (windows && !windows.has(run.window)) {
-        this.finish(run, trigger?.limitMinutes ?? null);
-        continue;
+        run.pane = pane;
       }
       if (!windows) continue;
+      if (!windows.has(run.window)) {
+        this.finish(run, trigger?.limitMinutes ?? null);
+        changed = true;
+        continue;
+      }
       const windowId = run.window.split(" ")[1];
       const limit = (trigger?.limitMinutes ?? DEFAULT_LIMIT_MINUTES) * 60_000;
       if (
@@ -569,8 +544,9 @@ export class Scheduler {
       await this.deps.tmux(["send-keys", "-t", windowId, "Enter"]);
       run.closingAt = now;
       run.reason = "Finished: closing the session";
+      changed = true;
     }
-    this.save();
+    return changed;
   }
 
   private record(trigger: ClockTrigger, at: number, status: RunStatus, reason: string): Run {
@@ -589,7 +565,6 @@ export class Scheduler {
 
   private save(): void {
     this.deps.store.save(this.file);
-    this.deps.onChange?.();
   }
 }
 
@@ -608,11 +583,7 @@ export interface TriggerView {
   paused: boolean;
   next: number | null;
   runs: RunView[];
-  /** Only a clock Trigger is edited here; an event one is set on the Events screen. */
-  editable: boolean;
   prompt?: string;
-  limitMinutes?: number;
-  stopAtPr?: boolean;
 }
 
 export interface RunView {
@@ -623,9 +594,7 @@ export interface RunView {
   link: { kind: "session" | "past" | "github"; href: string; label: string } | null;
 }
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-export function describeSchedule(s: Schedule): string {
+function describeSchedule(s: Schedule): string {
   if (s.type === "every") return s.n === 1 ? `Every ${s.unit}` : `Every ${s.n} ${s.unit}s`;
   if (s.type === "weekly") {
     const days = s.days.length === 7 ? "Every day" : s.days.join(",") === "1,2,3,4,5" ? "Weekdays" : s.days.map((d) => DAY_NAMES[d]).join(", ");
@@ -652,10 +621,7 @@ export function clockTriggerView(trigger: ClockTrigger, runs: readonly Run[]): T
     root: trigger.root,
     paused: trigger.paused,
     next: trigger.paused ? null : trigger.next,
-    editable: true,
     prompt: trigger.prompt,
-    limitMinutes: trigger.limitMinutes,
-    stopAtPr: trigger.stopAtPr,
     runs: runs.map((r) => ({
       at: r.at,
       status: r.status,
@@ -724,7 +690,6 @@ export function eventTriggers(sources: EventSources): TriggerView[] {
         paused: false,
         // An event fires when the next read of GitHub finds it.
         next: null,
-        editable: false,
         runs: runs.slice(0, RUNS_KEPT),
       });
     }

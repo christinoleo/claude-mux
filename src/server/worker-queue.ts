@@ -219,10 +219,15 @@ export interface MemoryReading {
   pressure: number | null;
 }
 
-/** A live worker session on this machine, as the hooks recorded it. */
+/** A live session on this machine that counts against the limit, as the hooks recorded it. */
 export interface LiveWorker {
   issue: number | null;
   cwd: string | null;
+}
+
+/** Whether a session counts against the machine's limit: a worker's, or a Trigger's Run. */
+export function countsAgainstLimit(s: { maestro_role?: string | null; run_id?: string | null }): boolean {
+  return s.maestro_role === "worker" || !!s.run_id;
 }
 
 export interface QueueDeps {
@@ -299,12 +304,13 @@ export function claimant(marker: Marker): string | null {
   return marker.body.slice(at + CLAIM_MARK.length).split(/\s/)[0] || null;
 }
 
-function slug(title: string): string {
-  return title
+/** Text as a tmux window name's part: lower case, dashes, at most `max` characters. */
+export function slug(text: string, max = 30): string {
+  return text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
-    .slice(0, 30)
+    .slice(0, max)
     .replace(/-$/, "");
 }
 
@@ -314,7 +320,32 @@ export function defaultWorkerCommand(issue: number, stopAtPr: boolean): string {
 }
 
 /** A window as `list-windows` prints it with `WINDOW_FORMAT`, and as a record names it. */
-const WINDOW_FORMAT = "#{pid} #{window_id} #{window_name}";
+export const WINDOW_FORMAT = "#{pid} #{window_id} #{window_name}";
+
+/** Every window tmux has open, as `WINDOW_FORMAT` prints it; null when tmux could not say (then nothing counts as vanished). */
+export async function listWindows(tmux: TmuxRunner): Promise<Set<string> | null> {
+  const res = await tmux(["list-windows", "-a", "-F", WINDOW_FORMAT]);
+  if (!res.ok) {
+    // No server at all (no socket, or one nobody answers on) means no window survived; any other error says nothing.
+    return /no server running|No such file or directory|Connection refused/.test(res.stdout) ? new Set() : null;
+  }
+  return new Set(res.stdout.split("\n").map((l) => l.trim()).filter(Boolean));
+}
+
+/**
+ * Open a detached window running `command` in the tmux session `session`,
+ * creating the session if it is not there. Returns the window's line as
+ * `WINDOW_FORMAT` prints it, or null when tmux did not open one.
+ */
+export async function openWindow(tmux: TmuxRunner, session: string, name: string, cwd: string, command: string): Promise<string | null> {
+  const has = await tmux(["has-session", "-t", `=${session}`]);
+  const args = has.ok
+    ? ["new-window", "-d", "-P", "-F", WINDOW_FORMAT, "-t", `=${session}:`, "-n", name, "-c", cwd, command]
+    : ["new-session", "-d", "-P", "-F", WINDOW_FORMAT, "-s", session, "-n", name, "-c", cwd, command];
+  const res = await tmux(args);
+  const line = res.stdout.trim().split("\n")[0];
+  return res.ok && line.split(" ")[1]?.startsWith("@") ? line : null;
+}
 function windowKey(w: Pick<WorkerRecord, "server" | "window" | "name">): string {
   return `${w.server} ${w.window} ${w.name}`;
 }
@@ -434,12 +465,7 @@ export class WorkerQueue {
   private async windows(): Promise<Set<string> | null> {
     // Only recorded workers are looked up in it.
     if (this.file.workers.length === 0) return null;
-    const res = await this.deps.tmux(["list-windows", "-a", "-F", WINDOW_FORMAT]);
-    if (!res.ok) {
-      // No server at all (no socket, or one nobody answers on) means no window survived; any other error says nothing.
-      return /no server running|No such file or directory|Connection refused/.test(res.stdout) ? new Set() : null;
-    }
-    return new Set(res.stdout.split("\n").map((l) => l.trim()).filter(Boolean));
+    return listWindows(this.deps.tmux);
   }
 
   private async pass(): Promise<void> {
@@ -563,13 +589,9 @@ export class WorkerQueue {
     // A claude-mux started from a Claude session would pass CLAUDECODE on, and claude refuses to start nested.
     const env = `env -u CLAUDECODE MAESTRO_ROLE=worker MAESTRO_ISSUE=${issue.number}${stopAtPr ? " MAESTRO_STOP_AT_PR=1" : ""}`;
     const command = `${env} ${(this.deps.workerCommand ?? defaultWorkerCommand)(issue.number, stopAtPr)}`;
-    const has = await this.deps.tmux(["has-session", "-t", `=${session}`]);
-    const args = has.ok
-      ? ["new-window", "-d", "-P", "-F", WINDOW_FORMAT, "-t", `=${session}:`, "-n", name, "-c", issue.root, command]
-      : ["new-session", "-d", "-P", "-F", WINDOW_FORMAT, "-s", session, "-n", name, "-c", issue.root, command];
-    const res = await this.deps.tmux(args);
-    const [server, window] = res.stdout.trim().split("\n")[0].split(" ");
-    if (!res.ok || !server || !window?.startsWith("@")) return null;
+    const line = await openWindow(this.deps.tmux, session, name, issue.root, command);
+    if (!line) return null;
+    const [server, window] = line.split(" ");
     return {
       repo: issue.repo,
       number: issue.number,

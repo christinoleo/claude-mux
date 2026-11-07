@@ -1,4 +1,6 @@
 import { join } from 'node:path';
+import { json } from '@sveltejs/kit';
+import { pageOriginAllowed } from '$shared/server/page-origin.js';
 import { getAllSessions, isSessionDead } from '$shared/db/sessions-json.js';
 import { CLAUDE_MUX_DIR } from '$shared/utils/paths.js';
 import { capturePaneContentAsync, isPaneShowingIdlePrompt, readPaneHold, stripAnsi } from '$shared/tmux/pane.js';
@@ -43,13 +45,29 @@ export function scheduler(): Scheduler | null {
 	return g.__claudeMuxScheduler ?? null;
 }
 
+/**
+ * The scheduler for a request that changes Triggers, or the refusal to send:
+ * a Trigger can start sessions on this machine, so only its own page or a
+ * peer's relay may ask, and only a server that runs the scheduler.
+ */
+export function schedulerFor(request: Request): Scheduler | Response {
+	if (!pageOriginAllowed(request.headers.get('origin'), request.headers.get('host'))) {
+		return json({ error: 'cross-origin request refused' }, { status: 403 });
+	}
+	return scheduler() ?? json({ error: 'This server runs no scheduler, so nothing would fire' }, { status: 409 });
+}
+
 export function startScheduler(): Scheduler {
 	if (g.__claudeMuxScheduler) return g.__claudeMuxScheduler;
 	const s = new Scheduler({
 		store: fileTriggerStore(join(CLAUDE_MUX_DIR, 'triggers.json')),
 		tmux: realTmux,
 		exitDir: join(CLAUDE_MUX_DIR, 'runs'),
-		room: (starting) => workerQueue()?.room(starting) ?? 'This server runs no worker queue',
+		// null is the queue's "yes", so it cannot stand for a missing queue too.
+		room: (starting) => {
+			const queue = workerQueue();
+			return queue ? queue.room(starting) : 'This server runs no worker queue';
+		},
 		sessions: runSessions,
 		capture: (window) => capturePaneContentAsync(window, true),
 		atPrompt: (raw) => isPaneShowingIdlePrompt(stripAnsi(raw)) && readPaneHold(raw) === null,

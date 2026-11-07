@@ -403,7 +403,7 @@ describe("event Triggers", () => {
     });
     expect(views.map((v) => v.id)).toEqual(["event:u/a:issue-ready", "event:u/a:push"]);
     const ready = views[0];
-    expect(ready).toMatchObject({ what: "session", editable: false });
+    expect(ready).toMatchObject({ what: "session", kind: "event" });
     expect(ready.runs.map((r) => [r.status, r.reason])).toEqual([
       ["running", "Started in queue-a:mw-7-thing"],
       ["skipped", "Another machine claimed it (m2)"],

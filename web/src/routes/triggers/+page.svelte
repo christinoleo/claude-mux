@@ -10,7 +10,8 @@
 	import { formatAgo } from '$lib/format';
 	import { apiBase, blockedReason, fleetStore, machineKey, machineName, type Machine } from '$lib/stores/fleet.svelte';
 	import { pastPath, sessionPath } from '$lib/session-route';
-	import type { RunStatus, RunView, Schedule, TriggerAction, TriggerView, Unit } from '$shared/server/triggers.js';
+	import type { RunStatus, RunView, TriggerAction, TriggerView } from '$shared/server/triggers.js';
+	import { DAY_NAMES, UNITS, type Schedule, type Unit } from '$shared/trigger-schedule.js';
 
 	/**
 	 * The Triggers screen (#202, decided in #184 and #166), one tab per
@@ -24,7 +25,6 @@
 
 	interface MachineTriggers {
 		running: boolean;
-		now: number;
 		triggers: TriggerView[];
 		projects: { repo: string; root: string }[];
 	}
@@ -85,8 +85,6 @@
 
 	// ── the form ──────────────────────────────────────────────────────────────
 
-	const UNITS: Unit[] = ['second', 'minute', 'hour', 'day'];
-	const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 	let showForm = $state(false);
 	let name = $state('');
 	let what = $state<TriggerAction>('session');
@@ -108,12 +106,11 @@
 	}
 
 	async function create(m: Machine) {
-		const repo = data[machineKey(m)]?.projects.find((p) => p.root === root)?.repo ?? null;
+		// The server names the project's repo from its root.
 		const ok = await send(m, '', 'POST', {
 			name,
 			what,
 			root: what === 'session' ? root : null,
-			repo: what === 'session' ? repo : null,
 			prompt,
 			when: schedule(),
 			limitMinutes: Number(limitMinutes),
@@ -128,15 +125,7 @@
 
 	// ── reading a Trigger ─────────────────────────────────────────────────────
 
-	const STATUS: Record<RunStatus, string> = {
-		ran: 'ran',
-		skipped: 'skipped',
-		running: 'running',
-		done: 'done',
-		'timed-out': 'timed out',
-		ended: 'ended',
-		failed: 'failed'
-	};
+	const statusLabel = (s: RunStatus) => s.replace('-', ' ');
 
 	function nextLine(t: TriggerView, now: number): string {
 		if (t.kind === 'event') return 'When the next read of GitHub finds one';
@@ -254,7 +243,7 @@
 								</span>
 							{:else if kind === 'weekly'}
 								<span class="inline">
-									{#each DAYS as day, i (day)}
+									{#each DAY_NAMES as day, i (day)}
 										<Toggle
 											size="sm"
 											variant="outline"
@@ -305,7 +294,7 @@
 									{t.name}
 								</button>
 								<span class="tag">{t.what === 'session' ? 'session' : 'rule'}</span>
-								{#if t.editable}
+								{#if t.kind === 'clock'}
 									<Button
 										size="sm"
 										variant="ghost"
@@ -320,7 +309,7 @@
 							</div>
 							<div class="sub">
 								{t.when}{t.repo ? ` · ${t.repo}` : ''} · {nextLine(t, clock.now)}
-								{#if last}· last {STATUS[last.status]} {formatAgo(last.at, clock.now)}{/if}
+								{#if last}· last {statusLabel(last.status)} {formatAgo(last.at, clock.now)}{/if}
 							</div>
 							{#if open[t.id]}
 								{#if t.prompt}<p class="prompt">{t.prompt}</p>{/if}
@@ -330,7 +319,7 @@
 								<ul class="runs">
 									{#each t.runs as r, i (`${r.at}-${i}`)}
 										<li>
-											<span class="status-tag {r.status}">{STATUS[r.status]}</span>
+											<span class="status-tag {r.status}">{statusLabel(r.status)}</span>
 											<span class="reason">{r.reason}</span>
 											<span class="when">{formatAgo(r.at, clock.now)}</span>
 											{#if r.link}
@@ -341,7 +330,7 @@
 										</li>
 									{/each}
 								</ul>
-								{#if t.editable}
+								{#if t.kind === 'clock'}
 									<div class="actions">
 										<Button
 											size="sm"
