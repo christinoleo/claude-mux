@@ -339,10 +339,6 @@ function runSessionName(root: string): string {
   return `runs-${(root.split("/").filter(Boolean).at(-1) ?? "home").replace(/[^A-Za-z0-9_-]/g, "-")}`;
 }
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-
 export class Scheduler {
   private file: TriggersFile;
   private readonly now: () => number;
@@ -471,12 +467,12 @@ export class Scheduler {
       const due = trigger.next;
       const passed = firingsBetween(trigger.when, due, now, trigger.createdAt);
       if (now - due > GRACE_MS) {
-        this.record(trigger, due, "skipped", `Missed ${plural(passed, "firing")} while the server was down`);
+        this.record(trigger, due, "skipped", "Missed while the server was down", passed);
       } else {
         if (trigger.what === "rule") this.record(trigger, due, "ran", "Recorded");
         else this.fireSession(trigger, due);
         // A tick that ran long, or came late, passes firings it cannot make up.
-        if (passed > 1) this.record(trigger, now, "skipped", `Missed ${plural(passed - 1, "firing")} while a tick ran late`);
+        if (passed > 1) this.record(trigger, now, "skipped", "Missed while a tick ran late", passed - 1);
       }
       trigger.next = nextFiring(trigger.when, now, trigger.createdAt);
       changed = true;
@@ -611,6 +607,7 @@ export class Scheduler {
     const now = this.now();
     let changed = false;
     const orphans = new Set<string>();
+    const closing: { run: Run; windowId: string }[] = [];
     for (const run of this.file.runs) {
       if (run.status !== "running" || !run.window) continue;
       const trigger = this.file.triggers.find((t) => t.id === run.trigger) ?? null;
@@ -655,11 +652,17 @@ export class Scheduler {
       if (!screen || !this.deps.atPrompt(screen)) continue;
       // Escape first, as #165 found safe: it closes whatever drew itself since the screen was read.
       await this.deps.tmux(["send-keys", "-t", windowId, "Escape"]);
+      closing.push({ run, windowId });
+    }
+    if (closing.length > 0) {
+      // One wait for every pane closing in this look, so a tick is held up once.
       await delay(ESCAPE_GAP_MS);
-      await this.deps.tmux(["send-keys", "-t", windowId, "-l", "/exit"]);
-      await this.deps.tmux(["send-keys", "-t", windowId, "Enter"]);
-      run.closingAt = now;
-      run.reason = "Finished: closing the session";
+      for (const { run, windowId } of closing) {
+        await this.deps.tmux(["send-keys", "-t", windowId, "-l", "/exit"]);
+        await this.deps.tmux(["send-keys", "-t", windowId, "Enter"]);
+        run.closingAt = now;
+        run.reason = "Finished: closing the session";
+      }
       changed = true;
     }
     if (orphans.size > 0) this.file.runs = this.file.runs.filter((r) => !orphans.has(r.id));
@@ -681,14 +684,16 @@ export class Scheduler {
     run.exitRetriedAt = now;
   }
 
-  private record(trigger: ClockTrigger, at: number, status: RunStatus, reason: string): Run {
-    const latest = this.file.runs.find((r) => r.trigger === trigger.id);
-    // A skip for the same reason as the one before it is the same entry, counted again.
+  /** Record a Run; a skip stands for `firings` firings. */
+  private record(trigger: ClockTrigger, at: number, status: RunStatus, reason: string, firings = 1): Run {
+    // A skip for the same reason as the last one, with only Runs that ran between them, is that entry counted again.
+    const latest = this.file.runs.find((r) => r.trigger === trigger.id && r.status !== "ran");
     if (status === "skipped" && latest?.status === "skipped" && latest.reason === reason) {
-      Object.assign(latest, { at, count: (latest.count ?? 1) + 1, endedAt: this.now() });
+      Object.assign(latest, { at, count: (latest.count ?? 1) + firings, endedAt: this.now() });
       return latest;
     }
     const run: Run = { id: newId("r", this.now()), trigger: trigger.id, at, status, reason };
+    if (firings > 1) run.count = firings;
     if (status !== "running") run.endedAt = this.now();
     this.file.runs.unshift(run);
     // Each Trigger keeps its own latest Runs and, apart from them, its latest skips; none still going is dropped.

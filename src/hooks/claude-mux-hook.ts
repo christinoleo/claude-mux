@@ -506,6 +506,8 @@ function handleSessionStart(input: HookInput): void {
       last_update: Date.now(),
       linked_to: linkedTo ?? existing?.linked_to ?? null,
       ...launch,
+      // A Run's session keeps its id across compact, clear and resume, whatever this hook could read.
+      run_id: launch.run_id ?? existing?.run_id ?? null,
     };
     writeSession(session);
   });
@@ -574,6 +576,8 @@ function changeSession(input: HookInput, change: (session: Session) => void, { t
   const exists = existsSync(getSessionPath(input.session_id));
   const tmuxTarget = tmux || !exists ? getTmuxTarget() : null;
   const fresh = exists ? null : newSession(input, tmuxTarget);
+  // `ps` runs here, never under the lock.
+  const launch = exists && readSession(input.session_id)?.maestro_role === undefined ? launchFields() : null;
   lockSession(input.session_id, () => {
     // Gone since the check above: the session ended, and must not come back.
     const session = readSession(input.session_id) ?? fresh;
@@ -581,7 +585,7 @@ function changeSession(input: HookInput, change: (session: Session) => void, { t
     // Sessions written before this field existed, and resumed sessions whose
     // file moved, pick it up on their next event.
     if (input.transcript_path) session.transcript_path = input.transcript_path;
-    if (session.maestro_role === undefined) Object.assign(session, launchFields());
+    if (session.maestro_role === undefined && launch) Object.assign(session, launch);
     session.tmux_target = tmuxTarget ?? session.tmux_target;
     holdForTest();
     change(session);

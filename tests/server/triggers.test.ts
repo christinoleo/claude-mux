@@ -432,7 +432,7 @@ describe("Scheduler", () => {
     await second.tick();
     const runs = second.runs(t.id);
     expect(runs.map((r) => r.status)).toEqual(["skipped", "ran"]);
-    expect(runs[0].reason).toBe("Missed 10 firings while the server was down");
+    expect(runs[0]).toMatchObject({ reason: "Missed while the server was down", count: 10 });
     // And it carries on from now, not from where it stopped.
     expect(second.triggers()[0].next).toBe(T0 + 12 * 60_000);
   });
@@ -586,18 +586,19 @@ describe("Scheduler", () => {
   });
 
   it("keeps the Runs that ran apart from a long run of skips", async () => {
+    const first = scheduler();
+    const t = first.create(rule({ when: { type: "every", n: 1, unit: "minute" } }));
+    // One Run that ran, under skips for reasons that differ each time.
+    store.file!.runs = [
+      ...Array.from({ length: RUNS_KEPT + 5 }, (_, i) => ({ id: `r-s${i}`, trigger: t.id, at: T0 - i, status: "skipped" as const, reason: `Held ${i}` })),
+      { id: "r-ran", trigger: t.id, at: T0 - 1_000, status: "ran" as const, reason: "Recorded" },
+    ];
     const s = scheduler();
-    const t = s.create(rule({ when: { type: "every", n: 1, unit: "minute" } }));
     now += 60_000;
     await s.tick();
-    // Skips with reasons that differ each time, as missed counts do.
-    for (let i = 0; i < RUNS_KEPT + 5; i++) {
-      now += 60_000 + GRACE_MS + 1 + i * 60_000;
-      await s.tick();
-    }
     const runs = s.runs(t.id);
     expect(runs.filter((r) => r.status === "skipped")).toHaveLength(RUNS_KEPT);
-    expect(runs.filter((r) => r.status === "ran")).toHaveLength(1);
+    expect(runs.filter((r) => r.status === "ran").map((r) => r.id)).toEqual([expect.any(String), "r-ran"]);
   });
 
   it("records the firings a tick that ran long passed", async () => {
@@ -606,10 +607,19 @@ describe("Scheduler", () => {
     now += 4_000;
     await s.tick();
     expect(s.runs(t.id).map((r) => [r.status, r.reason])).toEqual([
-      ["skipped", "Missed 3 firings while a tick ran late"],
+      ["skipped", "Missed while a tick ran late"],
       ["ran", "Recorded"],
     ]);
+    expect(s.runs(t.id)[0].count).toBe(3);
     expect(t.next).toBe(now + 1_000);
+    // Slow again: counted into the same entry, the Runs that ran between left as they are.
+    now += 3_000;
+    await s.tick();
+    expect(s.runs(t.id).map((r) => [r.status, r.count])).toEqual([
+      ["ran", undefined],
+      ["skipped", 5],
+      ["ran", undefined],
+    ]);
   });
 
   it("records a paused once Trigger whose date passed", async () => {

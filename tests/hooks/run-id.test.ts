@@ -62,6 +62,12 @@ describe("hook: run_id", () => {
     expect(session("s3").run_id).toBeNull();
   });
 
+  it("keeps the Run's id when a later SessionStart cannot read it", () => {
+    runHook({ session_id: "s6", cwd: home, hook_event_name: "SessionStart", source: "startup" }, "r-abc123");
+    runHook({ session_id: "s6", cwd: home, hook_event_name: "SessionStart", source: "compact" }, "r-abc123", { shell: false });
+    expect(session("s6").run_id).toBe("r-abc123");
+  });
+
   it("records none for a claude that the Run's claude started", () => {
     runHook({ session_id: "s4", cwd: home, hook_event_name: "SessionStart", source: "startup" }, "r-abc123", { nested: true });
     expect(session("s4").run_id).toBeNull();
