@@ -15,9 +15,11 @@
 		 * on (iOS drops the copy callout on any DOM mutation under a selection).
 		 */
 		frozen?: boolean;
+		/** Wrap long lines (true) or keep the pane's columns and let the parent scroll (false). */
+		wrap?: boolean;
 	}
 
-	let { history, historyStart, screen, themed = true, frozen = false }: Props = $props();
+	let { history, historyStart, screen, themed = true, frozen = false, wrap = true }: Props = $props();
 
 	let snapHistory = $state<string[]>([]);
 	let snapStart = $state(0);
@@ -43,7 +45,7 @@
 	);
 </script>
 
-<pre class="terminal-view" class:themed>{#each shownHistory as line, i (shownStart + i)}{#if themed}{@html ansiLineToHtml(line)}{:else}{stripAnsi(line)}{/if}{'\n'}{/each}{#if themed}{@html screenHtml}{:else}{screenHtml}{/if}</pre>
+<pre class="terminal-view" class:themed class:nowrap={!wrap}>{#each shownHistory as line, i (shownStart + i)}{#if themed}{@html ansiLineToHtml(line)}{:else}{stripAnsi(line)}{/if}{'\n'}{/each}{#if themed}{@html screenHtml}{:else}{screenHtml}{/if}</pre>
 
 <style>
 	.terminal-view {
@@ -57,15 +59,9 @@
 		color: #fff;
 	}
 
-	.terminal-view {
-		margin: 0;
-		font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-		font-size: 13px;
-		line-height: 1.4;
-		white-space: pre-wrap;
-		word-break: break-word;
-		background: #000;
-		color: #fff;
+	.terminal-view.nowrap {
+		white-space: pre;
+		word-break: normal;
 	}
 
 	/* ansi_up class-based colors */

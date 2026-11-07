@@ -10,6 +10,7 @@
 	import DialogCard from '$lib/components/DialogCard.svelte';
 	import DialogHoldCard from '$lib/components/DialogHoldCard.svelte';
 	import LoginCard from '$lib/components/LoginCard.svelte';
+	import PaneDialogCard from '$lib/components/PaneDialogCard.svelte';
 	import RewindCard from '$lib/components/RewindCard.svelte';
 	import type { SubagentPayload } from '$lib/stores/transcript.svelte';
 	import { LIVE_ENTRY_PREFIX } from '$lib/stores/transcript.svelte';
@@ -25,6 +26,7 @@
 	import { foldRewound } from '$shared/transcript/forks.js';
 	import { formatSpinnerElapsed } from '$lib/format';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Button } from '$lib/components/ui/button';
 	import {
 		parseGrillRound,
 		composeGrillReply,
@@ -49,6 +51,8 @@
 		dialogHold = null,
 		paneLogin = null,
 		paneRewind = null,
+		paneScreen = [],
+		onWantScreen,
 		onRewind,
 		subagents = {},
 		onLoadSubagent,
@@ -91,12 +95,16 @@
 		paneLogin?: LoginScreen;
 		/** Claude Code's rewind dialog, which only the pane shows. */
 		paneRewind?: RewindScreen;
+		/** The pane's visible rows (ANSI), streamed only while `onWantScreen` last said true. */
+		paneScreen?: string[];
+		/** Asks the page for the pane's screen (true) or lets it go (false); without it no terminal is drawn here. */
+		onWantScreen?: (want: boolean) => void;
 		/** Works the rewind dialog; without it prompts offer no rewind. Resolves false when it failed. */
 		onRewind?: (action: RewindAction) => Promise<boolean>;
 		/** Sends a tmux key sequence (space-separated) to answer a dialog. */
 		onSendKeys?: (keys: string) => Promise<void> | void;
 		/** Types text into the pane as-is, for a dialog's free-text row or notes. */
-		onSendPaneText?: (text: string) => Promise<void> | void;
+		onSendPaneText?: (text: string) => Promise<boolean | void> | boolean | void;
 		/** Subagent work, keyed by the Task tool_use id that spawned it. */
 		subagents?: Record<string, SubagentPayload>;
 		/** A reader opened an agent's card: fetch everything it ran and reported. */
@@ -422,6 +430,39 @@
 	});
 	/** The pane's dialog at the foot, when it is not the live question's. */
 	const footDialog = $derived(liveAskId === null && paneChoice !== null && !holdCard);
+
+	// ── when no card can be built ────────────────────────────────────────
+	// The hooks say the session waits, and nothing on its screen made a card.
+	// After a beat (the card usually lands on the next poll) the terminal is
+	// drawn here instead, so the dialog can still be answered from a phone.
+
+	/** How long a dialog may go without a card before the terminal stands in; under the 2s promised. */
+	const TERMINAL_AFTER_MS = 1500;
+	const noCard = $derived(
+		canAnswer && !dialogClosed && !liveAskId && !footDialog && !holdCard && !paneLogin && !paneRewind
+	);
+	/** No card has come for `TERMINAL_AFTER_MS`, so the terminal stands in. */
+	let terminalFallback = $state(false);
+	$effect(() => {
+		terminalFallback = false;
+		if (!noCard || !onWantScreen) return;
+		const timer = setTimeout(() => (terminalFallback = true), TERMINAL_AFTER_MS);
+		return () => clearTimeout(timer);
+	});
+	/** A person opened the terminal over a card, for what the card does not offer. */
+	let terminalAsked = $state(false);
+	$effect(() => {
+		// Asked for one dialog, not for the next.
+		dialogKey;
+		terminalAsked = false;
+	});
+	const showTerminal = $derived(terminalFallback || (terminalAsked && canAnswer && onWantScreen != null));
+	// The screen is streamed only while the terminal is drawn: most cards land
+	// within a poll, and asking sooner would attach the terminal for every dialog.
+	$effect(() => {
+		onWantScreen?.(showTerminal);
+		return () => onWantScreen?.(false);
+	});
 
 	/**
 	 * The turns claude-mux delivered from its queue or as a steer, by entry id.
@@ -798,7 +839,9 @@
 					permission={sessionState === 'permission'}
 					closed={entry.id !== liveAskId || dialogClosed}
 					onKeys={(keys) => onSendKeys?.(keys)}
-					onText={(text) => onSendPaneText?.(text)}
+					onText={async (text) => {
+						await onSendPaneText?.(text);
+					}}
 					onSubmitted={() => (submitted = entry.id)}
 					{dictateTarget}
 				/>
@@ -1039,7 +1082,9 @@
 			choice={paneChoice}
 			permission={sessionState === 'permission'}
 			onKeys={(keys) => onSendKeys?.(keys)}
-			onText={(text) => onSendPaneText?.(text)}
+			onText={async (text) => {
+				await onSendPaneText?.(text);
+			}}
 			{dictateTarget}
 		/>
 	{/if}
@@ -1048,12 +1093,23 @@
 		<LoginCard
 			login={paneLogin}
 			onKeys={(keys) => onSendKeys?.(keys)}
-			onText={(text) => onSendPaneText?.(text)}
+			onText={async (text) => {
+				await onSendPaneText?.(text);
+			}}
 		/>
 	{/if}
 
 	{#if paneRewind && onRewind}
 		<RewindCard screen={paneRewind} {onRewind} />
+	{/if}
+
+	{#if showTerminal}
+		<PaneDialogCard
+			screen={paneScreen}
+			onKeys={(keys) => onSendKeys?.(keys)}
+			onText={(text) => onSendPaneText?.(text)}
+			onClose={terminalFallback ? null : () => (terminalAsked = false)}
+		/>
 	{/if}
 
 	<!-- Live status: driven by hooks, which fire the instant a tool starts;
@@ -1088,6 +1144,8 @@
 			<span class="live-text">
 				{#if dialogClosed}
 					Answer sent — waiting for Claude to carry on
+				{:else if terminalFallback}
+					Waiting for your answer — answer in the terminal above ↑
 				{:else if liveAskId || footDialog || holdCard}
 					Waiting for your answer — answer in the card above ↑
 				{:else if state === 'permission'}
@@ -1096,6 +1154,11 @@
 					Question incoming… answer here when it appears, or in the terminal view
 				{/if}
 			</span>
+			{#if onWantScreen && !showTerminal && !dialogClosed}
+				<Button variant="ghost" size="sm" class="ml-auto h-7 px-2 text-xs" onclick={() => (terminalAsked = true)}>
+					<iconify-icon icon="mdi:console"></iconify-icon>Terminal
+				</Button>
+			{/if}
 		</div>
 	{/if}
 
