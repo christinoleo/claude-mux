@@ -318,8 +318,13 @@ export function readPaneHold(raw: string): PaneHold | null {
   const clean = stripAnsi(raw);
   if (isPaneShowingSpinner(clean) || isBangRunning(clean)) return "working";
   if (isDialogDrawn(clean)) return "dialog";
+  return readTypedText(raw) ? "typed" : null;
+}
+
+/** What a person or a key typed into the prompt box, trimmed; null when it holds nothing typed. Needs a capture with colour. */
+export function readTypedText(raw: string): string | null {
   const box = readPromptBox(raw);
-  return box?.kind === "typed" && box.text.trim() ? "typed" : null;
+  return box?.kind === "typed" && box.text.trim() ? box.text.trim() : null;
 }
 
 /**

@@ -28,12 +28,14 @@
  */
 
 import { readFileSync, mkdirSync, rmSync } from "fs";
+import { setTimeout as delay } from "timers/promises";
 import { join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { shellQuote } from "../utils/shell.js";
 import { listWindows, openWindow, slug, type TmuxRunner } from "./worker-queue.js";
 import { STOP_AT_PR } from "./github.js";
 import { RELEASE_REPO } from "./github-events.js";
+import { isDialogState } from "../tmux/pane.js";
 import { DAY_NAMES, UNITS, UNIT_MS, type Schedule, type Unit } from "../trigger-schedule.js";
 
 // ── schedules ────────────────────────────────────────────────────────────────
@@ -109,12 +111,14 @@ function nextLocalDay(n: number, after: number, anchor: number): number {
   return firing(k);
 }
 
+/** How much longer than 24 hours a local day can be, across a change from summer time. */
+const DST_SLACK_MS = 3_600_000;
+
 /** The longest a schedule can rightly wait between firings; null for a `once`, which waits for its date. */
 function longestWait(schedule: Schedule): number | null {
   if (schedule.type === "once") return null;
-  // A local day can be an hour longer.
-  if (schedule.type === "every") return schedule.n * UNIT_MS[schedule.unit] + (schedule.unit === "day" ? 3_600_000 : 0);
-  return 7 * UNIT_MS.day + 3_600_000;
+  if (schedule.type === "every") return schedule.n * UNIT_MS[schedule.unit] + (schedule.unit === "day" ? DST_SLACK_MS : 0);
+  return 7 * UNIT_MS.day + DST_SLACK_MS;
 }
 
 /** How many firings fell in `[from, to]`, counting `from` itself; capped, since a second's rule could miss days of them. */
@@ -421,6 +425,7 @@ export class Scheduler {
         let changed = this.fireDue();
         // On disk before any window opens: a restart from here on fails the Run and moves on, never opens it twice.
         if (changed) this.save();
+        changed = false;
         const now = this.now();
         const watch = this.file.runs.some((r) => r.status === "running");
         if (watch && now - this.lastRunCheck >= RUN_CHECK_MS) {
@@ -464,15 +469,14 @@ export class Scheduler {
       changed = this.realign(trigger, now) || changed;
       if (trigger.next === null || trigger.next > now) continue;
       const due = trigger.next;
+      const passed = firingsBetween(trigger.when, due, now, trigger.createdAt);
       if (now - due > GRACE_MS) {
-        const missed = firingsBetween(trigger.when, due, now, trigger.createdAt);
-        this.record(trigger, due, "skipped", `Missed ${plural(missed, "firing")} while the server was down`);
+        this.record(trigger, due, "skipped", `Missed ${plural(passed, "firing")} while the server was down`);
       } else {
         if (trigger.what === "rule") this.record(trigger, due, "ran", "Recorded");
         else this.fireSession(trigger, due);
         // A tick that ran long, or came late, passes firings it cannot make up.
-        const late = firingsBetween(trigger.when, due, now, trigger.createdAt) - 1;
-        if (late > 0) this.record(trigger, now, "skipped", `Missed ${plural(late, "firing")} while a tick ran late`);
+        if (passed > 1) this.record(trigger, now, "skipped", `Missed ${plural(passed - 1, "firing")} while a tick ran late`);
       }
       trigger.next = nextFiring(trigger.when, now, trigger.createdAt);
       changed = true;
@@ -529,18 +533,17 @@ export class Scheduler {
       if (!now || now.paused) {
         Object.assign(run, { status: "skipped", reason: now ? "Paused before it started" : "Deleted before it started", endedAt: this.now() });
         if (!now) this.file.runs = this.file.runs.filter((r) => r !== run);
-        continue;
-      }
-      const started = await this.spawn(trigger, run);
-      if (started) {
-        Object.assign(run, started, { reason: "Running" });
       } else {
-        Object.assign(run, { status: "failed", reason: "The session could not start", endedAt: this.now() });
+        const started = await this.spawn(trigger, run);
+        if (started) {
+          Object.assign(run, started, { reason: "Running" });
+        } else {
+          Object.assign(run, { status: "failed", reason: "The session could not start", endedAt: this.now() });
+        }
       }
       // Each window on disk as soon as it is known, before the next start is awaited.
       this.save();
     }
-    this.save();
   }
 
   private exitFile(run: Pick<Run, "id">): string {
@@ -637,7 +640,7 @@ export class Scheduler {
         continue;
       }
       if (run.closingAt) {
-        await this.confirmExit(run, windowId, session, now);
+        await this.confirmExit(run, run.closingAt, windowId, session, now);
         continue;
       }
       if (!session) continue;
@@ -652,7 +655,7 @@ export class Scheduler {
       if (!screen || !this.deps.atPrompt(screen)) continue;
       // Escape first, as #165 found safe: it closes whatever drew itself since the screen was read.
       await this.deps.tmux(["send-keys", "-t", windowId, "Escape"]);
-      await new Promise((resolve) => setTimeout(resolve, ESCAPE_GAP_MS));
+      await delay(ESCAPE_GAP_MS);
       await this.deps.tmux(["send-keys", "-t", windowId, "-l", "/exit"]);
       await this.deps.tmux(["send-keys", "-t", windowId, "Enter"]);
       run.closingAt = now;
@@ -668,10 +671,10 @@ export class Scheduler {
    * typed just before it, leaving `/exit` in the box, so the box is read back
    * as the send route does, and one more Enter sent when it still holds it.
    */
-  private async confirmExit(run: Run, windowId: string, session: RunSession | undefined, now: number): Promise<void> {
-    if (run.exitRetriedAt || !run.closingAt || now - run.closingAt < RUN_CHECK_MS) return;
+  private async confirmExit(run: Run, closingAt: number, windowId: string, session: RunSession | undefined, now: number): Promise<void> {
+    if (run.exitRetriedAt || now - closingAt < RUN_CHECK_MS) return;
     // A dialog that opened meanwhile would take the Enter as its answer.
-    if (session && (session.state === "waiting" || session.state === "permission")) return;
+    if (isDialogState(session?.state)) return;
     const screen = await this.deps.capture(windowId);
     if (!screen || this.deps.typed(screen) !== "/exit") return;
     await this.deps.tmux(["send-keys", "-t", windowId, "Enter"]);

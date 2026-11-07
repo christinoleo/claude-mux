@@ -377,24 +377,17 @@ function getClaudePid(): number {
     for (let i = 0; i < 10; i++) {
       if (pid <= 1) break;
 
-      const psOutput = execSync(`ps -p ${pid} -o ppid=,comm=,args=`, {
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      }).trim();
+      const ps = processInfo(pid);
+      debugLog(`getClaudePid: level ${i}, pid=${pid}, ps output: ${ps?.line}`);
+      if (!ps) break;
 
-      debugLog(`getClaudePid: level ${i}, pid=${pid}, ps output: ${psOutput}`);
-
-      const isClaudeCode = isClaudeProcess(psOutput);
-
-      if (isClaudeCode) {
+      if (isClaudeProcess(ps.line)) {
         debugLog(`getClaudePid: found Claude at pid=${pid}`);
         return pid;
       }
 
-      const ppid = parseInt(psOutput.split(/\s+/)[0], 10);
-      if (isNaN(ppid) || ppid <= 1) break;
-
-      pid = ppid;
+      if (ps.ppid <= 1) break;
+      pid = ps.ppid;
     }
   } catch (e) {
     debugLog(`getClaudePid: error - ${e}`);
@@ -493,6 +486,7 @@ function handleSessionStart(input: HookInput): void {
   deleteSessionsByPid(pid, input.session_id);
 
   const gitRoot = getGitRoot(input.cwd);
+  const launch = launchFields(pid);
 
   lockSession(input.session_id, () => {
     const existing = readSession(input.session_id);
@@ -511,7 +505,7 @@ function handleSessionStart(input: HookInput): void {
       display_name: keepName ? (existing?.display_name ?? null) : null,
       last_update: Date.now(),
       linked_to: linkedTo ?? existing?.linked_to ?? null,
-      ...launchFields(),
+      ...launch,
     };
     writeSession(session);
   });
@@ -524,14 +518,14 @@ function handleSessionStart(input: HookInput): void {
  * working without anyone asking GitHub; a Trigger's Run (src/server/triggers.ts)
  * sets CLAUDE_MUX_RUN, so the server can find and end it.
  */
-function launchFields(): Pick<Session, "maestro_role" | "maestro_issue" | "run_id"> {
+function launchFields(claudePid = getClaudePid()): Pick<Session, "maestro_role" | "maestro_issue" | "run_id"> {
   const role = process.env.MAESTRO_ROLE || null;
   const issue = Number.parseInt(process.env.MAESTRO_ISSUE ?? "", 10);
   const run = process.env.CLAUDE_MUX_RUN;
   return {
     maestro_role: role,
     maestro_issue: role && Number.isFinite(issue) ? issue : null,
-    run_id: run && /^[a-z0-9-]+$/.test(run) && startedByRun() ? run : null,
+    run_id: run && /^[a-z0-9-]+$/.test(run) && startedByRun(claudePid) ? run : null,
   };
 }
 
@@ -541,9 +535,8 @@ function launchFields(): Pick<Session, "maestro_role" | "maestro_issue" | "run_i
  * shell names itself in CLAUDE_MUX_RUN_SH and the claude counts only when that
  * shell is reached going up from it with no other claude in between.
  */
-function startedByRun(): boolean {
+function startedByRun(claude: number): boolean {
   const shell = Number.parseInt(process.env.CLAUDE_MUX_RUN_SH ?? "", 10);
-  const claude = getClaudePid();
   if (!Number.isInteger(shell) || shell <= 1 || claude <= 1) return false;
   for (let pid = claude, i = 0; i < 10; i++) {
     const ps = processInfo(pid);
@@ -615,10 +608,11 @@ function newSession(input: HookInput, tmuxTarget: string | null): Session {
   }
 
   const gitRoot = getGitRoot(input.cwd);
+  const pid = getClaudePid();
   return {
     v: SCHEMA_VERSION,
     id: input.session_id,
-    pid: getClaudePid(),
+    pid,
     cwd: input.cwd,
     transcript_path: input.transcript_path ?? null,
     git_root: gitRoot,
@@ -628,7 +622,7 @@ function newSession(input: HookInput, tmuxTarget: string | null): Session {
     prompt_text: null,
     last_update: Date.now(),
     linked_to: linkedTo,
-    ...launchFields(),
+    ...launchFields(pid),
   };
 }
 
