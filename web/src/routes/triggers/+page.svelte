@@ -25,6 +25,7 @@
 
 	interface MachineTriggers {
 		running: boolean;
+		lastError: string | null;
 		triggers: TriggerView[];
 		projects: { repo: string; root: string }[];
 	}
@@ -133,7 +134,12 @@
 		if (t.next === null) return 'Nothing left to fire';
 		const ms = t.next - now;
 		if (ms < 60_000) return `Next in ${Math.max(0, Math.round(ms / 1000))}s`;
-		return `Next ${new Date(t.next).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+		return `Next ${dateTime(t.next)}`;
+	}
+
+	/** A moment in the reader's own time zone. */
+	function dateTime(at: number): string {
+		return new Date(at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 	}
 
 	function linkHref(m: Machine, link: NonNullable<RunView['link']>): string {
@@ -172,6 +178,7 @@
 		{#if blocked}
 			<p class="error" role="status">{blocked}</p>
 		{:else if d}
+			{#if d.lastError}<p class="error" role="status">The scheduler's last tick failed: {d.lastError}</p>{/if}
 			{#if !d.running}
 				<p class="status">
 					This server runs no scheduler, so nothing fires here (a dev server, unless started with CLAUDE_MUX_EVENTS=1).
@@ -210,15 +217,18 @@
 							</span>
 						</div>
 						{#if what === 'session'}
-							<label class="field">
+							<div class="field">
 								<span>Project</span>
-								<select bind:value={root} required>
-									<option value="" disabled>Choose…</option>
+								<span class="choices" role="radiogroup" aria-label="Project">
 									{#each d.projects as p (p.root)}
-										<option value={p.root}>{p.repo}</option>
+										<Toggle size="sm" variant="outline" pressed={root === p.root} onPressedChange={() => (root = p.root)} title={p.root}
+											>{p.repo}</Toggle
+										>
+									{:else}
+										<span class="quiet">No project here has a GitHub remote.</span>
 									{/each}
-								</select>
-							</label>
+								</span>
+							</div>
 							<label class="field">
 								<span>Prompt</span>
 								<Textarea bind:value={prompt} rows={4} placeholder="What the session should do" required />
@@ -237,9 +247,11 @@
 							{#if kind === 'every'}
 								<span class="inline">
 									<Input type="number" min="1" bind:value={every} class="num" aria-label="How many" />
-									<select bind:value={unit} aria-label="Unit">
-										{#each UNITS as u (u)}<option value={u}>{u}s</option>{/each}
-									</select>
+									<span class="choices" role="radiogroup" aria-label="Unit">
+										{#each UNITS as u (u)}
+											<Toggle size="sm" variant="outline" pressed={unit === u} onPressedChange={() => (unit = u)}>{u}s</Toggle>
+										{/each}
+									</span>
 								</span>
 							{:else if kind === 'weekly'}
 								<span class="inline">
@@ -252,6 +264,7 @@
 										>
 									{/each}
 									<Input type="time" bind:value={time} class="time" aria-label="Time" />
+									<span class="quiet">{machineName(current)}'s time</span>
 								</span>
 							{:else}
 								<Input type="datetime-local" bind:value={onceAt} required aria-label="Date and time" />
@@ -308,7 +321,7 @@
 								{/if}
 							</div>
 							<div class="sub">
-								{t.when}{t.repo ? ` · ${t.repo}` : ''} · {nextLine(t, clock.now)}
+								{t.when}{t.onceAt ? `, ${dateTime(t.onceAt)}` : ''}{t.repo ? ` · ${t.repo}` : ''} · {nextLine(t, clock.now)}
 								{#if last}· last {statusLabel(last.status)} {formatAgo(last.at, clock.now)}{/if}
 							</div>
 							{#if open[t.id]}
@@ -434,18 +447,6 @@
 	}
 	.inline :global(.time) {
 		width: 7.5em;
-	}
-	select {
-		height: 32px;
-		padding: 0 8px;
-		border: 1px solid var(--line);
-		border-radius: 6px;
-		background: transparent;
-		color: var(--ink);
-		font: inherit;
-	}
-	select option {
-		background: #1c1c1e;
 	}
 	.actions {
 		display: flex;

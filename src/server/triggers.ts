@@ -150,6 +150,10 @@ export interface Run {
   endedAt?: number;
   /** When `/exit` was typed. */
   closingAt?: number;
+  /** A session Run's limit, kept on the Run so it holds after its Trigger is deleted. */
+  limitMinutes?: number;
+  /** Why the server killed its window, when it did: no exit code is written then. */
+  killed?: "limit" | "close";
 }
 
 export interface TriggersFile {
@@ -211,13 +215,15 @@ export interface TriggerInput {
 }
 
 /** A Trigger as the form sends it, checked; a string says what is wrong. */
-export function parseTriggerInput(raw: unknown): TriggerInput | string {
+export function parseTriggerInput(raw: unknown, now: number = Date.now()): TriggerInput | string {
   if (!raw || typeof raw !== "object") return "a trigger must be an object";
   const r = raw as Record<string, unknown>;
   const name = typeof r.name === "string" ? r.name.trim() : "";
   if (!name || name.length > 80) return "a name of up to 80 characters is needed";
   const when = parseSchedule(r.when);
   if (typeof when === "string") return when;
+  // It would never fire, and the screen would only say there is nothing left to fire.
+  if (when.type === "once" && when.at <= now) return "that date has already passed";
   if (!(TRIGGER_ACTIONS as readonly unknown[]).includes(r.what)) return "what must be rule or session";
   const what = r.what as TriggerAction;
   const prompt = typeof r.prompt === "string" ? r.prompt.trim() : "";
@@ -303,6 +309,8 @@ export class Scheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking: Promise<void> | null = null;
   private lastRunCheck = 0;
+  /** The last thing a tick failed at, for the screen. */
+  lastError: string | null = null;
 
   constructor(private readonly deps: SchedulerDeps) {
     this.now = deps.now ?? Date.now;
@@ -379,11 +387,19 @@ export class Scheduler {
         const watch = this.file.runs.some((r) => r.status === "running");
         if (watch && now - this.lastRunCheck >= RUN_CHECK_MS) {
           this.lastRunCheck = now;
-          changed = (await this.checkRuns()) || changed;
+          try {
+            changed = (await this.checkRuns()) || changed;
+          } catch (err) {
+            // A failed look at tmux must not keep the starts below from happening.
+            this.lastError = (err as Error).message;
+          }
         }
-        if (changed) this.save();
         // Spawning is async; fireDue only queued the starts.
         await this.startQueued();
+        if (changed) this.save();
+      } catch (err) {
+        // Called as `void tick()` from a timer: nothing above may reach the process as an unhandled rejection.
+        this.lastError = (err as Error).message;
       } finally {
         this.ticking = null;
       }
@@ -428,6 +444,7 @@ export class Scheduler {
       return;
     }
     const run = this.record(trigger, due, "running", "Starting");
+    run.limitMinutes = trigger.limitMinutes;
     this.queued.push({ trigger, run });
   }
 
@@ -436,6 +453,13 @@ export class Scheduler {
     const queued = this.queued;
     this.queued = [];
     for (const { trigger, run } of queued) {
+      // A pause or a delete may have landed while an earlier start in this loop was awaited.
+      const now = this.file.triggers.find((t) => t.id === trigger.id);
+      if (!now || now.paused) {
+        Object.assign(run, { status: "skipped", reason: now ? "Paused before it started" : "Deleted before it started", endedAt: this.now() });
+        if (!now) this.file.runs = this.file.runs.filter((r) => r !== run);
+        continue;
+      }
       const started = await this.spawn(trigger, run);
       if (started) {
         Object.assign(run, started, { reason: "Running" });
@@ -479,10 +503,14 @@ export class Scheduler {
   }
 
   /** How a Run whose window is gone ended, told by the exit code its pane wrote. */
-  private finish(run: Run, limitMinutes: number | null): void {
+  private finish(run: Run): void {
     const code = this.exitCode(run);
+    const limitMinutes = run.limitMinutes ?? null;
     run.endedAt = this.now();
-    if (code === 124 || code === 137) {
+    if (code === null && run.killed === "close") {
+      run.status = "ended";
+      run.reason = "Finished, but the session did not close after /exit and was killed";
+    } else if (code === 124 || code === 137 || (code === null && run.killed === "limit")) {
       run.status = "timed-out";
       run.reason = limitMinutes ? `Stopped at its ${limitMinutes}-minute limit` : "Stopped at its time limit";
     } else if (code === 0 || code === null) {
@@ -505,6 +533,7 @@ export class Scheduler {
     const sessions = this.deps.sessions();
     const now = this.now();
     let changed = false;
+    const orphans = new Set<string>();
     for (const run of this.file.runs) {
       if (run.status !== "running" || !run.window) continue;
       const trigger = this.file.triggers.find((t) => t.id === run.trigger) ?? null;
@@ -517,17 +546,20 @@ export class Scheduler {
       }
       if (!windows) continue;
       if (!windows.has(run.window)) {
-        this.finish(run, trigger?.limitMinutes ?? null);
+        this.finish(run);
+        // A Run whose Trigger was deleted while it went has nowhere to be shown.
+        if (!trigger) orphans.add(run.id);
         changed = true;
         continue;
       }
       const windowId = run.window.split(" ")[1];
-      const limit = (trigger?.limitMinutes ?? DEFAULT_LIMIT_MINUTES) * 60_000;
-      if (
-        (run.closingAt && now - run.closingAt > CLOSE_WAIT_MS) ||
-        now - run.at > limit + LIMIT_SLACK_MS
-      ) {
+      const limit = (run.limitMinutes ?? trigger?.limitMinutes ?? DEFAULT_LIMIT_MINUTES) * 60_000;
+      const kill: Run["killed"] =
+        run.closingAt && now - run.closingAt > CLOSE_WAIT_MS ? "close" : now - run.at > limit + LIMIT_SLACK_MS ? "limit" : undefined;
+      if (kill) {
         await this.deps.tmux(["kill-window", "-t", windowId]);
+        if (run.killed !== kill) changed = true;
+        run.killed = kill;
         continue;
       }
       if (run.closingAt || !session) continue;
@@ -546,6 +578,7 @@ export class Scheduler {
       run.reason = "Finished: closing the session";
       changed = true;
     }
+    if (orphans.size > 0) this.file.runs = this.file.runs.filter((r) => !orphans.has(r.id));
     return changed;
   }
 
@@ -584,6 +617,8 @@ export interface TriggerView {
   next: number | null;
   runs: RunView[];
   prompt?: string;
+  /** A `once` Trigger's date. */
+  onceAt?: number;
 }
 
 export interface RunView {
@@ -600,7 +635,8 @@ function describeSchedule(s: Schedule): string {
     const days = s.days.length === 7 ? "Every day" : s.days.join(",") === "1,2,3,4,5" ? "Weekdays" : s.days.map((d) => DAY_NAMES[d]).join(", ");
     return `${days} at ${s.time}`;
   }
-  return `Once, ${new Date(s.at).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+  // The date itself is drawn by the page, in the reader's own time zone, from the view's `onceAt`.
+  return "Once";
 }
 
 /** Where a Run can be looked at: its session's page while it runs, its transcript after. */
@@ -621,6 +657,7 @@ export function clockTriggerView(trigger: ClockTrigger, runs: readonly Run[]): T
     root: trigger.root,
     paused: trigger.paused,
     next: trigger.paused ? null : trigger.next,
+    onceAt: trigger.when.type === "once" ? trigger.when.at : undefined,
     prompt: trigger.prompt,
     runs: runs.map((r) => ({
       at: r.at,
@@ -642,8 +679,10 @@ const EVENT_NAMES: Record<string, string> = { "issue-ready": "Issue marked ready
 
 /** What the queue's note says a Run of an issue's event did. */
 function queueStatus(what: string): RunStatus {
-  if (what.startsWith("Started")) return "running";
+  // Each note is a moment: a start is shown as having run, and its ending as a note of its own.
+  if (what.startsWith("Started")) return "ran";
   if (what.startsWith("Closed")) return "done";
+  if (what.startsWith("Worker ended")) return "ended";
   if (/could not|disappeared|asked for help/i.test(what)) return "failed";
   return "skipped";
 }

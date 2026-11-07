@@ -25,6 +25,7 @@ function snapshot(projects = eventProjectRows(projectReports(getSavedProjects())
 	});
 	return {
 		running: s !== null,
+		lastError: s?.lastError ?? null,
 		triggers: [...clock, ...events],
 		projects: projects.map((p) => ({ repo: p.repo, root: p.root }))
 	};

@@ -135,6 +135,11 @@ describe("schedules", () => {
     expect(parseTriggerInput({ ...session(), limitMinutes: undefined, stopAtPr: undefined })).toMatchObject({ limitMinutes: 45, stopAtPr: true });
   });
 
+  it("refuses a once date that has passed", () => {
+    expect(parseTriggerInput(rule({ when: { type: "once", at: T0 - 1 } }), T0)).toMatch(/passed/);
+    expect(parseTriggerInput(rule({ when: { type: "once", at: T0 + 1 } }), T0)).toMatchObject({ what: "rule" });
+  });
+
   it("tells an unattended session so, and passes stop-at-pr on", () => {
     expect(runPrompt({ prompt: "Do it", name: "X", stopAtPr: true })).toMatch(/unattended[\s\S]*stop-at-pr/);
     expect(runPrompt({ prompt: "Do it", name: "X", stopAtPr: false })).not.toMatch(/stop-at-pr/);
@@ -318,7 +323,84 @@ describe("Scheduler", () => {
     expect(tmux.killed).toEqual(["@1"]);
     now += RUN_CHECK_MS;
     await s.tick();
-    expect(s.runs(t.id)[0]).toMatchObject({ status: "ended" });
+    expect(s.runs(t.id)[0]).toMatchObject({ status: "ended", reason: expect.stringMatching(/did not close after \/exit/) });
+  });
+
+  it("records a Run it had to kill at its limit as timed out, by the limit the Run started with", async () => {
+    const s = scheduler();
+    const t = s.create(session({ limitMinutes: 240 }));
+    now += 3_600_000;
+    await s.tick();
+    // Deleted while it runs: the Run keeps its own limit, and is followed to its end.
+    s.remove(t.id);
+    now += 60 * 60_000;
+    await s.tick();
+    expect(tmux.killed).toEqual([]);
+    now += 182 * 60_000;
+    await s.tick();
+    expect(tmux.killed).toEqual(["@1"]);
+    // Gone, and with no Trigger left to show it under, it is dropped.
+    expect(store.file!.runs).toHaveLength(1);
+    now += RUN_CHECK_MS;
+    await s.tick();
+    expect(store.file!.runs).toHaveLength(0);
+  });
+
+  it("records a killed Run as timed out when its Trigger is still there", async () => {
+    const s = scheduler();
+    const t = s.create(session({ when: { type: "every", n: 1, unit: "day" }, limitMinutes: 10 }));
+    now += 86_400_000;
+    await s.tick();
+    now += 12 * 60_000;
+    await s.tick();
+    now += RUN_CHECK_MS;
+    await s.tick();
+    expect(s.runs(t.id)[0]).toMatchObject({ status: "timed-out", reason: "Stopped at its 10-minute limit" });
+  });
+
+  it("does not start a session whose Trigger was paused before its start came round", async () => {
+    let paused = false;
+    const s = new Scheduler({
+      store,
+      tmux: async (args) => {
+        // The first start is slow; the second Trigger is paused meanwhile.
+        if (args[0] === "has-session" && !paused) {
+          paused = true;
+          s.setPaused(second.id, true);
+        }
+        return tmux.runner(args);
+      },
+      exitDir: dir,
+      room: () => null,
+      sessions: () => [],
+      capture: async () => "",
+      atPrompt: () => false,
+      now: () => now,
+    });
+    const first = s.create(session({ name: "First" }));
+    const second = s.create(session({ name: "Second" }));
+    now += 3_600_000;
+    await s.tick();
+    expect(s.runs(first.id)[0].status).toBe("running");
+    expect(s.runs(second.id)[0]).toMatchObject({ status: "skipped", reason: "Paused before it started" });
+    expect(tmux.windows.size).toBe(1);
+  });
+
+  it("survives a tick that fails", async () => {
+    const s = new Scheduler({
+      store: { load: () => ({ v: 1, triggers: [], runs: [] }), save: () => { throw new Error("disk full"); } },
+      tmux: tmux.runner,
+      exitDir: dir,
+      room: () => null,
+      sessions: () => [],
+      capture: async () => "",
+      atPrompt: () => false,
+      now: () => now,
+    });
+    expect(() => s.create(rule())).toThrow("disk full");
+    now += 1_000;
+    await expect(s.tick()).resolves.toBeUndefined();
+    expect(s.lastError).toBe("disk full");
   });
 
   it("skips and records a clock firing missed while the server was down", async () => {
@@ -405,7 +487,7 @@ describe("event Triggers", () => {
     const ready = views[0];
     expect(ready).toMatchObject({ what: "session", kind: "event" });
     expect(ready.runs.map((r) => [r.status, r.reason])).toEqual([
-      ["running", "Started in queue-a:mw-7-thing"],
+      ["ran", "Started in queue-a:mw-7-thing"],
       ["skipped", "Another machine claimed it (m2)"],
       ["ran", "Queued for a worker"],
     ]);
