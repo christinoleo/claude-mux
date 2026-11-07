@@ -16,7 +16,7 @@ import {
 	type ReleaseMachine
 } from '$shared/server/release.js';
 import { placeName } from '$shared/worker-placement.js';
-import { lastLine, updateMachine, type UpdateIO } from '$lib/fleet-update';
+import { jsonInit, lastLine, updateMachine, type UpdateIO } from '$lib/fleet-update';
 import { MACHINE_ID } from '$lib/server/instance';
 import { machineUrl, selfName } from '$lib/server/discover';
 import { ensureFleetPrefs, ensureFleetState } from '$lib/server/fleet.js';
@@ -58,7 +58,7 @@ const serverIO: UpdateIO = {
 			const res = await fetch(url, {
 				method,
 				signal: AbortSignal.timeout(20_000),
-				...(payload ? { body: JSON.stringify(payload), headers: { 'content-type': 'application/json' } } : {})
+				...jsonInit(payload)
 			});
 			const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 			return { status: res.status, body };
@@ -125,7 +125,7 @@ export function startReleaseRule(): ReleaseRule {
 		async updateRemote(machine, version) {
 			const url = urlOf(machine.id);
 			if (!url) return { ok: false, line: 'No address known for it' };
-			const result = await updateMachine(url, () => {}, serverIO, undefined, version);
+			const result = await updateMachine(url, () => {}, serverIO, version);
 			return { ok: result.state === 'ok', line: result.line };
 		},
 		health: (machine) => health(urlOf(machine.id))

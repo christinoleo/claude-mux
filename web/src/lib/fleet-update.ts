@@ -77,8 +77,8 @@ export async function updateMachine(
 	base: string,
 	onProgress: (p: StepProgress) => void,
 	io: UpdateIO,
-	timing: UpdateTiming = DEFAULT_TIMING,
-	version?: string
+	version?: string,
+	timing: UpdateTiming = DEFAULT_TIMING
 ): Promise<StepProgress> {
 	const url = `${base}/api/update`;
 	const report = (p: StepProgress) => {
@@ -161,6 +161,11 @@ export async function updateAll<T extends { id: string; origin: boolean }>(
 	return results;
 }
 
+/** A request's body and headers for `payload` as JSON; nothing when there is none. */
+export function jsonInit(payload: unknown): RequestInit {
+	return payload ? { body: JSON.stringify(payload), headers: { 'content-type': 'application/json' } } : {};
+}
+
 /** The browser's way of asking a machine: `fetch`, with anything but a JSON answer counted as no answer. */
 export const browserIO: UpdateIO = {
 	async request(url, method, payload) {
@@ -168,7 +173,7 @@ export const browserIO: UpdateIO = {
 			const res = await fetch(url, {
 				method,
 				cache: 'no-store',
-				...(payload ? { body: JSON.stringify(payload), headers: { 'content-type': 'application/json' } } : {})
+				...jsonInit(payload)
 			});
 			const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 			return { status: res.status, body };

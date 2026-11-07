@@ -37,7 +37,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { HOLD_LABEL, POLL_MS, RELEASE_REPO } from "./github-events.js";
-import { placeName } from "../worker-placement.js";
+import { nameList, placeName } from "../worker-placement.js";
+import { isVersion } from "./self-update.js";
 
 /** How long after the last merge a release waits, so a burst of merges goes out as one. */
 export const SETTLE_MS = 10 * 60_000;
@@ -222,8 +223,7 @@ export const DEFAULT_RELEASE_EXCLUDE = ["engage"];
 
 /** The machines the rollout leaves out: the preference when it was ever set (an empty list included), else the default. */
 export function releaseExcludeList(value: unknown): string[] {
-  if (!Array.isArray(value)) return DEFAULT_RELEASE_EXCLUDE;
-  return value.filter((v): v is string => typeof v === "string").map(placeName).filter(Boolean);
+  return Array.isArray(value) ? (nameList(value) ?? []) : DEFAULT_RELEASE_EXCLUDE;
 }
 
 /**
@@ -319,8 +319,7 @@ export class ReleaseRule {
     const now = this.now();
     // A read that stopped coming may have missed a hold opened since: nothing is done on it.
     if (now - github.readAt > STALE_READ_MS) {
-      this.lastError = `GitHub was last read ${Math.round((now - github.readAt) / 60_000)} minutes ago; waiting for a fresh read`;
-      throw new Error(this.lastError);
+      throw new Error(`GitHub was last read ${Math.round((now - github.readAt) / 60_000)} minutes ago; waiting for a fresh read`);
     }
     if (this.file.head?.sha !== github.head) {
       this.file.head = { sha: github.head, seenAt: now };
@@ -742,8 +741,9 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
         "gate",
         sha,
         async (tree) => {
+          const env = gateEnv(join(opts.dir, "gate-env"));
           for (const step of steps) {
-            const res = await exec(step.cmd, step.args, tree, 20 * 60_000, gateEnv(join(opts.dir, "gate-env")));
+            const res = await exec(step.cmd, step.args, tree, 20 * 60_000, env);
             if (!res.ok) return { ok: false, step: step.name, output: res.output, transient: isTransientFailure(step.name, res.output) };
           }
           return { ok: true };
@@ -808,7 +808,7 @@ export function gitReleaseRepo(opts: GitRepoOptions): ReleaseRepo {
   async function bumpOf(sha: string): Promise<string | null> {
     const subject = await git(["log", "-1", "--format=%s", sha]);
     const version = subject.ok ? subject.output.trim() : "";
-    if (!/^\d+\.\d+\.\d+$/.test(version)) return null;
+    if (!isVersion(version)) return null;
     const pkg = await git(["show", `${sha}:package.json`]);
     try {
       if (!pkg.ok || (JSON.parse(pkg.output) as { version?: string }).version !== version) return null;

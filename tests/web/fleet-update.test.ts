@@ -68,7 +68,7 @@ describe("updateMachine", () => {
 
   it("asks for the version it was given, and for npm's latest otherwise", async () => {
     const given = scripted({ status: 202, body: job("running") }, [{ status: 200, body: { version: "0.31.2", ...job("ok", "done\n") } }]);
-    await updateMachine("/fleet/x", () => {}, given.io, undefined, "0.31.2");
+    await updateMachine("/fleet/x", () => {}, given.io, "0.31.2");
     expect(given.bodies).toEqual([{ version: "0.31.2" }]);
     const latest = scripted({ status: 202, body: job("running") }, [{ status: 200, body: job("ok", "done\n") }]);
     await updateMachine("/fleet/x", () => {}, latest.io);
@@ -122,7 +122,7 @@ describe("updateMachine", () => {
 
   it("gives up on a machine that never comes back", async () => {
     const { io } = scripted({ status: 202, body: job("running") }, [null]);
-    const result = await updateMachine("", () => {}, io, { pollMs: 1_000, timeoutMs: 60_000 });
+    const result = await updateMachine("", () => {}, io, undefined, { pollMs: 1_000, timeoutMs: 60_000 });
     expect(result).toMatchObject({ state: "failed", line: "No result after 1 min" });
   });
 });
