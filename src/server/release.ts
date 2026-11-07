@@ -221,8 +221,8 @@ export interface ReleaseDeps {
   updateRemote: (machine: ReleaseMachine, version: string) => Promise<{ ok: boolean; line: string }>;
   /** A machine's version as its health check answers it; null when it does not answer as healthy. */
   health: (machine: ReleaseMachine) => Promise<string | null>;
-  /** The machine's switch (`machine-switch.ts`): off pauses the rule as a hold does. Absent, on. */
-  on?: () => boolean;
+  /** The machine's switch (`machine-switch.ts`): off pauses the rule as a hold does. */
+  on: () => boolean;
   now?: () => number;
 }
 
@@ -345,7 +345,7 @@ export class ReleaseRule {
       this.save();
     }
     // A machine switched off starts nothing: no gate, no tag, no update. One already running ends on its own.
-    const paused = github.held ? HELD_REASON : this.deps.on?.() === false ? OFF_REASON : null;
+    const paused = github.held ? HELD_REASON : !this.deps.on() ? OFF_REASON : null;
     if (paused) {
       this.file.heldAt ??= now;
       if (this.file.log[0]?.reason !== paused) this.log("skipped", paused);

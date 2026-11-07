@@ -702,7 +702,7 @@ describe("event Triggers", () => {
   it("shows an event the poller saw while the machine was off as skipped", () => {
     const [view] = eventTriggers({
       projects: [{ repo: "u/a", root: "/p/a", enabled: true, events: { "issue-ready": "ignore", push: "rule" } }],
-      seen: [{ at: 3, repo: "u/a", kind: "push", action: "rule", outcome: "Off on this machine", title: "abc1234 fix", url: "u" }],
+      seen: [{ at: 3, repo: "u/a", kind: "push", action: "rule", outcome: "Off on this machine", skipped: true, title: "abc1234 fix", url: "u" }],
       queue: [],
     });
     expect(view.runs.map((r) => [r.status, r.reason])).toEqual([["skipped", "Off on this machine"]]);

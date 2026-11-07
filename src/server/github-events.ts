@@ -236,6 +236,8 @@ export interface SeenEvent {
   action: EventAction;
   /** What the action did. */
   outcome: string;
+  /** Passed over, with the machine's switch off. */
+  skipped?: true;
   title: string;
   url: string;
 }
@@ -286,8 +288,8 @@ export interface PollerDeps {
   now?: () => number;
   /** Told whenever the issues waiting for approval change, so Needs you hears at once. */
   onApprovals?: () => void;
-  /** The machine's switch (`machine-switch.ts`): off, an event is recorded as skipped. Absent, on. */
-  on?: () => boolean;
+  /** The machine's switch (`machine-switch.ts`): off, an event is recorded as skipped. */
+  on: () => boolean;
 }
 
 export interface Approval {
@@ -334,6 +336,11 @@ export interface PollStatus {
   pointsLastHour: number;
   queriesLastHour: number;
   remaining: number | null;
+}
+
+function outcomeOf(event: Pick<SeenEvent, "action" | "kind" | "repo">): string {
+  if (event.action !== "rule") return "Queued for a worker";
+  return event.kind === "push" && event.repo === RELEASE_REPO ? "Handed to the release rule" : "Recorded as seen";
 }
 
 export class EventPoller {
@@ -466,16 +473,11 @@ export class EventPoller {
     if (rate) this.remaining = rate.remaining;
   }
 
-  private record(event: Omit<SeenEvent, "at" | "outcome">): void {
-    const outcome =
-      this.deps.on?.() === false
-        ? MACHINE_OFF
-        : event.action !== "rule"
-        ? "Queued for a worker"
-        : event.kind === "push" && event.repo === RELEASE_REPO
-          ? "Handed to the release rule"
-          : "Recorded as seen";
-    this.file.log = [{ ...event, at: this.now(), outcome }, ...this.file.log].slice(0, LOG_LIMIT);
+  private record(event: Omit<SeenEvent, "at" | "outcome" | "skipped">): void {
+    const seen: SeenEvent = this.deps.on()
+      ? { ...event, at: this.now(), outcome: outcomeOf(event) }
+      : { ...event, at: this.now(), outcome: MACHINE_OFF, skipped: true };
+    this.file.log = [seen, ...this.file.log].slice(0, LOG_LIMIT);
   }
 
   private async sweep(): Promise<void> {

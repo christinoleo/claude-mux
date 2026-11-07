@@ -453,7 +453,8 @@ export class Scheduler {
 
   private fireDue(): boolean {
     const now = this.now();
-    const on = this.deps.on();
+    // Read only once a firing is due: this runs every second.
+    let on: boolean | undefined;
     let changed = false;
     for (const trigger of this.file.triggers) {
       if (trigger.next === null) continue;
@@ -472,7 +473,7 @@ export class Scheduler {
       const passed = firingsBetween(trigger.when, due, now, trigger.createdAt);
       if (now - due > GRACE_MS) {
         this.record(trigger, due, "skipped", "Missed while the server was down", passed);
-      } else if (!on) {
+      } else if (!(on ??= this.deps.on())) {
         this.record(trigger, due, "skipped", MACHINE_OFF, passed);
       } else {
         if (trigger.what === "rule") this.record(trigger, due, "ran", "Recorded");
@@ -791,7 +792,7 @@ export function clockTriggerView(trigger: ClockTrigger, runs: readonly Run[]): T
 /** What the state map, the poller's log and the worker queue's log say, as the screen reads them. */
 export interface EventSources {
   projects: readonly { repo: string; root: string; enabled: boolean; events: Record<string, "ignore" | "rule" | "session"> }[];
-  seen: readonly { at: number; repo: string; kind: string; action: string; outcome: string; title: string; url: string }[];
+  seen: readonly { at: number; repo: string; kind: string; action: string; outcome: string; skipped?: true; title: string; url: string }[];
   queue: readonly { at: number; repo: string; number: number; what: string }[];
   /** What the release rule did (`src/server/release.ts`), shown as Runs of claude-mux's push. */
   release?: readonly { at: number; status: RunStatus; reason: string; url?: string }[];
@@ -824,7 +825,7 @@ export function eventTriggers(sources: EventSources): TriggerView[] {
         .filter((e) => e.repo === project.repo && e.kind === kind)
         .map((e) => ({
           at: e.at,
-          status: e.outcome === MACHINE_OFF ? ("skipped" as const) : ("ran" as const),
+          status: e.skipped ? ("skipped" as const) : ("ran" as const),
           reason: e.outcome,
           link: { kind: "github" as const, href: e.url, label: e.title },
         }));

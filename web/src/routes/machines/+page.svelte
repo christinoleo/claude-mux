@@ -82,14 +82,10 @@
 		const prev = machineSwitch[row.id];
 		switchTurns[row.id] = (switchTurns[row.id] ?? 0) + 1;
 		machineSwitch[row.id] = { ...prev, on, error: undefined };
-		const answer = await fetch(`${apiBase(row.machine)}/api/machine-switch`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ on })
-		}).catch(() => null);
-		if (answer?.ok) return;
-		const body = (await answer?.json().catch(() => null)) as { error?: string } | null | undefined;
-		machineSwitch[row.id] = { ...prev, error: body?.error ?? 'Did not answer' };
+		const answer = await browserIO.request(`${apiBase(row.machine)}/api/machine-switch`, 'POST', { on });
+		if (answer && answer.status < 300) return;
+		const error = answer?.body.error;
+		machineSwitch[row.id] = { ...prev, error: typeof error === 'string' ? error : 'Did not answer' };
 	}
 
 	const onlineRows = $derived(rows.filter((r) => r.machine.online));
