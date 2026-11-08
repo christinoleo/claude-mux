@@ -293,6 +293,11 @@ export function projectReports(roots: readonly string[], deps: ReadDeps = {}): P
   return out;
 }
 
+/** Whether any of `roots` has yet to finish its first read; call after `projectReports()`. */
+export function projectReadsPending(roots: readonly string[]): boolean {
+  return roots.some((root) => (cache.get(root)?.at ?? 0) === 0);
+}
+
 /** The icon of a project this machine has read; null for any other path. */
 export function projectIcon(root: string): ProjectIcon | null {
   return cache.get(root)?.read?.icon ?? null;

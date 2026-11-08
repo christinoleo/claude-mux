@@ -1,7 +1,6 @@
 import { existsSync } from 'fs';
 import { getAllSessions, isSessionDead, type Session } from '$shared/db/sessions-json.js';
-import { eventPoller } from '$shared/server/github-events.js';
-import { enabledProjects } from '$shared/db/event-map-json.js';
+import { eventPoller, projectsHere } from '$shared/server/github-events.js';
 import { loadRateTable } from '$shared/usage/rate-table.js';
 import { SpendMeter } from '$shared/usage/session-spend.js';
 import { resolveTranscriptPath } from '$shared/transcript/tailer.js';
@@ -124,7 +123,7 @@ export function startWorkerQueue(): WorkerQueue {
 		placement: (repo) => nameList(ensureFleetPrefs().all()[placementKey(repo)]?.value),
 		keptBy,
 		checkout: checkoutProblem,
-		wanted: (repo) => enabledProjects().get(repo)?.events['issue-ready'] === 'session',
+		wanted: (repo) => projectsHere()?.get(repo)?.events['issue-ready'] === 'session',
 		machineGone,
 		workerCommand: workerCommandOverride()
 	});

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
-	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Toggle } from '$lib/components/ui/toggle';
 	import { fleetPrefsStore } from '$lib/stores/fleet-prefs.svelte';
 	import { nameList, placeName, placementKey } from '$shared/worker-placement.js';
@@ -14,8 +13,8 @@
 
 	/**
 	 * The state map, one tab per machine (#183): the GitHub projects the
-	 * machine holds, all off until enabled, and for each enabled one what an
-	 * event does. Below, what the machine's poller has seen and what reading
+	 * machine holds, each on unless turned off here (#227), and for each one
+	 * on what an event does. Below, what the machine's poller has seen and what reading
 	 * GitHub has cost it; its worker queue is on the Workers panel.
 	 * Everything is read from and written to the machine itself, through the
 	 * relay for another one, except where a project's workers may run, which
@@ -113,7 +112,7 @@
 	function statusLine(d: MachineEvents): string {
 		if (!d.polling) return 'This server does not read GitHub (a dev server, unless started with CLAUDE_MUX_EVENTS=1).';
 		const s = d.status;
-		if (!s?.lastPollAt) return 'Not read yet. Projects are read once a minute after one is enabled.';
+		if (!s?.lastPollAt) return 'Not read yet. Projects are read once a minute.';
 		const read = `Read ${formatAgo(s.lastPollAt, clock.now)}${s.viewer ? ` as @${s.viewer}` : ''}`;
 		const spent = `${s.pointsLastHour} GraphQL ${s.pointsLastHour === 1 ? 'point' : 'points'} in the last hour over ${s.queriesLastHour} ${s.queriesLastHour === 1 ? 'query' : 'queries'}`;
 		const left = s.remaining !== null ? `, ${s.remaining} left` : '';
@@ -129,7 +128,8 @@
 	<header>
 		<h1>Events</h1>
 		<p class="lede">
-			What each machine does when GitHub changes in one of its projects. Every project is off until enabled here. An issue
+			What each machine does when GitHub changes in one of its projects. Every project a machine holds is on, and nothing
+			runs while the machine's switch is off; turn a project off here to leave it alone. An issue
 			counts as ready only when you labelled it <code>ready-for-agent</code>; if someone else touches it after that, it waits
 			in Needs you for your approval.
 		</p>
@@ -161,16 +161,21 @@
 				<ul class="projects">
 					{#each d.projects as p (p.repo)}
 						{@const busy = saving[`${key}/${p.repo}`] === true}
+						{@const turn = p.enabled ? 'Turn off' : 'Turn on'}
 						<li class:on={p.enabled}>
 							<div class="row1">
-								<Checkbox
-									checked={p.enabled}
-									disabled={busy}
-									aria-label="Act on GitHub events in {p.repo}"
-									onCheckedChange={(on) => void change(current, p.repo, { enabled: on === true })}
-								/>
 								<span class="repo">{p.repo}</span>
 								<span class="root" title={p.root}>{p.root}</span>
+								{#if !p.enabled}<span class="off">off</span>{/if}
+								<Button
+									size="sm"
+									variant="ghost"
+									disabled={busy}
+									aria-label="{turn} {p.repo}"
+									onclick={() => void change(current, p.repo, { enabled: !p.enabled })}
+								>
+									{turn}
+								</Button>
 							</div>
 							{#if p.enabled}
 								{#each EVENTS as e (e.kind)}
@@ -315,6 +320,10 @@
 	}
 	.projects li:not(.on) .repo {
 		color: var(--ink-muted);
+	}
+	.off {
+		font-size: 0.75rem;
+		color: var(--ink-dim);
 	}
 	.root {
 		flex: 1;

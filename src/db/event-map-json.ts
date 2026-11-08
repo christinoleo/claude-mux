@@ -3,10 +3,13 @@
  * GitHub changes, and what it does for each event (#183).
  *
  * Kept in `~/.claude-mux/event-map.json`, next to the sessions, because it
- * belongs to the machine that holds the projects. A project that is not in
- * the file is off; nothing is read for it and nothing fires. Enabling one
- * gives each event the rule, which today only records that the event was
- * seen; starting a session is never the default.
+ * belongs to the machine that holds the projects. Every GitHub project the
+ * machine holds is on unless the file turns it off (#227): a project that is
+ * not in the file takes `defaultEvents()`, where an issue marked ready starts
+ * a session and a push is recorded as seen. The file holds only what a person
+ * chose, so a new checkout is picked up on its own and a project turned off
+ * stays off. The machine's switch (`src/server/machine-switch.ts`) is what
+ * turns everything off at once.
  */
 
 import { readFileSync } from "fs";
@@ -14,6 +17,7 @@ import { dirname, join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { getSessionsDir } from "./sessions-json.js";
 import { isRepoSlug } from "../github-ref.js";
+import type { ProjectReport } from "../fleet-projects.js";
 
 /** The events polling finds: an issue Leo marked ready, and a push to the default branch. */
 export const EVENT_KINDS = ["issue-ready", "push"] as const;
@@ -36,7 +40,18 @@ export interface EventMap {
   projects: Record<string, ProjectEventMap>;
 }
 
-export const DEFAULT_EVENTS: Record<EventKind, EventAction> = { "issue-ready": "rule", push: "rule" };
+/** The repo whose pushes the release rule (`src/server/release.ts`) acts on. */
+export const RELEASE_REPO = "christinoleo/claude-mux";
+
+/**
+ * What a project nobody has chosen for does with each event. claude-mux's
+ * own push is ignored rather than given the rule, since the rule there is the
+ * release: it runs on the one machine where someone chose it, never on every
+ * machine that happens to hold a checkout.
+ */
+export function defaultEvents(repo: string): Record<EventKind, EventAction> {
+  return { "issue-ready": "session", push: repo === RELEASE_REPO ? "ignore" : "rule" };
+}
 
 let mapPath: string | null = null;
 
@@ -57,14 +72,15 @@ export function isEventAction(value: unknown): value is EventAction {
   return typeof value === "string" && (EVENT_ACTIONS as readonly string[]).includes(value);
 }
 
-function parseProject(raw: unknown): ProjectEventMap | null {
+function parseProject(slug: string, raw: unknown): ProjectEventMap | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.root !== "string") return null;
-  const events = { ...DEFAULT_EVENTS };
+  const events = defaultEvents(slug);
   const given = r.events && typeof r.events === "object" ? (r.events as Record<string, unknown>) : {};
   for (const kind of EVENT_KINDS) if (isEventAction(given[kind])) events[kind] = given[kind];
-  return { enabled: r.enabled === true, root: r.root, events };
+  // Only `false` turns a project off: that is the choice a person made.
+  return { enabled: r.enabled !== false, root: r.root, events };
 }
 
 /** The map as the file holds it; null when the file exists but cannot be read as one. */
@@ -80,7 +96,7 @@ function readMap(): EventMap | null {
     const projects: Record<string, ProjectEventMap> = {};
     if (raw.projects && typeof raw.projects === "object") {
       for (const [slug, value] of Object.entries(raw.projects as Record<string, unknown>)) {
-        const project = parseProject(value);
+        const project = parseProject(slug, value);
         if (isRepoSlug(slug) && project) projects[slug] = project;
       }
     }
@@ -90,14 +106,23 @@ function readMap(): EventMap | null {
   }
 }
 
-/** The map; a torn or hand-broken file turns everything off rather than the server down. */
+/** The map; a torn or hand-broken file reads as empty rather than taking the server down. */
 export function getEventMap(): EventMap {
   return readMap() ?? { v: 1, projects: {} };
 }
 
-/** The projects that are on, by `owner/name`. */
-export function enabledProjects(map: EventMap = getEventMap()): Map<string, ProjectEventMap> {
-  return new Map(Object.entries(map.projects).filter(([, p]) => p.enabled));
+/** A project root as `projectReports()` (`src/server/project-icons.ts`) reports it. */
+export type HeldRoot = Pick<ProjectReport, "root" | "remote" | "sub">;
+
+/** The projects that are on, by `owner/name`: those the machine holds, less those turned off. */
+export function enabledProjects(held: readonly HeldRoot[], map: EventMap | null = readMap()): Map<string, ProjectEventMap> {
+  // A file that cannot be read may hold a project turned off; nothing is on until it is fixed.
+  if (!map) return new Map();
+  return new Map(
+    eventProjectRows(held, map)
+      .filter((p) => p.enabled)
+      .map(({ repo, ...p }) => [repo, p]),
+  );
 }
 
 export interface ProjectPatch {
@@ -111,7 +136,7 @@ export function updateProjectEvents(slug: string, patch: ProjectPatch): EventMap
   const map = readMap();
   // Writing over a file that cannot be read would lose every other project in it.
   if (!map) throw new Error(`${resolvePath()} cannot be read; fix or remove it first`);
-  const have = map.projects[slug] ?? { enabled: false, root: patch.root ?? "", events: { ...DEFAULT_EVENTS } };
+  const have = map.projects[slug] ?? { enabled: true, root: patch.root ?? "", events: defaultEvents(slug) };
   map.projects[slug] = {
     enabled: patch.enabled ?? have.enabled,
     root: patch.root ?? have.root,
@@ -129,12 +154,12 @@ export interface EventProjectRow extends ProjectEventMap {
 /**
  * The projects the screen lists: every root this machine remembers whose
  * remote is on GitHub, one row per repo (a worktree shares its main
- * checkout's, whose root is the shortest), off unless the map says otherwise.
+ * checkout's, whose root is the shortest), on unless the map says otherwise.
  * A project the map holds that the machine no longer lists stays, so it can
  * still be turned off.
  */
 export function eventProjectRows(
-  reports: readonly { root: string; remote: string | null; sub: string }[],
+  reports: readonly HeldRoot[],
   map: EventMap = getEventMap(),
 ): EventProjectRow[] {
   const roots = new Map<string, string>();
@@ -149,7 +174,7 @@ export function eventProjectRows(
   for (const [repo, root] of roots) {
     const mapped = map.projects[repo];
     // The checkout where it is now, which a change on screen writes back to the map.
-    rows.set(repo, mapped ? { repo, ...mapped, root } : { repo, enabled: false, root, events: { ...DEFAULT_EVENTS } });
+    rows.set(repo, mapped ? { repo, ...mapped, root } : { repo, enabled: true, root, events: defaultEvents(repo) });
   }
   for (const [repo, mapped] of Object.entries(map.projects)) if (!rows.has(repo)) rows.set(repo, { repo, ...mapped });
   return [...rows.values()].sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.repo.localeCompare(b.repo));

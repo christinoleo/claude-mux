@@ -2,7 +2,7 @@
  * The events claude-mux acts on, found by reading GitHub (#177, #180, #183).
  *
  * There is no webhook. About once a minute one GraphQL query reads, for every
- * project enabled in the state map (`src/db/event-map-json.ts`), the head of
+ * project the state map has on (`src/db/event-map-json.ts`), the head of
  * its default branch and its open issues labelled `ready-for-agent`. That
  * costs 1 point however many projects are on. Only an issue whose
  * `updatedAt` moved since the last read is read again in full (its labels,
@@ -19,7 +19,7 @@
  * since a stranger can set off a workflow or app. An issue someone else touched
  * after the label is not ready; it waits in Needs you until Leo approves it
  * again, which re-applies the label under his name. A push is the default
- * branch's head moving; the first read after enabling only notes where it is.
+ * branch's head moving; the first read after a project comes on only notes where it is.
  *
  * What each event does comes from the map. The rule records that the event
  * was seen. `session` on an issue puts it in `readyIssues()`, which the worker
@@ -32,19 +32,30 @@ import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { getSessionsDir } from "../db/sessions-json.js";
-import { enabledProjects, type EventAction, type EventKind, type ProjectEventMap } from "../db/event-map-json.js";
+import { RELEASE_REPO, enabledProjects, type EventAction, type EventKind, type ProjectEventMap } from "../db/event-map-json.js";
+import { getSavedProjects } from "../db/projects-json.js";
+import { projectReadsPending, projectReports } from "./project-icons.js";
 import { MACHINE_OFF, machineOn } from "./machine-switch.js";
 import type { InboxTicket } from "../types/ws-messages.js";
 
 export const READY_LABEL = "ready-for-agent";
 /** An open issue with this label pauses the release rule (`src/server/release.ts`). */
 export const HOLD_LABEL = "release-hold";
-/** The project whose pushes the release rule takes, when its push event is set to the rule. */
-export const RELEASE_REPO = "christinoleo/claude-mux";
 /** How often GitHub is read: the delay #180 measured as costing about 60 points an hour. */
 export const POLL_MS = 60_000;
 /** How long the points spent are summed over, for the screen. */
 const QUOTA_WINDOW_MS = 60 * 60_000;
+
+/**
+ * The projects this machine holds that are on, as the poller, the worker
+ * queue and the release rule read them; null until every remembered root has
+ * been read once, since a checkout not read yet would look like one gone.
+ */
+export function projectsHere(): Map<string, ProjectEventMap> | null {
+  const roots = getSavedProjects();
+  const reports = projectReports(roots);
+  return projectReadsPending(roots) ? null : enabledProjects(reports);
+}
 /** How many recorded events are kept. */
 const LOG_LIMIT = 200;
 /** A sweep reads at most this many ready issues per project. */
@@ -283,8 +294,12 @@ export interface PollerDeps {
   graphql: GraphqlRunner;
   gh: GhRunner;
   store: EventStore;
-  /** The state map's enabled projects; read afresh on every sweep, so a change applies at once. */
-  projects: () => Map<string, ProjectEventMap>;
+  /**
+   * The projects the state map has on; read afresh on every sweep, so a change
+   * applies at once. Null while the machine's checkouts are still being read,
+   * which must not pass for every project turned off.
+   */
+  projects: () => Map<string, ProjectEventMap> | null;
   now?: () => number;
   /** Told whenever the issues waiting for approval change, so Needs you hears at once. */
   onApprovals?: () => void;
@@ -497,6 +512,10 @@ export class EventPoller {
   /** True when GitHub answered, so what it holds is current. */
   private async read(): Promise<boolean> {
     const projects = this.deps.projects();
+    if (!projects) {
+      this.lastError = "this machine's projects are still being read";
+      return false;
+    }
     // A project turned off forgets where it was: turned on again, its branch
     // head is noted afresh rather than taken for a push.
     for (const slug of Object.keys(this.file.repos)) {
@@ -688,7 +707,7 @@ export function eventPoller(onApprovals?: () => void): EventPoller {
       graphql: ghGraphql,
       gh: async (args) => (await runGh(args)).ok,
       store: fileEventStore(),
-      projects: () => enabledProjects(),
+      projects: projectsHere,
       onApprovals,
       on: machineOn,
     });

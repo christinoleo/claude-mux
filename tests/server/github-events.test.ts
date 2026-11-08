@@ -19,7 +19,12 @@ import {
   getEventMap,
   setEventMapPath,
   updateProjectEvents,
+  type HeldRoot,
 } from "../../src/db/event-map-json.js";
+
+/** The checkouts the machine under test holds; none unless a test adds one. */
+let held: HeldRoot[] = [];
+const CHECKOUT: HeldRoot = { root: "/p/r", remote: "github.com/o/r", sub: "" };
 
 const LEO = { __typename: "User", login: "christinoleo" };
 const STRANGER = { __typename: "User", login: "stranger" };
@@ -210,6 +215,7 @@ describe("EventPoller", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "events-"));
     setEventMapPath(join(dir, "event-map.json"));
+    held = [];
     gh = new FakeGithub();
     gh.repos.set("o/r", { head: "a1", issues: [] });
     store = memoryStore();
@@ -222,21 +228,21 @@ describe("EventPoller", () => {
   });
 
   function poller(): EventPoller {
-    return new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), now: () => now, on: () => true });
+    return new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(held), now: () => now, on: () => true });
   }
 
-  it("reads nothing for a project until it is enabled, then records its ready issue as seen", async () => {
+  it("reads nothing for a project the machine does not hold, and picks up a new checkout as on", async () => {
     gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
     const p = poller();
     await p.poll();
     expect(gh.queries).toEqual([]);
-    expect(eventProjectRows([{ root: "/p/r", remote: "github.com/o/r", sub: "" }])).toMatchObject([
-      { repo: "o/r", enabled: false },
-    ]);
 
-    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    // A checkout turns up: nobody enables it, and its ready issue is seen.
+    held = [CHECKOUT];
+    now += POLL_MS;
     await p.poll();
-    expect(p.log()).toMatchObject([{ kind: "issue-ready", repo: "o/r", title: "#5 Issue 5", outcome: "Recorded as seen" }]);
+    expect(p.log()).toMatchObject([{ kind: "issue-ready", repo: "o/r", title: "#5 Issue 5" }]);
+    expect(p.readyIssues()).toMatchObject([{ repo: "o/r", root: "/p/r", number: 5 }]);
 
     // The same label is one event, however often it is read.
     now += POLL_MS;
@@ -244,10 +250,31 @@ describe("EventPoller", () => {
     expect(p.log()).toHaveLength(1);
   });
 
+  it("reads nothing for a project turned off, and keeps it off though the checkout stays", async () => {
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
+    held = [CHECKOUT];
+    updateProjectEvents("o/r", { enabled: false, root: "/p/r" });
+    const p = poller();
+    await p.poll();
+    now += POLL_MS;
+    await p.poll();
+    expect(gh.queries).toEqual([]);
+    expect(p.readyIssues()).toEqual([]);
+    expect(eventProjectRows(held)).toMatchObject([{ repo: "o/r", enabled: false }]);
+  });
+
   it("records an event seen while the machine's switch is off as off, and still reads it", async () => {
     gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
     updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
-    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), now: () => now, on: () => false });
+    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(held), now: () => now, on: () => false });
+    await p.poll();
+    expect(p.log()).toMatchObject([{ kind: "issue-ready", repo: "o/r", outcome: "Off on this machine" }]);
+  });
+
+  it("starts nothing from a checkout on by default while the machine's switch is off", async () => {
+    gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
+    held = [CHECKOUT];
+    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(held), now: () => now, on: () => false });
     await p.poll();
     expect(p.log()).toMatchObject([{ kind: "issue-ready", repo: "o/r", outcome: "Off on this machine" }]);
   });
@@ -257,7 +284,7 @@ describe("EventPoller", () => {
     issue.labels = { nodes: [{ name: "ready-for-agent" }, { name: "stop-at-pr" }] };
     gh.repos.get("o/r")!.issues = [issue, detail(6, [labeled("2026-11-07T11:00:00Z", STRANGER)])];
     gh.blocked.set(5, 1);
-    updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
+    updateProjectEvents("o/r", { enabled: true, root: "/p/r", events: { "issue-ready": "rule" } });
     const p = poller();
     let sweeps = 0;
     p.onSweep(() => sweeps++);
@@ -373,7 +400,7 @@ describe("EventPoller", () => {
       }
       return true;
     };
-    const approver = new EventPoller({ graphql: gh.graphql, gh: (a) => gh.gh(a), store, projects: () => enabledProjects(), now: () => now, on: () => true });
+    const approver = new EventPoller({ graphql: gh.graphql, gh: (a) => gh.gh(a), store, projects: () => enabledProjects(held), now: () => now, on: () => true });
     await approver.poll();
     expect(await approver.approve("o/r", 5)).toBe("approved");
     await approver.poll();
@@ -405,7 +432,7 @@ describe("EventPoller", () => {
         return args[2] === "DELETE" || ++adds > 1;
       },
       store,
-      projects: () => enabledProjects(),
+      projects: () => enabledProjects(held),
       on: () => true,
     });
     await p.poll();
@@ -416,7 +443,7 @@ describe("EventPoller", () => {
       graphql: gh.graphql,
       gh: async (args) => args[2] === "DELETE",
       store,
-      projects: () => enabledProjects(),
+      projects: () => enabledProjects(held),
       on: () => true,
     });
     await never.poll();
@@ -426,7 +453,7 @@ describe("EventPoller", () => {
   it("tells its listener when the issues waiting for approval change, and only then", async () => {
     updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
     let told = 0;
-    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(), onApprovals: () => told++, on: () => true });
+    const p = new EventPoller({ graphql: gh.graphql, gh: gh.gh, store, projects: () => enabledProjects(held), onApprovals: () => told++, on: () => true });
     await p.poll();
     expect(told).toBe(0);
     gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z", STRANGER)])];
@@ -522,7 +549,7 @@ describe("EventPoller", () => {
     updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
     const file = fileEventStore(join(dir, "events.json"));
     gh.repos.get("o/r")!.issues = [detail(5, [labeled("2026-11-07T11:00:00Z")])];
-    await new EventPoller({ graphql: gh.graphql, gh: gh.gh, store: file, projects: () => enabledProjects(), on: () => true }).poll();
+    await new EventPoller({ graphql: gh.graphql, gh: gh.gh, store: file, projects: () => enabledProjects(held), on: () => true }).poll();
     expect(file.load().log).toHaveLength(1);
     expect(file.load().repos["o/r"]).toEqual({ head: "a1", seen: ["o/r#5@2026-11-07T11:00:00Z"] });
   });
@@ -579,7 +606,7 @@ describe("the state map", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("lists each GitHub repo once, at its main checkout, off at first", () => {
+  it("lists each GitHub repo once, at its main checkout, on at first", () => {
     const rows = eventProjectRows([
       { root: "/p/r/.worktree/12", remote: "github.com/o/r", sub: "" },
       { root: "/p/r", remote: "github.com/o/r", sub: "" },
@@ -587,7 +614,12 @@ describe("the state map", () => {
       { root: "/p/g", remote: "gitlab.com/o/g", sub: "" },
       { root: "/p/none", remote: null, sub: "" },
     ]);
-    expect(rows).toEqual([{ repo: "o/r", root: "/p/r", enabled: false, events: { "issue-ready": "rule", push: "rule" } }]);
+    expect(rows).toEqual([{ repo: "o/r", root: "/p/r", enabled: true, events: { "issue-ready": "session", push: "rule" } }]);
+  });
+
+  it("leaves claude-mux's push to the machine that chose the release rule", () => {
+    const rows = eventProjectRows([{ root: "/p/cm", remote: "github.com/christinoleo/claude-mux", sub: "" }]);
+    expect(rows).toMatchObject([{ enabled: true, events: { "issue-ready": "session", push: "ignore" } }]);
   });
 
   it("names the checkout where it is now, though the map kept an older one", () => {
@@ -597,10 +629,11 @@ describe("the state map", () => {
 
   it("keeps what each project does, and a torn file turns everything off", async () => {
     updateProjectEvents("o/r", { enabled: true, root: "/p/r", events: { push: "ignore" } });
-    expect(getEventMap().projects["o/r"]).toEqual({ enabled: true, root: "/p/r", events: { "issue-ready": "rule", push: "ignore" } });
+    expect(getEventMap().projects["o/r"]).toEqual({ enabled: true, root: "/p/r", events: { "issue-ready": "session", push: "ignore" } });
     const { writeFileSync } = await import("fs");
     writeFileSync(join(dir, "event-map.json"), "{ torn");
-    expect(enabledProjects().size).toBe(0);
+    // A project turned off may be in it, so nothing is on, held or not.
+    expect(enabledProjects([CHECKOUT]).size).toBe(0);
     // ...and is not written over, which would lose every project it held.
     expect(() => updateProjectEvents("o/x", { enabled: true, root: "/p/x" })).toThrow(/cannot be read/);
   });

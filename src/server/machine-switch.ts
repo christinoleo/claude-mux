@@ -16,12 +16,9 @@ import { join } from "node:path";
 import { CLAUDE_MUX_DIR } from "../utils/paths.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import type { HookWriter } from "./hook-switch.js";
-import { enabledProjects } from "../db/event-map-json.js";
+import { RELEASE_REPO, getEventMap } from "../db/event-map-json.js";
 import { followLiveTextPort, readLiveText, setLiveText } from "./live-text-switch.js";
 import { followDialogAnswersPort, readDialogAnswers, setDialogAnswers } from "./dialog-switch.js";
-
-/** The repo the release rule releases; `github-events.ts` imports this module, so it is spelled here too. */
-const RELEASE_REPO = "christinoleo/claude-mux";
 
 /** What every part says while the switch is off. */
 export const MACHINE_OFF = "Off on this machine";
@@ -54,7 +51,9 @@ function legacyOn(): boolean {
   if (HOOKS.some((h) => h.read({ dev: false }).enabled)) return true;
   const triggers = readJson(join(CLAUDE_MUX_DIR, "triggers.json")) as { triggers?: { paused?: unknown }[] } | null;
   if (Array.isArray(triggers?.triggers) && triggers.triggers.some((t) => t && t.paused !== true)) return true;
-  return enabledProjects().get(RELEASE_REPO)?.events.push === "rule";
+  // What the file says, not what a project nobody chose for would do now.
+  const release = getEventMap().projects[RELEASE_REPO];
+  return release?.enabled === true && release.events.push === "rule";
 }
 
 /** Whether the switch is on. A machine with no switch file yet answers what its old switches said (`settleMachineSwitch()`). */

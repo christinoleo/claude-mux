@@ -34,7 +34,7 @@ import { writeFileAtomic } from "../utils/atomic-write.js";
 import { shellQuote } from "../utils/shell.js";
 import { listWindows, openWindow, slug, type TmuxRunner } from "./worker-queue.js";
 import { STOP_AT_PR } from "./github.js";
-import { RELEASE_REPO } from "./github-events.js";
+import { RELEASE_REPO } from "../db/event-map-json.js";
 import { MACHINE_OFF } from "./machine-switch.js";
 import { isDialogState } from "../tmux/pane.js";
 import { DAY_NAMES, UNITS, UNIT_MS, type Schedule, type Unit } from "../trigger-schedule.js";
