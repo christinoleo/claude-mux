@@ -32,9 +32,9 @@ import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { getSessionsDir } from "../db/sessions-json.js";
-import { RELEASE_REPO, enabledProjects, type EventAction, type EventKind, type ProjectEventMap } from "../db/event-map-json.js";
+import { RELEASE_REPO, enabledProjects, isTurnedOff, type EventAction, type EventKind, type ProjectEventMap } from "../db/event-map-json.js";
 import { getSavedProjects } from "../db/projects-json.js";
-import { projectReadsPending, projectReports } from "./project-icons.js";
+import { projectReports } from "./project-icons.js";
 import { MACHINE_OFF, machineOn } from "./machine-switch.js";
 import type { InboxTicket } from "../types/ws-messages.js";
 
@@ -48,13 +48,13 @@ const QUOTA_WINDOW_MS = 60 * 60_000;
 
 /**
  * The projects this machine holds that are on, as the poller, the worker
- * queue and the release rule read them; null until every remembered root has
- * been read once, since a checkout not read yet would look like one gone.
+ * queue and the release rule read them. A checkout is known only once
+ * `projectReports()` has read it, so one can be missing for a moment (at
+ * startup, or a read that failed); the poller forgets only a project turned
+ * off (`isTurnedOff()`), never one merely missing.
  */
-export function projectsHere(): Map<string, ProjectEventMap> | null {
-  const roots = getSavedProjects();
-  const reports = projectReports(roots);
-  return projectReadsPending(roots) ? null : enabledProjects(reports);
+export function projectsHere(): Map<string, ProjectEventMap> {
+  return enabledProjects(projectReports(getSavedProjects()));
 }
 /** How many recorded events are kept. */
 const LOG_LIMIT = 200;
@@ -294,12 +294,13 @@ export interface PollerDeps {
   graphql: GraphqlRunner;
   gh: GhRunner;
   store: EventStore;
+  /** The projects the state map has on; read afresh on every sweep, so a change applies at once. */
+  projects: () => Map<string, ProjectEventMap>;
   /**
-   * The projects the state map has on; read afresh on every sweep, so a change
-   * applies at once. Null while the machine's checkouts are still being read,
-   * which must not pass for every project turned off.
+   * Whether a project missing from `projects()` was turned off, and so is
+   * forgotten, rather than not read this time. Every missing one, by default.
    */
-  projects: () => Map<string, ProjectEventMap> | null;
+  turnedOff?: (repo: string) => boolean;
   now?: () => number;
   /** Told whenever the issues waiting for approval change, so Needs you hears at once. */
   onApprovals?: () => void;
@@ -512,22 +513,21 @@ export class EventPoller {
   /** True when GitHub answered, so what it holds is current. */
   private async read(): Promise<boolean> {
     const projects = this.deps.projects();
-    if (!projects) {
-      this.lastError = "this machine's projects are still being read";
-      return false;
-    }
+    const gone = (repo: string) => !projects.has(repo) && (this.deps.turnedOff?.(repo) ?? true);
     // A project turned off forgets where it was: turned on again, its branch
-    // head is noted afresh rather than taken for a push.
+    // head is noted afresh rather than taken for a push. One only missing
+    // from this read (its checkout not read yet) keeps it, so a push made
+    // meanwhile is still found.
     for (const slug of Object.keys(this.file.repos)) {
-      if (!projects.has(slug)) {
+      if (gone(slug)) {
         delete this.file.repos[slug];
         this.branches.delete(slug);
         this.deps.store.save(this.file);
       }
     }
     const slugs = [...projects.keys()];
-    // Approvals belong to enabled projects only.
-    for (const [key, a] of this.approvals) if (!projects.has(a.repo)) this.approvals.delete(key);
+    // Approvals belong to projects that are on.
+    for (const [key, a] of this.approvals) if (gone(a.repo)) this.approvals.delete(key);
     if (slugs.length === 0) {
       this.setReady([]);
       return true;
@@ -708,6 +708,7 @@ export function eventPoller(onApprovals?: () => void): EventPoller {
       gh: async (args) => (await runGh(args)).ok,
       store: fileEventStore(),
       projects: projectsHere,
+      turnedOff: isTurnedOff,
       onApprovals,
       on: machineOn,
     });

@@ -123,7 +123,7 @@ export function startWorkerQueue(): WorkerQueue {
 		placement: (repo) => nameList(ensureFleetPrefs().all()[placementKey(repo)]?.value),
 		keptBy,
 		checkout: checkoutProblem,
-		wanted: (repo) => projectsHere()?.get(repo)?.events['issue-ready'] === 'session',
+		wanted: (repo) => projectsHere().get(repo)?.events['issue-ready'] === 'session',
 		machineGone,
 		workerCommand: workerCommandOverride()
 	});

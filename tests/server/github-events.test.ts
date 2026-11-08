@@ -17,6 +17,7 @@ import {
   enabledProjects,
   eventProjectRows,
   getEventMap,
+  isTurnedOff,
   setEventMapPath,
   updateProjectEvents,
   type HeldRoot,
@@ -499,6 +500,31 @@ describe("EventPoller", () => {
     expect(p.log()).toMatchObject([{ kind: "push", key: "o/r@b2", title: "main: commit b2" }]);
   });
 
+  it("finds a push made while a checkout went unread, and forgets only a project turned off", async () => {
+    held = [CHECKOUT];
+    const p = new EventPoller({
+      graphql: gh.graphql,
+      gh: gh.gh,
+      store,
+      projects: () => enabledProjects(held),
+      turnedOff: isTurnedOff,
+      now: () => now,
+      on: () => true,
+    });
+    await p.poll();
+    // The checkout is not read this time (a server just started, a git read that failed).
+    held = [];
+    gh.repos.get("o/r")!.head = "b2";
+    await p.poll();
+    held = [CHECKOUT];
+    await p.poll();
+    expect(p.log()).toMatchObject([{ kind: "push", key: "o/r@b2" }]);
+
+    updateProjectEvents("o/r", { enabled: false, root: "/p/r" });
+    await p.poll();
+    expect(p.branch("o/r")).toBeNull();
+  });
+
   it("hands the release rule the branch head and whether a release-hold is open", async () => {
     updateProjectEvents("o/r", { enabled: true, root: "/p/r" });
     const p = poller();
@@ -634,6 +660,7 @@ describe("the state map", () => {
     writeFileSync(join(dir, "event-map.json"), "{ torn");
     // A project turned off may be in it, so nothing is on, held or not.
     expect(enabledProjects([CHECKOUT]).size).toBe(0);
+    expect(eventProjectRows([CHECKOUT])).toMatchObject([{ repo: "o/r", enabled: false }]);
     // ...and is not written over, which would lose every project it held.
     expect(() => updateProjectEvents("o/x", { enabled: true, root: "/p/x" })).toThrow(/cannot be read/);
   });

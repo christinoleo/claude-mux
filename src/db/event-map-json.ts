@@ -116,13 +116,16 @@ export type HeldRoot = Pick<ProjectReport, "root" | "remote" | "sub">;
 
 /** The projects that are on, by `owner/name`: those the machine holds, less those turned off. */
 export function enabledProjects(held: readonly HeldRoot[], map: EventMap | null = readMap()): Map<string, ProjectEventMap> {
-  // A file that cannot be read may hold a project turned off; nothing is on until it is fixed.
-  if (!map) return new Map();
   return new Map(
     eventProjectRows(held, map)
       .filter((p) => p.enabled)
       .map(({ repo, ...p }) => [repo, p]),
   );
+}
+
+/** Whether a person turned this project off; not for a map that cannot be read, which forgets nothing. */
+export function isTurnedOff(repo: string): boolean {
+  return readMap()?.projects[repo]?.enabled === false;
 }
 
 export interface ProjectPatch {
@@ -158,10 +161,9 @@ export interface EventProjectRow extends ProjectEventMap {
  * A project the map holds that the machine no longer lists stays, so it can
  * still be turned off.
  */
-export function eventProjectRows(
-  reports: readonly HeldRoot[],
-  map: EventMap = getEventMap(),
-): EventProjectRow[] {
+export function eventProjectRows(reports: readonly HeldRoot[], map: EventMap | null = readMap()): EventProjectRow[] {
+  // A file that cannot be read may hold a project turned off: every row is off until it is fixed.
+  if (!map) return eventProjectRows(reports, { v: 1, projects: {} }).map((row) => ({ ...row, enabled: false }));
   const roots = new Map<string, string>();
   for (const r of reports) {
     if (r.sub !== "" || !r.remote?.startsWith("github.com/")) continue;

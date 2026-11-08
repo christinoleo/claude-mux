@@ -481,8 +481,12 @@ new checkout is picked up on its own and nothing needs enabling (#227). One
 exception: claude-mux's own push defaults to ignore, since its rule is the
 release, which runs only where it was chosen. A project turned off is written
 `enabled: false` and stays off; a file that cannot be read turns every project
-off, since it may hold such a choice. The machine's switch (§14) is what turns
-it all off. Once a
+off, since it may hold such a choice. A checkout counts once
+`projectReports()` has read it, so one may be missing from a sweep (at
+startup, or after a failed git read); the poller forgets a project's head and
+approvals only when it was turned off (`isTurnedOff()`), so a push made while
+it went unread is still found. The machine's switch (§14) is what turns it all
+off. Once a
 minute `EventPoller` sends one GraphQL query for every project that is on (the
 default branch's head and its open `ready-for-agent` issues, 1 point however
 many), and a second only for issues whose `updatedAt` moved, to read their

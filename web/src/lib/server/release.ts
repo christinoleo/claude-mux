@@ -36,7 +36,7 @@ const run = (cmd: string, args: string[], cwd?: string) => realExec(cmd, args, c
 
 /** The project as the state map holds it, when its pushes are the rule's. */
 function releaseProject() {
-	const project = projectsHere()?.get(RELEASE_REPO);
+	const project = projectsHere().get(RELEASE_REPO);
 	return project && project.events.push === 'rule' ? project : null;
 }
 
