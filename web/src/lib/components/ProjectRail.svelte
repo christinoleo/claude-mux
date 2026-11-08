@@ -16,6 +16,7 @@
 
 <script lang="ts">
 	import ProjectTile from './ProjectTile.svelte';
+	import { Button } from '$lib/components/ui/button';
 	import { sessionStateVisual } from '$shared/session-state.js';
 
 	/**
@@ -29,6 +30,8 @@
 		tiles,
 		selected,
 		activeBadge,
+		hideIdle,
+		ontogglehide,
 		onselect,
 		onmove
 	}: {
@@ -36,10 +39,15 @@
 		/** 'active', or the selected project's key. */
 		selected: string;
 		activeBadge: 'wants' | 'working' | null;
+		/** Whether projects with no live session are left off the rail. */
+		hideIdle: boolean;
+		ontogglehide: () => void;
 		onselect: (key: string) => void;
 		/** `key` was dropped before `before`, or at the end when null. */
 		onmove: (key: string, before: string | null) => void;
 	} = $props();
+
+	const hideLabel = $derived(hideIdle ? 'Show all projects' : 'Hide idle projects');
 
 	/** A badge takes the colour of the state it stands for (`src/session-state.ts`). */
 	const BADGE_COLORS = { wants: sessionStateVisual('waiting').color, working: sessionStateVisual('busy').color };
@@ -183,6 +191,17 @@
 		<span class="bolt"><iconify-icon icon="mdi:lightning-bolt-outline"></iconify-icon></span>
 		{#if activeBadge}<span class="bdg" style="--c:{BADGE_COLORS[activeBadge]}"></span>{/if}
 	</button>
+	<Button
+		variant="ghost"
+		size="icon-sm"
+		class="hide-idle"
+		title={hideLabel}
+		aria-label={hideLabel}
+		aria-pressed={hideIdle}
+		onclick={ontogglehide}
+	>
+		<iconify-icon icon={hideIdle ? 'mdi:eye-off-outline' : 'mdi:eye-outline'}></iconify-icon>
+	</Button>
 	<span class="rsep"></span>
 	{#each tiles as tile (tile.key)}
 		<button
@@ -320,6 +339,15 @@
 		border-radius: 50%;
 		border: 2px solid hsl(var(--background));
 		background: var(--c);
+	}
+	.rail :global(.hide-idle) {
+		flex: none;
+		width: 34px;
+		height: 24px;
+		font-size: 16px;
+	}
+	.rail :global(.hide-idle[aria-pressed='true']) {
+		color: var(--text, #e7e5e4);
 	}
 	.rsep {
 		flex: none;

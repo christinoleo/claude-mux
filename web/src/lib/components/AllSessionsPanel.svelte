@@ -58,7 +58,7 @@
 	import { resumePast } from '$lib/past-resume';
 	import { formatAgo } from '$lib/format';
 	import { guessReport, isHomeDir, mergeProjects, projectHue, projectInitials, type FleetProject } from '$shared/fleet-projects.js';
-	import { machineMarks, matchesQuery, moveTile, railOrder, type MachineMark } from '$shared/fleet-rail.js';
+	import { dropBefore, machineMarks, matchesQuery, moveTile, railOrder, railShown, type MachineMark } from '$shared/fleet-rail.js';
 	import { indicatorStateOf, mostUrgent } from '$shared/session-state.js';
 	import ProjectTile from './ProjectTile.svelte';
 	import ProjectRail, { type RailTile } from './ProjectRail.svelte';
@@ -76,9 +76,17 @@
 	 */
 	const openedStore = createPersisted<string[]>('claude-mux-opened-agents', []);
 	let opened = $state<Set<string>>(new Set());
+	/** "Hide idle projects", remembered per device. */
+	const hideIdleStore = createPersisted<boolean>('claude-mux-hide-idle-projects', false);
+	let hideIdle = $state(false);
 	onMount(() => {
 		opened = new Set(openedStore.load());
+		hideIdle = hideIdleStore.load() === true;
 	});
+	function toggleHideIdle() {
+		hideIdle = !hideIdle;
+		hideIdleStore.save(hideIdle);
+	}
 	/** A row with no subagents gets this instead of reading the clock every tick. */
 	const NO_AGENTS: AgentView = { rows: [], running: 0, folded: 0 };
 	function agentsOf(s: Session): AgentView {
@@ -185,6 +193,8 @@
 		badge: 'wants' | 'working' | null;
 		/** Nothing running there, closed sessions included. */
 		quiet: boolean;
+		/** A live session or a tmux pane runs there on some machine, filtered out or not: "Hide idle projects" keeps it. */
+		running: boolean;
 		/** The visible machines that hold it, in the fleet's order. */
 		places: Place[];
 		/** The places whose machine answers, where a session can start. */
@@ -497,6 +507,10 @@
 				...tile,
 				badge: seen.includes('wants') ? 'wants' : seen.includes('working') ? 'working' : null,
 				quiet: places.every((p) => p.rows.length === 0 && p.panes.length === 0),
+				running: project.places.some((p) => {
+					const at = fleetPlaces.get(p.machineId)!.get(p.root)!;
+					return at.live.length > 0 || at.settled.length > 0 || at.panes.length > 0;
+				}),
 				places,
 				reachable: places.filter((p) => reachable(p.machine)),
 				spans: new Set(places.map((p) => p.machine)).size > 1,
@@ -517,8 +531,10 @@
 
 	/** Drop a tile: the new order is saved for the whole fleet. */
 	function moveProject(key: string, before: string | null) {
-		// Placed among the tiles drawn, which the filter may have narrowed.
-		const next = moveTile(fleetPrefsStore.get<unknown>(RAIL_ORDER, null), tiles.map((t) => t.key), key, before);
+		// Placed in the whole rail, so the projects the filter or "Hide idle projects" left out keep their places.
+		const all = cards.map((c) => c.key);
+		const at = dropBefore(all, tiles.map((t) => t.key), before);
+		const next = moveTile(fleetPrefsStore.get<unknown>(RAIL_ORDER, null), all, key, at);
 		void fleetPrefsStore.set(RAIL_ORDER, next);
 	}
 
@@ -582,7 +598,23 @@
 		cards.some((c) => c.badge === 'wants') ? 'wants' : cards.some((c) => c.badge === 'working') ? 'working' : null
 	);
 
-	const tiles: RailTile[] = $derived(query.trim() ? found.map((f) => f.card) : cards);
+	/** The project of the session or pane on screen, which "Hide idle projects" never hides. */
+	const currentProject = $derived(
+		current
+			? (cards.find((c) =>
+					c.places.some(
+						(p) =>
+							[p.live, p.settled, p.dead].some((list) => list.some((s) => isCurrent(p.machine, s.tmux_target))) ||
+							p.panes.some((pane) => isCurrent(p.machine, pane.target))
+					)
+				)?.key ?? null)
+			: null
+	);
+
+	/** Kept on the rail while idle ones hide: the project on screen and the one the list shows. */
+	const keepShown = $derived(new Set([currentProject, chosen?.key].filter((k): k is string => !!k)));
+
+	const tiles: RailTile[] = $derived(query.trim() ? found.map((f) => f.card) : railShown(cards, hideIdle, keepShown));
 
 	/** The visible machines that are off, each said once above the list. */
 	const offlineMachines = $derived(fleetStore.visible.filter((m) => offlineReason(m, clock.now)));
@@ -1371,6 +1403,8 @@
 			{tiles}
 			selected={query.trim() ? '' : chosen ? chosen.key : 'active'}
 			{activeBadge}
+			{hideIdle}
+			ontogglehide={toggleHideIdle}
 			onselect={openProject}
 			onmove={moveProject}
 		/>

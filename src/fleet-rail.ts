@@ -88,3 +88,27 @@ export function machineMarks(machines: readonly { id: string; name: string }[]):
   }
   return marks;
 }
+
+/**
+ * The tiles the rail draws. With `hideIdle` off, all of them. With it on,
+ * those with a live session somewhere, plus the ones in `keep` (the project
+ * of the session on screen, and the one the list shows), which never vanish
+ * from under the person. A worker, or a session that wants a person, is a
+ * live session, so its project always shows.
+ */
+export function railShown<T extends { key: string; running: boolean }>(tiles: T[], hideIdle: boolean, keep: ReadonlySet<string>): T[] {
+  if (!hideIdle) return tiles;
+  return tiles.filter((t) => t.running || keep.has(t.key));
+}
+
+/**
+ * Where a drop on the rail as drawn (`drawn`, which hidden or filtered-out
+ * projects may have narrowed) lands in the whole rail (`all`): before the
+ * same tile, or, dropped after the last tile drawn, before whatever follows
+ * that tile in the whole rail. Saving against `all` keeps the projects not
+ * drawn in the places they had.
+ */
+export function dropBefore(all: readonly string[], drawn: readonly string[], before: string | null): string | null {
+  if (before !== null || drawn.length === 0) return before;
+  return all[all.indexOf(drawn[drawn.length - 1]) + 1] ?? null;
+}
