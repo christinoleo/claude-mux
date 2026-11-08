@@ -45,7 +45,7 @@ merge from going out, open an issue labelled `release-hold` first.
 
 The release rule (`src/server/release.ts`, wired by
 `web/src/lib/server/release.ts`) acts on the one machine whose state map has
-`christinoleo/claude-mux` enabled with its push event set to the rule
+`christinoleo/claude-mux` with its push event set to the rule by hand
 (`omarchy`), ticked after every read of GitHub and every 15 s, and keeps every
 step in `~/.claude-mux/release.json`. It acts only on a read of GitHub at most
 two poll intervals old (`STALE_READ_MS`), since an older one could miss a hold;
@@ -470,11 +470,24 @@ transcript can draw it as a form and write the reply.
 What claude-mux acts on when GitHub changes is a separate reader,
 `src/server/github-events.ts` (map #177). The state map
 (`src/db/event-map-json.ts`, `~/.claude-mux/event-map.json`) lists the
-GitHub projects a machine holds, all off until enabled on the Events screen
-(`/events`, one tab per machine, `GET`/`POST /api/events`), and says for each
-event (`issue-ready`, `push`) ignore, rule or session; the rule only records
-that the event was seen, and session waits for the worker queue. Once a
-minute `EventPoller` sends one GraphQL query for every enabled project (the
+GitHub projects a machine holds (every remembered root with a GitHub remote,
+`projectsHere()`), each on unless turned off on the Events screen (`/events`,
+one tab per machine, `GET`/`POST /api/events`), and says for each event
+(`issue-ready`, `push`) ignore, rule or session; the rule only records that
+the event was seen, and session waits for the worker queue. The file holds
+only what a person chose: a project it does not name takes `defaultEvents()`,
+an issue marked ready starting a session and a push recorded as seen, so a
+new checkout is picked up on its own and nothing needs enabling (#227). One
+exception: claude-mux's own push defaults to ignore, since its rule is the
+release, which runs only where it was chosen. A project turned off is written
+`enabled: false` and stays off; a file that cannot be read turns every project
+off, since it may hold such a choice. A checkout counts once
+`projectReports()` has read it, so one may be missing from a sweep (at
+startup, or after a failed git read); the poller forgets a project's head and
+approvals only when it was turned off (`isTurnedOff()`), so a push made while
+it went unread is still found. The machine's switch (§14) is what turns it all
+off. Once a
+minute `EventPoller` sends one GraphQL query for every project that is on (the
 default branch's head and its open `ready-for-agent` issues, 1 point however
 many), and a second only for issues whose `updatedAt` moved, to read their
 labels, comments, renames and edits with who made each. State is read, not
@@ -598,7 +611,7 @@ into a dialog, whose default Enter would answer it, or behind a draft); a box
 still holding `/exit` a check later gets one more Enter, and a pane still open
 30 s later, or a minute past its limit, is killed. The exit file tells how it ended:
 0 done, 124 timed out. Event Triggers are not stored: `eventTriggers()`
-lists one per enabled project and event the state map does not ignore, with
+lists one per project on and event the state map does not ignore, with
 the poller's log and, for issues that start a session, the queue's log as
 its Runs. `CLAUDE_MUX_RUN_COMMAND` (with `{prompt}`) replaces `claude` for a
 test under a `HOME` of its own.
@@ -1304,7 +1317,7 @@ server's port; off removes them, and the queue, the scheduler and the poller
 record what they pass over as "Off on this machine", while the release rule
 pauses as `release-hold` pauses it, deadlines included. Nothing already running
 is stopped: workers and session Runs go on and are reaped as before, and an
-update under way finishes. Which projects are enabled and what each event does,
+update under way finishes. Which projects are turned off and what each event does,
 the worker limit and the memory to keep free stay settings.
 
 A machine with no switch file takes it over from what it did before: on when

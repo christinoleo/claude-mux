@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { CLAUDE_MUX_DIR } from '$shared/utils/paths.js';
 import { VERSION } from '$shared/utils/version.js';
-import { enabledProjects } from '$shared/db/event-map-json.js';
-import { RELEASE_REPO, eventPoller } from '$shared/server/github-events.js';
+import { RELEASE_REPO } from '$shared/db/event-map-json.js';
+import { eventPoller, projectsHere } from '$shared/server/github-events.js';
 import { readUpdateJob, startUpdate } from '$shared/server/self-update.js';
 import {
 	RELEASE_EXCLUDE_KEY,
@@ -36,7 +36,7 @@ const run = (cmd: string, args: string[], cwd?: string) => realExec(cmd, args, c
 
 /** The project as the state map holds it, when its pushes are the rule's. */
 function releaseProject() {
-	const project = enabledProjects().get(RELEASE_REPO);
+	const project = projectsHere().get(RELEASE_REPO);
 	return project && project.events.push === 'rule' ? project : null;
 }
 
