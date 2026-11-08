@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MACHINE_COLORS, machineMarks, matchesQuery, moveTile, railOrder } from "../src/fleet-rail.js";
+import { dropBefore, MACHINE_COLORS, machineMarks, matchesQuery, moveTile, railOrder, railShown } from "../src/fleet-rail.js";
 
 describe("railOrder", () => {
   it("keeps the saved order", () => {
@@ -102,5 +102,57 @@ describe("machineMarks", () => {
     const marks = machineMarks([{ id: "a", name: "engage" }, { id: "b", name: "eagle" }]);
     expect(marks.get("a")!.letter).toBe("En");
     expect(marks.get("b")!.letter).toBe("Ea");
+  });
+});
+
+describe("railShown", () => {
+  const tiles = [
+    { key: "busy", running: true },
+    { key: "idle", running: false },
+    { key: "worker", running: true },
+    { key: "quiet", running: false }
+  ];
+  const keys = (list: { key: string }[]) => list.map((t) => t.key);
+
+  it("shows every project while the toggle is off", () => {
+    expect(keys(railShown(tiles, false, new Set()))).toEqual(["busy", "idle", "worker", "quiet"]);
+  });
+
+  it("hides the projects with no live session, keeping the rail's order", () => {
+    expect(keys(railShown(tiles, true, new Set()))).toEqual(["busy", "worker"]);
+  });
+
+  it("brings a project back once it gains a session", () => {
+    const after = railShown(
+      tiles.map((t) => (t.key === "idle" ? { ...t, running: true } : t)),
+      true,
+      new Set()
+    );
+    expect(keys(after)).toEqual(["busy", "idle", "worker"]);
+  });
+
+  it("never hides the project of the session on screen", () => {
+    expect(keys(railShown(tiles, true, new Set(["quiet"])))).toEqual(["busy", "worker", "quiet"]);
+  });
+});
+
+describe("dropBefore with hidden projects", () => {
+  // The rail is A, B, C, D; A and C are idle and hidden, so B and D are drawn.
+  const all = ["A", "B", "C", "D"];
+  const drawn = ["B", "D"];
+
+  it("keeps hidden projects in their places when a drawn tile moves", () => {
+    const next = moveTile(all, all, "D", dropBefore(all, drawn, "B"));
+    expect(next).toEqual(["A", "D", "B", "C"]);
+  });
+
+  it("puts a tile dropped at the end of the drawn rail after the last drawn tile, not past hidden ones", () => {
+    const next = moveTile(all, all, "B", dropBefore(all, drawn, null));
+    expect(next).toEqual(["A", "C", "D", "B"]);
+    expect(dropBefore(["A", "B", "C", "D", "E"], ["B", "C"], null)).toBe("D");
+  });
+
+  it("leaves a drop before a drawn tile alone", () => {
+    expect(dropBefore(all, drawn, "D")).toBe("D");
   });
 });

@@ -1087,7 +1087,12 @@ project it has never seen at the top; dragging a tile (the mouse at once, a
 finger after a long press, so a finger can still scroll the rail) saves the
 whole order through `moveTile()`, which keeps the keys not on the rail now so
 a project whose machine is away returns to its place. Nothing else moves a
-tile. A page lands on Active: by project, the sessions wanting a person,
+tile. Under the ⚡ tile a toggle ("Hide idle projects" / "Show all projects",
+remembered per device) leaves off the rail every project with no live session
+or tmux pane on any machine (`railShown()`), except the one on screen and the
+one the list shows; a drag is saved against the whole rail (`dropBefore()`),
+so hidden projects keep their places, and the filter and Ctrl+K still reach
+every project. A page lands on Active: by project, the sessions wanting a person,
 working, finished unseen or open, under Needs you and the offline machines'
 "seen X ago" lines. A project's own list holds its live sessions, a machine's
 letter in its colour on each row when the project spans machines
