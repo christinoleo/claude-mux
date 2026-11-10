@@ -5,7 +5,11 @@ import { dialogHolds } from '$shared/server/dialog-holds.js';
 import { pageOriginAllowed } from '$shared/server/page-origin.js';
 
 const AnswerSchema = z.discriminatedUnion('decision', [
-	z.object({ decision: z.literal('allow'), answers: z.record(z.string(), z.string()).optional() }),
+	z.object({
+		decision: z.literal('allow'),
+		answers: z.record(z.string(), z.string()).optional(),
+		annotations: z.record(z.string(), z.object({ notes: z.string() })).optional()
+	}),
 	z.object({ decision: z.literal('deny'), message: z.string().optional() })
 ]);
 

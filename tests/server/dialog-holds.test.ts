@@ -48,6 +48,19 @@ describe("answering", () => {
     expect(await call).toEqual(decision({ behavior: "allow", updatedInput: { questions: QUESTIONS, answers } }));
   });
 
+  it("hands Claude Code the notes on a picked option, for the questions asked", async () => {
+    const call = holds.hold(ASK);
+    const answers = { "Which shape?": "Square", "Which colours?": "Red" };
+    const annotations = { "Which colours?": { notes: " darker\n" }, "Which shape?": { notes: " " }, Other: { notes: "x" } };
+    expect(holds.answer(held(), { decision: "allow", answers, annotations })).toBe("answered");
+    expect(await call).toEqual(
+      decision({
+        behavior: "allow",
+        updatedInput: { questions: QUESTIONS, answers, annotations: { "Which colours?": { notes: "darker" } } },
+      }),
+    );
+  });
+
   it.each([
     ["a missing answer", { "Which shape?": "Square" }],
     ["a blank answer", { "Which shape?": "Square", "Which colours?": "  " }],

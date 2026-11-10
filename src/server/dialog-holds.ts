@@ -36,7 +36,7 @@ type HookOutput = Record<string, unknown>;
 const PASS: HookOutput = {};
 
 export type DialogAnswer =
-  | { decision: "allow"; answers?: Record<string, string> }
+  | { decision: "allow"; answers?: Record<string, string>; annotations?: Record<string, { notes: string }> }
   | { decision: "deny"; message?: string };
 
 export interface HeldCall {
@@ -161,6 +161,11 @@ export class DialogHolds {
         asked.every((q) => answers[q]?.trim()) && Object.keys(answers).every((q) => asked.includes(q));
       if (!complete) return "incomplete";
       updatedInput.answers = answers;
+      // A note on a picked option: Claude Code reads it here and shows Claude `"Q"="A" notes: …`.
+      const notes = Object.entries(answer.annotations ?? {})
+        .map(([q, a]) => [q, { notes: a.notes.trim() }] as const)
+        .filter(([q, a]) => asked.includes(q) && a.notes);
+      if (notes.length > 0) updatedInput.annotations = Object.fromEntries(notes);
     }
     this.settle(id, decided({ behavior: "allow", updatedInput }));
     return "answered";
