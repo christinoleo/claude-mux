@@ -7,6 +7,7 @@
 		groupSessions,
 		getSessionDisplayName,
 		wantsHuman,
+		needsHelp,
 		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
@@ -58,7 +59,7 @@
 	import { resumePast } from '$lib/past-resume';
 	import { formatAgo } from '$lib/format';
 	import { guessReport, isHomeDir, mergeProjects, projectHue, projectInitials, type FleetProject } from '$shared/fleet-projects.js';
-	import { dropBefore, machineMarks, matchesQuery, moveTile, railOrder, railShown, type MachineMark } from '$shared/fleet-rail.js';
+	import { dropBefore, machineMarks, matchesQuery, moveTile, railOrder, railShown, sessionToOpen, type MachineMark } from '$shared/fleet-rail.js';
 	import { indicatorStateOf, mostUrgent } from '$shared/session-state.js';
 	import ProjectTile from './ProjectTile.svelte';
 	import ProjectRail, { type RailTile } from './ProjectRail.svelte';
@@ -542,6 +543,42 @@
 	function openProject(key: string) {
 		query = '';
 		selected = key;
+	}
+
+	/**
+	 * When a session's wait began, dated as Needs you dates it: a worker asking
+	 * for help with no dialog open from its `needs-help` ticket, anything else
+	 * from its last change.
+	 */
+	function waitSince(machine: Machine, s: Session): number {
+		if (s.state === 'waiting' || s.state === 'permission' || !needsHelp(s)) return s.last_update;
+		const ticket = machine.inbox.find((t) => t.kind === 'needs-help' && t.number === s.maestro_issue && t.git_root === s.git_root);
+		return ticket?.since ?? s.last_update;
+	}
+
+	/**
+	 * A tile on the rail: show the project, and open the session in it that
+	 * most wants opening (`sessionToOpen()`) unless the one on screen is
+	 * already the project's. The drawer stays open on a phone, so tiles can
+	 * still be tapped through, and a split is left as it is.
+	 */
+	function railSelect(key: string) {
+		openProject(key);
+		const card = cards.find((c) => c.key === key);
+		if (!card || splitStore.active) return;
+		// A settled session that wants a person turns the tile amber, so it is a pick too.
+		const candidates = card.reachable.flatMap((p) =>
+			[...p.rows.filter((r) => !r.orchestrator).map((r) => r.session), ...p.settled.filter(wantsHuman)]
+				.filter((s) => s.tmux_target)
+				.map((s) => ({
+					item: refOf(p.machine, s.tmux_target!),
+					wants: wantsHuman(s),
+					lastUpdate: waitSince(p.machine, s),
+					lastVisited: s.last_visited_at ?? null
+				}))
+		);
+		const pick = sessionToOpen(candidates, currentProject === key);
+		if (pick) goto(sessionPath(pick));
 	}
 
 	/** The project the list shows; null on Active, or when the one chosen is gone. */
@@ -1405,7 +1442,7 @@
 			{activeBadge}
 			{hideIdle}
 			ontogglehide={toggleHideIdle}
-			onselect={openProject}
+			onselect={railSelect}
 			onmove={moveProject}
 		/>
 		<div class="railmain">

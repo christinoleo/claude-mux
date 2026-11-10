@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dropBefore, MACHINE_COLORS, machineMarks, matchesQuery, moveTile, railOrder, railShown } from "../src/fleet-rail.js";
+import { dropBefore, MACHINE_COLORS, machineMarks, matchesQuery, moveTile, railOrder, railShown, sessionToOpen } from "../src/fleet-rail.js";
 
 describe("railOrder", () => {
   it("keeps the saved order", () => {
@@ -154,5 +154,36 @@ describe("dropBefore with hidden projects", () => {
 
   it("leaves a drop before a drawn tile alone", () => {
     expect(dropBefore(all, drawn, "D")).toBe("D");
+  });
+});
+
+describe("sessionToOpen", () => {
+  const c = (item: string, wants: boolean, lastUpdate: number, lastVisited: number | null = null) => ({
+    item,
+    wants,
+    lastUpdate,
+    lastVisited,
+  });
+
+  it("opens the session waiting on a person longest", () => {
+    expect(sessionToOpen([c("busy", false, 500, 900), c("new-ask", true, 300), c("old-ask", true, 100), c("x", false, 50)])).toBe(
+      "old-ask",
+    );
+  });
+
+  it("else the one opened last", () => {
+    expect(sessionToOpen([c("a", false, 900, 100), c("b", false, 200, 400), c("never", false, 1000)])).toBe("b");
+  });
+
+  it("else the one that changed last", () => {
+    expect(sessionToOpen([c("a", false, 100), c("b", false, 300), c("c", false, 200)])).toBe("b");
+  });
+
+  it("opens nothing in a project with no live session", () => {
+    expect(sessionToOpen([])).toBeNull();
+  });
+
+  it("opens nothing when the session on screen already belongs to the project", () => {
+    expect(sessionToOpen([c("ask", true, 100), c("other", false, 200, 300)], true)).toBeNull();
   });
 });

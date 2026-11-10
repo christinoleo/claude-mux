@@ -112,3 +112,32 @@ export function dropBefore(all: readonly string[], drawn: readonly string[], bef
   if (before !== null || drawn.length === 0) return before;
   return all[all.indexOf(drawn[drawn.length - 1]) + 1] ?? null;
 }
+
+/** A live session in a project, as the rail weighs it when the project's tile is clicked. */
+export interface OpenCandidate<T> {
+  item: T;
+  /** It waits on a person: a question, a permission, a worker asking for help. */
+  wants: boolean;
+  /** When it last changed, which for one that waits is when the wait began. */
+  lastUpdate: number;
+  /** When anyone last had it open; null when nobody has. */
+  lastVisited: number | null;
+}
+
+/**
+ * The session a click on a project's tile opens, among its live sessions:
+ * the one waiting on a person longest, else the one opened last, else the
+ * one that changed last. Nothing when the project has no live session, or
+ * when what is on screen already belongs to it (`showingProject`): the click
+ * never jumps away from what the person is reading.
+ */
+export function sessionToOpen<T>(candidates: readonly OpenCandidate<T>[], showingProject = false): T | null {
+  if (showingProject) return null;
+  const best = (list: readonly OpenCandidate<T>[], key: (c: OpenCandidate<T>) => number) =>
+    list.reduce<OpenCandidate<T> | null>((a, c) => (a === null || key(c) > key(a) ? c : a), null);
+  const pick =
+    best(candidates.filter((c) => c.wants), (c) => -c.lastUpdate) ??
+    best(candidates.filter((c) => c.lastVisited !== null), (c) => c.lastVisited!) ??
+    best(candidates, (c) => c.lastUpdate);
+  return pick?.item ?? null;
+}
