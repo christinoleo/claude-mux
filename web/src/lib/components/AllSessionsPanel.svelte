@@ -7,6 +7,7 @@
 		groupSessions,
 		getSessionDisplayName,
 		wantsHuman,
+		needsHelp,
 		postVisit,
 		type Session
 	} from '$lib/stores/sessions.svelte';
@@ -545,6 +546,17 @@
 	}
 
 	/**
+	 * When a session's wait began, dated as Needs you dates it: a worker asking
+	 * for help with no dialog open from its `needs-help` ticket, anything else
+	 * from its last change.
+	 */
+	function waitSince(machine: Machine, s: Session): number {
+		if (s.state === 'waiting' || s.state === 'permission' || !needsHelp(s)) return s.last_update;
+		const ticket = machine.inbox.find((t) => t.kind === 'needs-help' && t.number === s.maestro_issue && t.git_root === s.git_root);
+		return ticket?.since ?? s.last_update;
+	}
+
+	/**
 	 * A tile on the rail: show the project, and open the session in it that
 	 * most wants opening (`sessionToOpen()`) unless the one on screen is
 	 * already the project's. The drawer stays open on a phone, so tiles can
@@ -554,22 +566,19 @@
 		openProject(key);
 		const card = cards.find((c) => c.key === key);
 		if (!card || splitStore.active) return;
-		const pick = sessionToOpen(
-			card.places
-				.filter((p) => reachable(p.machine))
-				.flatMap((p) =>
-					p.rows
-						.filter((r) => !r.orchestrator && r.session.tmux_target)
-						.map((r) => ({
-							item: { machine: p.machine, target: r.session.tmux_target! },
-							wants: wantsHuman(r.session),
-							lastUpdate: r.session.last_update,
-							lastVisited: r.session.last_visited_at ?? null
-						}))
-				),
-			currentProject === key
+		// A settled session that wants a person turns the tile amber, so it is a pick too.
+		const candidates = card.reachable.flatMap((p) =>
+			[...p.rows.filter((r) => !r.orchestrator).map((r) => r.session), ...p.settled.filter(wantsHuman)]
+				.filter((s) => s.tmux_target)
+				.map((s) => ({
+					item: refOf(p.machine, s.tmux_target!),
+					wants: wantsHuman(s),
+					lastUpdate: waitSince(p.machine, s),
+					lastVisited: s.last_visited_at ?? null
+				}))
 		);
-		if (pick) goto(sessionPath(refOf(pick.machine, pick.target)));
+		const pick = sessionToOpen(candidates, currentProject === key);
+		if (pick) goto(sessionPath(pick));
 	}
 
 	/** The project the list shows; null on Active, or when the one chosen is gone. */
