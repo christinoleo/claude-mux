@@ -2,12 +2,16 @@
 	import type { DialogHold } from '$shared/types/ws-messages.js';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import DictateButton from './DictateButton.svelte';
+	import { keepsCaret, sayInto } from '$lib/dictation';
+	import { composeAnswers, type HoldQuestion } from '$lib/hold-answer';
 
 	let {
 		hold,
 		base = '',
 		onAnswered,
-		onMoreOptions = null
+		onMoreOptions = null,
+		dictateTarget = null
 	}: {
 		/** The dialog whose hook is waiting for this card. */
 		hold: DialogHold;
@@ -16,26 +20,23 @@
 		onAnswered: () => void;
 		/** Opens the pane's own rows, for what only the terminal's dialog offers. Null when none are drawn. */
 		onMoreOptions?: (() => void) | null;
+		/** Where dictation's words are heard, as `DictateButton` takes it; null draws no microphone. */
+		dictateTarget?: string | null;
 	} = $props();
-
-	type Question = Extract<DialogHold, { kind: 'question' }>['questions'][number];
 
 	let picks = $state<Record<string, string[]>>({});
 	let typed = $state<Record<string, string>>({});
 	let message = $state('');
+	/** Each question's field, for dictation to find its caret. */
+	const fields: Record<string, HTMLInputElement> = {};
+	let messageEl = $state<HTMLInputElement | null>(null);
 	let sending = $state(false);
 	let error = $state<string | null>(null);
 
 	const questions = $derived(hold.kind === 'question' ? hold.questions : []);
 
-	/** A question's answer as a person's keys would give it: `Red, Blue`, with their own words last. */
-	function answerOf(q: Question): string {
-		const own = typed[q.question]?.trim();
-		if (!q.multiSelect && own) return own;
-		return [...(picks[q.question] ?? []), ...(own ? [own] : [])].join(', ');
-	}
-
-	const complete = $derived(questions.every((q) => answerOf(q) !== ''));
+	const composed = $derived(composeAnswers(questions, picks, typed));
+	const complete = $derived(questions.every((q) => composed.answers[q.question]));
 
 	async function send(body: Record<string, unknown>) {
 		sending = true;
@@ -63,7 +64,7 @@
 	function allow() {
 		void send(
 			hold.kind === 'question'
-				? { decision: 'allow', answers: Object.fromEntries(questions.map((q) => [q.question, answerOf(q)])) }
+				? { decision: 'allow', ...composed }
 				: { decision: 'allow' }
 		);
 	}
@@ -72,16 +73,18 @@
 		void send({ decision: 'deny', message: message.trim() || undefined });
 	}
 
-	function toggle(q: Question, label: string) {
+	function toggle(q: HoldQuestion, label: string) {
 		const now = picks[q.question] ?? [];
-		if (q.multiSelect) {
+		const lone = questions.length === 1 && !typed[q.question]?.trim();
+		// A second tap on the one choice of a card sends it again, as a failed send leaves it picked.
+		if (!q.multiSelect && lone && now.includes(label)) return allow();
+		if (q.multiSelect || now.includes(label)) {
 			picks[q.question] = now.includes(label) ? now.filter((l) => l !== label) : [...now, label];
 			return;
 		}
 		picks[q.question] = [label];
-		typed[q.question] = '';
-		// One choice on the whole card has nothing left to confirm.
-		if (questions.length === 1) allow();
+		// One choice on the whole card has nothing left to confirm, unless a note is being written for it.
+		if (lone) allow();
 	}
 </script>
 
@@ -89,6 +92,7 @@
 	{#if hold.kind === 'question'}
 		<header class="title"><iconify-icon icon="mdi:chat-question"></iconify-icon>Claude is asking</header>
 		{#each questions as q (q.question)}
+			{@const picked = (picks[q.question]?.length ?? 0) > 0}
 			<div class="question-block">
 				{#if q.header}<span class="chip">{q.header}</span>{/if}
 				<p class="question">{q.question}</p>
@@ -120,34 +124,56 @@
 						</button>
 					{/each}
 				</div>
-				<Input
-					bind:value={typed[q.question]}
-					placeholder="Type something else"
-					aria-label={`Your own answer to: ${q.question}`}
-					disabled={sending}
-					oninput={() => {
-						if (!q.multiSelect) picks[q.question] = [];
-					}}
-					onkeydown={(e: KeyboardEvent) => {
-						e.stopPropagation();
-						if (e.key === 'Enter' && complete && !sending) {
-							e.preventDefault();
-							allow();
-						}
-					}}
-				/>
+				<div class="field">
+					<Input
+						{@attach (el: HTMLInputElement) => {
+							fields[q.question] = el;
+						}}
+						bind:value={typed[q.question]}
+						{@attach keepsCaret}
+						placeholder={picked ? 'Add a note to your pick' : 'Type something else'}
+						aria-label={picked ? `A note on your answer to: ${q.question}` : `Your own answer to: ${q.question}`}
+						disabled={sending}
+						onkeydown={(e: KeyboardEvent) => {
+							e.stopPropagation();
+							if (e.key === 'Enter' && complete && !sending) {
+								e.preventDefault();
+								allow();
+							}
+						}}
+					/>
+					{#if dictateTarget}
+						<DictateButton
+							target={dictateTarget}
+							disabled={sending}
+							onText={(text) =>
+								void sayInto(fields[q.question], typed[q.question] ?? '', text, (t) => (typed[q.question] = t))}
+						/>
+					{/if}
+				</div>
 			</div>
 		{/each}
 	{:else if hold.kind === 'plan'}
 		<header class="title"><iconify-icon icon="mdi:clipboard-text-outline"></iconify-icon>Plan to approve</header>
 		<pre class="detail">{hold.detail}</pre>
-		<Input
-			bind:value={message}
-			placeholder="What to change, if you keep planning"
-			aria-label="What to change in the plan"
-			disabled={sending}
-			onkeydown={(e: KeyboardEvent) => e.stopPropagation()}
-		/>
+		<div class="field">
+			<Input
+				bind:ref={messageEl}
+				bind:value={message}
+				{@attach keepsCaret}
+				placeholder="What to change, if you keep planning"
+				aria-label="What to change in the plan"
+				disabled={sending}
+				onkeydown={(e: KeyboardEvent) => e.stopPropagation()}
+			/>
+			{#if dictateTarget}
+				<DictateButton
+					target={dictateTarget}
+					disabled={sending}
+					onText={(text) => void sayInto(messageEl, message, text, (t) => (message = t))}
+				/>
+			{/if}
+		</div>
 	{:else}
 		<header class="title"><iconify-icon icon="mdi:shield-alert-outline"></iconify-icon>Permission needed</header>
 		<p class="question">{hold.tool}</p>
@@ -263,6 +289,11 @@
 		font-size: 12px;
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
+	}
+	.field {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 	.error {
 		margin: 8px 0 0;

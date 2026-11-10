@@ -1073,6 +1073,7 @@
 					submitted = dialogKey;
 				}}
 				onMoreOptions={paneChoice ? () => (rowsForHold = holdCard.id) : null}
+				{dictateTarget}
 			/>
 		{/key}
 	{/if}

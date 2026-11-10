@@ -1274,7 +1274,11 @@ the pane's highlighted Yes.
 
 A question takes `updatedInput` plus `answers`, and a plan its input echoed:
 `allow` alone leaves either dialog open. Nothing in Claude Code checks that
-answers are complete (a missing one is dropped in silence), so the store does. The
+answers are complete (a missing one is dropped in silence), so the store does.
+Words typed beside a picked option go as that question's `annotations[q].notes`,
+which Claude Code shows Claude as `"Q"="A" notes: …`; typed with nothing picked
+they are the answer (`composeAnswers()`, `web/src/lib/hold-answer.ts`). Every
+text field on the card has a microphone. The
 only way to `allow` is that press, because this hook can otherwise approve a
 critical-path removal with nobody there. Every other ending passes, which leaves
 the terminal's dialog as the only way to answer: the ten-minute limit
