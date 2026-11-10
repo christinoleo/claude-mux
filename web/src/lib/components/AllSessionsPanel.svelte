@@ -58,7 +58,7 @@
 	import { resumePast } from '$lib/past-resume';
 	import { formatAgo } from '$lib/format';
 	import { guessReport, isHomeDir, mergeProjects, projectHue, projectInitials, type FleetProject } from '$shared/fleet-projects.js';
-	import { dropBefore, machineMarks, matchesQuery, moveTile, railOrder, railShown, type MachineMark } from '$shared/fleet-rail.js';
+	import { dropBefore, machineMarks, matchesQuery, moveTile, railOrder, railShown, sessionToOpen, type MachineMark } from '$shared/fleet-rail.js';
 	import { indicatorStateOf, mostUrgent } from '$shared/session-state.js';
 	import ProjectTile from './ProjectTile.svelte';
 	import ProjectRail, { type RailTile } from './ProjectRail.svelte';
@@ -542,6 +542,34 @@
 	function openProject(key: string) {
 		query = '';
 		selected = key;
+	}
+
+	/**
+	 * A tile on the rail: show the project, and open the session in it that
+	 * most wants opening (`sessionToOpen()`) unless the one on screen is
+	 * already the project's. The drawer stays open on a phone, so tiles can
+	 * still be tapped through, and a split is left as it is.
+	 */
+	function railSelect(key: string) {
+		openProject(key);
+		const card = cards.find((c) => c.key === key);
+		if (!card || splitStore.active) return;
+		const pick = sessionToOpen(
+			card.places
+				.filter((p) => reachable(p.machine))
+				.flatMap((p) =>
+					p.rows
+						.filter((r) => !r.orchestrator && r.session.tmux_target)
+						.map((r) => ({
+							item: { machine: p.machine, target: r.session.tmux_target! },
+							wants: wantsHuman(r.session),
+							lastUpdate: r.session.last_update,
+							lastVisited: r.session.last_visited_at ?? null
+						}))
+				),
+			currentProject === key
+		);
+		if (pick) goto(sessionPath(refOf(pick.machine, pick.target)));
 	}
 
 	/** The project the list shows; null on Active, or when the one chosen is gone. */
@@ -1405,7 +1433,7 @@
 			{activeBadge}
 			{hideIdle}
 			ontogglehide={toggleHideIdle}
-			onselect={openProject}
+			onselect={railSelect}
 			onmove={moveProject}
 		/>
 		<div class="railmain">
