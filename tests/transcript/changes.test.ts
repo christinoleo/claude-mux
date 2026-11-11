@@ -175,4 +175,21 @@ describe("ChangesCollector: where turns start", () => {
     expect(c.promptIds()).toEqual(["typed"]);
     expect(c.byTurn().map((t) => [t.id, t.n])).toEqual([["typed", 1]]);
   });
+
+  it("opens one turn for a prompt that calls two skills, under the first line's id", () => {
+    const skill = (uuid: string, name: string, promptId: string) =>
+      JSON.stringify({
+        type: "user",
+        uuid,
+        promptId,
+        message: { role: "user", content: `<command-message>${name}</command-message><command-name>/${name}</command-name><command-args>go</command-args>` },
+      });
+    const meta = (uuid: string, promptId: string) =>
+      JSON.stringify({ type: "user", uuid, promptId, isMeta: true, message: { role: "user", content: [{ type: "text", text: "Base directory" }] } });
+    const c = collect(
+      [skill("s1", "ak:wayfinder", "P"), meta("m1", "P"), skill("s2", "ak:maestro", "P"), meta("m2", "P"), edit("t1"), skill("s3", "ak:maestro", "Q")].join("\n"),
+    );
+    expect(c.promptIds()).toEqual(["s1", "s3"]);
+    expect(c.byTurn().map((t) => [t.id, t.n, t.prompt])).toEqual([["s1", 1, "/ak:wayfinder /ak:maestro go"]]);
+  });
 });
