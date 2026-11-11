@@ -18,7 +18,7 @@
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { type PastSession } from "../past-session.js";
-import { parseSlashCommand, unwrapPasted } from "./parser.js";
+import { commandText, parseSlashCommand, unwrapPasted } from "./parser.js";
 import { projectsRoot } from "./tailer.js";
 
 
@@ -80,7 +80,7 @@ export function promptText(entry: Entry): string | null {
   if (text) text = unwrapPasted(text);
   if (!text?.trim()) return null;
   const command = parseSlashCommand(text);
-  if (command) return clip(command.args ? `${command.name} ${command.args}` : command.name);
+  if (command) return clip(commandText(command));
   if (/^\s*<(local-command|command-message|system-reminder|bash-|user-memory)/.test(text) || text.startsWith("Caveat:")) {
     return null;
   }

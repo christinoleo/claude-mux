@@ -18,7 +18,7 @@ import { asRecord, readString } from "./json.js";
 import { peekTranscriptPath } from "./context-peek.js";
 import { JsonlTailer } from "./tailer.js";
 import { ForkTracker } from "./forks.js";
-import { interruptNote, parseSlashCommand, PromptJoin, readStructuredPatch, type PatchHunk } from "./parser.js";
+import { commandText, interruptNote, parseSlashCommand, PromptJoin, readStructuredPatch, type PatchHunk } from "./parser.js";
 
 export type FileChangeKind = "added" | "modified" | "deleted";
 
@@ -127,7 +127,7 @@ export function promptText(record: Record<string, unknown>): string | null {
   text = text.trim();
   if (!text || HARNESS_PROMPT.test(text) || interruptNote(text)) return null;
   const command = parseSlashCommand(text);
-  if (command) text = command.args ? `${command.name} ${command.args}` : command.name;
+  if (command) text = commandText(command);
   const firstLine = text.split("\n", 1)[0];
   return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
 }
@@ -190,8 +190,7 @@ export class ChangesCollector {
     const carriesChange = line.includes('"structuredPatch"');
     const mayOpen = line.includes('"type":"user"') && !line.includes('"tool_result"');
     // An assistant line ends a prompt, which PromptJoin has to see.
-    const speaks = line.includes('"type":"assistant"');
-    if (!carriesChange && !mayOpen && !speaks && !line.startsWith('{"parentUuid"')) return;
+    if (!carriesChange && !mayOpen && !line.startsWith('{"parentUuid"') && !line.includes('"type":"assistant"')) return;
     let record: Record<string, unknown> | null;
     try {
       record = asRecord(JSON.parse(line));

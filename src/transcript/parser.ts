@@ -132,7 +132,7 @@ export function parseSlashCommand(content: string): { name: string; args?: strin
 }
 
 /** A command as typed: its names, then its arguments. */
-function commandText(command: { name: string; args?: string; also?: string[] }): string {
+export function commandText(command: { name: string; args?: string; also?: string[] }): string {
   return [command.name, ...(command.also ?? []), ...(command.args ? [command.args] : [])].join(" ");
 }
 
@@ -473,8 +473,6 @@ export class TranscriptBuilder {
   private pendingQueued: { text: string; id: string }[] = [];
   private forks = new ForkTracker();
   private promptJoin = new PromptJoin();
-  /** Set while feeding a command line that continues the prompt before it. */
-  private joinsPrompt = false;
   /** The position of the line being fed, and of the line that first made each entry. */
   private seq = -1;
   private seqById = new Map<string, number>();
@@ -515,11 +513,11 @@ export class TranscriptBuilder {
     if ((record.isSidechain === true) !== this.sidechain) return [];
     const uuid = readString(record.uuid);
     if (uuid) this.seq = this.forks.see(uuid, record.type);
-    this.joinsPrompt = this.promptJoin.continues(record);
+    const joinsPrompt = this.promptJoin.continues(record);
 
     switch (record.type) {
       case "user":
-        return this.feedUser(record);
+        return this.feedUser(record, joinsPrompt);
       case "assistant":
         return this.feedAssistant(record);
       case "attachment":
@@ -650,7 +648,14 @@ export class TranscriptBuilder {
     return index === undefined ? undefined : this.entries[index];
   }
 
-  private feedUser(record: Record<string, unknown>): string[] {
+  /** The user entry of the last slash command, while it is still the one to ride under. */
+  private commandOwner(): Extract<TranscriptEntry, { kind: "user" }> | undefined {
+    const owner = this.lastCommandId ? this.getEntry(this.lastCommandId) : undefined;
+    return owner?.kind === "user" && owner.command ? owner : undefined;
+  }
+
+  /** `joinsPrompt`: the line is a command that continues the prompt before it (PromptJoin). */
+  private feedUser(record: Record<string, unknown>, joinsPrompt: boolean): string[] {
     const message = asRecord(record.message);
     if (!message) return [];
     const uuid = readString(record.uuid) ?? `user-${this.entries.length}`;
@@ -711,8 +716,8 @@ export class TranscriptBuilder {
       const output = parseLocalOutput(content);
       if (output !== null) {
         if (output.length === 0) return [];
-        const owner = this.lastCommandId ? this.getEntry(this.lastCommandId) : undefined;
-        if (owner?.kind === "user" && owner.command) {
+        const owner = this.commandOwner();
+        if (owner?.command) {
           return [
             this.upsert({
               ...owner,
@@ -725,14 +730,14 @@ export class TranscriptBuilder {
       // `text` stays the human-readable form of the turn either way, so search,
       // truncation and the queued-prompt matching below need no special case.
       const command = parseSlashCommand(content);
-      // A second skill called by the same prompt: add its chip to the first's
-      // message rather than show the prompt twice.
-      const owner = this.joinsPrompt && this.lastCommandId ? this.getEntry(this.lastCommandId) : undefined;
-      if (command && owner?.kind === "user" && owner.command) {
-        const joined = { ...owner.command, also: [...(owner.command.also ?? []), command.name] };
-        return [this.upsert({ ...owner, command: joined, text: truncate(commandText(joined), TEXT_CHAR_LIMIT) })];
-      }
       if (command) {
+        // A second skill called by the same prompt: add its chip to the first's
+        // message rather than show the prompt twice.
+        const owner = joinsPrompt ? this.commandOwner() : undefined;
+        if (owner?.command) {
+          const joined = { ...owner.command, also: [...(owner.command.also ?? []), command.name] };
+          return [this.upsert({ ...owner, command: joined, text: truncate(commandText(joined), TEXT_CHAR_LIMIT) })];
+        }
         // A command pasted into the prompt is logged twice: first as the plain
         // text the user sent, then as the harness's own bundle once it ran.
         // Fold the bundle into that first line rather than showing a second.
