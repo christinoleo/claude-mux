@@ -1012,3 +1012,115 @@ describe("image results", () => {
     }
   });
 });
+
+describe("one prompt calling several skills", () => {
+  const skill = (uuid: string, name: string, args: string, promptId?: string) =>
+    line({
+      type: "user",
+      uuid,
+      timestamp: TS,
+      ...(promptId ? { promptId } : {}),
+      message: {
+        role: "user",
+        content: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>${args}</command-args>`,
+      },
+      origin: { kind: "human" },
+    });
+  const meta = (uuid: string, name: string, promptId?: string) =>
+    line({
+      type: "user",
+      uuid,
+      timestamp: TS,
+      isMeta: true,
+      ...(promptId ? { promptId } : {}),
+      message: { role: "user", content: [{ type: "text", text: `Base directory for this skill: /skills/${name}` }] },
+    });
+  const attachment = (uuid: string) =>
+    line({ type: "attachment", uuid, timestamp: TS, attachment: { type: "skill_listing", content: "..." } });
+  const reply = (uuid: string, text: string) =>
+    line({
+      type: "assistant",
+      uuid,
+      timestamp: TS,
+      message: { id: `m-${uuid}`, role: "assistant", content: [{ type: "text", text }] },
+    });
+  const users = (lines: string[]) => {
+    const builder = new TranscriptBuilder();
+    for (const l of lines) builder.feed(l);
+    return builder.entries.filter((e) => e.kind === "user");
+  };
+
+  it("draws two skills sharing a promptId as one message with both chips", () => {
+    const entries = users([
+      skill("u1", "ak:wayfinder", "plan the thing", "P"),
+      meta("m1", "wayfinder", "P"),
+      attachment("a1"),
+      skill("u2", "ak:maestro", "plan the thing", "P"),
+      meta("m2", "maestro", "P"),
+      reply("r1", "On it."),
+    ]);
+    expect(entries).toEqual([
+      expect.objectContaining({
+        id: "u1",
+        text: "/ak:wayfinder /ak:maestro plan the thing",
+        command: { name: "/ak:wayfinder", args: "plan the thing", also: ["/ak:maestro"] },
+      }),
+    ]);
+  });
+
+  it("leaves a single skill as it was", () => {
+    const entries = users([skill("u1", "ak:maestro", "go", "P"), meta("m1", "maestro", "P"), reply("r1", "ok")]);
+    expect(entries).toEqual([
+      expect.objectContaining({ id: "u1", text: "/ak:maestro go", command: { name: "/ak:maestro", args: "go" } }),
+    ]);
+  });
+
+  it("keeps two prompts calling the same skill with the same text as two", () => {
+    const entries = users([
+      skill("u1", "ak:maestro", "go", "P1"),
+      meta("m1", "maestro", "P1"),
+      reply("r1", "done"),
+      skill("u2", "ak:maestro", "go", "P2"),
+      meta("m2", "maestro", "P2"),
+    ]);
+    expect(entries.map((e) => e.id)).toEqual(["u1", "u2"]);
+  });
+
+  it("keeps two prompts apart even when nothing was said between them, if their promptIds differ", () => {
+    const entries = users([skill("u1", "ak:maestro", "go", "P1"), meta("m1", "maestro", "P1"), skill("u2", "ak:maestro", "go", "P2")]);
+    expect(entries.map((e) => e.id)).toEqual(["u1", "u2"]);
+  });
+
+  describe("without a promptId (older Claude Code)", () => {
+    it("joins command lines with the same arguments and only meta and attachments between", () => {
+      const entries = users([
+        skill("u1", "ak:wayfinder", "plan the thing"),
+        meta("m1", "wayfinder"),
+        attachment("a1"),
+        skill("u2", "ak:maestro", "plan the thing"),
+        meta("m2", "maestro"),
+      ]);
+      expect(entries).toEqual([
+        expect.objectContaining({
+          id: "u1",
+          command: { name: "/ak:wayfinder", args: "plan the thing", also: ["/ak:maestro"] },
+        }),
+      ]);
+    });
+
+    it("keeps them apart when the arguments differ", () => {
+      const entries = users([skill("u1", "ak:wayfinder", "one"), meta("m1", "wayfinder"), skill("u2", "ak:maestro", "two")]);
+      expect(entries.map((e) => e.id)).toEqual(["u1", "u2"]);
+    });
+
+    it("keeps them apart when the agent spoke between them", () => {
+      const entries = users([
+        skill("u1", "ak:maestro", "go"),
+        meta("m1", "maestro"),
+        reply("r1", "done"),
+        skill("u2", "ak:maestro", "go"),
+      ]);
+      expect(entries.map((e) => e.id)).toEqual(["u1", "u2"]);
+    });
+  });
+});

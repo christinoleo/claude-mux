@@ -18,7 +18,7 @@ import { asRecord, readString } from "./json.js";
 import { peekTranscriptPath } from "./context-peek.js";
 import { JsonlTailer } from "./tailer.js";
 import { ForkTracker } from "./forks.js";
-import { interruptNote, parseSlashCommand, readStructuredPatch, type PatchHunk } from "./parser.js";
+import { interruptNote, parseSlashCommand, PromptJoin, readStructuredPatch, type PatchHunk } from "./parser.js";
 
 export type FileChangeKind = "added" | "modified" | "deleted";
 
@@ -181,6 +181,7 @@ export class ChangesCollector {
   /** tool_use ids already counted, so a line written twice is counted once. */
   private seen = new Set<string>();
   private forks = new ForkTracker();
+  private promptJoin = new PromptJoin();
 
   feed(line: string): void {
     // A tool result without a patch can neither change a file nor open a turn,
@@ -188,7 +189,9 @@ export class ChangesCollector {
     // to be placed for a rewind to be told from a prompt that follows on.
     const carriesChange = line.includes('"structuredPatch"');
     const mayOpen = line.includes('"type":"user"') && !line.includes('"tool_result"');
-    if (!carriesChange && !mayOpen && !line.startsWith('{"parentUuid"')) return;
+    // An assistant line ends a prompt, which PromptJoin has to see.
+    const speaks = line.includes('"type":"assistant"');
+    if (!carriesChange && !mayOpen && !speaks && !line.startsWith('{"parentUuid"')) return;
     let record: Record<string, unknown> | null;
     try {
       record = asRecord(JSON.parse(line));
@@ -198,6 +201,8 @@ export class ChangesCollector {
     if (!record || record.isSidechain === true) return;
     const uuid = readString(record.uuid);
     const seq = uuid ? this.forks.see(uuid, record.type) : -1;
+    // A second skill called by the same prompt opens no turn of its own.
+    if (this.promptJoin.continues(record)) return;
     if (record.type !== "user" || (!carriesChange && !mayOpen)) return;
 
     if (carriesChange) {

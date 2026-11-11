@@ -717,7 +717,9 @@
 				     text — the raw <command-*> tags never reach the reader. -->
 				{#if entry.command}
 					<div class="user-text">
-						<span class="slash-name">{entry.command.name}</span>{#if entry.command.args}<span
+						<span class="slash-name">{entry.command.name}</span>{#each entry.command.also ?? [] as name, i (i)}{' '}<span
+								class="slash-name">{name}</span
+							>{/each}{#if entry.command.args}<span
 								class="slash-args">{entry.command.args}</span
 							>{/if}
 						<!-- A local command answers on the spot — "Set model to Fable" —

@@ -30,9 +30,11 @@ export type TranscriptEntry = (
        * Set when the prompt was a slash command, so the UI can style it.
        * `output` is what a local command printed back — "Set model to Fable" —
        * which the log records as a user line of its own, wrapped in
-       * <local-command-stdout>, right after the command.
+       * <local-command-stdout>, right after the command. `also` names the
+       * skills that came after the first in the same prompt
+       * (`/ak:wayfinder /ak:maestro TEXT`), which share its `args`.
        */
-      command?: { name: string; args?: string; output?: string };
+      command?: { name: string; args?: string; output?: string; also?: string[] };
       /** Set when the prompt was dictated by voice (see dictation-marks). */
       dictated?: boolean;
       /** Set when the line is a local command's output with no command left to ride under. */
@@ -127,6 +129,48 @@ export function parseSlashCommand(content: string): { name: string; args?: strin
   // <command-message> is the harness's own echo of the name; it adds nothing
   // the UI can show, and empty <command-args> must not become a trailing space.
   return { name, ...(tags.args ? { args: tags.args } : {}) };
+}
+
+/** A command as typed: its names, then its arguments. */
+function commandText(command: { name: string; args?: string; also?: string[] }): string {
+  return [command.name, ...(command.also ?? []), ...(command.args ? [command.args] : [])].join(" ");
+}
+
+/**
+ * Tells when a slash command line continues the prompt before it. One prompt
+ * that calls two skills (`/ak:wayfinder /ak:maestro TEXT`) is logged as one
+ * command line per skill, each carrying the whole text and followed by its
+ * skill's meta line, all sharing a `promptId`. Where `promptId` is missing
+ * (older Claude Code) a command line continues the last only when its
+ * arguments are the same and nothing but meta lines and attachments came
+ * between: any other user or assistant line ends the prompt. Lines of other
+ * types are the harness's bookkeeping and pass unnoticed. Feed it every user
+ * and assistant line in file order.
+ */
+export class PromptJoin {
+  private open: { promptId: string | null; args: string } | null = null;
+
+  /** True when `record` is a command line that belongs to the prompt before it. */
+  continues(record: Record<string, unknown>): boolean {
+    if (record.type !== "user" && record.type !== "assistant") return false;
+    if (record.isMeta === true) return false;
+    const content = record.type === "user" ? asRecord(record.message)?.content : undefined;
+    const command = typeof content === "string" ? parseSlashCommand(content) : null;
+    if (!command) {
+      this.open = null;
+      return false;
+    }
+    const promptId = readString(record.promptId);
+    const args = command.args ?? "";
+    const open = this.open;
+    const joins =
+      open !== null &&
+      (promptId !== null
+        ? promptId === open.promptId
+        : open.promptId === null && args === open.args);
+    this.open = { promptId, args };
+    return joins;
+  }
 }
 
 /** What a local command printed, as the log wraps it; \1 pairs open with close. */
@@ -428,6 +472,9 @@ export class TranscriptBuilder {
   /** Queued prompts awaiting a possible re-delivery as a real user line. */
   private pendingQueued: { text: string; id: string }[] = [];
   private forks = new ForkTracker();
+  private promptJoin = new PromptJoin();
+  /** Set while feeding a command line that continues the prompt before it. */
+  private joinsPrompt = false;
   /** The position of the line being fed, and of the line that first made each entry. */
   private seq = -1;
   private seqById = new Map<string, number>();
@@ -468,6 +515,7 @@ export class TranscriptBuilder {
     if ((record.isSidechain === true) !== this.sidechain) return [];
     const uuid = readString(record.uuid);
     if (uuid) this.seq = this.forks.see(uuid, record.type);
+    this.joinsPrompt = this.promptJoin.continues(record);
 
     switch (record.type) {
       case "user":
@@ -677,11 +725,18 @@ export class TranscriptBuilder {
       // `text` stays the human-readable form of the turn either way, so search,
       // truncation and the queued-prompt matching below need no special case.
       const command = parseSlashCommand(content);
+      // A second skill called by the same prompt: add its chip to the first's
+      // message rather than show the prompt twice.
+      const owner = this.joinsPrompt && this.lastCommandId ? this.getEntry(this.lastCommandId) : undefined;
+      if (command && owner?.kind === "user" && owner.command) {
+        const joined = { ...owner.command, also: [...(owner.command.also ?? []), command.name] };
+        return [this.upsert({ ...owner, command: joined, text: truncate(commandText(joined), TEXT_CHAR_LIMIT) })];
+      }
       if (command) {
         // A command pasted into the prompt is logged twice: first as the plain
         // text the user sent, then as the harness's own bundle once it ran.
         // Fold the bundle into that first line rather than showing a second.
-        const spelled = `${command.name}${command.args ? ` ${command.args}` : ""}`;
+        const spelled = commandText(command);
         const typed = this.recentPlainUserLine(spelled);
         if (typed) {
           this.lastCommandId = typed.id;
@@ -689,9 +744,7 @@ export class TranscriptBuilder {
         }
       }
       this.lastCommandId = command ? uuid : null;
-      const text = command
-        ? `${command.name}${command.args ? ` ${command.args}` : ""}`
-        : content;
+      const text = command ? commandText(command) : content;
       return [
         ...this.rewindTo(record),
         ...this.deliverQueued(content),
