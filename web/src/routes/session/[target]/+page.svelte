@@ -1434,6 +1434,14 @@
 			if (draftsStore.get(sent.ref) === sent.text) draftsStore.set(sent.ref, '');
 			return;
 		}
+		// An edit opened before the server answered put the sent text aside as the
+		// draft and filled the composer with the queued message, which may be the
+		// same text. The composer belongs to the edit; the copy to clear is the one
+		// put aside, or Cancel would bring the sent message back.
+		if (editing?.ref === ref) {
+			if (editing.draft === sent.text) editing.draft = '';
+			return;
+		}
 		if (textInput !== sent.text) return;
 		textInput = '';
 		if (textareaElement) textareaElement.style.height = 'auto';
