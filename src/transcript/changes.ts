@@ -18,7 +18,15 @@ import { asRecord, readString } from "./json.js";
 import { peekTranscriptPath } from "./context-peek.js";
 import { JsonlTailer } from "./tailer.js";
 import { ForkTracker } from "./forks.js";
-import { commandText, interruptNote, parseSlashCommand, PromptJoin, readStructuredPatch, type PatchHunk } from "./parser.js";
+import {
+  commandText,
+  interruptNote,
+  parseSlashCommand,
+  PromptJoin,
+  readStructuredPatch,
+  type PatchHunk,
+  type SlashCommand,
+} from "./parser.js";
 
 export type FileChangeKind = "added" | "modified" | "deleted";
 
@@ -127,15 +135,24 @@ export function promptText(record: Record<string, unknown>): string | null {
   text = text.trim();
   if (!text || HARNESS_PROMPT.test(text) || interruptNote(text)) return null;
   const command = parseSlashCommand(text);
-  if (command) text = commandText(command);
+  return clipPrompt(command ? commandText(command) : text);
+}
+
+/** A prompt's first line, cut to fit a card. */
+function clipPrompt(text: string): string {
   const firstLine = text.split("\n", 1)[0];
   return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
 }
 
+/** The slash command a prompt line records, or null. */
+function commandOf(record: Record<string, unknown>): SlashCommand | null {
+  const content = asRecord(record.message)?.content;
+  return typeof content === "string" ? parseSlashCommand(content) : null;
+}
+
 /** Whether a prompt line is the harness's record of a slash command. */
 function isCommand(record: Record<string, unknown>): boolean {
-  const content = asRecord(record.message)?.content;
-  return typeof content === "string" && parseSlashCommand(content.trim()) !== null;
+  return commandOf(record) !== null;
 }
 
 export function parseTs(value: unknown): number {
@@ -150,6 +167,8 @@ interface Turn {
   n: number;
   ts: number;
   prompt: string;
+  /** The slash command the prompt was, so a second skill called by it can join its name. */
+  command?: SlashCommand;
   /** Per file, every change in order. */
   changes: Map<string, FileChange[]>;
 }
@@ -200,8 +219,17 @@ export class ChangesCollector {
     if (!record || record.isSidechain === true) return;
     const uuid = readString(record.uuid);
     const seq = uuid ? this.forks.see(uuid, record.type) : -1;
-    // A second skill called by the same prompt opens no turn of its own.
-    if (this.promptJoin.continues(record)) return;
+    // A second skill called by the same prompt opens no turn of its own; its
+    // name joins the first's, as the transcript draws it.
+    if (this.promptJoin.continues(record)) {
+      const last = this.turns[this.turns.length - 1];
+      const name = commandOf(record)?.name;
+      if (last?.command && name) {
+        last.command = { ...last.command, also: [...(last.command.also ?? []), name] };
+        last.prompt = clipPrompt(commandText(last.command));
+      }
+      return;
+    }
     if (record.type !== "user" || (!carriesChange && !mayOpen)) return;
 
     if (carriesChange) {
@@ -238,12 +266,14 @@ export class ChangesCollector {
     // changes, which Claude Code restored when it was asked to.
     const after = this.forks.abandonedAfter(readString(record.parentUuid));
     if (after !== null) this.turns = this.turns.filter((turn) => turn.seq <= after);
+    const command = commandOf(record);
     this.turns.push({
       id: uuid,
       seq,
       n: (this.turns[this.turns.length - 1]?.n ?? 0) + 1,
       ts: parseTs(record.timestamp),
       prompt,
+      ...(command ? { command } : {}),
       changes: new Map(),
     });
   }

@@ -190,6 +190,6 @@ describe("ChangesCollector: where turns start", () => {
       [skill("s1", "ak:wayfinder", "P"), meta("m1", "P"), skill("s2", "ak:maestro", "P"), meta("m2", "P"), edit("t1"), skill("s3", "ak:maestro", "Q")].join("\n"),
     );
     expect(c.promptIds()).toEqual(["s1", "s3"]);
-    expect(c.byTurn().map((t) => [t.id, t.n, t.prompt])).toEqual([["s1", 1, "/ak:wayfinder go"]]);
+    expect(c.byTurn().map((t) => [t.id, t.n, t.prompt])).toEqual([["s1", 1, "/ak:wayfinder /ak:maestro go"]]);
   });
 });

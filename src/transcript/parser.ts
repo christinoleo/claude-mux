@@ -105,6 +105,13 @@ export interface AskQuestion {
   options: { label: string; description?: string; preview?: string }[];
 }
 
+/** A slash command as logged; `also` names the skills called after it in the same prompt. */
+export interface SlashCommand {
+  name: string;
+  args?: string;
+  also?: string[];
+}
+
 /** The tags Claude Code wraps a slash command in; \1 pairs open with close. */
 const COMMAND_TAG = /<command-(name|message|args)>([\s\S]*?)<\/command-\1>/g;
 
@@ -114,7 +121,7 @@ const COMMAND_TAG = /<command-(name|message|args)>([\s\S]*?)<\/command-\1>/g;
  * command out of it so the transcript shows "/simplify e push" instead of the
  * raw markup.
  */
-export function parseSlashCommand(content: string): { name: string; args?: string } | null {
+export function parseSlashCommand(content: string): SlashCommand | null {
   const trimmed = content.trim();
   // Cheap reject first: every other prompt in the file skips the regex.
   if (!trimmed.startsWith("<command-")) return null;
@@ -132,7 +139,7 @@ export function parseSlashCommand(content: string): { name: string; args?: strin
 }
 
 /** A command as typed: its names, then its arguments. */
-export function commandText(command: { name: string; args?: string; also?: string[] }): string {
+export function commandText(command: SlashCommand): string {
   return [command.name, ...(command.also ?? []), ...(command.args ? [command.args] : [])].join(" ");
 }
 
