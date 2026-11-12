@@ -191,7 +191,13 @@ whose last word was "Please run /login". It rides the broadcast as
 the page or copy the link, paste the code (the clipboard is read on a click,
 or when the page comes back into view where the browser already allows it),
 try again, or run `/login`. The code goes in through the raw send route, text
-then Enter, since the field is no prompt box for the composer to confirm.
+then Enter, since the field is no prompt box for the composer to confirm. It also
+reads the link `! claude auth login` prints (after `visit:`, its wrapped pieces
+indented under the tool output's `⎿`), marked `shell`: that command's field is
+out of reach, since keys typed while it runs land in Claude Code's own box and
+are queued as a message, so the card offers to cancel it (Escape, which hands
+the command back to the box in shell mode, then Ctrl+U and Backspace) and run
+`/login` instead.
 
 `readRewindScreen()` (`src/tmux/rewind.ts`) reads Claude Code's rewind
 (Esc Esc, or /rewind), which never reaches the transcript either: the list

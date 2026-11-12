@@ -20,9 +20,62 @@ const CODE = [
   "  Esc to cancel",
 ].join("\n");
 
+/** `! claude auth login` run as a shell command, captured from a 140-column pane: the link follows `visit:`
+ * and its wrapped pieces keep the tool output's five-column indent. */
+const SHELL = [
+  "! claude auth login",
+  "  ⎿  If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&resp",
+  "     onse_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%",
+  "     3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload+user%3Aplugins&code_challenge=MnU3_UPTFkubXQ0D6zK9TJ_l-",
+  "     THaFiNLB4jG_bLpGBE&code_challenge_method=S256&state=fdJN4WSCuZFEkFtGK3tMPbtltbOGHVadOw5lrrfCJeI",
+  "     Paste code here if prompted >",
+  "     +1 lines (4s)",
+  "     (ctrl+b ctrl+b (twice) to run in background)",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  "❯",
+  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  "  Opus 5.5 [░░░░░ 5%] christinoleo@omarchy",
+  "  ⏵⏵ auto mode on (shift+tab to cycle)",
+].join("\n");
+
 describe("readLoginScreen", () => {
   it("reads the link whole across its wrap, and the empty code field", () => {
-    expect(readLoginScreen(CODE)).toEqual({ step: "code", url: URL_HEAD + URL_TAIL, typed: "", error: null });
+    expect(readLoginScreen(CODE)).toEqual({
+      step: "code",
+      url: URL_HEAD + URL_TAIL,
+      typed: "",
+      error: null,
+      shell: false,
+    });
+  });
+
+  it("reads the link a shell command prints, and marks the field as one no keys reach", () => {
+    const screen = readLoginScreen(SHELL);
+    expect(screen).toMatchObject({ step: "code", typed: "", error: null, shell: true });
+    const url = screen?.step === "code" ? screen.url : null;
+    expect(url).toMatch(/^https:\/\/claude\.com\/cai\/oauth\/authorize\?code=true&/);
+    expect(url).toContain("&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&");
+    expect(url).toMatch(/&code_challenge_method=S256&state=[\w-]+$/);
+    expect(url).not.toMatch(/\s/);
   });
 
   it("reads what is typed and why the last code failed", () => {

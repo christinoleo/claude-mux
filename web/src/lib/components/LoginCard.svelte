@@ -41,6 +41,31 @@
 		}
 	}
 
+	/** How long Claude Code takes to stop a shell command and hand its text back to the box. */
+	const SHELL_STOP_MS = 500;
+
+	/**
+	 * Stops `! claude auth login` and runs `/login`, whose field the card can type into. Escape hands the
+	 * command back to the box in shell mode, so Ctrl+U empties the line and Backspace leaves shell mode.
+	 * The screen this card reads is gone once Escape lands, so the card may be unmounted mid-way: the
+	 * senders are held from the start.
+	 */
+	async function switchToLogin() {
+		if (sending) return;
+		sending = true;
+		const keys = onKeys;
+		const text = onText;
+		try {
+			await keys('Escape');
+			await new Promise((resolve) => setTimeout(resolve, SHELL_STOP_MS));
+			await keys('C-u BSpace');
+			await text('/login');
+			await keys('Enter');
+		} finally {
+			sending = false;
+		}
+	}
+
 	/** The clipboard on a click: a code goes straight in, anything else lands in the field to look at. */
 	async function pasteAndSubmit() {
 		let text: string;
@@ -129,6 +154,15 @@
 		<p class="lead">The code was accepted. Claude Code waits for Enter to carry on.</p>
 		<Button variant="warning" size="sm" onclick={() => void onKeys('Enter')}>
 			<iconify-icon icon="mdi:keyboard-return"></iconify-icon>Continue
+		</Button>
+	{:else if login.shell}
+		<p class="lead">
+			This sign-in runs as a shell command (<code>! claude auth login</code>), which cannot take a code from here:
+			whatever is typed while it runs lands in Claude Code's own box and is sent to Claude as a message. Cancel it and
+			sign in with <code>/login</code> instead.
+		</p>
+		<Button variant="warning" size="sm" disabled={sending} onclick={() => void switchToLogin()}>
+			<iconify-icon icon="mdi:login"></iconify-icon>Cancel and use /login
 		</Button>
 	{:else}
 		<p class="lead">Open the sign-in page, approve, and paste the code it shows you here.</p>

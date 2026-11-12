@@ -9,8 +9,12 @@
  */
 
 export type LoginScreen =
-  /** The code field is open: the link to sign in with, what is typed so far, and why the last code failed. */
-  | { step: "code"; url: string | null; typed: string; error: string | null }
+  /**
+   * The code field is open: the link to sign in with, what is typed so far, and why the last code failed.
+   * `shell` marks `! claude auth login` run as a shell command, whose field no keys reach: what is typed
+   * while it runs lands in Claude Code's own box and is queued as a message.
+   */
+  | { step: "code"; url: string | null; typed: string; error: string | null; shell: boolean }
   /** The code was refused; Enter goes back to a fresh link and code field. */
   | { step: "failed"; error: string }
   /** The code was taken; Claude Code waits for Enter to carry on. */
@@ -22,11 +26,14 @@ export type LoginScreen =
 /** The field's own label, followed by whatever has been typed into it. */
 const CODE_FIELD = /Paste code here if prompted >\s?(.*)$/;
 
-/** The line above the link. */
-const LINK_INTRO = /Browser didn't open\?/;
+/** The line above the link (`/login`), or the words in front of it (`claude auth login`). */
+const LINK_INTRO = /Browser didn't open\?|If the browser didn't open, visit:/i;
 
-/** The link itself, which starts a line of its own. */
-const LINK_START = /^\s*(https:\/\/\S+)$/;
+/** The link itself, which starts a line of its own or follows `visit:` on the same one. */
+const LINK_START = /^(.*?)(https:\/\/\S+)$/;
+
+/** Tool output's gutter: a shell command's output hangs off `⎿` and keeps its indent when it wraps. */
+const TOOL_GUTTER = /^\s*⎿\s/;
 
 /** A wrapped piece of the link: a line of URL characters, flush left. */
 const LINK_REST = /^[A-Za-z0-9%&=_.~+/:?#-]+$/;
@@ -69,7 +76,7 @@ export function readLoginScreen(content: string): LoginScreen {
       const m = lines[j].trim().match(CODE_ERROR);
       if (m) error = m[1];
     }
-    return { step: "code", url: readLink(lines, from, i), typed: field[1].trim(), error };
+    return { step: "code", ...readLink(lines, from, i), typed: field[1].trim(), error };
   }
 
   // The notice counts only while it is the last thing Claude Code said: any
@@ -81,19 +88,34 @@ export function readLoginScreen(content: string): LoginScreen {
   return null;
 }
 
-/** The sign-in link between its introduction and the code field, joined back across the wrap. */
-function readLink(lines: string[], from: number, field: number): string | null {
+/**
+ * The sign-in link between its introduction and the code field, joined back across the wrap, and whether
+ * it sits in a shell command's output. `/login` prints the link alone on a line and tmux wraps it flush
+ * left; `claude auth login` prints it after `visit:`, and its wrapped pieces keep the output's indent.
+ */
+function readLink(lines: string[], from: number, field: number): { url: string | null; shell: boolean } {
   let start = -1;
+  let intro = -1;
   for (let i = field - 1; i >= from; i--) {
     if (LINK_START.test(lines[i])) start = i;
-    if (LINK_INTRO.test(lines[i])) break;
+    if (LINK_INTRO.test(lines[i])) {
+      intro = i;
+      break;
+    }
   }
-  if (start === -1) return null;
-  let url = lines[start].trim();
+  let shell = false;
+  for (let i = field; i >= Math.max(from, intro); i--) if (TOOL_GUTTER.test(lines[i])) shell = true;
+  if (start === -1) return { url: null, shell };
+  const [, before, head] = lines[start].match(LINK_START)!;
+  // A piece continues the link only at the column the link's own line starts its text at.
+  const indent = shell ? (before.match(/^[\s⎿]*/)?.[0].length ?? 0) : 0;
+  let url = head;
   for (let i = start + 1; i < field; i++) {
-    const piece = lines[i].replace(/\s+$/, "");
+    const line = lines[i].replace(/\s+$/, "");
+    if (line.slice(0, indent).trim()) break;
+    const piece = line.slice(indent);
     if (!LINK_REST.test(piece)) break;
     url += piece;
   }
-  return url;
+  return { url, shell };
 }
