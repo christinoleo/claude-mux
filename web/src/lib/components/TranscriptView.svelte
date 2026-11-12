@@ -54,6 +54,7 @@
 		paneScreen = [],
 		onWantScreen,
 		onRewind,
+		onShellLogin,
 		subagents = {},
 		onLoadSubagent,
 		onSendKeys,
@@ -101,6 +102,8 @@
 		onWantScreen?: (want: boolean) => void;
 		/** Works the rewind dialog; without it prompts offer no rewind. Resolves false when it failed. */
 		onRewind?: (action: RewindAction) => Promise<boolean>;
+		/** Stops a `! claude auth login` and runs `/login` in its place. */
+		onShellLogin?: () => Promise<void>;
 		/** Sends a tmux key sequence (space-separated) to answer a dialog. */
 		onSendKeys?: (keys: string) => Promise<void> | void;
 		/** Types text into the pane as-is, for a dialog's free-text row or notes. */
@@ -1095,6 +1098,7 @@
 	{#if paneLogin}
 		<LoginCard
 			login={paneLogin}
+			{onShellLogin}
 			onKeys={(keys) => onSendKeys?.(keys)}
 			onText={async (text) => {
 				await onSendPaneText?.(text);

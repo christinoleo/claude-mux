@@ -238,6 +238,7 @@ const EnrichedSessionSchema = z.object({
 				typed: z.string(),
 				error: z.string().nullable()
 			}),
+			z.object({ step: z.literal('shell'), url: z.string().nullable() }),
 			z.object({ step: z.literal('failed'), error: z.string() }),
 			z.object({ step: z.literal('done') }),
 			z.object({ step: z.literal('expired') })

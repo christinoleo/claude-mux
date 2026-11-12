@@ -11,6 +11,11 @@
 export type LoginScreen =
   /** The code field is open: the link to sign in with, what is typed so far, and why the last code failed. */
   | { step: "code"; url: string | null; typed: string; error: string | null }
+  /**
+   * `! claude auth login` runs as a shell command and waits for its code. No keys reach its field: what
+   * is typed while it runs lands in Claude Code's own box and is queued as a message to Claude.
+   */
+  | { step: "shell"; url: string | null }
   /** The code was refused; Enter goes back to a fresh link and code field. */
   | { step: "failed"; error: string }
   /** The code was taken; Claude Code waits for Enter to carry on. */
@@ -22,11 +27,17 @@ export type LoginScreen =
 /** The field's own label, followed by whatever has been typed into it. */
 const CODE_FIELD = /Paste code here if prompted >\s?(.*)$/;
 
-/** The line above the link. */
-const LINK_INTRO = /Browser didn't open\?/;
+/** The line above the link (`/login`), or the words in front of it (`claude auth login`). */
+const LINK_INTRO = /Browser didn't open\?|If the browser didn't open, visit:/i;
 
-/** The link itself, which starts a line of its own. */
-const LINK_START = /^\s*(https:\/\/\S+)$/;
+/** The link itself, which starts a line of its own or follows `visit:` on the same one. */
+const LINK_START = /^(\s*(?:⎿\s+)?(?:If the browser didn't open, visit:\s*)?)(https:\/\/\S+)$/i;
+
+/** Tool output's gutter: a shell command's output hangs off `⎿` and keeps its indent when it wraps. */
+const TOOL_GUTTER = /^\s*⎿\s/;
+
+/** What Claude Code draws under a shell command's output while the command still runs. */
+const SHELL_RUNNING = /ctrl\+b ctrl\+b \(twice\) to run in background/;
 
 /** A wrapped piece of the link: a line of URL characters, flush left. */
 const LINK_REST = /^[A-Za-z0-9%&=_.~+/:?#-]+$/;
@@ -69,7 +80,14 @@ export function readLoginScreen(content: string): LoginScreen {
       const m = lines[j].trim().match(CODE_ERROR);
       if (m) error = m[1];
     }
-    return { step: "code", url: readLink(lines, from, i), typed: field[1].trim(), error };
+    const shell = inToolOutput(lines, i);
+    const url = readLink(lines, from, i, shell);
+    if (shell) {
+      // Output the command left behind once it ended is no sign-in waiting on anyone.
+      const running = lines.slice(i + 1, last + 1).some((line) => SHELL_RUNNING.test(line));
+      return running ? { step: "shell", url } : null;
+    }
+    return { step: "code", url, typed: field[1].trim(), error };
   }
 
   // The notice counts only while it is the last thing Claude Code said: any
@@ -81,19 +99,42 @@ export function readLoginScreen(content: string): LoginScreen {
   return null;
 }
 
-/** The sign-in link between its introduction and the code field, joined back across the wrap. */
-function readLink(lines: string[], from: number, field: number): string | null {
-  let start = -1;
+/**
+ * The sign-in link between its introduction and the code field, joined back across the wrap. `/login`
+ * prints the link alone on a line and tmux wraps it flush left; `claude auth login` prints it after
+ * `visit:`, and its wrapped pieces keep the indent of the tool output it sits in.
+ */
+function readLink(lines: string[], from: number, field: number, shell: boolean): string | null {
+  let start: RegExpMatchArray | null = null;
+  let at = -1;
   for (let i = field - 1; i >= from; i--) {
-    if (LINK_START.test(lines[i])) start = i;
+    const m = lines[i].match(LINK_START);
+    if (m) [start, at] = [m, i];
     if (LINK_INTRO.test(lines[i])) break;
   }
-  if (start === -1) return null;
-  let url = lines[start].trim();
-  for (let i = start + 1; i < field; i++) {
-    const piece = lines[i].replace(/\s+$/, "");
-    if (!LINK_REST.test(piece)) break;
+  if (!start) return null;
+  const [, before, head] = start;
+  // In tool output a wrapped piece carries the indent the link's line starts its text at, past `⎿`.
+  const indent = shell ? before.match(/^[\s⎿]*/)![0].length : 0;
+  let url = head;
+  for (let i = at + 1; i < field; i++) {
+    const line = lines[i].replace(/\s+$/, "");
+    const piece = line.slice(indent);
+    if (line.slice(0, indent).trim() || !LINK_REST.test(piece)) break;
     url += piece;
   }
   return url;
+}
+
+/**
+ * Whether the code field sits in a shell command's output: walking up through the indented block it
+ * belongs to reaches the `⎿` the block hangs off, which may be a line or two above the link's own and
+ * past the screen's reach. The block ends at the first line that starts at the left edge.
+ */
+function inToolOutput(lines: string[], field: number): boolean {
+  for (let i = field; i >= 0; i--) {
+    if (TOOL_GUTTER.test(lines[i])) return true;
+    if (/^\S/.test(lines[i])) return false;
+  }
+  return false;
 }

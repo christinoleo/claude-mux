@@ -6,10 +6,13 @@
 	let {
 		login,
 		onKeys,
-		onText
+		onText,
+		onShellLogin
 	}: {
 		/** The sign-in screen as the pane draws it right now. */
 		login: NonNullable<LoginScreen>;
+		/** Stops a `! claude auth login` and runs `/login` in its place; the server reads the pane between steps. */
+		onShellLogin?: () => Promise<void>;
 		onKeys: (keys: string) => Promise<void> | void;
 		onText: (text: string) => Promise<void> | void;
 	} = $props();
@@ -130,6 +133,29 @@
 		<Button variant="warning" size="sm" onclick={() => void onKeys('Enter')}>
 			<iconify-icon icon="mdi:keyboard-return"></iconify-icon>Continue
 		</Button>
+	{:else if login.step === 'shell'}
+		<p class="lead">
+			This sign-in runs as a shell command (<code>! claude auth login</code>), which cannot take a code from here:
+			whatever is typed while it runs lands in Claude Code's own box and is sent to Claude as a message. Stop it and
+			sign in with <code>/login</code> instead.
+		</p>
+		{#if onShellLogin}
+			<Button
+				variant="warning"
+				size="sm"
+				disabled={sending}
+				onclick={async () => {
+					sending = true;
+					try {
+						await onShellLogin();
+					} finally {
+						sending = false;
+					}
+				}}
+			>
+				<iconify-icon icon="mdi:login"></iconify-icon>Stop it and use /login
+			</Button>
+		{/if}
 	{:else}
 		<p class="lead">Open the sign-in page, approve, and paste the code it shows you here.</p>
 		{#if url}
