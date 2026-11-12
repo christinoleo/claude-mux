@@ -1344,6 +1344,15 @@
 	/** Types text into the pane as it is, with no Enter: a dialog's own text field. */
 	const sendPaneText = (text: string) => postToPane({ text, raw: true, answering: true });
 
+	/** Stops a `! claude auth login`, whose field no keys reach, and runs `/login` in its place. */
+	async function shellLogin(): Promise<void> {
+		if (!target) return;
+		const res = await fetch(`${api(target)}/shell-login`, { method: 'POST' }).catch(() => null);
+		if (res?.ok) return;
+		const why = (await res?.json().catch(() => null)) as { error?: string } | null;
+		toast.error(why?.error ?? 'Could not reach the pane');
+	}
+
 	/** Works Claude Code's rewind dialog in the pane; says why when it could not. */
 	async function rewind(action: RewindAction): Promise<boolean> {
 		if (!target) return false;
@@ -2667,6 +2676,7 @@
 						paneScreen={terminalStore.screen}
 						onWantScreen={(want) => (transcriptWantsScreen = want)}
 						onRewind={rewind}
+						onShellLogin={shellLogin}
 						subagents={transcriptStore.subagentsByTask}
 						onSendKeys={sendKeys}
 						onSendPaneText={sendPaneText}

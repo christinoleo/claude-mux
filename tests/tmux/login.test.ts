@@ -57,6 +57,55 @@ const SHELL = [
   "  ⏵⏵ auto mode on (shift+tab to cycle)",
 ].join("\n");
 
+/** The same command in a taller, wider pane, captured whole: Claude Code first says it is opening the
+ * browser, so the `⎿` sits a line above the link, and the blank rows above the box put it past the
+ * screen's reach. */
+const SHELL_TALL = [
+  "! claude auth login",
+  "  ⎿  Opening browser to sign in…",
+  "     If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.co",
+  "     m%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference+user%3Asessions%3Aclaude_code+user%3Amcp_servers+user%3Afile_upload+user%3Aplugins&code_challenge=5zueoumOMF",
+  "     lCRvmJH8EOHEXWsNOgQHgbwrrsB1cxSV4&code_challenge_method=S256&state=SvdFGkSWhWXzh9XfrmNOO4Xa-XefBvasIYrjfNhePMU",
+  "     Paste code here if prompted >",
+  "     (49s)",
+  "     (ctrl+b ctrl+b (twice) to run in background)",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  "❯",
+  "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+  "  Opus 5.5 [░░░░░ 0%] christinoleo@omarchy",
+  "  ⏵⏵ auto mode on (shift+tab to cycle)",
+].join("\n");
+
 describe("readLoginScreen", () => {
   it("reads the link whole across its wrap, and the empty code field", () => {
     expect(readLoginScreen(CODE)).toEqual({
@@ -64,18 +113,35 @@ describe("readLoginScreen", () => {
       url: URL_HEAD + URL_TAIL,
       typed: "",
       error: null,
-      shell: false,
     });
   });
 
-  it("reads the link a shell command prints, and marks the field as one no keys reach", () => {
+  it("reads the link a shell command prints, as a field no keys reach", () => {
     const screen = readLoginScreen(SHELL);
-    expect(screen).toMatchObject({ step: "code", typed: "", error: null, shell: true });
-    const url = screen?.step === "code" ? screen.url : null;
+    expect(screen?.step).toBe("shell");
+    const url = screen?.step === "shell" ? screen.url : null;
     expect(url).toMatch(/^https:\/\/claude\.com\/cai\/oauth\/authorize\?code=true&/);
     expect(url).toContain("&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&");
     expect(url).toMatch(/&code_challenge_method=S256&state=[\w-]+$/);
     expect(url).not.toMatch(/\s/);
+  });
+
+  it("knows a shell command's field by the gutter above its link, however far up it sits", () => {
+    const screen = readLoginScreen(SHELL_TALL);
+    expect(screen?.step).toBe("shell");
+    expect(screen?.step === "shell" && screen.url).toMatch(
+      /&redirect_uri=https%3A%2F%2Fplatform\.claude\.com%2Foauth%2F.*&state=[\w-]+$/,
+    );
+  });
+
+  it("leaves alone what a shell command printed once it has ended", () => {
+    const ended = SHELL.split("\n").filter((line) => !line.includes("to run in background"));
+    expect(readLoginScreen(ended.join("\n"))).toBeNull();
+  });
+
+  it("reads /login as /login under an earlier command's output", () => {
+    const earlier = ["! ls", "  ⎿  notes.txt", "", CODE].join("\n");
+    expect(readLoginScreen(earlier)).toMatchObject({ step: "code", url: URL_HEAD + URL_TAIL });
   });
 
   it("reads what is typed and why the last code failed", () => {

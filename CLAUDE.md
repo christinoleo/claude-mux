@@ -191,13 +191,16 @@ whose last word was "Please run /login". It rides the broadcast as
 the page or copy the link, paste the code (the clipboard is read on a click,
 or when the page comes back into view where the browser already allows it),
 try again, or run `/login`. The code goes in through the raw send route, text
-then Enter, since the field is no prompt box for the composer to confirm. It also
-reads the link `! claude auth login` prints (after `visit:`, its wrapped pieces
-indented under the tool output's `⎿`), marked `shell`: that command's field is
-out of reach, since keys typed while it runs land in Claude Code's own box and
-are queued as a message, so the card offers to cancel it (Escape, which hands
-the command back to the box in shell mode, then Ctrl+U and Backspace) and run
-`/login` instead.
+then Enter, since the field is no prompt box for the composer to confirm. A
+running `! claude auth login` is read as the step `shell`, with the link it
+prints after `visit:` (wrapped pieces indented under the tool output's `⎿`).
+Its field is out of reach: keys typed while a `!` command runs land in Claude
+Code's own box and are queued as a message to Claude. So the card offers to
+stop it, and `POST /api/sessions/<id>/shell-login` (`src/server/shell-login.ts`)
+does it a step at a time, reading the pane between steps: Escape, which hands
+the command back to the box in shell mode, then Ctrl+U and Backspace, and
+`/login` only once the box is proven clear. Its output left on screen after
+the command ended is no sign-in: the step needs the running hint below it.
 
 `readRewindScreen()` (`src/tmux/rewind.ts`) reads Claude Code's rewind
 (Esc Esc, or /rewind), which never reaches the transcript either: the list
