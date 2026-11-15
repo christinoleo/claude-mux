@@ -1002,6 +1002,9 @@ const CHECKBOX = /^\[([ xX✔✓])\]\s*/;
 /** A prompt line in the transcript: the marker, then anything but a row number. */
 const SENT_PROMPT = /^❯\s+(?!\d+[.)]\s)\S/;
 
+/** /login's code field, a screen with a key hint and no rows. */
+const LOGIN_FIELD = /^Paste code here if prompted >/;
+
 /** A rule across the foot of the screen, bare or with a label set in it. */
 const FOOTER_RULE = /^[─━]{3,}(?:\s.*\s[─━]+)?$/;
 
@@ -1191,8 +1194,10 @@ export function readPromptOptions(content: string, mode: ReadPromptOptionsMode =
   // dialog, whose only `❯` marks a row. One below the run means the run is a
   // list in the conversation, and the key hint at the foot belongs to some
   // screen without rows: /login's "Paste code here" ends in "Esc to cancel".
+  // That field says so on its own too, for when no sent prompt is in view.
   for (let i = end + 1; i < lastContent; i++) {
-    if (SENT_PROMPT.test(at(i).text)) return null;
+    const { text } = at(i);
+    if (SENT_PROMPT.test(text) || LOGIN_FIELD.test(text)) return null;
   }
 
   // Walk up counting down: n, n-1, … 1. Between two rows a dialog may print
