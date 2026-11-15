@@ -239,6 +239,35 @@ describe("readPromptOptions", () => {
     expect(readPromptOptions(login, { declaredOnly: true })).toBeNull();
   });
 
+  it("leaves a numbered reply alone under /login's code field with no sent prompt in view", () => {
+    const login = [
+      "  My proposal is to change how updates run:",
+      "  1. Each update builds in its own directory, a worktree of origin/main at",
+      "     that commit, with its own install and build.",
+      "  2. The service points at a symlink. If the build succeeds, swap it and",
+      "     restart; if the service does not come back, swap back.",
+      "  3. A failed update keeps offering Update, so there is no dead end.",
+      "",
+      "● Login reached its time limit · Please run /login",
+      "",
+      "✻ Cogitated for 0s · done 3:40 PM",
+      "",
+      "● Login reached its time limit · Please run /login",
+      "▔".repeat(60),
+      "   Login",
+      "",
+      "   Browser didn't open? Use the url below to sign in (c to copy)",
+      "",
+      "https://claude.com/cai/oauth/authorize?code=true",
+      "",
+      "   Paste code here if prompted >",
+      "",
+      "   Esc to cancel",
+    ].join("\n");
+    expect(readPromptOptions(login)).toBeNull();
+    expect(readPromptOptions(login, { declaredOnly: true })).toBeNull();
+  });
+
   it("reads the key hint above the rule that names the session", () => {
     const named = `${TYPING}\n${"─".repeat(60)} quita chat ─`;
     const choice = readPromptOptions(named, { declaredOnly: true });

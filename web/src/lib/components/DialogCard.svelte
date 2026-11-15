@@ -443,7 +443,7 @@
 {/snippet}
 
 {#snippet keysBar()}
-	{#each choice?.notes ?? [] as note (note)}
+	{#each choice?.notes ?? [] as note, i (i)}
 		<p class="note">
 			<span>{note}</span>
 			{#if ARROW_NOTE.test(note)}
